@@ -19,7 +19,7 @@ import { DEG } from '../core/math'
  */
 export const TYPE92: WeaponSpec = {
   id: 'type92',
-  name: '九二式 7.7mm',
+  name: 'Type 92 7.7mm',
   muzzleVelocity: 745,
   caliber: 7.7,
   roundsPerMinute: 700,
@@ -49,7 +49,7 @@ export const TYPE92: WeaponSpec = {
  */
 export const TYPE99_1: WeaponSpec = {
   id: 'type99-1',
-  name: '九九式二〇粍一号',
+  name: 'Type 99 Mk 1 20mm',
   muzzleVelocity: 600,
   caliber: 20,
   roundsPerMinute: 535,

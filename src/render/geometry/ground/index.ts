@@ -50,10 +50,9 @@ export type GroundModel =
   }
 
 export interface GroundUnit {
+  /** 顯示名稱由它查（`src/i18n/names.ts` 的 `groundUnitName`） */
   id: GroundUnitId
-  /** 顯示名稱。 */
-  name: string
-  /** 這個單位在哪一關用得到，以及它是誰的。 */
+  /** 這個單位在哪一關用得到，以及它是誰的。只給開發工具頁看 */
   note: string
   /** 真車全長，m（含砲管）。展示區拿它跟包圍盒的 Z 幅度對照。 */
   realLength: number
@@ -110,7 +109,6 @@ function boxOf(build: () => BufferGeometry): Box {
 export const GROUND_UNITS: readonly GroundUnit[] = [
   {
     id: 'tank',
-    name: 'T-34-76',
     note: '蘇軍戰車 — 德 M3 奧博揚公路',
     realLength: 6.68, realWidth: 3.00, realHeight: 2.60,
     model: { glb: '/models/t34.glb', barrelNodes: ['T34_Gun'] },
@@ -118,7 +116,6 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   {
     id: 'truck',
-    name: 'ZIS-150 卡車',
     note: '蘇軍 4 噸卡車 — 德 M3 奧博揚公路',
     realLength: 6.72, realWidth: 2.385, realHeight: 2.70,
     model: { glb: '/models/zis150.glb', barrelNodes: [] },
@@ -126,7 +123,6 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   {
     id: 'flakHeavy',
-    name: '8.8 cm Flak 18',
     note: '重型防空砲 — 盟 M2、德 M2、日 M3',
     // 長 Z 是十字砲座後臂（2.63）加水平砲管到砲口（3.85）
     realLength: 6.48, realWidth: 5.26, realHeight: 2.50,
@@ -135,7 +131,6 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   {
     id: 'flakLight',
-    name: '2 cm Flakvierling 38',
     note: '輕型四聯防空砲 — 德 M2',
     realLength: 2.41, realWidth: 1.91, realHeight: 1.92,
     model: { glb: '/models/flak38.glb', barrelNodes: ['F38_Barrel_'] },
@@ -144,7 +139,6 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   // 美軍三台：`tools/blender/build_ground_us.py`
   {
     id: 'usTank',
-    name: 'M4A3 雪曼',
     note: '美軍戰車 — 日 M2 雷伊泰車隊',
     // 【高是量的，不是常見的 2.74】那個數字含車頂機槍架；參考模型到指揮塔頂 2.58
     realLength: 5.84, realWidth: 2.62, realHeight: 2.58,
@@ -153,7 +147,6 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   {
     id: 'usTruck',
-    name: 'GMC CCKW 卡車',
     note: '美軍兩噸半卡車 — 日 M2 雷伊泰車隊',
     realLength: 6.93, realWidth: 2.24, realHeight: 2.79,
     model: { glb: '/models/cckw.glb', barrelNodes: [] },
@@ -161,7 +154,6 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   {
     id: 'usFlakTrack',
-    name: 'M16 多管機槍運輸車',
     note: '美軍四聯 .50 防空半履帶車 — 日 M2 雷伊泰車隊與灘頭',
     // 【高是槍口上仰 25° 的姿態】史實 2.34 是槍放平；照 Flak 38 的慣例量建出來的姿態
     realLength: 6.51, realWidth: 2.16, realHeight: 2.95,
@@ -170,7 +162,6 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   {
     id: 'locomotive',
-    name: 'BR 52 機車',
     note: '蒸汽機車 — 盟 M3 諾曼第斷軌',
     realLength: 13.00, realWidth: 3.10, realHeight: 4.45,
     model: { build: buildLocomotive },
@@ -178,7 +169,6 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   {
     id: 'tender',
-    name: '煤水車',
     note: '接在機車後面 — 盟 M3',
     realLength: 8.60, realWidth: 2.92, realHeight: 3.35,
     model: { build: buildTender },
@@ -186,7 +176,6 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   {
     id: 'boxcar',
-    name: '棚車',
     note: '有蓋貨車 — 盟 M3',
     realLength: 9.10, realWidth: 2.92, realHeight: 3.70,
     model: { build: buildBoxcar },
@@ -194,7 +183,6 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   {
     id: 'flatcar',
-    name: '平板車',
     note: '載台，可放防空砲 — 盟 M3',
     realLength: 10.30, realWidth: 2.92, realHeight: 1.72,
     model: { build: buildFlatcar },
@@ -202,16 +190,15 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   // 油廠的六種構件。**命中盒由 `PLANT_SIZE` 撐起來，不從幾何量** —— 幾何
   // 與盒子對著同一份數字，護欄兩邊比；從幾何量的話「幾何在盒內」恆真
-  plant('hydroTower', '氫化塔', '高壓氫化反應塔，成排 — 盟 M2 梅澤堡的油廠'),
-  plant('chimney', '煙囪', '鍋爐房的煙囪，廠區最高 — 盟 M2'),
-  plant('boilerHouse', '鍋爐房', '大方盒、人字頂 — 盟 M2'),
-  plant('oilTank', '儲油槽', '成品油槽，成群 — 盟 M2'),
-  plant('gasHolder', '氣櫃', '煤氣櫃，大圓桶 — 盟 M2'),
-  plant('coolingTower', '冷卻塔', '截錐 — 盟 M2'),
+  plant('hydroTower', { note: '高壓氫化反應塔，成排 — 盟 M2 梅澤堡的油廠' }),
+  plant('chimney', { note: '鍋爐房的煙囪，廠區最高 — 盟 M2' }),
+  plant('boilerHouse', { note: '大方盒、人字頂 — 盟 M2' }),
+  plant('oilTank', { note: '成品油槽，成群 — 盟 M2' }),
+  plant('gasHolder', { note: '煤氣櫃，大圓桶 — 盟 M2' }),
+  plant('coolingTower', { note: '截錐 — 盟 M2' }),
   // 波爾塔瓦機場的四種
   {
     id: 'parkedB17',
-    name: '停放的 B-17G',
     note: '停在停機坪上的轟炸機 — 德 M2',
     // 【高是停放的高，不是史實的 5.82】GLB 沒有起落架，機尾下沉 10° 之後
     // 量出來是 5.41；`ground-units.test.ts` 對 `real*` 的容差是 5%
@@ -248,7 +235,6 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   {
     id: 'fuelDump',
-    name: '油桶堆',
     note: '露天堆放的航空汽油桶 — 德 M2',
     realLength: DUMP_SIZE.fuelDump.z, realWidth: DUMP_SIZE.fuelDump.x, realHeight: DUMP_SIZE.fuelDump.y,
     model: { build: buildFuelDump },
@@ -256,7 +242,6 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   {
     id: 'bombDump',
-    name: '彈藥堆',
     note: '露天堆放的炸彈 — 德 M2',
     realLength: DUMP_SIZE.bombDump.z, realWidth: DUMP_SIZE.bombDump.x, realHeight: DUMP_SIZE.bombDump.y,
     model: { build: buildBombDump },
@@ -264,7 +249,6 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   {
     id: 'searchlight',
-    name: '探照燈',
     note: '防空探照燈 — 德 M2。光束由渲染層畫',
     realLength: DUMP_SIZE.searchlight.z, realWidth: DUMP_SIZE.searchlight.x, realHeight: DUMP_SIZE.searchlight.y,
     model: { build: buildSearchlight },
@@ -272,7 +256,6 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   {
     id: 'parkedP51',
-    name: '停放的 P-51D',
     note: '停在停機墊上的戰鬥機 — 德 M3 Y-29',
     // 【高是停放的高】與 `parkedB17` 同一套烘法：沒有起落架，機尾下沉 10°
     realLength: 9.79, realWidth: 11.28, realHeight: 3.50,
@@ -284,10 +267,10 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
 ]
 
-function plant(id: PlantKind, name: string, note: string): GroundUnit {
+function plant(id: PlantKind, info: { readonly note: string }): GroundUnit {
   const { x, y, z } = PLANT_SIZE[id]
   return {
-    id, name, note,
+    id, note: info.note,
     realLength: z, realWidth: x, realHeight: y,
     model: { build: PLANT_BUILDERS[id] },
     hull: [groundBox([-x / 2, 0, -z / 2], [x / 2, y, z / 2])],

@@ -291,7 +291,7 @@ export const SHIP_CLASSES: Readonly<Record<ShipClassId, ShipClass>> = {
   // 艦艏端 z −45（再往前是放下的跳板，不進盒）、艦艉 +50.3
   lst: {
     id: 'lst',
-    name: 'LST 戰車登陸艦',
+    name: 'LST',
     url: '/models/lst.glb',
     hull: [
       // 艦體：到主甲板為止 —— 艏樓的 40 mm 與 20 mm 砲口在 8.6 以上

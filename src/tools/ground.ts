@@ -6,6 +6,7 @@ import {
 } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { DEG } from '../core/math'
+import { groundUnitName } from '../i18n/names'
 import {
   GROUND_UNITS, TRAIN_CONSIST, groundGeometry, preloadGroundModels,
   type GroundUnit, type GroundUnitId,
@@ -172,7 +173,7 @@ function place(unit: GroundUnit, x: number, z: number, ry: number): Entry {
   group.add(hits)
 
   const local = new Box3().setFromObject(mesh)
-  const plate = nameplate(unit.name)
+  const plate = nameplate(groundUnitName(unit.id))
   plate.position.set(0, local.max.y + 1.3, 0)
   group.add(plate)
 
@@ -360,7 +361,7 @@ addButton('全景', null)
 for (const e of entries) {
   // 同一個單位在列車裡出現兩次（兩節棚車），只放第一顆按鈕。
   if (buttons.has(e.unit)) continue
-  addButton(e.unit.name, e)
+  addButton(groundUnitName(e.unit.id), e)
 }
 
 function syncButtons(): void {

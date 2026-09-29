@@ -20,7 +20,7 @@ import type { Battery, Mount, WeaponSpec } from './types'
  */
 export const TYPE97: WeaponSpec = {
   id: 'type97',
-  name: '九七式 7.7mm',
+  name: 'Type 97 7.7mm',
   muzzleVelocity: 747,
   caliber: 7.7,
   roundsPerMinute: 900,
@@ -56,7 +56,7 @@ export const TYPE97: WeaponSpec = {
  */
 export const TYPE99_2: WeaponSpec = {
   id: 'type99-2',
-  name: '九九式二〇粍二号',
+  name: 'Type 99 Mk 2 20mm',
   muzzleVelocity: 750,
   caliber: 20,
   roundsPerMinute: 620,

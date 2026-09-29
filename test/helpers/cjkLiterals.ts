@@ -15,10 +15,13 @@ export interface CjkLiteral {
   readonly line: number
   /** 最內層具名函數或方法的名字；在模組層是空字串 */
   readonly fn: string
+  /** 字串是哪一個物件屬性的值（`{ note: '…' }` 的 `note`）；不是屬性值是空字串 */
+  readonly prop: string
   readonly text: string
 }
 
-const CJK = /[　-〿㐀-鿿＀-￯]/
+/** 中日文字：標點、平假名與片假名、漢字、全形字 */
+const CJK = /[　-ヿ㐀-鿿＀-￯]/
 const GLSL = /\b(vec[234]|mat[34]|float|uniform|varying|gl_Frag\w*|texture2D|void main|#include)\b/
 
 function sourceFiles(dir: string, out: string[]): void {
@@ -68,7 +71,12 @@ export function cjkLiterals(root: string): CjkLiteral[] {
         text = [n.head.text, ...n.templateSpans.map((s) => s.literal.text)].join('${}')
       }
       if (text !== null && CJK.test(text) && !GLSL.test(text) && !developerOnly(n)) {
-        out.push({ file, line: src.getLineAndCharacterOfPosition(n.getStart()).line + 1, fn: enclosingName(n), text })
+        const prop = ts.isPropertyAssignment(n.parent) && n.parent.initializer === n
+          ? n.parent.name.getText() : ''
+        out.push({
+          file, line: src.getLineAndCharacterOfPosition(n.getStart()).line + 1,
+          fn: enclosingName(n), prop, text,
+        })
       }
       // 樣板字串的片段已經整個算過，不再往下走
       if (!ts.isTemplateExpression(n)) ts.forEachChild(n, visit)

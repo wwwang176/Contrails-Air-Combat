@@ -32,7 +32,7 @@ import type { Battery, Mount, WeaponSpec } from './types'
  */
 export const HO103: WeaponSpec = {
   id: 'ho103',
-  name: 'ホ103 12.7mm',
+  name: 'Ho-103 12.7mm',
   muzzleVelocity: 780,
   caliber: 12.7,
   roundsPerMinute: 850,
@@ -70,7 +70,7 @@ export const HO103: WeaponSpec = {
  */
 export const HO5: WeaponSpec = {
   id: 'ho5',
-  name: 'ホ5 20mm',
+  name: 'Ho-5 20mm',
   muzzleVelocity: 741,
   caliber: 20,
   roundsPerMinute: 850,

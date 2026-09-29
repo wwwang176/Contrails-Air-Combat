@@ -51,7 +51,7 @@ const MPH = 0.44704
  */
 export const A6M5: AircraftSpec = {
   id: 'a6m5',
-  name: 'A6M5 零戰',
+  name: 'A6M5 Zeke',
   faction: 'japan',
   role: 'fighter',
 

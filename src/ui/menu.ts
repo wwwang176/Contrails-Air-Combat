@@ -8,6 +8,7 @@ import {
 } from '../battle/skirmish'
 import { briefingOf, missionTypeName, shortName, type Briefing } from './briefing'
 import { t } from '../i18n'
+import { aircraftName } from '../i18n/names'
 import { dossierOf, sortForHangar, strengthOf, SIDE_OF } from './dossier'
 import type { AircraftSpec } from '../specs/types'
 import type { TerrainKind } from '../world/terrainKind'
@@ -223,7 +224,8 @@ const HANGAR_SPECS = sortForHangar(ALL_SPECS)
 /** 機種副名：全名去掉短名之後剩下的那截（「P-51D Mustang」→「Mustang」） */
 function fullName(spec: AircraftSpec): string {
   const s = shortName(spec)
-  return spec.name.startsWith(s) ? spec.name.slice(s.length).trim() : spec.name
+  const full = aircraftName(spec)
+  return full.startsWith(s) ? full.slice(s.length).trim() : full
 }
 
 const readyCount = (list: readonly MissionCard[]): number => list.filter((m) => m.battle !== null).length

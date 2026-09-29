@@ -42,7 +42,7 @@ const KMH = 1 / 3.6
  */
 export const G4M: AircraftSpec = {
   id: 'g4m',
-  name: 'G4M 一式陸攻',
+  name: 'G4M Betty',
   faction: 'japan',
   role: 'bomber',
 

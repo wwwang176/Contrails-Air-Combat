@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
-import { reportText } from '../../src/hud/battleReport'
+import { aircraftNameKey, groundUnitNameKey, shipNameKey } from '../../src/i18n/names'
 import { createGroundTarget } from '../../src/world/groundTargets'
 import { SHIP_CLASSES, createShip } from '../../src/world/ships'
 import { createShipGuns } from '../../src/world/shipGuns'
@@ -56,7 +56,7 @@ describe('戰果通報的接線', () => {
     b.world.applyDamage(victim, 99999, 'fuselage', b.player)
     stepBattle(b, DT)
     expect(b.report.count).toBe(1)
-    expect(reportText(b.report.lines[0]!)).toBe(`擊墜　${victim.aircraft.spec.name}`)
+    expect(b.report.lines[0]).toMatchObject({ kind: 'air', nameKey: aircraftNameKey(victim.aircraft.spec.id) })
   })
 
   /**
@@ -84,7 +84,7 @@ describe('戰果通報的接線', () => {
     b.world.dropBomb(0, 60, 0, 0, -120, 0, BOMB_BLAST_DAMAGE, 0, b.player.index)
     settle(b)
     expect(t.alive).toBe(false)
-    expect(reportText(b.report.lines[0]!)).toBe('擊毀　ZIS-150 卡車')
+    expect(b.report.lines[0]).toMatchObject({ kind: 'ground', nameKey: groundUnitNameKey('truck') })
   })
 
   /**
@@ -128,7 +128,7 @@ describe('戰果通報的接線', () => {
     b.world.dropTorpedo(0, 40, -500, 0, 0, 90, TORPEDO.damage, 0, 1, 0, b.player.index)
     settle(b)
     expect(ship.hp).toBeLessThan(SHIP_CLASSES.fletcher.hp)
-    expect(reportText(b.report.lines[0]!)).toBe('雷擊命中　USS Fletcher DD-445')
+    expect(b.report.lines[0]).toMatchObject({ kind: 'torpedo', nameKey: shipNameKey('fletcher') })
   })
 
   /**
@@ -146,7 +146,7 @@ describe('戰果通報的接線', () => {
     settle(b)
     expect(ship.alive).toBe(false)
     expect(b.report.count).toBe(2)
-    expect(reportText(b.report.lines[0]!)).toBe('擊沉　USS Fletcher DD-445')
-    expect(reportText(b.report.lines[1]!)).toBe('雷擊命中　USS Fletcher DD-445')
+    expect(b.report.lines[0]).toMatchObject({ kind: 'ship', nameKey: shipNameKey('fletcher') })
+    expect(b.report.lines[1]).toMatchObject({ kind: 'torpedo', nameKey: shipNameKey('fletcher') })
   })
 })

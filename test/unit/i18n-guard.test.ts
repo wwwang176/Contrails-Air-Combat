@@ -41,14 +41,11 @@ const EXEMPT: readonly string[] = [
  */
 const PENDING: readonly string[] = [
   'src/ui/menu.ts',
-  'src/ui/dossier.ts',
   'src/ui/tutorials.ts',
-  'src/render/geometry/ground/index.ts',
   'src/main.ts',
   'src/ui/scoreboard.ts',
   'src/hud/widgets/hints.ts',
   'src/battle/skirmish.ts',
-  'src/hud/battleReport.ts',
   'src/input/touch.ts',
   'src/render/quality.ts',
   'src/ai/recoveryWorkerClient.ts',
@@ -56,22 +53,20 @@ const PENDING: readonly string[] = [
   'src/hud/widgets/bombBay.ts',
   'src/hud/widgets/objective.ts',
   'src/input/aimAssist.ts',
-  'src/weapons/a6m5.ts',
-  'src/weapons/g4m.ts',
   'src/hud/widgets/arena.ts',
   'src/hud/widgets/roster.ts',
-  'src/specs/a6m5.ts',
-  'src/specs/g4m.ts',
-  'src/specs/ki84.ts',
   'src/ui/loading.ts',
-  'src/world/ships.ts',
 ]
 
 const TABLE_FILE = 'src/i18n/zh.ts'
 
-function allowed(file: string, fn: string): boolean {
+/** 這些屬性的值只給開發工具頁看（地面單位的 `note`） */
+const EXEMPT_PROPS: readonly string[] = ['note']
+
+function allowed(file: string, fn: string, prop: string): boolean {
   if (file === TABLE_FILE) return true
   if (EXEMPT.includes(file) || PENDING.includes(file)) return true
+  if (EXEMPT_PROPS.includes(prop)) return true
   return fn !== '' && EXEMPT.includes(`${file}#${fn}`)
 }
 
@@ -79,13 +74,13 @@ describe('src/ 沒有寫死的中文字串', () => {
   const found = cjkLiterals(process.cwd())
 
   it('豁免與待改清單以外，一個都沒有', () => {
-    const bad = found.filter((l) => !allowed(l.file, l.fn))
+    const bad = found.filter((l) => !allowed(l.file, l.fn, l.prop))
       .map((l) => `${l.file}:${l.line}${l.fn === '' ? '' : ` (${l.fn})`}  ${l.text.slice(0, 60)}`)
     expect(bad).toEqual([])
   })
 
   it('待改清單裡的每一個檔案都還有中文字串 —— 改完的要從清單刪掉', () => {
-    const still = new Set(found.map((l) => l.file))
+    const still = new Set(found.filter((l) => !EXEMPT_PROPS.includes(l.prop)).map((l) => l.file))
     expect(PENDING.filter((f) => !still.has(f))).toEqual([])
   })
 })

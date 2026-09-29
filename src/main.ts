@@ -167,6 +167,7 @@ import {
 } from './battle/setup'
 import { flightOfCombatant, isFlightLeader } from './battle/flights'
 import { t, type MessageKey } from './i18n'
+import { aircraftName } from './i18n/names'
 import { lineAbreast, sideSummary } from './battle/order'
 import { fillOrderView } from './battle/orderView'
 import {
@@ -3179,7 +3180,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   hudFrame.arenaRemaining = arena.remaining
   hudFrame.worldX = input.godView ? godCam.position.x : renderPos.x
   hudFrame.worldZ = input.godView ? godCam.position.z : renderPos.z
-  hudFrame.aircraftName = aircraft.spec.name
+  hudFrame.aircraftName = aircraftName(aircraft.spec)
   hudFrame.hp = player.hp
   hudFrame.hpMax = player.aircraft.spec.hp
   hudFrame.aiFlying = input.playerAi
