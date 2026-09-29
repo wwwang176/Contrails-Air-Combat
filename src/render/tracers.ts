@@ -1,6 +1,6 @@
 import {
-  CylinderGeometry, DynamicDrawUsage, InstancedMesh, Matrix4, MeshBasicMaterial,
-  Quaternion, Vector3,
+  AdditiveBlending, CylinderGeometry, DynamicDrawUsage, InstancedMesh, Matrix4, MeshBasicMaterial,
+  Quaternion, Vector2, Vector3,
 } from 'three'
 import { PROJECTILE_CAPACITY, type Projectiles } from '../world/Projectiles'
 
@@ -40,6 +40,31 @@ export const TRACER_TAPER = 0.3
  */
 const RADIAL_SEGMENTS = 4
 
+/**
+ * 畫面上的最小寬度，px（繪圖緩衝的像素）。
+ *
+ * 【為什麼要有】1,600 m 外只剩四分之一像素，抗鋸齒把它淡成幾乎看不見；遠方的
+ * 火線是戰場資訊。細於它就把截面放粗到它、不透明度同比例調淡，總亮度不變。
+ *
+ * 【換算成半徑要除以 √2】截面是四邊形（`RADIAL_SEGMENTS`），投影寬度在半徑的
+ * √2～2 倍之間轉；取窄面也有 1 px
+ */
+export const TRACER_MIN_WIDTH_PX = 1
+const TRACER_MIN_RADIUS_PX = TRACER_MIN_WIDTH_PX / Math.SQRT2
+
+/** 頂點調整：以實例中心的深度算頭端半徑有幾個像素，不夠就把截面（本地 xy）放粗 */
+const MIN_WIDTH_VERTEX = /* glsl */ `
+  vec4 tracerCenter = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+  float tracerRadiusPx = ${TRACER_RADIUS.toFixed(4)} * projectionMatrix[1][1] * uHalfHeight
+    / max(-tracerCenter.z, 1e-3);
+  float tracerGrow = max(1.0, ${TRACER_MIN_RADIUS_PX.toFixed(4)} / tracerRadiusPx);
+  transformed.xy *= tracerGrow;
+  vTracerDim = 1.0 / tracerGrow;
+`
+
+/** 每次畫之前讀繪圖緩衝的尺寸。模組私有、重用（熱路徑零配置） */
+const BUFFER_SIZE = new Vector2()
+
 export interface Tracers {
   object: InstancedMesh
   update(p: Projectiles): void
@@ -76,11 +101,30 @@ export function createTracers(capacity: number = PROJECTILE_CAPACITY): Tracers {
   )
   geometry.rotateX(Math.PI / 2)
 
+  // 【加法、不吃霧】曳光彈是自己發光的：疊在暗的背景上要更亮；霧會把它往霧色混，
+  // 夜裡的霧是深藍色，遠方的火線因此融進夜色
   const material = new MeshBasicMaterial({
     color: 0xffe28a, transparent: true, opacity: 0.9, depthWrite: false,
+    blending: AdditiveBlending, fog: false,
   })
+  const halfHeight = { value: 540 }
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms['uHalfHeight'] = halfHeight
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\n  uniform float uHalfHeight;\n  varying float vTracerDim;')
+      .replace('#include <project_vertex>', `${MIN_WIDTH_VERTEX}\n#include <project_vertex>`)
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\n  varying float vTracerDim;')
+      // 放粗幾倍就淡幾倍
+      .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.a *= vTracerDim;')
+  }
+  material.customProgramCacheKey = () => 'tracer-min-width'
 
   const object = new InstancedMesh(geometry, material, capacity)
+  object.onBeforeRender = (renderer) => {
+    renderer.getDrawingBufferSize(BUFFER_SIZE)
+    halfHeight.value = BUFFER_SIZE.y / 2
+  }
   object.instanceMatrix.setUsage(DynamicDrawUsage)
   // 包圍球是建立時算的（全部在原點），開著視錐剔除的話相機一離開原點附近，
   // 整批曳光彈會一起消失。

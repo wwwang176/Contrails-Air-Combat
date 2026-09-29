@@ -1,5 +1,6 @@
 import { AdditiveBlending, Color, SRGBColorSpace, Vector3 } from 'three'
 import { createParticles, type Particles } from './particles'
+import { FIRE_FOG } from './fireFog'
 import { coneDirection } from './scatter'
 import { KILL_STRIDE, type KillEvents } from '../world/kills'
 
@@ -101,6 +102,7 @@ export function createFireball(capacity: number = FIREBALL_CAPACITY): Particles 
     drag: FIREBALL_DRAG,
     alphaFrom: 1,
     color: fireballColor,
+    fog: FIRE_FOG,
   })
 }
 

@@ -3,6 +3,7 @@ import {
   InstancedMesh, Matrix4, MeshBasicMaterial, Quaternion, SRGBColorSpace, Vector3,
 } from 'three'
 import { hash01 } from './scatter'
+import { FIRE_FOG, applyFireFog } from './fireFog'
 import type { Particles } from './particles'
 import type { Anchors } from './anchors'
 
@@ -248,7 +249,12 @@ export function createChunks(cfg: ChunkConfig): Particles {
    */
   const material = new MeshBasicMaterial({ color: 0xffffff })
   material.alphaHash = true
-  material.onBeforeCompile = injectFacetShade
+  // 火只吃一部分霧（`fireFog.ts`）。火塊是不透明的，往霧色混是對的
+  material.onBeforeCompile = (s): void => {
+    injectFacetShade(s)
+    applyFireFog(s, FIRE_FOG, false)
+  }
+  material.customProgramCacheKey = () => 'fire-chunks-fog'
 
   const object = new InstancedMesh(geometry, material, capacity)
   object.instanceMatrix.setUsage(DynamicDrawUsage)

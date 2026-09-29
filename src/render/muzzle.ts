@@ -134,9 +134,10 @@ export function createMuzzles(aircraftCapacity: number): Muzzles<MuzzleSource> {
   const geometry = crossFlare()
 
   // 【forceSinglePass】透明雙面預設分兩趟、每次繪製重算兩次 shader program。
-  // 加法混色與順序無關，一趟畫出來的像素相同
+  // 加法混色與順序無關，一趟畫出來的像素相同。
+  // 【不吃霧】槍焰是自己發光的，見 `tracers.ts` 的材質
   const material = new MeshBasicMaterial({
-    color: 0xffffff, transparent: true, opacity: 0.95,
+    color: 0xffffff, transparent: true, opacity: 0.95, fog: false,
     depthWrite: false, blending: AdditiveBlending, side: DoubleSide, forceSinglePass: true,
   })
 
@@ -271,9 +272,10 @@ export function createTurretMuzzles(aircraftCapacity: number): Muzzles {
   const geometry = crossFlare()
 
   // 【forceSinglePass】透明雙面預設分兩趟、每次繪製重算兩次 shader program。
-  // 加法混色與順序無關，一趟畫出來的像素相同
+  // 加法混色與順序無關，一趟畫出來的像素相同。
+  // 【不吃霧】槍焰是自己發光的，見 `tracers.ts` 的材質
   const material = new MeshBasicMaterial({
-    color: 0xffffff, transparent: true, opacity: 0.95,
+    color: 0xffffff, transparent: true, opacity: 0.95, fog: false,
     depthWrite: false, blending: AdditiveBlending, side: DoubleSide, forceSinglePass: true,
   })
 
