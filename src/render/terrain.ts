@@ -2,6 +2,7 @@ import {
   Group, Mesh, MeshStandardMaterial, type BufferGeometry, type Object3D, type WebGLRenderer,
 } from 'three'
 import { createOcean } from './ocean'
+import { SCENERY_CHUNK, SCENERY_MIN_TRIS, splitByGrid } from './sceneryChunks'
 import { createFieldClipmap, type ClipLevelSpec, type FieldClipmap } from './fieldClipmap'
 import { floraSplats } from './buildingBake'
 import { farmSettlementFlora } from './farmSettlements'
@@ -648,11 +649,18 @@ function createInlandTerrain(
   group.add(new Group())
   group.add(ground.object)
   group.add(vegetation.object)
-  let sceneryMesh: Mesh | null = null
+  // 【佈景切塊】一整顆的包圍球恆與視錐相交，背對也照畫 —— 見 `SCENERY_CHUNK`
+  let sceneryGroup: Group | null = null
+  let sceneryMaterial: MeshStandardMaterial | null = null
   if (scenery !== undefined) {
-    const material = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 })
-    sceneryMesh = new Mesh(scenery(), material)
-    group.add(sceneryMesh)
+    sceneryMaterial = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 })
+    sceneryGroup = new Group()
+    const whole = scenery()
+    for (const g of splitByGrid(whole, SCENERY_CHUNK, SCENERY_MIN_TRIS)) {
+      sceneryGroup.add(new Mesh(g, sceneryMaterial))
+    }
+    whole.dispose()
+    group.add(sceneryGroup)
   }
 
   return {
@@ -692,9 +700,9 @@ function createInlandTerrain(
       roofs?.dispose()
       if (river !== null) disposeRiverMeshes(river)
       dressing?.dispose()
-      if (sceneryMesh !== null) {
-        sceneryMesh.geometry.dispose()
-        ;(sceneryMesh.material as MeshStandardMaterial).dispose()
+      if (sceneryGroup !== null) {
+        for (const m of sceneryGroup.children) (m as Mesh).geometry.dispose()
+        sceneryMaterial?.dispose()
       }
     },
   }
