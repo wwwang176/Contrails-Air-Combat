@@ -1,3 +1,4 @@
+import { t } from '../../i18n'
 import { aglOk, pitchOk, rollOk, type ReleaseEnvelope } from '../../weapons/releaseEnvelope'
 import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
 
@@ -125,11 +126,11 @@ function drawReleaseGate(
   const gap = GATE_GAP * L.scale
   const x0 = L.cx - gap
   // 【三格逐一畫，不先組一個陣列】組陣列會每幀配置一個外層加三個 tuple
-  cell(ctx, `坡度 ${Math.round(Math.abs(f.roll) * RAD)}°${rollHint(env, f.roll)}`,
+  cell(ctx, t('hud.gate.bank', { v: Math.round(Math.abs(f.roll) * RAD) }) + rollHint(env, f.roll),
     rollOk(env, f.roll), x0, baseline)
-  cell(ctx, `俯仰 ${Math.round(f.pitch * RAD)}°${pitchHint(env, f.pitch)}`,
+  cell(ctx, t('hud.gate.pitch', { v: Math.round(f.pitch * RAD) }) + pitchHint(env, f.pitch),
     pitchOk(env, f.pitch), x0 + gap, baseline)
-  cell(ctx, `高度 ${Math.round(f.releaseAgl)} m${aglHint(env, f.releaseAgl)}`,
+  cell(ctx, t('hud.gate.agl', { v: Math.round(f.releaseAgl) }) + aglHint(env, f.releaseAgl),
     aglOk(env, f.releaseAgl), x0 + 2 * gap, baseline)
   ctx.textAlign = 'left'
 }
@@ -253,6 +254,6 @@ export function drawBombBay(
   // ——不設就吃到上一個畫字的 widget 留下的值，字會隨別的儀表出沒而跳動。
   // `bottom` 讓字底就是 y − LABEL_RISE，與格子的距離才算得準
   ctx.textBaseline = 'bottom'
-  ctx.fillText(`裝填中 ${f.bombReloadLeft.toFixed(0)}s`, L.cx, baseline)
+  ctx.fillText(t('hud.reloading', { s: f.bombReloadLeft.toFixed(0) }), L.cx, baseline)
   ctx.textAlign = 'left'
 }

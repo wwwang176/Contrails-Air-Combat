@@ -7,6 +7,7 @@
  * 【為什麼每一步都要等一次繪製】建一場戰鬥是同步的一大段。不先讓瀏覽器把這一步
  * 的文字與進度畫出去，畫面會停在上一個狀態直到整段跑完 —— 進度條一格都看不到。
  */
+import { t, type MessageKey } from '../i18n'
 
 /** 進度（0…1）→ 百分比字樣。夾在 0–100，壞掉的輸入回 0% */
 export function loadingPercent(fraction: number): string {
@@ -38,14 +39,14 @@ export interface LoadingScreen {
   /** 畫出目前的狀態，再停 `LOADING_HOLD_SECONDS` */
   hold(): Promise<void>
   /** 換成這一步並推進度，**等瀏覽器畫出去才回來** */
-  step(label: string, fraction: number): Promise<void>
+  step(label: MessageKey, fraction: number): Promise<void>
   /**
    * 只改字與進度，不等繪製。給下載中的回呼用：檔案一支支到，瀏覽器本來就
    * 在畫，下一幀自然會帶出去
    */
-  set(label: string, fraction: number): void
+  set(label: MessageKey, fraction: number): void
   /** 推到 100%、停 `LOADING_HOLD_SECONDS`，再收起 */
-  finish(label: string): Promise<void>
+  finish(label: MessageKey): Promise<void>
   hide(): void
 }
 
@@ -75,8 +76,8 @@ export function createLoadingScreen(doc: Document = document): LoadingScreen {
   const fill = pick('loading-fill')
   const pct = pick('loading-pct')
 
-  const set = (label: string, fraction: number): void => {
-    stepEl.textContent = label
+  const set = (label: MessageKey, fraction: number): void => {
+    stepEl.textContent = t(label)
     const p = loadingPercent(fraction)
     fill.style.width = p
     pct.textContent = p
@@ -85,7 +86,7 @@ export function createLoadingScreen(doc: Document = document): LoadingScreen {
   return {
     show() {
       // 【0% 停著的那 0.1 秒也要有字】狀態列空著的話看起來像還沒畫好
-      set('準備中', 0)
+      set('loading.preparing', 0)
       root.hidden = false
     },
     async hold() {

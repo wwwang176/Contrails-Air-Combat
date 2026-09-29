@@ -7,7 +7,7 @@ import {
   type SkirmishSetup, type Flight, type PresetKey,
 } from '../battle/skirmish'
 import { briefingOf, missionTypeName, shortName, type Briefing } from './briefing'
-import { t } from '../i18n'
+import { LANGS, LANG_NAME, formatNumber, onLangChange, t, type Lang, type MessageKey } from '../i18n'
 import { aircraftName } from '../i18n/names'
 import { dossierOf, sortForHangar, strengthOf, SIDE_OF } from './dossier'
 import type { AircraftSpec } from '../specs/types'
@@ -68,6 +68,11 @@ export interface MenuHooks {
   onVolume(db: number | null): void
   /** 設定裡按了確定、瞄準輔助有變。呼叫端負責套用與記住 */
   onAimAssist(on: boolean): void
+  /**
+   * 設定裡按了確定、語言有變。呼叫端負責套用（`setLang`）與記住；選單自己訂閱
+   * `onLangChange` 重畫
+   */
+  onLang(lang: Lang): void
   /** 暫停中按了右上角的「教學」按鈕。呼叫端挑這架飛機的卡交給 `showTutorials` */
   onHelp(): void
 }
@@ -86,6 +91,8 @@ export interface Menu {
   setPaused(v: boolean): void
   /** 依目前的設定重畫編組那一頁 */
   renderSetup(setup: SkirmishSetup): void
+  /** 設定裡的語言目前**已生效**的值（理由同 `renderQuality`） */
+  renderLang(lang: Lang): void
   /**
    * 設定裡的畫質現在是哪一檔。**這是「已生效」的值**，不是玩家正在挑的那一顆
    * —— 設定頁上的選擇要按「確定」才送得出來，在那之前只存在選單內部。
@@ -107,30 +114,46 @@ export interface Menu {
  * 【為什麼是 `Record<Campaign, …>` 而不是陣列】少一格是編譯錯誤。加第四條線時
  * 只加型別而漏了這裡，卡片會**永遠畫不出來而且照樣編譯**。
  */
-const CAMPAIGN_LABEL: Record<Campaign, string> = { allies: '美軍', germany: '德軍', japan: '日軍' }
-const CAMPAIGN_BLURB: Record<Campaign, { readonly line: string; readonly planes: string }> = {
-  allies: { line: '歐洲的護航與打擊，太平洋的艦隊防空。', planes: 'P-51D · B-17G · F6F-5' },
-  germany: { line: '本土到東西兩線：攔截轟炸機流，夜襲與掃射機場。', planes: 'Bf 109 K-4 · He 111' },
-  japan: { line: '瓜島、雷伊泰到倫內爾島：掩護雷擊隊，截斷補給車隊。', planes: 'A6M5 · Ki-84 · G4M' },
+const CAMPAIGN_LABEL: Record<Campaign, MessageKey> = {
+  allies: 'campaign.allies', germany: 'campaign.germany', japan: 'campaign.japan',
+}
+const campaignLabel = (c: Campaign): string => t(CAMPAIGN_LABEL[c])
+const CAMPAIGN_BLURB: Record<Campaign, { readonly lineKey: MessageKey; readonly planes: string }> = {
+  allies: { lineKey: 'campaign.allies.blurb', planes: 'P-51D · B-17G · F6F-5' },
+  germany: { lineKey: 'campaign.germany.blurb', planes: 'Bf 109 K-4 · He 111' },
+  japan: { lineKey: 'campaign.japan.blurb', planes: 'A6M5 · Ki-84 · G4M' },
+}
+
+/**
+ * 一排選項按鈕的一顆。`labelKey`／`hintKey` 是文字表的鍵；不必翻的字（語言名稱、
+ * 數字副標）放 `label`／`hint`。沒有副標的兩個都不給
+ */
+interface OptItem<T> {
+  readonly labelKey?: MessageKey
+  readonly label?: string
+  readonly hintKey?: MessageKey
+  readonly hint?: string
+  readonly value: T
+  readonly sil: string
 }
 
 /** 場地的選項。**順序即按鈕順序。**群島在前：它是預設，也是有東西可看的那一個 */
-const TERRAINS: readonly { label: string; hint: string; value: TerrainKind; sil: string }[] = [
-  { label: '群島', hint: '島鏈與淺海', value: 'archipelago',
+const TERRAINS: readonly OptItem<TerrainKind>[] = [
+  { labelKey: 'terrain.archipelago', hintKey: 'terrain.archipelago.hint', value: 'archipelago',
     sil: '<svg width="72" height="26"><rect y="17" width="72" height="9" fill="#38505c"/><path d="M8 17l9-8 9 8z" fill="#4d5c3f"/><path d="M40 17l13-11 13 11z" fill="#4d5c3f"/></svg>' },
-  { label: '雷伊泰', hint: '海岸與叢林', value: 'leyte',
+  { labelKey: 'terrain.leyte', hintKey: 'terrain.leyte.hint', value: 'leyte',
     sil: '<svg width="72" height="26"><rect y="17" width="72" height="9" fill="#38505c"/><path d="M30 17h42v9H30z" fill="#3f5a36"/><path d="M30 17l6-3h36v3z" fill="#4b6a3f"/><path d="M40 22h32" stroke="#a89770"/><path d="M48 14v-6m0 0l-4 2m4-2l4 2" stroke="#4b6a3f"/></svg>' },
-  { label: '內陸', hint: '農地與村落', value: 'farmland',
+  { labelKey: 'terrain.farmland', hintKey: 'terrain.farmland.hint', value: 'farmland',
     sil: '<svg width="72" height="26"><rect y="15" width="72" height="11" fill="#4a5238"/><path d="M0 15h72" stroke="#616a48"/><rect x="12" y="9" width="7" height="6" fill="#5c6449"/><rect x="46" y="10" width="9" height="5" fill="#5c6449"/></svg>' },
-  { label: '晚秋內陸', hint: '十一月的農地', value: 'autumnFarmland',
+  { labelKey: 'terrain.autumnFarmland', hintKey: 'terrain.autumnFarmland.hint', value: 'autumnFarmland',
     sil: '<svg width="72" height="26"><rect y="15" width="72" height="11" fill="#57493a"/><path d="M0 15h72" stroke="#6b5c48"/><path d="M8 26l10-11M26 26l10-11M44 26l10-11" stroke="#4a3e32"/><circle cx="60" cy="11" r="4" fill="#6e5440"/></svg>' },
-  { label: '洛伊納', hint: '油廠與河谷', value: 'leuna',
+  { labelKey: 'terrain.leuna', hintKey: 'terrain.leuna.hint', value: 'leuna',
     sil: '<svg width="72" height="26"><rect y="18" width="72" height="8" fill="#54493b"/><rect x="18" y="11" width="30" height="7" fill="#6a6258"/><rect x="24" y="3" width="3" height="8" fill="#6a6258"/><rect x="36" y="5" width="3" height="6" fill="#6a6258"/><path d="M0 23q10-3 20 0t20 0" stroke="#3c5260" stroke-width="2" fill="none"/></svg>' },
-  { label: '波爾塔瓦', hint: '草原機場', value: 'poltava',
+  { labelKey: 'terrain.poltava', hintKey: 'terrain.poltava.hint', value: 'poltava',
     sil: '<svg width="72" height="26"><rect y="16" width="72" height="10" fill="#566041"/><path d="M6 21h60" stroke="#a7a08e" stroke-width="3"/><path d="M30 12h14M37 9v6" stroke="#b9b2a0" stroke-width="2"/></svg>' },
-  { label: 'Y-29', hint: '前進降落場', value: 'asch',
+  { labelKey: 'terrain.asch', hintKey: 'terrain.asch.hint', value: 'asch',
     sil: '<svg width="72" height="26"><rect y="16" width="72" height="10" fill="#4f5a3e"/><path d="M6 21h60" stroke="#7d8078" stroke-width="3" stroke-dasharray="4 2"/><rect x="12" y="12" width="6" height="4" fill="#6b705f"/><rect x="54" y="12" width="6" height="4" fill="#6b705f"/></svg>' },
-  { label: '純海面', hint: '沒有地標', value: 'sea',
+  { labelKey: 'terrain.sea', hintKey: 'terrain.sea.hint', value: 'sea',
     sil: '<svg width="72" height="26"><rect y="13" width="72" height="13" fill="#32485a"/><path d="M4 19q6-3 12 0t12 0 12 0 12 0 12 0" stroke="#44607a" fill="none"/></svg>' },
 ]
 
@@ -148,16 +171,16 @@ const ALT_Y: readonly number[] = [20, 12, 4]
  * 【剪影不從 palette 取色】那一份是線性工作空間的光照參數，而這裡是 UI 的
  * sRGB 色票 —— 兩者不是同一件事。剪影只要認得出是哪個時段。
  */
-const TIMES: readonly { label: string; hint: string; value: TimeOfDay; sil: string }[] = [
-  { label: '清晨', hint: '日出前後', value: 'dawn',
+const TIMES: readonly OptItem<TimeOfDay>[] = [
+  { labelKey: 'tod.dawn', hintKey: 'tod.dawn.hint', value: 'dawn',
     sil: '<svg width="56" height="26"><rect y="18" width="56" height="8" fill="#2c3a46"/><rect width="56" height="18" fill="#5b6f86"/><path d="M0 18h56" stroke="#f0c9a0"/><circle cx="28" cy="18" r="6" fill="#ffd7a8"/></svg>' },
-  { label: '正午', hint: '日正當中', value: 'noon',
+  { labelKey: 'tod.noon', hintKey: 'tod.noon.hint', value: 'noon',
     sil: '<svg width="56" height="26"><rect y="18" width="56" height="8" fill="#2e4658"/><rect width="56" height="18" fill="#7ba3c6"/><circle cx="28" cy="7" r="5" fill="#fff4d8"/></svg>' },
-  { label: '黃昏', hint: '日落前後', value: 'dusk',
+  { labelKey: 'tod.dusk', hintKey: 'tod.dusk.hint', value: 'dusk',
     sil: '<svg width="56" height="26"><rect y="18" width="56" height="8" fill="#241f2e"/><rect width="56" height="18" fill="#8a5468"/><path d="M0 18h56" stroke="#ff9a52"/><circle cx="28" cy="18" r="6" fill="#ff9a52"/></svg>' },
-  { label: '夜間', hint: '月光', value: 'night',
+  { labelKey: 'tod.night', hintKey: 'tod.night.hint', value: 'night',
     sil: '<svg width="56" height="26"><rect y="18" width="56" height="8" fill="#0a1018"/><rect width="56" height="18" fill="#16233a"/><circle cx="38" cy="7" r="4" fill="#c8d6ee"/><circle cx="12" cy="6" r="1" fill="#dce6f6"/><circle cx="20" cy="12" r="1" fill="#dce6f6"/><circle cx="7" cy="13" r="1" fill="#dce6f6"/></svg>' },
-  { label: '雷雨', hint: '閃電與雨', value: 'storm',
+  { labelKey: 'tod.storm', hintKey: 'tod.storm.hint', value: 'storm',
     sil: '<svg width="56" height="26"><rect y="18" width="56" height="8" fill="#1c252c"/><rect width="56" height="18" fill="#3a444d"/><path d="M8 7q4-5 10-2q5-4 11 0q6-2 8 3z" fill="#262e35"/><path d="M30 8l-4 6h4l-3 6" stroke="#f2ecc8" stroke-width="1.5" fill="none"/><path d="M12 11l-2 6M18 11l-2 6M44 9l-2 6M50 9l-2 6" stroke="#7b8894"/></svg>' },
 ]
 
@@ -216,7 +239,8 @@ function silBadge(id: string): string {
   return `<span class="sil" style="--ac:url(${assetUrl(`/ui/sil/${id}.png`)})">`
     + `${side === undefined ? '' : MARK[side]}<i></i></span>`
 }
-const ROLE_WORD: Record<AircraftSpec['role'], string> = { fighter: '戰鬥機', bomber: '轟炸機' }
+const ROLE_WORD: Record<AircraftSpec['role'], MessageKey> = { fighter: 'role.fighter', bomber: 'role.bomber' }
+const roleWord = (role: AircraftSpec['role']): string => t(ROLE_WORD[role])
 
 /** 機種在畫面上的排列：機庫的卷宗架與編組頁的機種選單共用這一份 */
 const HANGAR_SPECS = sortForHangar(ALL_SPECS)
@@ -342,6 +366,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     antialias: q('set-aa'),
     volume: q('set-volume'),
     aimAssist: q('set-assist'),
+    lang: q('set-lang'),
     rack: q('hangar-rack'),
     sheet: q('hangar-sheet'),
     go: root.querySelector('#skirmish [data-act="fight"]') as HTMLButtonElement,
@@ -405,16 +430,18 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
 
   /** 把第 `tutorialAt` 張畫進卡片 */
   function drawTutorial(): void {
-    const t = tutorialQueue[tutorialAt]!
+    const card = tutorialQueue[tutorialAt]
+    if (card === undefined) return
     // 【觸控裝置換說法】與瞄準輔助的預設同一個判準（`input/aimAssist.ts`）
     const touch = window.matchMedia('(pointer: coarse)').matches
-    q('tut-title').textContent = t.title
-    q('tut-panels').innerHTML = t.panels.map((p) =>
+    q('tut-title').textContent = t(card.titleKey)
+    q('tut-panels').innerHTML = card.panels.map((p) =>
       `<li class="tut-panel"><figure class="tut-fig">`
-      + `<img src="${assetUrl(p.image)}" alt="${escapeHtml(p.alt)}">`
+      + `<img src="${assetUrl(p.image)}" alt="${escapeHtml(t(p.altKey))}">`
       + p.tags.map((g) =>
-        `<span class="tut-tag" style="left:${g.x}%;top:${g.y}%">${escapeHtml(g.text)}</span>`).join('')
-      + `</figure><div class="tut-cap">${escapeHtml(captionOf(p, touch))}</div></li>`).join('')
+        `<span class="tut-tag${g.hud === undefined ? '' : ` hud ${g.hud}`}" style="left:${g.x}%;top:${g.y}%">`
+        + `${escapeHtml(t(g.textKey, g.params) + (g.suffix ?? ''))}</span>`).join('')
+      + `</figure><div class="tut-cap">${escapeHtml(t(captionOf(p, touch)))}</div></li>`).join('')
   }
 
   /** 「了解」：這一張記成看過；還有下一張就換上，沒有就收起來並呼叫 `done` */
@@ -439,8 +466,10 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       b.dataset['campaign'] = c
       const blurb = CAMPAIGN_BLURB[c]
       b.innerHTML = `<span class="photo"><i class="tape tl"></i><img src="${assetUrl(`/ui/${c}.jpg`)}" alt=""></span>`
-        + `<span class="t">${CAMPAIGN_LABEL[c]}</span><span class="d">${escapeHtml(blurb.line)}</span>`
-        + `<span class="m">${escapeHtml(blurb.planes)}　　<b>可出擊 ${readyCount(MISSIONS[c])}</b> / ${MISSIONS[c].length} 關</span>`
+        + `<span class="t">${escapeHtml(campaignLabel(c))}</span><span class="d">${escapeHtml(t(blurb.lineKey))}</span>`
+        + `<span class="m">${escapeHtml(blurb.planes)} · `
+        + `<b>${escapeHtml(t('campaign.ready', { n: readyCount(MISSIONS[c]) }))}</b> `
+        + `${escapeHtml(t('campaign.total', { n: MISSIONS[c].length }))}</span>`
       // 【卡片用自己的監聽器而不是 data-act】`data-act` 只帶得了一個字串，
       // 這裡要帶「哪一條線」。先記下來，再送畫面事件 —— 資料先於事件
       b.addEventListener('click', () => {
@@ -463,19 +492,19 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     if (!b.ready) {
       el.brief.innerHTML = head
         + `<p style="color:var(--dim)">${escapeHtml(b.summary)}</p>`
-        + '<div class="soonbox"><b>準備中</b><br>這一關還在製作中。</div>'
+        + `<div class="soonbox"><b>${escapeHtml(t('brief.soon'))}</b><br>${escapeHtml(t('brief.soonBody'))}</div>`
       return
     }
     el.brief.innerHTML = head
-      + `<span class="stamp">機密</span>`
+      + `<span class="stamp">${escapeHtml(t('brief.stamp'))}</span>`
       + `<div class="obj">${escapeHtml(b.objective ?? '')}</div>`
       + `<p style="margin:0 0 4px;color:var(--dim)">${escapeHtml(b.summary)}</p>`
-      + `<div class="forces"><div><div class="lbl" style="margin-bottom:8px">我方</div>${(b.mine ?? []).map(unitRow).join('')}</div>`
-      + `<div class="vs">對</div>`
-      + `<div><div class="lbl" style="margin-bottom:8px">敵方</div>${(b.foe ?? []).map(unitRow).join('')}</div></div>`
+      + `<div class="forces"><div><div class="lbl" style="margin-bottom:8px">${escapeHtml(t('side.mine'))}</div>${(b.mine ?? []).map(unitRow).join('')}</div>`
+      + `<div class="vs">${escapeHtml(t('brief.versus'))}</div>`
+      + `<div><div class="lbl" style="margin-bottom:8px">${escapeHtml(t('side.foe'))}</div>${(b.foe ?? []).map(unitRow).join('')}</div></div>`
       + `<div class="facts">${(b.facts ?? []).map((f) =>
         `<div class="fact"><div class="lbl">${escapeHtml(f.label)}</div><div class="v">${escapeHtml(f.value)}</div></div>`).join('')}</div>`
-      + `<div class="actions"><button class="go" id="brief-go">出　擊</button></div>`
+      + `<div class="actions"><button class="go" id="brief-go">${escapeHtml(t('brief.go'))}</button></div>`
     const go = el.brief.querySelector('#brief-go') as HTMLButtonElement
     go.addEventListener('click', () => {
       // 【先送卡，再送 fight】呼叫端要先知道打哪一關，才建得出戰鬥
@@ -487,7 +516,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   function renderMission(): void {
     const list = MISSIONS[campaign]
     const k = picked[campaign]
-    el.campName.textContent = CAMPAIGN_LABEL[campaign]
+    el.campName.textContent = campaignLabel(campaign)
     el.route.innerHTML = ''
     list.forEach((m, i) => {
       const ready = m.battle !== null
@@ -498,7 +527,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       // 【e2e 用 id 選卡】標題會改，id 不會
       b.dataset['mission'] = m.id
       b.innerHTML = `<div class="k">${escapeHtml(t('menu.stage', { n: i + 1 }))} ${escapeHtml(missionTypeName(m.type))}</div><div class="n">${escapeHtml(t(m.titleKey))}</div>`
-        + (ready ? '' : '<div class="soonmark">準備中</div>')
+        + (ready ? '' : `<div class="soonmark">${escapeHtml(t('brief.soon'))}</div>`)
       b.addEventListener('click', () => {
         picked[campaign] = i
         renderMission()
@@ -514,7 +543,14 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
    * 數字，而 `dossierOf` 是純函數。少一條「上一個選中的是誰」的鏡射狀態，
    * 就少一個會忘記清掉的地方（與 `renderMission` 同一條理由）。
    */
+  /** 機庫換上目前這一架，並通知展示場 */
   function renderHangar(): void {
+    drawHangar()
+    hooks.onAircraft(HANGAR_SPECS[hangarPick] ?? HANGAR_SPECS[0]!)
+  }
+
+  /** 只畫機庫的字（左欄與卷宗），展示場不動。換語言時單獨叫 */
+  function drawHangar(): void {
     const spec = HANGAR_SPECS[hangarPick] ?? HANGAR_SPECS[0]!
     el.rack.innerHTML = ''
     HANGAR_SPECS.forEach((s, i) => {
@@ -523,7 +559,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       // 【e2e 用 id 選機】顯示名會改，id 不會
       b.dataset['aircraft'] = s.id
       b.innerHTML = `${silBadge(s.id)}<div><div class="k">`
-        + `${CAMPAIGN_LABEL[SIDE_OF[s.id] ?? 'allies']}　${ROLE_WORD[s.role]}</div>`
+        + `${escapeHtml(campaignLabel(SIDE_OF[s.id] ?? 'allies'))} ${escapeHtml(roleWord(s.role))}</div>`
         + `<div class="n">${escapeHtml(shortName(s))}</div></div>`
       b.addEventListener('click', () => {
         // 【點已經攤開的那一份不重畫】重畫會把數值條打回 0 再長一次、
@@ -536,10 +572,9 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     })
 
     const d = dossierOf(spec)
-    // 【Bf 109 K-4 沒有副名】`fullName` 回空字串，不濾掉的話副標會以一個
-    // 全形空白開頭
-    const sub = [fullName(spec), CAMPAIGN_LABEL[d.side], ROLE_WORD[d.role]]
-      .filter((s) => s !== '').join('　')
+    // 【Bf 109 K-4 沒有副名】`fullName` 回空字串，不濾掉的話副標會以分隔符開頭
+    const sub = [fullName(spec), campaignLabel(d.side), roleWord(d.role)]
+      .filter((s) => s !== '').join(' · ')
     el.sheet.innerHTML = `<h2>${escapeHtml(shortName(spec))}</h2>`
       + `<div class="lbl" style="margin-top:5px">${escapeHtml(sub)}</div>`
       + `<p class="story">${escapeHtml(d.story)}</p>`
@@ -561,8 +596,6 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
         if (fill !== undefined) bar.style.width = `${fill}%`
       })
     })
-
-    hooks.onAircraft(spec)
   }
 
   // ── 編組頁 ───────────────────────────────────────────
@@ -572,12 +605,13 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     const row = document.createElement('div')
     row.className = `flight${lead ? ' lead paperbit' : ''}`
     row.innerHTML =
-      (team === 'blue' ? '<button class="pick" title="我的小隊"></button>' : '<span></span>')
+      (team === 'blue'
+        ? `<button class="pick" title="${escapeHtml(t('skirmish.myFlight'))}"></button>` : '<span></span>')
       + `<div class="who"><div class="nm">${escapeHtml(shortName(spec))} <span class="full">${escapeHtml(fullName(spec))}</span></div>`
-      + `<div class="meta">${ROLE_WORD[spec.role]}　${strengthOf(spec.id)}</div></div>`
+      + `<div class="meta">${escapeHtml(roleWord(spec.role))} · ${escapeHtml(strengthOf(spec.id))}</div></div>`
       + `<div class="dots">${[1, 2, 3, 4].map((n) => `<i class="${n <= f.count ? 'on' : ''}"></i>`).join('')}</div>`
       + `<div class="qty"><button class="btn tiny minus">−</button><span class="n">${f.count}</span>`
-      + `<button class="btn tiny plus">＋</button><button class="btn tiny rm">✕</button></div>`
+      + `<button class="btn tiny plus">+</button><button class="btn tiny rm">✕</button></div>`
     row.querySelector('.pick')?.addEventListener('click', () => hooks.onSetup(setLead(setup, i)))
     row.querySelector('.minus')!.addEventListener('click', () => hooks.onSetup(setCount(setup, team, i, f.count - 1)))
     row.querySelector('.plus')!.addEventListener('click', () => hooks.onSetup(setCount(setup, team, i, f.count + 1)))
@@ -588,13 +622,13 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   function renderSide(setup: SkirmishSetup, team: 'blue' | 'red'): void {
     const host = team === 'blue' ? el.mine : el.foe
     const list = team === 'blue' ? setup.blue : setup.red
-    host.innerHTML = `<header><h3>${team === 'blue' ? '我方' : '敵方'}</h3>`
-      + `<span class="count"><b>${flightsTotal(list)}</b><small> / ${MAX_SIDE} 架</small></span></header>`
+    host.innerHTML = `<header><h3>${escapeHtml(t(team === 'blue' ? 'side.mine' : 'side.foe'))}</h3>`
+      + `<span class="count"><b>${flightsTotal(list)}</b><small> ${escapeHtml(t('skirmish.capacity', { n: MAX_SIDE }))}</small></span></header>`
     list.forEach((f, i) => host.appendChild(flightRow(setup, team, f, i)))
 
     const add = document.createElement('button')
     add.className = 'btn add'
-    add.textContent = '＋ 加一個小隊'
+    add.textContent = t('skirmish.addFlight')
     // 【滿了就禁用，不是點了沒反應】看起來可點卻沒反應才是真的壞掉
     add.disabled = list.length >= MAX_FLIGHTS || flightsTotal(list) >= MAX_SIDE
     add.addEventListener('click', () => openPlanePick(setup, team))
@@ -607,7 +641,8 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
    * 【帶著開窗當下的 `setup`】彈窗開著的時候編組頁點不到，設定不會在這之間變
    */
   function openPlanePick(setup: SkirmishSetup, team: 'blue' | 'red'): void {
-    q('plane-pick-title').textContent = `${team === 'blue' ? '我方' : '敵方'}加一個小隊`
+    lastPick = { setup, team }
+    q('plane-pick-title').textContent = t('skirmish.addFlightTitle', { side: t(team === 'blue' ? 'side.mine' : 'side.foe') })
     const list = q('plane-pick-list')
     list.innerHTML = ''
     for (const spec of HANGAR_SPECS) {
@@ -618,9 +653,9 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       // 一定折行
       const side = SIDE_OF[spec.id]
       b.innerHTML = `${silBadge(spec.id)}<div>`
-        + `<div class="nm">${side === undefined ? '' : `<i>${CAMPAIGN_LABEL[side]}</i>　`}`
+        + `<div class="nm">${side === undefined ? '' : `<i>${escapeHtml(campaignLabel(side))}</i> `}`
         + `${escapeHtml(shortName(spec))}</div>`
-        + `<div class="st">${ROLE_WORD[spec.role]}　${strengthOf(spec.id)}</div></div>`
+        + `<div class="st">${escapeHtml(roleWord(spec.role))} · ${escapeHtml(strengthOf(spec.id))}</div></div>`
       b.addEventListener('click', () => {
         closeOverlay(planePick)
         hooks.onSetup(addFlight(setup, team, spec.id))
@@ -629,6 +664,8 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     }
     openOverlay(planePick)
   }
+  /** 機種彈窗最後一次打開時的參數；換語言時照它重畫 */
+  let lastPick: { readonly setup: SkirmishSetup; readonly team: 'blue' | 'red' } | null = null
   // 【點遮罩收起來】只認點在遮罩本身，點到框裡的東西不算
   planePick.addEventListener('click', (e) => { if (e.target === planePick) closeOverlay(planePick) })
 
@@ -638,25 +675,26 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     const hi = Math.max(m, f, 1)
     const byRole = (list: readonly Flight[], role: AircraftSpec['role']) =>
       list.filter((x) => specOf(x.id).role === role).reduce((n, x) => n + x.count, 0)
-    el.versus.innerHTML = `<div class="vs">對戰</div>`
+    el.versus.innerHTML = `<div class="vs">${escapeHtml(t('skirmish.versus'))}</div>`
       + `<div class="bar"><i class="m" style="height:${(m / hi) * 50}%"></i><i class="f" style="height:${(f / hi) * 50}%"></i></div>`
-      + `<div class="odds"><b class="m">${m}</b> ： <b class="f">${f}</b><br>`
-      + `戰鬥機 ${byRole(setup.blue, 'fighter')} : ${byRole(setup.red, 'fighter')}<br>`
-      + `轟炸機 ${byRole(setup.blue, 'bomber')} : ${byRole(setup.red, 'bomber')}</div>`
+      + `<div class="odds"><b class="m">${m}</b> : <b class="f">${f}</b><br>`
+      + `${escapeHtml(t('skirmish.fighters', { a: byRole(setup.blue, 'fighter'), b: byRole(setup.red, 'fighter') }))}<br>`
+      + `${escapeHtml(t('skirmish.bombers', { a: byRole(setup.blue, 'bomber'), b: byRole(setup.red, 'bomber') }))}</div>`
   }
 
   function optRow<T>(
-    host: HTMLElement, items: readonly { label: string; hint: string; value: T; sil: string }[],
-    current: T, onPick: (v: T) => void,
+    host: HTMLElement, items: readonly OptItem<T>[], current: T, onPick: (v: T) => void,
   ): void {
     host.innerHTML = ''
     for (const it of items) {
       const b = document.createElement('button')
       b.className = it.value === current ? 'on' : ''
-      // 【空的說明就不要那一行】畫質與抗鋸齒沒有副標，留一個空的 `<small>`
+      // 【沒有說明就不要那一行】畫質與抗鋸齒沒有副標，留一個空的 `<small>`
       // 會在字底下撐出一條空隙，那一列看起來就像少印了字
-      const small = it.hint === '' ? '' : `<small>${escapeHtml(it.hint)}</small>`
-      b.innerHTML = `${it.sil}<span>${escapeHtml(it.label)}</span>${small}`
+      const hint = it.hintKey !== undefined ? t(it.hintKey) : it.hint ?? ''
+      const small = hint === '' ? '' : `<small>${escapeHtml(hint)}</small>`
+      const label = it.labelKey !== undefined ? t(it.labelKey) : it.label ?? ''
+      b.innerHTML = `${it.sil}<span>${escapeHtml(label)}</span>${small}`
       b.addEventListener('click', () => onPick(it.value))
       host.appendChild(b)
     }
@@ -670,10 +708,12 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
    *
    * 【已生效的那一份由 `main.ts` 餵進來】選單不負責記住設定，見 `renderQuality`。
    */
+  let appliedLang: Lang = 'zh'
   let appliedQuality = DEFAULT_QUALITY
   let appliedAa = DEFAULT_ANTIALIAS
   let appliedVolume: number | null = DEFAULT_VOLUME_DB
   let appliedAssist = false
+  let draftLang: Lang = appliedLang
   let draftQuality = appliedQuality
   let draftAa = appliedAa
   let draftVolume: number | null = appliedVolume
@@ -681,22 +721,25 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
 
   /** 【沒有小圖示】畫質、抗鋸齒、音量都是抽象的，畫不出剪影；`.opt` 對純文字按鈕照樣成立 */
   function drawSettingRows(): void {
+    optRow(el.lang, LANGS.map((l) => ({ label: LANG_NAME[l], value: l, sil: '' })),
+      draftLang, (v) => { draftLang = v; drawSettingRows() })
     optRow(el.aimAssist,
-      AIM_ASSIST_LEVELS.map((lv) => ({ label: lv.label, hint: '', value: lv.value, sil: '' })),
+      AIM_ASSIST_LEVELS.map((lv) => ({ labelKey: lv.labelKey, value: lv.value, sil: '' })),
       draftAssist, (v) => { draftAssist = v; drawSettingRows() })
     optRow(el.quality,
-      QUALITY_LEVELS.map((lv) => ({ label: lv.label, hint: '', value: lv.scale, sil: '' })),
+      QUALITY_LEVELS.map((lv) => ({ labelKey: lv.labelKey, value: lv.scale, sil: '' })),
       draftQuality, (v) => { draftQuality = v; drawSettingRows() })
     optRow(el.antialias,
-      ANTIALIAS_LEVELS.map((lv) => ({ label: lv.label, hint: '', value: lv.value, sil: '' })),
+      ANTIALIAS_LEVELS.map((lv) => ({ labelKey: lv.labelKey, value: lv.value, sil: '' })),
       draftAa, (v) => { draftAa = v; drawSettingRows() })
     optRow(el.volume,
-      VOLUME_LEVELS.map((lv) => ({ label: lv.label, hint: '', value: lv.db, sil: '' })),
+      VOLUME_LEVELS.map((lv) => ({ labelKey: lv.labelKey, value: lv.db, sil: '' })),
       draftVolume, (v) => { draftVolume = v; drawSettingRows() })
   }
 
   /** 【每次打開都從已生效的值重來】上一次按取消留下的挑選不該跟著回來 */
   function openSettings(): void {
+    draftLang = appliedLang
     draftQuality = appliedQuality
     draftAa = appliedAa
     draftVolume = appliedVolume
@@ -716,6 +759,8 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     if (draftVolume !== appliedVolume) hooks.onVolume(draftVolume)
     if (draftAssist !== appliedAssist) hooks.onAimAssist(draftAssist)
     closeOverlay(settings)
+    // 【最後才換語言】換語言會重畫整個選單，放在關設定之後，重畫的是關好的畫面
+    if (draftLang !== appliedLang) hooks.onLang(draftLang)
   }
 
   /**
@@ -729,7 +774,14 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     if (draftQuality !== appliedQuality) hooks.onQuality(draftQuality)
     if (draftVolume !== appliedVolume) hooks.onVolume(draftVolume)
     if (draftAssist !== appliedAssist) hooks.onAimAssist(draftAssist)
+    if (draftLang !== appliedLang) hooks.onLang(draftLang)
     hooks.onAntialias(draftAa)
+  }
+
+  function renderLang(lang: Lang): void {
+    appliedLang = lang
+    draftLang = lang
+    drawSettingRows()
   }
 
   function renderQuality(scale: number): void {
@@ -757,11 +809,12 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   }
 
   function renderSetup(setup: SkirmishSetup): void {
+    lastSetup = setup
     el.presets.innerHTML = ''
     for (const key of Object.keys(PRESETS) as PresetKey[]) {
       const b = document.createElement('button')
       b.className = 'btn tiny'
-      b.textContent = PRESETS[key].label
+      b.textContent = t(PRESETS[key].labelKey)
       b.addEventListener('click', () => hooks.onSetup(applyPreset(setup, key)))
       el.presets.appendChild(b)
     }
@@ -769,7 +822,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     renderSide(setup, 'red')
     renderVersus(setup)
     optRow(el.terrain, TERRAINS, setup.terrain, (v) => hooks.onSetup({ ...setup, terrain: v }))
-    optRow(el.alt, ALTITUDES.map((a, i) => ({ label: a.label, hint: `${a.value.toLocaleString()} m`, value: a.value, sil: altSil(ALT_Y[i] ?? 12) })),
+    optRow(el.alt, ALTITUDES.map((a, i) => ({ labelKey: a.labelKey, hint: `${formatNumber(a.value)} m`, value: a.value, sil: altSil(ALT_Y[i] ?? 12) })),
       setup.altitude, (v) => hooks.onSetup({ ...setup, altitude: v }))
     optRow(el.tod, TIMES, setup.timeOfDay, (v) => hooks.onSetup({ ...setup, timeOfDay: v }))
     // 【任一邊空著就禁用】不靠 `battleConfigFrom` 補一架 —— 那是防禦，不是 UI 的行為
@@ -779,6 +832,25 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   }
 
   renderCampaign()
+
+  /** 最後一次畫的編組；換語言時照它重畫 */
+  let lastSetup: SkirmishSetup | null = null
+
+  /**
+   * 換語言：只畫一次就留著的都要重畫。
+   *
+   * 【編組頁不論顯示與否都重畫】它在開場畫好之後只在改編組時重畫，不重畫的話
+   * 下一次打開還是舊的語言。
+   */
+  onLangChange(() => {
+    renderCampaign()
+    if (!sections.mission?.hidden) renderMission()
+    if (!sections.hangar?.hidden) drawHangar()
+    if (lastSetup !== null) renderSetup(lastSetup)
+    drawSettingRows()
+    if (!tutorial.hidden) drawTutorial()
+    if (!planePick.hidden && lastPick !== null) openPlanePick(lastPick.setup, lastPick.team)
+  })
 
   return {
     show(screen) {
@@ -819,6 +891,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       closeOverlay(pause)
     },
     renderSetup,
+    renderLang,
     renderQuality,
     renderAntialias,
     renderAimAssist,

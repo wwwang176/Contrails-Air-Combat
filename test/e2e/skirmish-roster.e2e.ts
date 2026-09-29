@@ -95,7 +95,7 @@ async function main(): Promise<void> {
     // ── 對戰條跟著變 ────────────────────────────────────
     const text = (await odds.textContent())!.replace(/\s+/g, ' ')
     ok(text.includes('11') && text.includes('8'), '對戰條 11 : 8', text)
-    ok(text.includes('轟炸機 4 : 0'), '轟炸機 4 : 0', text)
+    ok(text.includes('4 : 0'), '轟炸機 4 : 0', text)
 
     // ── 戰場與開場高度 ──────────────────────────────────
     const terrain = page.locator('#sk-terrain button')

@@ -1,3 +1,4 @@
+import { t } from '../../i18n'
 import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
 import { typedPrefix } from '../typewriter'
 import { smoothstep } from '../../core/math'
@@ -51,7 +52,7 @@ export function formatObjectiveMetric(
  * 護送的架數。**進度與本錢分開印，各自帶標籤。**
  *
  * ```
- *   有門檻（arrived ≥ 0）   已抵達 3/8　在途 11 架
+ *   有門檻（arrived ≥ 0）   已抵達 3/8 · 在途 11 架
  *   沒有門檻（arrived −1）  16 架
  *   沒有架數（兩者 −1）      空字串
  * ```
@@ -65,10 +66,13 @@ export function formatObjectiveMetric(
  */
 export function formatConvoyCounts(arrived: number, need: number, remaining: number): string {
   const left = remaining >= 0 ? Math.round(remaining) : -1
-  if (arrived < 0) return left >= 0 ? `${left} 架` : ''
-  const progress = `已抵達 ${Math.round(arrived)}/${Math.round(need)}`
-  return left >= 0 ? `${progress}　在途 ${left} 架` : progress
+  if (arrived < 0) return left >= 0 ? t('unit.planes', { n: left }) : ''
+  const progress = t('hud.arrived', { n: Math.round(arrived), need: Math.round(need) })
+  return left >= 0 ? `${progress}${SEP}${t('hud.enRoute', { n: left })}` : progress
 }
+
+/** 目標列各段之間的分隔 */
+const SEP = ' · '
 
 /**
  * 目標列的整行文字：目標、架數、計量、倒數，空的段落不留分隔。
@@ -79,7 +83,7 @@ export function formatObjectiveLine(f: HudFrame): string {
   const clock = formatCountdown(f.objectiveSeconds)
   // 【架數排在距離之前】它是勝負的直接量，距離只說還要多久
   const counts = formatConvoyCounts(f.objectiveArrived, f.objectiveNeed, f.objectiveRemaining)
-  return [f.objectiveText, counts, metric, clock].filter((s) => s !== '').join('　')
+  return [f.objectiveText, counts, metric, clock].filter((s) => s !== '').join(SEP)
 }
 
 /**
@@ -212,6 +216,6 @@ function drawBanner(
   ctx.fillRect(left - pad, top - pad * 0.5, w + pad * 2, size + pad)
   ctx.font = hudFont(size, true)
   ctx.fillStyle = HUD_COLORS.primary
-  const shown = lay.phase === 'hold' ? typedPrefix(text, f.objectiveBannerAge) : text
+  const shown = lay.phase === 'hold' ? typedPrefix(text, f.objectiveBannerTypeAge) : text
   ctx.fillText(shown, left, top)
 }

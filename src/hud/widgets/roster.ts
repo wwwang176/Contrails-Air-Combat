@@ -1,3 +1,4 @@
+import { t } from '../../i18n'
 import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
 
 /**
@@ -9,7 +10,7 @@ import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
  */
 export function flightLabel(alive: number, size: number): string | null {
   if (size < 2 || alive < 2) return null
-  return `隊 ${alive}/${size}`
+  return t('hud.flight', { alive, size })
 }
 
 /**
@@ -42,9 +43,11 @@ export function drawRoster(
   // 【為什麼擺在同一行的右側而不是下一行】下一行是航向帶的位置 —— 實測
   // 「隊 4/4」會被航向指標壓在底下，讀不出來。存活數這一行右邊是空的。
   const flight = flightLabel(f.flightAlive, f.flightSize)
+  // 【靠左對齊在敵方數字的右邊】置中的話字愈長愈往左伸，英文的 Flight 會壓到敵方數字
   if (flight !== null) {
     ctx.font = hudFont(Math.round(11 * L.scale))
     ctx.fillStyle = HUD_COLORS.dim
-    ctx.fillText(flight, L.cx + size * 4.5, y + size * 0.25)
+    ctx.textAlign = 'left'
+    ctx.fillText(flight, L.cx + size * 3.2, y + size * 0.25)
   }
 }

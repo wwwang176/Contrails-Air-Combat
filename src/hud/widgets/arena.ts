@@ -1,3 +1,4 @@
+import { t } from '../../i18n'
 import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
 
 /**
@@ -23,7 +24,7 @@ export function drawArena(
 
   ctx.fillStyle = HUD_COLORS.warn
   ctx.font = hudFont(28 * L.scale, true)
-  ctx.fillText('返回戰場', L.width / 2, L.height * 0.24)
+  ctx.fillText(t('hud.returnToArena'), L.width / 2, L.height * 0.24)
 
   ctx.font = hudFont(46 * L.scale, true)
   ctx.fillText(

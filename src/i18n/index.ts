@@ -16,6 +16,9 @@ export type Lang = 'zh' | 'en'
 
 export const LANGS: readonly Lang[] = ['zh', 'en']
 
+/** 設定頁上的語言名稱。**各用自己的語言寫**，所以兩種語言下都一樣，不進文字表 */
+export const LANG_NAME: Record<Lang, string> = { zh: '中文', en: 'English' }
+
 /** 語言設定在 `localStorage` 的鍵 */
 export const LANG_STORAGE_KEY = 'ui.lang'
 

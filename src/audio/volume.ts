@@ -1,3 +1,5 @@
+import type { MessageKey } from '../i18n'
+
 /** 設定頁的音量檔位。null 是關閉 —— 關閉時整個音訊暫停，不只是乘 0 */
 /**
  * 混音留的餘裕，dB。**「高」是這個值，不是 0 dBFS。**
@@ -11,11 +13,11 @@
  */
 export const MIX_HEADROOM_DB = -9
 
-export const VOLUME_LEVELS: readonly { label: string; db: number | null }[] = [
-  { label: '關閉', db: null },
-  { label: '低', db: -12 },
-  { label: '中', db: -6 },
-  { label: '高', db: 0 },
+export const VOLUME_LEVELS: readonly { labelKey: MessageKey; db: number | null }[] = [
+  { labelKey: 'common.off', db: null },
+  { labelKey: 'settings.volume.low', db: -12 },
+  { labelKey: 'settings.volume.mid', db: -6 },
+  { labelKey: 'settings.volume.high', db: 0 },
 ]
 
 export const DEFAULT_VOLUME_DB = -6

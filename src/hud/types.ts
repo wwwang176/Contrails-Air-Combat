@@ -304,6 +304,11 @@ export interface HudFrame {
   report: BattleReport
   reportTime: number
   /**
+   * 這個物理時間（含）以前出現的通報整句印，不打字。換語言時設成當下，
+   * 理由同 `objectiveBannerTypeAge`。−1 = 都照常打字（物理時間從 0 起算）
+   */
+  reportTypedBefore: number
+  /**
    * 受擊方向痕跡。`main.ts` 推入與步進，widget 只讀。
    *
    * 【為什麼與 `hitFlash` 分開】那個是**我打中人**（讀 `player.hitsDealt`），
@@ -407,6 +412,13 @@ export interface HudFrame {
   objectiveBanner: string
   /** 橫幅出現到現在幾秒；−1 = 沒有橫幅。時序見 `widgets/objective.ts` */
   objectiveBannerAge: number
+  /**
+   * 橫幅打字機用的年齡；−1 = 整句直接印。平常等於 `objectiveBannerAge`。
+   *
+   * 【換過語言的橫幅整句印】打到一半換語言，照舊的年齡接著打會變成新語言的前幾個字
+   * —— 中文短、英文長，看起來像跳字或重打
+   */
+  objectiveBannerTypeAge: number
   /** 計量。殲滅＝剩餘敵機數，撤離與護送＝到終點的距離 m */
   objectiveMetric: number
   /** 計量的種類，決定 widget 怎麼格式化。`percent` 是 0～1 的比例 */
@@ -469,6 +481,7 @@ export function createHudFrame(): HudFrame {
     hitFlash: 0,
     report: createBattleReport(),
     reportTime: 0,
+    reportTypedBefore: -1,
     damageMarks: createDamageMarks(),
     hp: 1000, hpMax: 1000,
     aiFlying: false,
@@ -489,6 +502,7 @@ export function createHudFrame(): HudFrame {
     objectiveText: '',
     objectiveBanner: '',
     objectiveBannerAge: -1,
+    objectiveBannerTypeAge: -1,
     objectiveMetric: 0,
     objectiveMetricKind: 'count',
     objectiveMetricTotal: -1,

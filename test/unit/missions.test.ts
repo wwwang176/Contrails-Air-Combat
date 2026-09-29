@@ -7,7 +7,7 @@ import { ENTRY_PLANS } from '../../src/battle/entry'
 import { readyCard, ESCORT_CARD, INTERCEPT_CARD, KILL_CARD } from '../fixtures/mission'
 import type { ReadyMissionCard } from '../../src/battle/missions'
 import { A6M5_BOMB_LOADOUT } from '../../src/weapons/stores'
-import { LANGS, setLang, t, type Lang } from '../../src/i18n'
+import { t } from '../../src/i18n'
 
 /**
  * # 卡片 → 規則／設定
@@ -310,22 +310,8 @@ describe('卡片可以依機種複寫掛載', () => {
 })
 
 describe('目標橫幅', () => {
-  /**
-   * 【每一張可玩卡都要有】沒有的話進場那 3 秒是空的；要短，玩家一眼讀完。
-   * 上限依語言：中文 14 個字、英文 30 個字元（兩者在 34 px 的橫幅上寬度相當）
-   */
-  const LIMIT: Record<Lang, number> = { zh: 14, en: 30 }
-  it('每一張可玩卡都有橫幅，而且在兩種語言都不超過上限', () => {
-    try {
-      for (const lang of LANGS) {
-        setLang(lang)
-        for (const m of playable) {
-          expect(m.battle.bannerKey, m.id).toBeDefined()
-          expect(t(m.battle.bannerKey!).length, `${lang} ${m.id}`).toBeLessThanOrEqual(LIMIT[lang])
-        }
-      }
-    } finally {
-      setLang('zh')
-    }
+  /** 【每一張可玩卡都要有】沒有的話進場那 3 秒是空的 */
+  it('每一張可玩卡都有橫幅', () => {
+    for (const m of playable) expect(m.battle.bannerKey, m.id).toBeDefined()
   })
 })

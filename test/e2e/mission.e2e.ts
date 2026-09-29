@@ -102,11 +102,15 @@ async function main(): Promise<void> {
     if (screens.join() !== 'campaign') fail(`任務模式應該先到陣營頁，實得 ${screens.join('/')}`)
     const campaigns = await page.evaluate(() =>
       Array.from(document.querySelectorAll<HTMLButtonElement>('#campaign-cards button'))
-        .map((b) => ({ id: b.dataset['campaign'] ?? '', meta: b.querySelector('.m')?.textContent ?? '' })))
+        .map((b) => ({
+          id: b.dataset['campaign'] ?? '',
+          meta: b.querySelector('.m')?.textContent ?? '',
+          ready: b.querySelector('.m b')?.textContent ?? '',
+        })))
     console.log(`[任務] 陣營：${campaigns.map((c) => `${c.id}（${c.meta.replace(/\s+/g, ' ')}）`).join('／')}`)
     if (campaigns.length !== 3) fail(`陣營頁應該有三張卡，實得 ${campaigns.length}`)
     for (const c of campaigns) {
-      if (!/可出擊 \d+/.test(c.meta)) fail(`${c.id} 的卡上沒有「可出擊 n」`)
+      if (!/\d/.test(c.ready)) fail(`${c.id} 的卡上沒有可出擊的關數`)
     }
     await page.screenshot({ path: SHOTS + 'mission-0-campaign.png' })
 

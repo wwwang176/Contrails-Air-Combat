@@ -1,5 +1,6 @@
 import type { InputState } from './InputState'
 import { endLook, pressBomb, pressView, slewLook, type TouchHold } from './bindings'
+import { onLangChange, t, type MessageKey } from '../i18n'
 
 /**
  * 觸控拖曳瞄準的靈敏度：每拖「一個螢幕半高」瞄準點轉多少弧度。
@@ -61,9 +62,11 @@ export function attachTouch(root: HTMLElement, state: InputState): TouchControls
   const lookRing = root.querySelector('.t-ring.look') as HTMLElement
   // 【初值要與 index.html 一致】投彈鈕在 HTML 裡是 hidden；這裡寫 true 的話
   // 轟炸機第一幀比對「沒變」，按鈕就永遠不出來
-  let fireLabel = ''
-  let bombLabel = ''
+  let fireLabel: MessageKey | null = null
+  let bombLabel: MessageKey | null = null
   let bombShown = false
+  // 換語言時清掉，下一幀照新的語言重寫
+  onLangChange(() => { fireLabel = null; bombLabel = null })
 
   const ringAt = (ring: HTMLElement, x: number, y: number): void => {
     ring.style.transform = `translate(${x}px, ${y}px)`
@@ -160,12 +163,12 @@ export function attachTouch(root: HTMLElement, state: InputState): TouchControls
       }
       if (!next) return
       // 【只在字變了才寫 DOM】這支每幀跑
-      const fire = state.viewMode === 'bomb' ? '投彈' : '開火'
-      if (fire !== fireLabel) { fireLabel = fire; fireBtn.textContent = fire }
+      const fire: MessageKey = state.viewMode === 'bomb' ? 'touch.drop' : 'touch.fire'
+      if (fire !== fireLabel) { fireLabel = fire; fireBtn.textContent = t(fire) }
       const shown = state.bombCapable || state.bombRelease
       if (shown !== bombShown) { bombShown = shown; bombBtn.hidden = !shown }
-      const bomb = state.bombRelease ? '投彈' : state.viewMode === 'bomb' ? '返回' : '瞄準鏡'
-      if (bomb !== bombLabel) { bombLabel = bomb; bombBtn.textContent = bomb }
+      const bomb: MessageKey = state.bombRelease ? 'touch.drop' : state.viewMode === 'bomb' ? 'touch.back' : 'touch.sight'
+      if (bomb !== bombLabel) { bombLabel = bomb; bombBtn.textContent = t(bomb) }
     },
   }
 }

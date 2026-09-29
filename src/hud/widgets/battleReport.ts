@@ -77,7 +77,8 @@ export function drawBattleReport(
     ctx.fillStyle = HUD_COLORS.primary
     ctx.textAlign = 'left'
     ctx.fillText(
-      typedPrefix(text, f.reportTime - line.bornAt, REPORT_SECONDS_PER_CHAR),
+      typedPrefix(text, line.bornAt <= f.reportTypedBefore ? -1 : f.reportTime - line.bornAt,
+        REPORT_SECONDS_PER_CHAR),
       left, y,
     )
   }

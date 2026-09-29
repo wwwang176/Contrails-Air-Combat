@@ -7,6 +7,7 @@ import {
 } from './recoverySnapshot'
 import { RECOVERY_ROLLOUT_HZ } from './recoveryRollout'
 import type { RecoveryRequest, RecoveryResponse } from './recoveryProtocol'
+import type { MessageKey } from '../i18n'
 
 export const RECOVERY_REQUEST_HZ = 4
 const REQUEST_PERIOD = 1 / RECOVERY_REQUEST_HZ
@@ -302,7 +303,7 @@ export class RecoveryWorkerCoordinator {
 
 let nextId = 1
 let coordinator: RecoveryWorkerCoordinator | null = null
-let startupFailure = ''
+let startupFailure: RecoveryFailure = 'recovery.createFailed'
 
 if (typeof Worker !== 'undefined') {
   try {
@@ -313,23 +314,25 @@ if (typeof Worker !== 'undefined') {
     coordinator = new RecoveryWorkerCoordinator(worker)
   } catch (error) {
     coordinator = null
-    startupFailure = error instanceof Error ? error.message : String(error)
+    console.error('防墜 Worker 無法建立', error)
   }
 } else if (typeof window !== 'undefined') {
-  startupFailure = '這個瀏覽器不支援 Web Worker。'
+  startupFailure = 'recovery.unsupported'
 }
+
+/** 防墜 Worker 失效的原因，同時是阻擋畫面上那句話的鍵（`src/i18n`） */
+export type RecoveryFailure = Extract<MessageKey,
+  'recovery.unsupported' | 'recovery.createFailed' | 'recovery.disabled' | 'recovery.failed'>
 
 /**
  * 正式瀏覽器是否失去必要的防墜 Worker。Node 測試不被當成可玩的瀏覽器，
  * 必須自行注入測試 Worker；遊戲主迴圈則以這個狀態決定是否阻擋。
  */
-export function recoveryWorkerFailure(): string | null {
+export function recoveryWorkerFailure(): RecoveryFailure | null {
   if (typeof window === 'undefined') return null
-  if (coordinator === null) {
-    return startupFailure || '防墜 Worker 無法建立。'
-  }
-  if (!coordinator.stats.enabled) return '防墜 Worker 已停用。'
-  if (!coordinator.stats.available) return '防墜 Worker 執行失敗。'
+  if (coordinator === null) return startupFailure
+  if (!coordinator.stats.enabled) return 'recovery.disabled'
+  if (!coordinator.stats.available) return 'recovery.failed'
   return null
 }
 
