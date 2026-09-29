@@ -3960,8 +3960,9 @@ if (initialRecoveryFailure !== null) {
 /** 光暈的同頁 A/B：不經設定頁、不存檔，量完重整就回到設定的值 */
 ;(window as unknown as Record<string, unknown>)['__bloom'] = (on: boolean): void => { bloom.enabled = on }
 /** 海面光暈的門檻：天空反射之前的線性亮度在這一段之間漸漸留下來 */
-;(window as unknown as Record<string, unknown>)['__oceanGlow'] = (lo: number, hi: number): void => {
+;(window as unknown as Record<string, unknown>)['__oceanGlow'] = (lo: number, hi: number, gain = 0.3): void => {
   OCEAN_GLOW.range.value.set(lo, hi)
+  OCEAN_GLOW.gain.value = gain
 }
 /** 光暈色調的比較：白心的量、暈的強度、白心的亮度區間 */
 ;(window as unknown as Record<string, unknown>)['__bloomLook'] = (
