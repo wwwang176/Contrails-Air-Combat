@@ -104,6 +104,32 @@ export const ANTIALIAS_LEVELS: readonly { labelKey: MessageKey; value: boolean }
 /** 沒有設定過時的抗鋸齒：開啟 */
 export const DEFAULT_ANTIALIAS = true
 
+/** 光暈（`render/bloom.ts`）的兩個選項。換它不必重新載入 */
+export const BLOOM_LEVELS: readonly { labelKey: MessageKey; value: boolean }[] = [
+  { labelKey: 'common.on', value: true },
+  { labelKey: 'common.off', value: false },
+]
+
+/** 沒有設定過時的光暈：開啟 */
+export const DEFAULT_BLOOM = true
+
+const BLOOM_KEY = 'gfx.bloom'
+
+export function readBloom(): boolean {
+  try {
+    const v = localStorage.getItem(BLOOM_KEY)
+    return v === null ? DEFAULT_BLOOM : v === '1'
+  } catch {
+    return DEFAULT_BLOOM
+  }
+}
+
+export function saveBloom(on: boolean): void {
+  try {
+    localStorage.setItem(BLOOM_KEY, on ? '1' : '0')
+  } catch { /* 存不了就算了，見 `readQuality` */ }
+}
+
 /** 存的是檔位的 pixel ratio。舊版的 `gfx.quality` 存相對比例，意義不同，不讀 */
 const QUALITY_KEY = 'gfx.pixelRatio'
 const ANTIALIAS_KEY = 'gfx.antialias'

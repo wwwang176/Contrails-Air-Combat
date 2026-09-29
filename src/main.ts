@@ -4,7 +4,10 @@ import { createPerfOverlay } from './core/perf'
 import { createRangeProbe } from './hud/rangeProbe'
 import { DEG } from './core/math'
 import { createScene } from './render/scene'
-import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality } from './render/quality'
+import {
+  fieldInnerFor, readAntialias, readBloom, readQuality, saveAntialias, saveBloom, saveQuality,
+} from './render/quality'
+import { createBloomPass, useBloom } from './render/bloom'
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
 import {
@@ -327,8 +330,13 @@ function wireTerrain(force = false): void {
   }
 }
 
+/** 戰鬥畫面的光暈，主場景畫完之後疊上去。選單與機庫不畫 */
+const bloom = createBloomPass(ctx.renderer)
+bloom.enabled = readBloom()
+
 const tracers = createTracers()
 ctx.scene.add(tracers.object)
+useBloom(tracers.object)
 
 
 /**
@@ -570,16 +578,19 @@ function attachVisual(c: Combatant): Visual {
 // 【容量照滿編訂而不是照這一場的架數】池子是基礎設施，建一次永不重建
 const muzzles = createMuzzles(MAX_COMBATANTS)
 ctx.scene.add(muzzles.object)
+useBloom(muzzles.object)
 // 【砲塔的槍管與槍焰各一個池】槍管必須跟著砲塔轉 —— 烘進機身的靜態槍管，
 // 在砲塔轉向時彈流會從管子旁邊飛出去，而砲塔的重點就是它會轉。
 const turretBarrels = createTurretBarrels(MAX_COMBATANTS)
 ctx.scene.add(turretBarrels.object)
 const turretMuzzles = createTurretMuzzles(MAX_COMBATANTS)
 ctx.scene.add(turretMuzzles.object)
+useBloom(turretMuzzles.object)
 const sparks = createSparks()
 ctx.scene.add(sparks.object)
 const blastSparks = createBlastSparks()
 ctx.scene.add(blastSparks.object)
+useBloom(blastSparks.object)
 const splashes = createSplashes()
 ctx.scene.add(splashes.object)
 const bombVisuals = createBombs()
@@ -705,6 +716,7 @@ ctx.scene.add(blastLights.object)
 
 const fireball = createFireball()
 ctx.scene.add(fireball.object)
+useBloom(fireball.object)
 const smoke = createSmoke()
 ctx.scene.add(smoke.object)
 /**
@@ -773,6 +785,9 @@ const blastChunks = createFireChunks(undefined, BLAST_PACE, (x, y, z, vx, vy, vz
 ctx.scene.add(blastChunks.object)
 const blastGlow = createFireGlow(undefined, BLAST_PACE)
 ctx.scene.add(blastGlow.object)
+// 【爆炸與火災共用這兩池】船火、地面火、殘骸的引擎火都是發射到 `BLAST_POOLS`
+useBloom(blastChunks.object)
+useBloom(blastGlow.object)
 const blastEmber = createEmberSmoke(undefined, BLAST_PACE, smokeTexture)
 ctx.scene.add(blastEmber.object)
 const blastSmoke = createBlastSmoke(undefined, BLAST_PACE, smokeTexture)
@@ -1561,6 +1576,8 @@ async function loadBattle(): Promise<void> {
     const culled: Object3D[] = []
     ctx.scene.traverse((o) => { if (o.frustumCulled) { culled.push(o); o.frustumCulled = false } })
     ctx.renderer.render(ctx.scene, ctx.camera)
+    // 光暈那幾個全螢幕著色器同一個理由：第一次用在這裡，不在開場第一幀
+    bloom.render(ctx.scene, ctx.camera)
     for (const o of culled) o.frustumCulled = true
     // 讀回一個像素才等得到 GPU 做完；不等的話那一次繪製還排在佇列裡，開場第一幀等它
     const gl = ctx.renderer.getContext()
@@ -3100,6 +3117,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   }
 
   ctx.renderer.render(ctx.scene, ctx.camera)
+  bloom.render(ctx.scene, ctx.camera)
 
   // 兩個準星都從**內插後的機身位置**往外投影 1000 m，所以它們的分離距離
   // 就是指揮儀正在追的角度誤差，而不是被相機視差污染過的東西。
@@ -3648,6 +3666,11 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     saveAimAssist(on)
     menu.renderAimAssist(on)
   },
+  onBloom(on) {
+    bloom.enabled = on
+    saveBloom(on)
+    menu.renderBloom(on)
+  },
   onLang(lang) {
     saveLang(lang)
     setLang(lang)
@@ -3662,6 +3685,7 @@ menu.renderQuality(startQuality)
 menu.renderAntialias(readAntialias())
 menu.renderVolume(readVolume())
 menu.renderAimAssist(aimAssist.enabled)
+menu.renderBloom(bloom.enabled)
 menu.renderLang(getLang())
 menu.renderSetup(setup)
 menu.show(screen)
@@ -3914,6 +3938,8 @@ if (initialRecoveryFailure !== null) {
  * 真實幀率比對，兩者對不上就是覆蓋層量錯了東西。
  */
 ;(window as unknown as Record<string, unknown>)['__perfFps'] = (): number => perf.fps
+/** 光暈的同頁 A/B：不經設定頁、不存檔，量完重整就回到設定的值 */
+;(window as unknown as Record<string, unknown>)['__bloom'] = (on: boolean): void => { bloom.enabled = on }
 
 /**
  * **量測出口**：上一幀的 draw call 與三角形數（`renderer.info.render`）。
