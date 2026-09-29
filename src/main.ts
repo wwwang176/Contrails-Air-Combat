@@ -103,6 +103,7 @@ import {
 import { PROP_DISC_RENDER_ORDER } from './render/geometry/assembly'
 import { SKY_RENDER_ORDER } from './render/sky'
 import { CULL } from './render/cullRuns'
+import { OCEAN_CULL } from './render/ocean'
 import { Hud } from './hud/Hud'
 import { createAudioMeter, type AudioMeter } from './hud/audioMeter'
 import type { MeterSample } from './audio/meter'
@@ -3957,9 +3958,17 @@ if (initialRecoveryFailure !== null) {
   return out.sort((a, b) => b.tris - a.tris)
 }
 /**
- * **量測出口**：植被、近海象限、佈景塊的剔除總開關（`CULL`），同頁 A/B 用。
+ * **量測出口**：植被、近海的塊、佈景塊的剔除總開關（`CULL`），同頁 A/B 用。
  * 不給參數就只回目前的狀態。
  */
+/**
+ * **量測出口**：近海剔除的塊有多細（每層 `n` × `n`，見 `OCEAN_CULL`），同頁比較用。
+ * 不給參數就只回目前的值。
+ */
+;(window as unknown as Record<string, unknown>)['__oceanGrid'] = (n?: number): number => {
+  if (n !== undefined) OCEAN_CULL.grid = n
+  return OCEAN_CULL.grid
+}
 ;(window as unknown as Record<string, unknown>)['__cull'] = (on?: boolean): boolean => {
   if (on !== undefined) CULL.enabled = on
   return CULL.enabled
