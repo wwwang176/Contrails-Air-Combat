@@ -4002,7 +4002,7 @@ if (initialRecoveryFailure !== null) {
 }
 ;(window as unknown as Record<string, unknown>)['__renderInfo'] = () => {
   const r = ctx.renderer.info.render
-  return { calls: r.calls, triangles: r.triangles }
+  return { calls: r.calls, triangles: r.triangles, programs: ctx.renderer.info.programs?.length ?? 0 }
 }
 
 /**
