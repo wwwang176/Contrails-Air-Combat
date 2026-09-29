@@ -3966,8 +3966,8 @@ if (initialRecoveryFailure !== null) {
 }
 
 /**
- * **量測出口**：上一幀的 draw call 與三角形數（`renderer.info.render`）。
- * 效能探針拿它對照 `__gfx` 關掉哪一層省了多少。
+ * **量測出口**：上一幀的 draw call 與三角形數（`renderer.info.render`），整幀的
+ * 總數，含光暈那幾趟。效能探針拿它對照 `__gfx` 關掉哪一層省了多少。
  */
 /**
  * **量測出口**：場景裡此刻還會畫的東西（圖層 0、可見），一個網格一筆：名字、
@@ -4024,6 +4024,20 @@ if (initialRecoveryFailure !== null) {
   terrain.fieldClip?.benchFarBake(trees) ?? null
 
 const GFX_HIDDEN_LAYER = 31
+/**
+ * 量測出口的隱藏／顯示。**顯示時還原原本的圖層，不是設回第 0 層** —— 光源與遮擋物
+ * 另外開了光暈的圖層（`render/bloom.ts`），設回 0 的話來回一次就不再發光、不再擋光
+ */
+function setGfxHidden(o: Object3D, hidden: boolean): void {
+  const saved = o.userData['gfxLayers'] as number | undefined
+  if (hidden) {
+    if (saved === undefined) o.userData['gfxLayers'] = o.layers.mask
+    o.layers.set(GFX_HIDDEN_LAYER)
+  } else if (saved !== undefined) {
+    o.layers.mask = saved
+    delete o.userData['gfxLayers']
+  }
+}
 ;(window as unknown as Record<string, unknown>)['__gfx'] = (
   patch: Record<string, boolean>,
 ) => {
@@ -4082,7 +4096,7 @@ const GFX_HIDDEN_LAYER = 31
     // 【一定要 traverse 到葉子】three 的 `projectObject` 對每個物件**單獨**測
     // 圖層，而且不論父物件通不通過都照樣遞迴下去 —— 圖層不繼承。只設群組
     // 的話（飛機模型、粒子池若是 Group）子網格照畫不誤。
-    for (const root of pick()) root.traverse((o) => { o.layers.set(on ? 0 : GFX_HIDDEN_LAYER) })
+    for (const root of pick()) root.traverse((o) => { setGfxHidden(o, !on) })
     applied.push(`${name}=${on ? 'on' : 'off'}`)
   }
   return { applied, known: Object.keys(targets) }
@@ -4159,7 +4173,7 @@ const GFX_HIDDEN_LAYER = 31
     const t = list[k]!
     kinds.add(t.unit.id)
     const on = id === undefined || t.unit.id !== id
-    g.children[k]!.traverse((o) => { o.layers.set(on ? 0 : GFX_HIDDEN_LAYER) })
+    g.children[k]!.traverse((o) => { setGfxHidden(o, !on) })
     if (!on) hidden++
   }
   return { hidden, kinds: [...kinds] }
