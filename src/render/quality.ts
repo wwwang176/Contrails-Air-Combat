@@ -104,43 +104,6 @@ export const ANTIALIAS_LEVELS: readonly { labelKey: MessageKey; value: boolean }
 /** 沒有設定過時的抗鋸齒：開啟 */
 export const DEFAULT_ANTIALIAS = true
 
-/**
- * 光暈（`render/bloom.ts`）的檔位。換它不必重新載入。
- *
- * - 低：光源圖半解析度
- * - 高：光源圖全解析度，暈的邊緣更細
- */
-export type BloomLevel = 'off' | 'low' | 'high'
-
-export const BLOOM_LEVELS: readonly { labelKey: MessageKey; value: BloomLevel }[] = [
-  { labelKey: 'common.off', value: 'off' },
-  { labelKey: 'settings.bloom.low', value: 'low' },
-  { labelKey: 'settings.bloom.high', value: 'high' },
-]
-
-/** 沒有設定過時的光暈：低 */
-export const DEFAULT_BLOOM: BloomLevel = 'low'
-
-const BLOOM_KEY = 'gfx.bloom'
-
-/** 【舊版的開關】`1` 是開（半解析度，就是現在的低）、`0` 是關 */
-export function readBloom(): BloomLevel {
-  try {
-    const v = localStorage.getItem(BLOOM_KEY)
-    if (v === '1') return 'low'
-    if (v === '0') return 'off'
-    return BLOOM_LEVELS.find((lv) => lv.value === v)?.value ?? DEFAULT_BLOOM
-  } catch {
-    return DEFAULT_BLOOM
-  }
-}
-
-export function saveBloom(level: BloomLevel): void {
-  try {
-    localStorage.setItem(BLOOM_KEY, level)
-  } catch { /* 存不了就算了，見 `readQuality` */ }
-}
-
 /** 存的是檔位的 pixel ratio。舊版的 `gfx.quality` 存相對比例，意義不同，不讀 */
 const QUALITY_KEY = 'gfx.pixelRatio'
 const ANTIALIAS_KEY = 'gfx.antialias'

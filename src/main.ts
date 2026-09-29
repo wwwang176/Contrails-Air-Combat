@@ -4,14 +4,7 @@ import { createPerfOverlay } from './core/perf'
 import { createRangeProbe } from './hud/rangeProbe'
 import { DEG } from './core/math'
 import { createScene } from './render/scene'
-import {
-  fieldInnerFor, readAntialias, readBloom, readQuality, saveAntialias, saveBloom, saveQuality,
-  type BloomLevel,
-} from './render/quality'
-import {
-  BLOOM_HIGH, BLOOM_LOW, createBloomPass, useBloom, useBloomOccluder, useNarrowBloom,
-} from './render/bloom'
-import { OCEAN_GLOW } from './render/ocean'
+import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality } from './render/quality'
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
 import {
@@ -36,7 +29,7 @@ import { arenaKills, createArenaState, stepArena } from './world/arena'
 import { createTerrain, preloadTerrainScenery, type TerrainGfx, type TerrainKind } from './render/terrain'
 import { createObjectiveRing } from './render/objectiveRing'
 import { timeScale } from './battle/mission'
-import { createTracers, TRACER_GLOW } from './render/tracers'
+import { createTracers } from './render/tracers'
 import { createMuzzles, createTurretMuzzles } from './render/muzzle'
 import { createTurretBarrels } from './render/turretBarrels'
 import { createSparks } from './render/sparks'
@@ -283,17 +276,6 @@ function playThunder(distance: number, bearing: number): void {
  */
 let objectiveRing = createObjectiveRing()
 ctx.scene.add(terrain.object)
-tagTerrainOccluders(terrain.object)
-
-/**
- * 地形裡會擋住光暈的：陸地（索引 2）與佈景（索引 4 起）。索引契約與 `__gfx` 共用。
- * 海面與植被不標，理由見 `render/bloom.ts`
- */
-function tagTerrainOccluders(root: Object3D): void {
-  const land = root.children[2]
-  if (land !== undefined) useBloomOccluder(land)
-  for (let i = 4; i < root.children.length; i++) useBloomOccluder(root.children[i]!)
-}
 
 /**
  * 把地形接給每一架 AI，並清掉上一場的鎖存。
@@ -345,24 +327,8 @@ function wireTerrain(force = false): void {
   }
 }
 
-/** 光暈，主場景畫完之後疊上去。戰鬥、機庫、主選單的背景都畫 */
-const bloom = createBloomPass(ctx.renderer, (kind, on, halfHeight) => {
-  if (kind !== 'narrow') return
-  OCEAN_GLOW.pass.value = on ? 1 : 0
-  TRACER_GLOW.pass.value = on ? 1 : 0
-  TRACER_GLOW.halfHeight.value = halfHeight
-})
-/** 套用光暈檔位 */
-function applyBloom(level: BloomLevel): void {
-  bloom.enabled = level !== 'off'
-  bloom.setQuality(level === 'high' ? BLOOM_HIGH : BLOOM_LOW)
-}
-let bloomLevel = readBloom()
-applyBloom(bloomLevel)
-
 const tracers = createTracers()
 ctx.scene.add(tracers.object)
-useNarrowBloom(tracers.object)
 
 
 /**
@@ -580,7 +546,6 @@ function attachLod(v: Visual, id: string): void {
   if (v.lod !== null) {
     v.lod.group.visible = false
     ctx.scene.add(v.lod.group)
-    useBloomOccluder(v.lod.group)
   }
   v.far = false
 }
@@ -596,7 +561,6 @@ function attachVisual(c: Combatant): Visual {
     wrecked: false,
   }
   ctx.scene.add(v.model.group)
-  useBloomOccluder(v.model.group)
   attachLod(v, c.aircraft.spec.id)
   visuals.set(c, v)
   return v
@@ -606,19 +570,16 @@ function attachVisual(c: Combatant): Visual {
 // 【容量照滿編訂而不是照這一場的架數】池子是基礎設施，建一次永不重建
 const muzzles = createMuzzles(MAX_COMBATANTS)
 ctx.scene.add(muzzles.object)
-useNarrowBloom(muzzles.object)
 // 【砲塔的槍管與槍焰各一個池】槍管必須跟著砲塔轉 —— 烘進機身的靜態槍管，
 // 在砲塔轉向時彈流會從管子旁邊飛出去，而砲塔的重點就是它會轉。
 const turretBarrels = createTurretBarrels(MAX_COMBATANTS)
 ctx.scene.add(turretBarrels.object)
 const turretMuzzles = createTurretMuzzles(MAX_COMBATANTS)
 ctx.scene.add(turretMuzzles.object)
-useNarrowBloom(turretMuzzles.object)
 const sparks = createSparks()
 ctx.scene.add(sparks.object)
 const blastSparks = createBlastSparks()
 ctx.scene.add(blastSparks.object)
-useBloom(blastSparks.object)
 const splashes = createSplashes()
 ctx.scene.add(splashes.object)
 const bombVisuals = createBombs()
@@ -744,7 +705,6 @@ ctx.scene.add(blastLights.object)
 
 const fireball = createFireball()
 ctx.scene.add(fireball.object)
-useBloom(fireball.object)
 const smoke = createSmoke()
 ctx.scene.add(smoke.object)
 /**
@@ -813,9 +773,6 @@ const blastChunks = createFireChunks(undefined, BLAST_PACE, (x, y, z, vx, vy, vz
 ctx.scene.add(blastChunks.object)
 const blastGlow = createFireGlow(undefined, BLAST_PACE)
 ctx.scene.add(blastGlow.object)
-// 【爆炸與火災共用這兩池】船火、地面火、殘骸的引擎火都是發射到 `BLAST_POOLS`
-useBloom(blastChunks.object)
-useBloom(blastGlow.object)
 const blastEmber = createEmberSmoke(undefined, BLAST_PACE, smokeTexture)
 ctx.scene.add(blastEmber.object)
 const blastSmoke = createBlastSmoke(undefined, BLAST_PACE, smokeTexture)
@@ -1604,8 +1561,6 @@ async function loadBattle(): Promise<void> {
     const culled: Object3D[] = []
     ctx.scene.traverse((o) => { if (o.frustumCulled) { culled.push(o); o.frustumCulled = false } })
     ctx.renderer.render(ctx.scene, ctx.camera)
-    // 光暈那幾個全螢幕著色器同一個理由：第一次用在這裡，不在開場第一幀
-    bloom.render(ctx.scene, ctx.camera)
     for (const o of culled) o.frustumCulled = true
     // 讀回一個像素才等得到 GPU 做完；不等的話那一次繪製還排在佇列裡，開場第一幀等它
     const gl = ctx.renderer.getContext()
@@ -1648,7 +1603,6 @@ function buildBattleTerrain(): void {
   terrain.dispose()
   terrain = createTerrain(terrainKind, terrainGfx())
   ctx.scene.add(terrain.object)
-  tagTerrainOccluders(terrain.object)
   // 【時段與地形同一個來源】任務讀卡片（省略 = 正午），遭遇戰讀玩家在編組頁
   // 選的那一格。天空、霧、三盞燈與海一次換完 —— 分開叫的話漏掉海的症狀是
   // 「黃昏的天配中午的海」，而且不會有東西報錯
@@ -1748,7 +1702,6 @@ function startWorld(cfg: BattleConfig): void {
   if (world.ships.length > 0) {
     shipModels = createShipModels(world.ships)
     ctx.scene.add(shipModels.object)
-    useBloomOccluder(shipModels.object)
   }
   // 地面目標與船同一個做法：每一場重建
   if (groundModels !== null) {
@@ -1764,7 +1717,6 @@ function startWorld(cfg: BattleConfig): void {
   if (world.groundTargets.length > 0) {
     groundModels = createGroundModels(world.groundTargets)
     ctx.scene.add(groundModels.object)
-    useBloomOccluder(groundModels.object)
     searchlights = createSearchlights(world.groundTargets, glareTexture)
     ctx.scene.add(searchlights.object)
   }
@@ -1777,7 +1729,6 @@ function startWorld(cfg: BattleConfig): void {
   if (world.balloons.length > 0) {
     balloonModels = createBalloonModels(world.balloons)
     ctx.scene.add(balloonModels.object)
-    useBloomOccluder(balloonModels.object)
   }
 
   // 5. 撤離圓環。【比照地形每一場都重建】那條路徑因此每一場都在走，不是
@@ -2840,7 +2791,6 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
       // 釋放。配置只發生在復活那一刻
       v.model = buildAircraft(c.aircraft.spec)
       ctx.scene.add(v.model.group)
-      useBloomOccluder(v.model.group)
       attachLod(v, c.aircraft.spec.id)
       v.wrecked = false
     }
@@ -3150,7 +3100,6 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   }
 
   ctx.renderer.render(ctx.scene, ctx.camera)
-  bloom.render(ctx.scene, ctx.camera)
 
   // 兩個準星都從**內插後的機身位置**往外投影 1000 m，所以它們的分離距離
   // 就是指揮儀正在追的角度誤差，而不是被相機視差污染過的東西。
@@ -3534,7 +3483,6 @@ function drawHangar(frameSeconds: number, show: Showcase): void {
   show.update(frameSeconds, ctx.camera)
   terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
   ctx.renderer.render(ctx.scene, ctx.camera)
-  bloom.render(ctx.scene, ctx.camera)
 }
 
 /** 選單期間的一幀：只有海與天，鏡頭緩緩平移（M10 spec §9.4）。 */
@@ -3545,7 +3493,6 @@ function drawMenuBackground(): void {
   ctx.camera.lookAt(MENU_POSE.target)
   terrain.update(elapsed, MENU_POSE.position.x, MENU_POSE.position.z)
   ctx.renderer.render(ctx.scene, ctx.camera)
-  bloom.render(ctx.scene, ctx.camera)
 }
 
 /**
@@ -3701,12 +3648,6 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     saveAimAssist(on)
     menu.renderAimAssist(on)
   },
-  onBloom(level) {
-    bloomLevel = level
-    applyBloom(level)
-    saveBloom(level)
-    menu.renderBloom(level)
-  },
   onLang(lang) {
     saveLang(lang)
     setLang(lang)
@@ -3721,7 +3662,6 @@ menu.renderQuality(startQuality)
 menu.renderAntialias(readAntialias())
 menu.renderVolume(readVolume())
 menu.renderAimAssist(aimAssist.enabled)
-menu.renderBloom(bloomLevel)
 menu.renderLang(getLang())
 menu.renderSetup(setup)
 menu.show(screen)
@@ -3974,21 +3914,10 @@ if (initialRecoveryFailure !== null) {
  * 真實幀率比對，兩者對不上就是覆蓋層量錯了東西。
  */
 ;(window as unknown as Record<string, unknown>)['__perfFps'] = (): number => perf.fps
-/** 光暈裡遠處曳光彈的最小半徑（光源圖的 px，0 = 不放粗），同頁 A/B 用 */
-;(window as unknown as Record<string, unknown>)['__tracerGlowMin'] = (px: number): void => {
-  TRACER_GLOW.minRadiusPx.value = px
-}
-/** 光暈的同頁 A/B：不經設定頁、不存檔，量完重整就回到設定的值 */
-;(window as unknown as Record<string, unknown>)['__bloom'] = (on: boolean): void => { bloom.enabled = on }
-/** 海面光暈的門檻：天空反射之前的線性亮度在這一段之間漸漸留下來 */
-;(window as unknown as Record<string, unknown>)['__oceanGlow'] = (lo: number, hi: number, gain = 0.3): void => {
-  OCEAN_GLOW.range.value.set(lo, hi)
-  OCEAN_GLOW.gain.value = gain
-}
 
 /**
- * **量測出口**：上一幀的 draw call 與三角形數（`renderer.info.render`），整幀的
- * 總數，含光暈那幾趟。效能探針拿它對照 `__gfx` 關掉哪一層省了多少。
+ * **量測出口**：上一幀的 draw call 與三角形數（`renderer.info.render`）。
+ * 效能探針拿它對照 `__gfx` 關掉哪一層省了多少。
  */
 /**
  * **量測出口**：場景裡此刻還會畫的東西（圖層 0、可見），一個網格一筆：名字、
@@ -4045,20 +3974,6 @@ if (initialRecoveryFailure !== null) {
   terrain.fieldClip?.benchFarBake(trees) ?? null
 
 const GFX_HIDDEN_LAYER = 31
-/**
- * 量測出口的隱藏／顯示。**顯示時還原原本的圖層，不是設回第 0 層** —— 光源與遮擋物
- * 另外開了光暈的圖層（`render/bloom.ts`），設回 0 的話來回一次就不再發光、不再擋光
- */
-function setGfxHidden(o: Object3D, hidden: boolean): void {
-  const saved = o.userData['gfxLayers'] as number | undefined
-  if (hidden) {
-    if (saved === undefined) o.userData['gfxLayers'] = o.layers.mask
-    o.layers.set(GFX_HIDDEN_LAYER)
-  } else if (saved !== undefined) {
-    o.layers.mask = saved
-    delete o.userData['gfxLayers']
-  }
-}
 ;(window as unknown as Record<string, unknown>)['__gfx'] = (
   patch: Record<string, boolean>,
 ) => {
@@ -4117,7 +4032,7 @@ function setGfxHidden(o: Object3D, hidden: boolean): void {
     // 【一定要 traverse 到葉子】three 的 `projectObject` 對每個物件**單獨**測
     // 圖層，而且不論父物件通不通過都照樣遞迴下去 —— 圖層不繼承。只設群組
     // 的話（飛機模型、粒子池若是 Group）子網格照畫不誤。
-    for (const root of pick()) root.traverse((o) => { setGfxHidden(o, !on) })
+    for (const root of pick()) root.traverse((o) => { o.layers.set(on ? 0 : GFX_HIDDEN_LAYER) })
     applied.push(`${name}=${on ? 'on' : 'off'}`)
   }
   return { applied, known: Object.keys(targets) }
@@ -4194,7 +4109,7 @@ function setGfxHidden(o: Object3D, hidden: boolean): void {
     const t = list[k]!
     kinds.add(t.unit.id)
     const on = id === undefined || t.unit.id !== id
-    g.children[k]!.traverse((o) => { setGfxHidden(o, !on) })
+    g.children[k]!.traverse((o) => { o.layers.set(on ? 0 : GFX_HIDDEN_LAYER) })
     if (!on) hidden++
   }
   return { hidden, kinds: [...kinds] }
