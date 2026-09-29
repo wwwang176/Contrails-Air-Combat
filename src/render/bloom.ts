@@ -28,7 +28,8 @@ import {
  *
  * ```
  *   1  主場景照舊直接畫到畫布（這一支不碰）
- *   2  遮擋物（地形、佈景、飛機、船、地面單位）只寫深度，到半解析度的離屏圖
+ *   2  遮擋物（地形、佈景、飛機、船、地面單位）只寫深度，到光源圖
+ *      （`BLOOM_LOW` 半解析度、`BLOOM_HIGH` 全解析度）
  *   3  窄光源（海面）畫到同一張，往下取樣兩層再疊回
  *   4  只清顏色、留著深度，寬光源畫到同一張，往下取樣四層再疊回
  *   5  兩份結果以加法疊回畫布
@@ -85,11 +86,27 @@ export function useBloomOccluder(root: Object3D): void {
 /** 疊回畫布時的強度。**起始值，由試看裁定** */
 export const BLOOM_STRENGTH = 0.9
 
-/** 寬光暈往下取樣幾層：半解析度之下的 1/4、1/8、1/16、1/32 */
-const WIDE_LEVELS = 4
+/**
+ * 光源圖的解析度（畫布的幾成）與兩種光暈往下取樣的層數。
+ *
+ * 【層數跟著解析度走】暈的大小由最粗那一層在畫面上多大決定，而每一層是光源圖的
+ * 一半。全解析度比半解析度多一層，最粗那一層才同樣是畫面的 1/32（寬）、1/8（窄）
+ * —— 兩檔的暈一樣大，全解析度的邊緣更細
+ */
+export interface BloomQuality {
+  readonly scale: number
+  readonly wideLevels: number
+  readonly narrowLevels: number
+}
 
-/** 窄光暈往下取樣幾層：1/4、1/8。每少一層，暈的寬度約減半 */
-const NARROW_LEVELS = 2
+/** 低：半解析度。遠處的曳光彈在這張圖上不到一個像素，要放粗（`tracers.ts` 的 `TRACER_GLOW`） */
+export const BLOOM_LOW: BloomQuality = { scale: 0.5, wideLevels: 4, narrowLevels: 2 }
+
+/** 高：全解析度，細線本來就蓋得到像素 */
+export const BLOOM_HIGH: BloomQuality = { scale: 1, wideLevels: 5, narrowLevels: 3 }
+
+const MAX_WIDE_LEVELS = 5
+const MAX_NARROW_LEVELS = 3
 
 const FULLSCREEN_VERTEX = `
   varying vec2 vUv;
@@ -154,6 +171,8 @@ const COMPOSITE_FRAGMENT = `
 
 export interface BloomPass {
   enabled: boolean
+  /** 換解析度與層數。離屏圖下一次畫的時候照新的尺寸重配 */
+  setQuality(q: BloomQuality): void
   /** 主場景畫完之後呼叫。`enabled` 為 false 時什麼都不做 */
   render(scene: Scene, camera: Camera): void
   dispose(): void
@@ -180,9 +199,10 @@ export function createBloomPass(
   // 光源那一張帶深度：遮擋物的深度要留給兩種光源用，同一團火裡前後的火塊也要照常遮擋
   const source = lowTarget(true)
   const wide: WebGLRenderTarget[] = []
-  for (let i = 0; i < WIDE_LEVELS; i++) wide.push(lowTarget(false))
+  for (let i = 0; i < MAX_WIDE_LEVELS; i++) wide.push(lowTarget(false))
   const narrow: WebGLRenderTarget[] = []
-  for (let i = 0; i < NARROW_LEVELS; i++) narrow.push(lowTarget(false))
+  for (let i = 0; i < MAX_NARROW_LEVELS; i++) narrow.push(lowTarget(false))
+  let quality = BLOOM_LOW
 
   const downTexel = new Vector2()
   const upTexel = new Vector2()
@@ -230,14 +250,14 @@ export function createBloomPass(
 
   function resize(): void {
     renderer.getDrawingBufferSize(drawing)
-    const w = Math.max(1, Math.round(drawing.x / 2))
-    const h = Math.max(1, Math.round(drawing.y / 2))
+    const w = Math.max(1, Math.round(drawing.x * quality.scale))
+    const h = Math.max(1, Math.round(drawing.y * quality.scale))
     if (w === width && h === height) return
     width = w
     height = h
     source.setSize(w, h)
-    for (let i = 0; i < WIDE_LEVELS; i++) wide[i]!.setSize(Math.max(1, w >> (i + 1)), Math.max(1, h >> (i + 1)))
-    for (let i = 0; i < NARROW_LEVELS; i++) narrow[i]!.setSize(Math.max(1, w >> (i + 1)), Math.max(1, h >> (i + 1)))
+    for (let i = 0; i < MAX_WIDE_LEVELS; i++) wide[i]!.setSize(Math.max(1, w >> (i + 1)), Math.max(1, h >> (i + 1)))
+    for (let i = 0; i < MAX_NARROW_LEVELS; i++) narrow[i]!.setSize(Math.max(1, w >> (i + 1)), Math.max(1, h >> (i + 1)))
   }
 
   function pass(material: ShaderMaterial, src: Texture, target: WebGLRenderTarget | null): void {
@@ -248,14 +268,14 @@ export function createBloomPass(
   }
 
   /**
-   * 把光源圖往下取樣 `levels.length` 層、再逐層疊回，結果在 `levels[0]`。
+   * 把光源圖往下取樣 `count` 層、再逐層疊回，結果在 `levels[0]`。
    * 每一層先清掉，往上疊的時候才不會留著上一幀
    */
-  function blur(levels: readonly WebGLRenderTarget[]): void {
+  function blur(levels: readonly WebGLRenderTarget[], count: number): void {
     let src: Texture = source.texture
     let srcW = width
     let srcH = height
-    for (let i = 0; i < levels.length; i++) {
+    for (let i = 0; i < count; i++) {
       downTexel.set(1 / srcW, 1 / srcH)
       renderer.setRenderTarget(levels[i]!)
       renderer.clear(true, false, false)
@@ -264,7 +284,7 @@ export function createBloomPass(
       srcW = Math.max(1, width >> (i + 1))
       srcH = Math.max(1, height >> (i + 1))
     }
-    for (let i = levels.length - 1; i > 0; i--) {
+    for (let i = count - 1; i > 0; i--) {
       upTexel.set(1 / Math.max(1, width >> (i + 1)), 1 / Math.max(1, height >> (i + 1)))
       pass(up, levels[i]!.texture, levels[i - 1]!)
     }
@@ -272,6 +292,12 @@ export function createBloomPass(
 
   const bloom: BloomPass = {
     enabled: true,
+    setQuality(q) {
+      quality = q
+      // 尺寸記號歸零，下一次 resize 一定照新的解析度重配
+      width = 0
+      height = 0
+    },
     render(scene, camera) {
       if (!bloom.enabled) return
       resize()
@@ -308,7 +334,7 @@ export function createBloomPass(
         renderer.render(scene, camera)
         onGlowPass?.('narrow', false, height / 2)
         const narrowOn = info.calls > calls
-        if (narrowOn) blur(narrow)
+        if (narrowOn) blur(narrow, quality.narrowLevels)
 
         // 3. 寬光源。只清顏色：遮擋物與海面的深度留著照樣擋
         renderer.setRenderTarget(source)
@@ -319,7 +345,7 @@ export function createBloomPass(
         renderer.render(scene, camera)
         onGlowPass?.('wide', false, height / 2)
         const wideOn = info.calls > calls
-        if (wideOn) blur(wide)
+        if (wideOn) blur(wide, quality.wideLevels)
 
         camera.layers.mask = savedLayers
         scene.matrixWorldAutoUpdate = savedAutoUpdate

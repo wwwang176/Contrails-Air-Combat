@@ -225,6 +225,8 @@ export const zh = {
   'settings.quality': '畫質',
   'settings.aa': '抗鋸齒',
   'settings.bloom': '光暈',
+  'settings.bloom.low': '低',
+  'settings.bloom.high': '高',
   'settings.volume': '音量',
   'settings.assist': '瞄準輔助',
   'reload.title': '需要重新載入',

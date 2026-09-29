@@ -17,7 +17,7 @@ import type { Screen, ScreenEvent } from './screens'
 import { captionOf, markTutorialSeen, type Tutorial } from './tutorials'
 import {
   ANTIALIAS_LEVELS, BLOOM_LEVELS, DEFAULT_ANTIALIAS, DEFAULT_BLOOM, DEFAULT_QUALITY, QUALITY_LEVELS,
-  qualityAvailable,
+  qualityAvailable, type BloomLevel,
 } from '../render/quality'
 import { DEFAULT_VOLUME_DB, VOLUME_LEVELS } from '../audio/volume'
 import { AIM_ASSIST_LEVELS } from '../input/aimAssist'
@@ -70,7 +70,7 @@ export interface MenuHooks {
   /** 設定裡按了確定、瞄準輔助有變。呼叫端負責套用與記住 */
   onAimAssist(on: boolean): void
   /** 設定裡按了確定、光暈有變。呼叫端負責套用與記住 */
-  onBloom(on: boolean): void
+  onBloom(level: BloomLevel): void
   /**
    * 設定裡按了確定、語言有變。呼叫端負責套用（`setLang`）與記住；選單自己訂閱
    * `onLangChange` 重畫
@@ -110,7 +110,7 @@ export interface Menu {
   /** 同上，瞄準輔助目前**已生效**的值 */
   renderAimAssist(on: boolean): void
   /** 同上，光暈目前**已生效**的值 */
-  renderBloom(on: boolean): void
+  renderBloom(level: BloomLevel): void
 }
 
 /**
@@ -722,8 +722,8 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   let appliedAa = DEFAULT_ANTIALIAS
   let appliedVolume: number | null = DEFAULT_VOLUME_DB
   let appliedAssist = false
-  let appliedBloom = DEFAULT_BLOOM
-  let draftBloom = appliedBloom
+  let appliedBloom: BloomLevel = DEFAULT_BLOOM
+  let draftBloom: BloomLevel = appliedBloom
   let draftLang: Lang = appliedLang
   let draftQuality = appliedQuality
   let draftAa = appliedAa
@@ -828,9 +828,9 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     drawSettingRows()
   }
 
-  function renderBloom(on: boolean): void {
-    appliedBloom = on
-    draftBloom = on
+  function renderBloom(level: BloomLevel): void {
+    appliedBloom = level
+    draftBloom = level
     drawSettingRows()
   }
 

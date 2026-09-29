@@ -104,29 +104,40 @@ export const ANTIALIAS_LEVELS: readonly { labelKey: MessageKey; value: boolean }
 /** 沒有設定過時的抗鋸齒：開啟 */
 export const DEFAULT_ANTIALIAS = true
 
-/** 光暈（`render/bloom.ts`）的兩個選項。換它不必重新載入 */
-export const BLOOM_LEVELS: readonly { labelKey: MessageKey; value: boolean }[] = [
-  { labelKey: 'common.on', value: true },
-  { labelKey: 'common.off', value: false },
+/**
+ * 光暈（`render/bloom.ts`）的檔位。換它不必重新載入。
+ *
+ * - 低：光源圖半解析度，遠處的曳光彈放粗（不然會閃）
+ * - 高：光源圖全解析度，不放粗
+ */
+export type BloomLevel = 'off' | 'low' | 'high'
+
+export const BLOOM_LEVELS: readonly { labelKey: MessageKey; value: BloomLevel }[] = [
+  { labelKey: 'common.off', value: 'off' },
+  { labelKey: 'settings.bloom.low', value: 'low' },
+  { labelKey: 'settings.bloom.high', value: 'high' },
 ]
 
-/** 沒有設定過時的光暈：開啟 */
-export const DEFAULT_BLOOM = true
+/** 沒有設定過時的光暈：低 */
+export const DEFAULT_BLOOM: BloomLevel = 'low'
 
 const BLOOM_KEY = 'gfx.bloom'
 
-export function readBloom(): boolean {
+/** 【舊版的開關】`1` 是開（半解析度，就是現在的低）、`0` 是關 */
+export function readBloom(): BloomLevel {
   try {
     const v = localStorage.getItem(BLOOM_KEY)
-    return v === null ? DEFAULT_BLOOM : v === '1'
+    if (v === '1') return 'low'
+    if (v === '0') return 'off'
+    return BLOOM_LEVELS.find((lv) => lv.value === v)?.value ?? DEFAULT_BLOOM
   } catch {
     return DEFAULT_BLOOM
   }
 }
 
-export function saveBloom(on: boolean): void {
+export function saveBloom(level: BloomLevel): void {
   try {
-    localStorage.setItem(BLOOM_KEY, on ? '1' : '0')
+    localStorage.setItem(BLOOM_KEY, level)
   } catch { /* 存不了就算了，見 `readQuality` */ }
 }
 
