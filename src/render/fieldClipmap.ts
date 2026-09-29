@@ -599,8 +599,10 @@ uniform vec2 uFarCentre; uniform float uFarSpan;`)
         const f = outerFades(horizon.span, backdrop.span)
         const r = Math.hypot(x - U.uCam.value.x, z - U.uCam.value.y)
         if (r < f.horFrom) return `最外層：${horizon.m.toFixed(0)} m／格，田與疊圖都烘`
-        if (r < f.avgFrom) return `遠景層：${backdrop.m.toFixed(0)} m／格（${km(f.horTo)} 起）`
-        return `遠景層的平均色（${km(f.avgTo)} 起全平均）`
+        if (r < f.horTo) return `最外層 → 遠景層漸變（${km(f.horFrom)}～${km(f.horTo)}）`
+        if (r < f.avgFrom) return `遠景層：${backdrop.m.toFixed(0)} m／格`
+        if (r < f.avgTo) return `遠景層 → 平均色漸變（${km(f.avgFrom)}～${km(f.avgTo)}）`
+        return '遠景層的平均色'
       }
       if (edge(horizon.centre, horizon.span) < 1) {
         return `最外層：${horizon.m.toFixed(0)} m／格（±${km(horizon.span / 2)}），田與疊圖都烘`
