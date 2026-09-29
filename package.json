@@ -16,10 +16,12 @@
     "bench": "vitest bench --run"
   },
   "dependencies": {
+    "intl-messageformat": "^10.7.18",
     "lil-gui": "^0.20.0",
     "three": "^0.180.0"
   },
   "devDependencies": {
+    "@formatjs/icu-messageformat-parser": "^2.11.4",
     "@gltf-transform/core": "^4.5.0",
     "@gltf-transform/extensions": "^4.5.0",
     "@types/node": "^26.5.1",
