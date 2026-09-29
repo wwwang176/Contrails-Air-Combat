@@ -25,10 +25,12 @@ import {
   Vector2,
   Vector3,
   WebGLRenderTarget,
+  type Camera,
   type WebGLProgramParametersWithUniforms,
   type WebGLRenderer,
 } from 'three'
 import { SKY_GRADIENT_POWER, SKY_HORIZON, SKY_ZENITH } from './sky'
+import { CULL, frustumPlanesOf, shareGeometry, visibleRuns } from './cullRuns'
 // 【只匯入型別】`timeOfDay.ts` 反過來要用這裡的 `SEA_COLOR`，值匯入會成環
 import type { DayPalette } from './timeOfDay'
 import type { ShoreFieldData } from '../world/archipelago'
@@ -339,6 +341,23 @@ export const OCEAN_RING_SEGMENTS = 256
  * clipmap 是 425,984。均勻格的成本是半徑的平方，clipmap 是對數。
  */
 export const OCEAN_LEVELS = 4
+
+/**
+ * 每一層切成的四個象限（格號的 i 半、j 半），**依繞一圈的順序**。
+ *
+ * 【為什麼要切】四層都以相機為中心、包住鏡頭四周，整層的包圍盒恆與視錐相交 ——
+ * 抬頭看天時近海照樣付頂點成本（實測 0.5 ms）。切成象限之後，背後那半圈整塊不畫。
+ *
+ * 【為什麼是繞圈的順序】看得到的象限總是繞圈相鄰的兩三個，索引上也就相鄰，併成
+ * 一次 draw call（`visibleRuns`）。每個象限的三角形數相同 —— 洞在正中央。
+ */
+export const OCEAN_QUADRANTS = [[0, 0], [1, 0], [1, 1], [0, 1]] as const
+
+/**
+ * 象限包圍盒的上下緣，m。頂點只做垂直位移，最大是三道波的振幅和（4.5 m）；
+ * 留一倍多的餘裕
+ */
+export const OCEAN_CULL_Y = 10
 
 /**
  * 細浪面**整體**的邊長，m。由 clipmap 推導，不是可調參數。
@@ -1540,6 +1559,11 @@ export interface Ocean {
    */
   setPalette(p: DayPalette): void
   update(time: number, centerX: number, centerZ: number): void
+  /**
+   * 依這一台相機畫近海每一層看得到的象限。**每次 render 之前呼叫**；`CULL.enabled`
+   * 關掉時每一層整條畫一次，與切象限之前相同
+   */
+  cull(camera: Camera): void
   heightAt(x: number, z: number, time: number): number
   dispose(): void
 }
@@ -1573,15 +1597,20 @@ function clipmapLevelGeometry(cell: number, segments: number, hollow: boolean): 
   // 洞的範圍：中央 segments/2 格，也就是索引 [segments/4, 3·segments/4)
   const holeLo = segments / 4
   const holeHi = segments - segments / 4
+  // 【索引依象限排成四段】繞一圈的順序 —— 看得到的相鄰象限在索引上也相鄰，併成一次
+  // draw call。見 `OCEAN_QUADRANTS`
   const idx: number[] = []
-  for (let j = 0; j < segments; j++) {
-    for (let i = 0; i < segments; i++) {
-      if (hollow && i >= holeLo && i < holeHi && j >= holeLo && j < holeHi) continue
-      const a = j * n + i
-      const b = a + 1
-      const c = a + n
-      const d = c + 1
-      idx.push(a, c, b, b, c, d)
+  const mid = segments / 2
+  for (const [qi, qj] of OCEAN_QUADRANTS) {
+    for (let j = qj * mid; j < (qj + 1) * mid; j++) {
+      for (let i = qi * mid; i < (qi + 1) * mid; i++) {
+        if (hollow && i >= holeLo && i < holeHi && j >= holeLo && j < holeHi) continue
+        const a = j * n + i
+        const b = a + 1
+        const c = a + n
+        const d = c + 1
+        idx.push(a, c, b, b, c, d)
+      }
     }
   }
   const g = new BufferGeometry()
@@ -1863,13 +1892,34 @@ ${SPARKLE_COMMON}${displace ? '\n  attribute float oceanCell;' : ''}`,
   applySparkle(material, true, useTable ? 'ocean-near-waves-table' : 'ocean-near-waves')
 
   const mesh = new Group()
+  /**
+   * 每一層的四段：`[0]` 是那一層的 Mesh 本身（整條索引、`drawRange` 決定畫哪段），
+   * 其餘三段掛在它底下，各自一顆共用屬性的幾何。見 `OCEAN_QUADRANTS`
+   */
+  const quadRuns: Mesh[][] = []
   for (const g of levelGeometries) {
-    const m = new Mesh(g, material)
-    // 【一律不做視錐剔除】包圍球看不到頂點位移，而且四層全部以相機為
-    // 中心 —— 能被剔除的只有整層都在畫面外的情形，那極少發生
-    m.frustumCulled = false
-    mesh.add(m)
+    const runs: Mesh[] = []
+    for (let r = 0; r < OCEAN_QUADRANTS.length; r++) {
+      const m = new Mesh(r === 0 ? g : shareGeometry(g), material)
+      // 【three 的剔除一律關掉】包圍球看不到頂點位移，而且象限的包圍盒都碰得到相機 ——
+      // 球一定與視錐相交。象限自己剔，見 `cull`
+      m.frustumCulled = false
+      if (r > 0) {
+        m.visible = false
+        runs[0]!.add(m)
+      }
+      runs.push(m)
+    }
+    quadRuns.push(runs)
+    mesh.add(runs[0]!)
   }
+  /** 各層四個象限的索引區段與包圍盒；`cull` 每次重填盒子 */
+  const quadStart = new Int32Array(OCEAN_QUADRANTS.length)
+  const quadEnd = new Int32Array(OCEAN_QUADRANTS.length)
+  const quadBox = new Float32Array(OCEAN_QUADRANTS.length * 6)
+  const runStart = new Int32Array(OCEAN_QUADRANTS.length)
+  const runEnd = new Int32Array(OCEAN_QUADRANTS.length)
+  const planes = new Float64Array(24)
 
   // 遠海。用 MeshPhysicalMaterial 而不是 Basic：要跟細浪面接得上就得受同一
   // 組燈光。roughness / metalness 全部沿用細浪面的值。
@@ -1999,8 +2049,50 @@ ${SPARKLE_COMMON}${displace ? '\n  attribute float oceanCell;' : ''}`,
         oceanRenderer.setRenderTarget(prev)
       }
     },
+    cull(camera) {
+      if (CULL.enabled) frustumPlanesOf(camera, planes)
+      for (let l = 0; l < quadRuns.length; l++) {
+        const runs = quadRuns[l]!
+        const total = levelGeometries[l]!.index!.count
+        let n = 1
+        runStart[0] = 0
+        runEnd[0] = total
+        if (CULL.enabled) {
+          // 象限盒子：以群組（吸附後的中心）為準，水平是那一層的半寬，垂直是浪高餘裕
+          const half = (OCEAN_RING_SEGMENTS / 2) * OCEAN_BASE_CELL * 2 ** l
+          const quarter = total / OCEAN_QUADRANTS.length
+          for (let q = 0; q < OCEAN_QUADRANTS.length; q++) {
+            const [qi, qj] = OCEAN_QUADRANTS[q]!
+            quadStart[q] = q * quarter
+            quadEnd[q] = (q + 1) * quarter
+            const x0 = mesh.position.x + (qi - 1) * half
+            const z0 = mesh.position.z + (qj - 1) * half
+            quadBox[q * 6] = x0
+            quadBox[q * 6 + 1] = -OCEAN_CULL_Y
+            quadBox[q * 6 + 2] = z0
+            quadBox[q * 6 + 3] = x0 + half
+            quadBox[q * 6 + 4] = OCEAN_CULL_Y
+            quadBox[q * 6 + 5] = z0 + half
+          }
+          n = visibleRuns(OCEAN_QUADRANTS.length, quadStart, quadEnd, quadBox, planes,
+            OCEAN_QUADRANTS.length, runStart, runEnd)
+        }
+        for (let r = 0; r < runs.length; r++) {
+          const m = runs[r]!
+          if (r < n) {
+            m.visible = true
+            m.geometry.setDrawRange(runStart[r]!, runEnd[r]! - runStart[r]!)
+          } else {
+            // 【第 0 段只清空不藏】其餘三段是它的孩子
+            if (r > 0) m.visible = false
+            m.geometry.setDrawRange(0, 0)
+          }
+        }
+      }
+    },
     heightAt: gerstnerHeight,
     dispose() {
+      for (const runs of quadRuns) for (const m of runs.slice(1)) m.geometry.dispose()
       for (const g of levelGeometries) g.dispose()
       material.dispose()
       farGeometry.dispose()

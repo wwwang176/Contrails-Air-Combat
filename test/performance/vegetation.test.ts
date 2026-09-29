@@ -538,8 +538,12 @@ describe('植被引擎', () => {
     for (const m of meshes(v)) {
       if (poolCount(m) === 0) continue
       // 【比 version 不是比 needsUpdate】`needsUpdate` 在 three 只有 setter
-      // 沒有 getter，讀出來恆是 undefined。它做的事是把 version 加一
-      for (const a of poolAttrs(m)) expect(a.version).toBeGreaterThan(0)
+      // 沒有 getter，讀出來恆是 undefined。它做的事是把 version 加一。
+      // 實例池的屬性是 interleaved 的，version 在底下那條緩衝上
+      for (const a of poolAttrs(m)) {
+        const data = (a as unknown as { data?: { version: number } }).data
+        expect(data?.version ?? a.version).toBeGreaterThan(0)
+      }
     }
     v.dispose()
   })

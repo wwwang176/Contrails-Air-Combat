@@ -1,8 +1,9 @@
 import {
   BufferAttribute, BufferGeometry, Color, DynamicDrawUsage, Group,
-  InstancedBufferAttribute, InstancedMesh, MeshStandardMaterial, Points,
-  PointsMaterial, Sphere, Vector3, type Object3D,
+  InstancedBufferAttribute, InstancedInterleavedBuffer, InstancedMesh, InterleavedBufferAttribute,
+  MeshStandardMaterial, Points, PointsMaterial, Sphere, Vector3, type Camera, type Object3D,
 } from 'three'
+import { CULL, frustumPlanesOf, hilbertKey, shareGeometry, visibleRuns } from './cullRuns'
 import {
   createFloraBuffer, hash2, FloraKind, FLORA_STRIDE, SHAPE_ONE, type FloraBuffer, type FloraSource,
 } from './flora'
@@ -40,10 +41,11 @@ export type { PoolName }
  * 【池只在生成佇列排乾的那一幀重建】一次約七千筆 `compose` 加一次緩衝上傳，
  * 200 m/s 下大約每 1.25 s 一次。每幀重建的話那個成本會變成常態。
  *
- * 【視錐剔除一律關掉】`Frustum.intersectsObject` 對 `InstancedMesh` 走
- * `object.boundingSphere`，而那顆球只在是 `null` 時算一次就快取；池每次重建
- * 實例全換，球就過期了，症狀是某些朝向下整批樹消失。而池是跟著鏡頭的 4 km
- * 圓環 —— 那顆球恆與視錐相交，剔除本來就一次也不會生效。
+ * 【three 的視錐剔除一律關掉，剔除自己做】`Frustum.intersectsObject` 對
+ * `InstancedMesh` 走 `object.boundingSphere`，而池是跟著鏡頭的圓環 —— 那顆球恆與
+ * 視錐相交，一次也不會生效。改成逐格剔：池依希爾伯特曲線打包（`hilbertKey`），
+ * 每一格在每一池裡是一段連續的實例並記下包圍盒；每一幀看得到的格接成最多
+ * `RUN_CAP` 段，一段一次 draw call，全部畫在同一條緩衝上。見 `cull`。
  */
 
 export const TILE_SIZE = 250
@@ -222,6 +224,24 @@ export const ISLAND_TILES_PER_FRAME = 61
  */
 export const TILE_CACHE = 2100
 
+/**
+ * 一池最多分幾段畫（幾次 draw call）。
+ *
+ * 【取四】6 km 圈、97° 視野、希爾伯特順序下，看得到的格佔 28.7%；上限四段時實際畫
+ * 33%，六段 31%，兩段 45%。四段以上多出來的 draw call 換不到多少。
+ */
+export const RUN_CAP = 4
+
+/**
+ * 實例少於這個數的池只畫一段 —— 第一個看得到的格到最後一個。
+ *
+ * 【為什麼】建築一池幾十到幾百棟，多拆幾次 draw call 省下的頂點比 draw call 本身還少。
+ */
+export const RUN_SPLIT_MIN = 2000
+
+/** 槽位號合進排序鍵的倍率：鍵 = 希爾伯特位置 × 這個數 + 槽位。快取不得超過它 */
+const SLOT_SPAN = 16384
+
 const LOD_STEP = [LOD_NEAR, POINT_NEAR, FLORA_RADIUS] as const
 
 /**
@@ -393,6 +413,11 @@ export interface Vegetation {
   setPointLight(scale: number): void
   update(centerX: number, centerZ: number): void
   /**
+   * 依這一台相機決定每一池畫哪幾段。**每次 render 之前呼叫**（`scene.onBeforeRender`），
+   * 不呼叫的話每一池畫整條。`CULL.enabled` 關掉時也是畫整條。
+   */
+  cull(camera: Camera): void
+  /**
    * 一次把生成佇列排乾。定格截圖與容量掃描要它。
    *
    * `force` 會把每一個池標髒再重建。**它是逐池標髒那套機制的正確性閘**：
@@ -435,8 +460,6 @@ export interface Vegetation {
    */
   debugTiles(): { i: number, j: number, lod: number }[]
 }
-
-const TINT = new Color()
 
 /**
  * 遠處那三個池的材質。**`gl.POINTS`。**
@@ -565,6 +588,72 @@ export interface VegetationOptions {
   season?: Season
 }
 
+/**
+ * 實例池的一段：一顆 `InstancedMesh`，實例矩陣與顏色是指向池緩衝某個位移的
+ * interleaved 屬性。
+ *
+ * 【每條屬性兩個物件，只改沒在 VAO 裡的那一個】three 的 VAO 快取（以幾何與程式為鍵）
+ * 用屬性**物件的身分**決定要不要重設指標 —— 只改 `offset` 不換物件，畫出來的是舊
+ * 位移。而快取裡記的是**上一次真的畫的時候**綁的那一個，所以 `onBeforeRender` 記下它，
+ * `aimRun` 只改另一個再換上去。隱藏期間改來改去也不會碰到快取裡那一個。
+ */
+interface MeshRun {
+  mesh: InstancedMesh
+  mat: [InterleavedBufferAttribute, InterleavedBufferAttribute]
+  col: [InterleavedBufferAttribute, InterleavedBufferAttribute]
+  /** 上一次真的畫出去時掛著的那兩個 */
+  drawnMat: InterleavedBufferAttribute | null
+  drawnCol: InterleavedBufferAttribute | null
+}
+
+function createMeshRun(
+  geometry: BufferGeometry, material: MeshStandardMaterial,
+  mat: InstancedInterleavedBuffer, col: InstancedInterleavedBuffer,
+): MeshRun {
+  // 【容量給 1】建構子配的那條矩陣立刻被換掉；實例數由 `count` 決定，不受它限制
+  const mesh = new InstancedMesh(geometry, material, 1)
+  const run: MeshRun = {
+    mesh,
+    mat: [new InterleavedBufferAttribute(mat, 16, 0), new InterleavedBufferAttribute(mat, 16, 0)],
+    col: [new InterleavedBufferAttribute(col, 3, 0), new InterleavedBufferAttribute(col, 3, 0)],
+    drawnMat: null,
+    drawnCol: null,
+  }
+  // 【型別】three 的宣告只收 InstancedBufferAttribute；算繪那一側兩種都認
+  mesh.instanceMatrix = run.mat[0] as unknown as InstancedBufferAttribute
+  mesh.instanceColor = run.col[0] as unknown as InstancedBufferAttribute
+  mesh.count = 0
+  mesh.frustumCulled = false
+  // 【包圍球先給】three 排序時會替沒有球的 InstancedMesh 自己算，而它讀矩陣不看位移 ——
+  // 算出來的是別段的實例
+  mesh.boundingSphere = new Sphere(new Vector3(), Infinity)
+  mesh.onBeforeRender = () => {
+    run.drawnMat = mesh.instanceMatrix as unknown as InterleavedBufferAttribute
+    run.drawnCol = mesh.instanceColor as unknown as InterleavedBufferAttribute
+  }
+  return run
+}
+
+/** 讓這一段從池緩衝的第 `start` 筆開始畫。已經指在那裡就不動 —— 見 `MeshRun` */
+function aimRun(
+  run: MeshRun, mat: InstancedInterleavedBuffer, col: InstancedInterleavedBuffer, start: number,
+): void {
+  const m = run.mesh.instanceMatrix as unknown as InterleavedBufferAttribute
+  if (m.data !== mat || m.offset !== start * 16) {
+    const pick = run.mat[0] === run.drawnMat ? run.mat[1] : run.mat[0]
+    pick.data = mat
+    pick.offset = start * 16
+    run.mesh.instanceMatrix = pick as unknown as InstancedBufferAttribute
+  }
+  const c = run.mesh.instanceColor as unknown as InterleavedBufferAttribute
+  if (c.data !== col || c.offset !== start * 3) {
+    const pick = run.col[0] === run.drawnCol ? run.col[1] : run.col[0]
+    pick.data = col
+    pick.offset = start * 3
+    run.mesh.instanceColor = pick as unknown as InstancedBufferAttribute
+  }
+}
+
 export function createVegetation(
   sources: readonly FloraSource[],
   heightAt: (x: number, z: number) => number,
@@ -592,6 +681,8 @@ export function createVegetation(
   /**
    * 十一個池。**遠處那三個是 `Points`，其餘八個是 `InstancedMesh`。**
    * 寫入路徑因此要分岔 —— 見 `rebuild`。
+   *
+   * 池物件本身是第 0 段；第 1 段以後掛在它底下（`object.children` 因此仍是一池一個）。
    */
   const pools: Record<PoolName, InstancedMesh | Points> =
     {} as Record<PoolName, InstancedMesh | Points>
@@ -600,7 +691,7 @@ export function createVegetation(
   /** 點池的樹冠色 × `POINT_LIGHT`，開場算一次 */
   const pointBase: Partial<Record<PoolName, Color>> = {}
   /**
-   * 每個池兩份實例屬性，重建時輪流換。**這是 1% low 的關鍵。**
+   * 每個池兩份實例緩衝，重建時輪流換。**這是 1% low 的關鍵。**
    *
    * 【為什麼】對**正在被 GPU 讀的**那條緩衝呼叫 `bufferSubData` 時，驅動
    * 只能等 GPU 讀完或整條重配 —— 實測那一下是 190 ms。輪流換之後寫的永遠
@@ -608,15 +699,19 @@ export function createVegetation(
    *
    * 【代價是記憶體加倍】兩份加起來 7.6 MB。全部開場配掉。
    *
-   * 對照（農地・甲板・代飛・飛機粒子全關）：把重建整個凍住時
-   * 1% low 是 37 ms、頓挫 0.70/s，而 p50 只比關植被多 1.8 ms —— 也就是說
-   * 253k 個三角形的**繪製**幾乎免費，代價全在那一下上傳。
+   * 【interleaved 是為了逐段畫】WebGL2 沒有「從第 N 個實例開始畫」，所以每一段
+   * 用一個 `offset` 指到段起點的 `InterleavedBufferAttribute`，全部指向同一條緩衝 ——
+   * 上傳仍然是一池一條、一次。
    */
-  const altMat: Record<PoolName, InstancedBufferAttribute[]> =
-    {} as Record<PoolName, InstancedBufferAttribute[]>
-  const altCol: Record<PoolName, InstancedBufferAttribute[]> =
-    {} as Record<PoolName, InstancedBufferAttribute[]>
+  const altMat: Record<PoolName, InstancedInterleavedBuffer[]> =
+    {} as Record<PoolName, InstancedInterleavedBuffer[]>
+  const altCol: Record<PoolName, InstancedInterleavedBuffer[]> =
+    {} as Record<PoolName, InstancedInterleavedBuffer[]>
   const side: Record<PoolName, number> = {} as Record<PoolName, number>
+  /** 實例池的每一段。`[0]` 是池物件本身 */
+  const meshRuns: Partial<Record<PoolName, MeshRun[]>> = {}
+  /** 點池的每一段。`[0]` 是池物件本身；各段的幾何共用同一批屬性 */
+  const pointRuns: Partial<Record<PoolName, Points[]>> = {}
   for (const name of POOL_NAMES) {
     if (IS_POINT[name]) {
       const n = cap[name]
@@ -632,40 +727,94 @@ export function createVegetation(
       const two = [mk(), mk()]
       altPt[name] = two
       side[name] = 0
-      const geo = new BufferGeometry()
-      geo.setAttribute('position', two[0]![0]!)
-      geo.setAttribute('color', two[0]![1]!)
-      geo.setAttribute('aSize', two[0]![2]!)
-      geo.setDrawRange(0, 0)
-      // 【包圍球自己給無限大】內容每次重建都換，three 算出來的球會過期；
-      // 而剔除本來就關掉了 —— 見檔頭
-      geo.boundingSphere = new Sphere(new Vector3(), Infinity)
-      const pts = new Points(geo, pointMaterial)
-      pts.frustumCulled = false
-      pools[name] = pts
-      group.add(pts)
+      const runs: Points[] = []
+      for (let r = 0; r < RUN_CAP; r++) {
+        const geo = new BufferGeometry()
+        geo.setAttribute('position', two[0]![0]!)
+        geo.setAttribute('color', two[0]![1]!)
+        geo.setAttribute('aSize', two[0]![2]!)
+        geo.setDrawRange(0, 0)
+        // 【包圍球自己給無限大】內容每次重建都換，three 算出來的球會過期；
+        // 而 three 的剔除本來就關掉了 —— 見檔頭
+        geo.boundingSphere = new Sphere(new Vector3(), Infinity)
+        const pts = new Points(geo, pointMaterial)
+        pts.frustumCulled = false
+        if (r > 0) {
+          pts.visible = false
+          runs[0]!.add(pts)
+        }
+        runs.push(pts)
+      }
+      pointRuns[name] = runs
+      pools[name] = runs[0]!
+      group.add(runs[0]!)
       pointBase[name] = new Color(pointColorOf(name as PointPool, season)).multiply(POINT_LIGHT)
       continue
     }
-    // 【型別】上面那個 `continue` 已經把點池濾掉了，但 TS 收窄不到
-    const mesh = new InstancedMesh(geometries[name as MeshPool], material, cap[name])
-    // 【先摸一次 instanceColor】`setColorAt` 會在第一次呼叫時建出屬性，
-    // 而那是一次配置 —— 開場配掉，之後重建就不再配
-    mesh.setColorAt(0, TINT.setRGB(1, 1, 1))
-    const mats = [mesh.instanceMatrix, new InstancedBufferAttribute(
-      new Float32Array(cap[name] * 16), 16)]
-    const cols = [mesh.instanceColor!, new InstancedBufferAttribute(
-      new Float32Array(cap[name] * 3), 3)]
-    // 【兩份都要標 DynamicDraw】`setColorAt` 建出來的那一份走預設的
-    // `StaticDrawUsage`，而驅動會把 STATIC_DRAW 當成不會再變的資料
-    for (const a of [...mats, ...cols]) a.setUsage(DynamicDrawUsage)
+    const mats = [0, 1].map(() => new InstancedInterleavedBuffer(
+      new Float32Array(cap[name] * 16), 16, 1).setUsage(DynamicDrawUsage))
+    const cols = [0, 1].map(() => new InstancedInterleavedBuffer(
+      new Float32Array(cap[name] * 3), 3, 1).setUsage(DynamicDrawUsage))
     altMat[name] = mats
     altCol[name] = cols
     side[name] = 0
-    mesh.count = 0
-    mesh.frustumCulled = false
-    pools[name] = mesh
-    group.add(mesh)
+    // 【型別】上面那個 `continue` 已經把點池濾掉了，但 TS 收窄不到
+    const base = geometries[name as MeshPool]
+    const runs: MeshRun[] = []
+    for (let r = 0; r < RUN_CAP; r++) {
+      runs.push(createMeshRun(r === 0 ? base : shareGeometry(base), material, mats[0]!, cols[0]!))
+      if (r > 0) {
+        runs[r]!.mesh.visible = false
+        runs[0]!.mesh.add(runs[r]!.mesh)
+      }
+    }
+    meshRuns[name] = runs
+    pools[name] = runs[0]!.mesh
+    group.add(runs[0]!.mesh)
+  }
+
+  // ── 剔除用的區段表 ────────────────────────────────────
+  /**
+   * 每一池、每一份緩衝一張表：第 e 筆是「某一格在這一池的實例 `[start, end)`」與那些
+   * 實例的包圍盒（minX, minY, minZ, maxX, maxY, maxZ）。
+   *
+   * 【盒子由實例本身算，不讀即時的槽位】槽位會被放掉、給新的格重用，而舊的那一份
+   * 緩衝在下一次重建之前仍然掛著、仍然要剔。表跟著它的緩衝一起寫、一起換上去。
+   *
+   * 筆數不超過「有這一池實例的格數」，所以取快取格數與容量的較小者。以池在
+   * `POOL_NAMES` 的索引存取。
+   */
+  const poolCount = POOL_NAMES.length
+  const entStart: Int32Array[][] = []
+  const entEnd: Int32Array[][] = []
+  const entBox: Float32Array[][] = []
+  /** 各池各份的筆數 */
+  const entN: Int32Array[] = []
+  for (let p = 0; p < poolCount; p++) {
+    const m = Math.min(tileCache, cap[POOL_NAMES[p]!])
+    entStart.push([new Int32Array(m), new Int32Array(m)])
+    entEnd.push([new Int32Array(m), new Int32Array(m)])
+    entBox.push([new Float32Array(m * 6), new Float32Array(m * 6)])
+    entN.push(new Int32Array(2))
+  }
+  /**
+   * 實例幾何的範圍，盒子由它推：水平半徑兩軸各一（實例繞 Y 轉，x 吃面寬倍率、
+   * z 吃縮放）、垂直的上下緣（吃樓高倍率）。點池不用，點的範圍是邊長
+   */
+  const geoRx = new Float64Array(poolCount)
+  const geoRz = new Float64Array(poolCount)
+  const geoLo = new Float64Array(poolCount)
+  const geoHi = new Float64Array(poolCount)
+  for (let p = 0; p < poolCount; p++) {
+    const name = POOL_NAMES[p]!
+    if (IS_POINT[name]) continue
+    const g = geometries[name as MeshPool]
+    if (g.boundingBox === null) g.computeBoundingBox()
+    const b = g.boundingBox!
+    geoRx[p] = Math.max(Math.abs(b.min.x), Math.abs(b.max.x))
+    geoRz[p] = Math.max(Math.abs(b.min.z), Math.abs(b.max.z))
+    geoLo[p] = b.min.y
+    geoHi[p] = b.max.y
   }
 
   // ── tile 快取 ────────────────────────────────────────
@@ -715,6 +864,9 @@ export function createVegetation(
    * 雜湊 —— 12 km 是每幀七千次。它只跟格的索引有關，不會變。
    */
   const slotOuter = new Float32Array(tileCache)
+  /** 逐格在希爾伯特曲線上的位置。**建格時算一次**，重建依它排打包順序 */
+  const slotKey = new Float64Array(tileCache)
+  if (tileCache > SLOT_SPAN) throw new Error(`植被：快取 ${tileCache} 格超過排序鍵的上限 ${SLOT_SPAN}`)
   /** tile 的鍵 → 槽位。**鍵是數值** —— 字串鍵每幀都在配置 */
   const bySlot = new Map<number, number>()
 
@@ -827,6 +979,7 @@ export function createVegetation(
     slotJ[slot] = j
     slotUsed[slot] = 1
     slotOuter[slot] = outerFor(i, j, radius)
+    slotKey[slot] = hilbertKey(i, j)
     // 【級數與灌木旗標歸零】新的一格由 `relevel` 定級，而它是「有變才標」——
     // 沿用上一位住戶的值會讓「其實變了」被當成沒變
     slotLod[slot] = -1
@@ -991,11 +1144,24 @@ export function createVegetation(
    * 狀態全部開場配好，重建不配置。
    */
   let job = false
-  /** 下一個要寫的槽位 */
-  let jobSlot = 0
+  /**
+   * 這一次的打包順序：有東西的槽位依希爾伯特位置排好（見 `hilbertKey`）。
+   * 排序鍵是「位置 × `SLOT_SPAN` + 槽位」，沒用到的格填無限大、排到最後 ——
+   * 整條排序，不切子陣列
+   */
+  const orderKey = new Float64Array(tileCache)
+  const order = new Int32Array(tileCache)
+  let orderLen = 0
+  /** 下一個要寫的是 `order` 的第幾格 */
+  let jobPos = 0
   let jobOverflow = 0
   // 【以下都以池在 `POOL_NAMES` 的索引存取】重建的迴圈每筆都要讀，不經過池名
-  const poolCount = POOL_NAMES.length
+  /** 這一格開始時各池寫到第幾筆 —— 一格寫完，多出來的那一段就是區段表的一筆 */
+  const tileFrom = new Int32Array(poolCount)
+  /** 這一格在各池的實例包圍盒（minX, minY, minZ, maxX, maxY, maxZ） */
+  const acc = new Float64Array(poolCount * 6)
+  /** 這一次寫的是哪一份（沒掛上的那一側）；區段表寫進同一側 */
+  const jobSide = new Uint8Array(poolCount)
   /** 這一次要寫的池（1 = 要寫）—— 開始時由 `poolDirty` 搬過來 */
   const jobDirty = new Uint8Array(poolCount)
   /** 各池已經寫了幾筆。完成時才發布到 `counts` */
@@ -1048,6 +1214,8 @@ export function createVegetation(
       jobCounts[p] = 0
       // 【寫另一份】掛著的那一份在完成前都還在畫
       const next = side[name]! ^ 1
+      jobSide[p] = next
+      entN[p]![next] = 0
       if (isPointOf[p] === 1) {
         const a = altPt[name]![next]!
         jobPosition[p] = a[0]!.array as Float32Array
@@ -1058,7 +1226,17 @@ export function createVegetation(
         jobTint[p] = altCol[name]![next]!.array as Float32Array
       }
     }
-    jobSlot = 0
+    // 【打包順序與重建中心無關】同一格在每一池、每一次重建都排在同一個位置 ——
+    // 沒重建的池與剛重建的池是同一套順序
+    orderKey.fill(Infinity)
+    orderLen = 0
+    for (let s = 0; s < tileCache; s++) {
+      if (slotUsed[s] === 0 || slotBuf[s] === null) continue
+      orderKey[orderLen++] = slotKey[s]! * SLOT_SPAN + s
+    }
+    orderKey.sort()
+    for (let k = 0; k < orderLen; k++) order[k] = orderKey[k]! % SLOT_SPAN
+    jobPos = 0
     jobOverflow = 0
     job = true
     dirty = false
@@ -1069,8 +1247,8 @@ export function createVegetation(
   /** 往下寫，走過至少 `budget` 筆就停；寫完最後一格就換上去 */
   function stepRebuild(budget: number): void {
     let work = 0
-    while (jobSlot < tileCache && work < budget) {
-      const s = jobSlot++
+    while (jobPos < orderLen && work < budget) {
+      const s = order[jobPos++]!
       if (slotUsed[s] === 0) continue
       const buf = slotBuf[s] ?? null
       if (buf === null) continue
@@ -1080,6 +1258,12 @@ export function createVegetation(
       const kinds = buf.kind
       const shapes = buf.shape
       const row = (slotLod[s]! + 1) * 2 + slotBush[s]!
+      for (let p = 0; p < poolCount; p++) {
+        tileFrom[p] = jobCounts[p]!
+        const b = p * 6
+        acc[b] = Infinity; acc[b + 1] = Infinity; acc[b + 2] = Infinity
+        acc[b + 3] = -Infinity; acc[b + 4] = -Infinity; acc[b + 5] = -Infinity
+      }
       for (let k = 0; k < n; k++) {
         const p = POOL_LUT[kinds[k]! * 10 + row]!
         if (p < 0 || jobDirty[p] === 0) continue
@@ -1092,19 +1276,32 @@ export function createVegetation(
         const scale = data[o + 4]!
         // 【逐實例的明度抖動】同一種樹因此不會像複製貼上
         const t = tintBaseOf[p]! + data[o + 5]! * tintSpanOf[p]!
+        const x = data[o]!
+        const y = data[o + 1]!
+        const z = data[o + 2]!
+        const b = p * 6
         if (isPointOf[p] === 1) {
           const pos = jobPosition[p]!
           const col = jobColor[p]!
           const a3 = at * 3
-          pos[a3] = data[o]!
           // 【點的中心放樹冠的垂直中心】見 `POINT_Y`
-          pos[a3 + 1] = data[o + 1]! + pointYOf[p]! * scale
-          pos[a3 + 2] = data[o + 2]!
+          const cy = y + pointYOf[p]! * scale
+          pos[a3] = x
+          pos[a3 + 1] = cy
+          pos[a3 + 2] = z
           col[a3] = pointR[p]! * t
           col[a3 + 1] = pointG[p]! * t
           col[a3 + 2] = pointB[p]! * t
-          jobSize[p]![at] = pointSizeOf[p]! * scale
+          const size = pointSizeOf[p]! * scale
+          jobSize[p]![at] = size
           jobCounts[p] = at + 1
+          // 【盒子取邊長】點是螢幕對齊的方塊，世界邊長 `size`，一個邊長的半徑綽綽有餘
+          if (x - size < acc[b]!) acc[b] = x - size
+          if (cy - size < acc[b + 1]!) acc[b + 1] = cy - size
+          if (z - size < acc[b + 2]!) acc[b + 2] = z - size
+          if (x + size > acc[b + 3]!) acc[b + 3] = x + size
+          if (cy + size > acc[b + 4]!) acc[b + 4] = cy + size
+          if (z + size > acc[b + 5]!) acc[b + 5] = z + size
           continue
         }
         const rot = data[o + 3]!
@@ -1120,15 +1317,36 @@ export function createVegetation(
         m[a16] = cs * sx; m[a16 + 1] = 0; m[a16 + 2] = -sn * sx; m[a16 + 3] = 0
         m[a16 + 4] = 0; m[a16 + 5] = sy; m[a16 + 6] = 0; m[a16 + 7] = 0
         m[a16 + 8] = sn * scale; m[a16 + 9] = 0; m[a16 + 10] = cs * scale; m[a16 + 11] = 0
-        m[a16 + 12] = data[o]!; m[a16 + 13] = data[o + 1]!; m[a16 + 14] = data[o + 2]!; m[a16 + 15] = 1
+        m[a16 + 12] = x; m[a16 + 13] = y; m[a16 + 14] = z; m[a16 + 15] = 1
         // 【明度三通道相同】與 `Color.setRGB(t, t, t)` 在工作色彩空間下寫出的值相同
         const tint = jobTint[p]!
         const a3 = at * 3
         tint[a3] = t; tint[a3 + 1] = t; tint[a3 + 2] = t
         jobCounts[p] = at + 1
+        // 【盒子】繞 Y 轉，所以水平取兩軸半徑的和（不開根號、只會偏大）；垂直吃樓高倍率
+        const h = geoRx[p]! * sx + geoRz[p]! * scale
+        const lo = y + geoLo[p]! * sy
+        const hi = y + geoHi[p]! * sy
+        if (x - h < acc[b]!) acc[b] = x - h
+        if (lo < acc[b + 1]!) acc[b + 1] = lo
+        if (z - h < acc[b + 2]!) acc[b + 2] = z - h
+        if (x + h > acc[b + 3]!) acc[b + 3] = x + h
+        if (hi > acc[b + 4]!) acc[b + 4] = hi
+        if (z + h > acc[b + 5]!) acc[b + 5] = z + h
+      }
+      // 【一格寫完：多出來的那一段記成區段表的一筆】
+      for (let p = 0; p < poolCount; p++) {
+        if (jobDirty[p] === 0 || jobCounts[p]! === tileFrom[p]!) continue
+        const sd = jobSide[p]!
+        const e = entN[p]![sd]!
+        entN[p]![sd] = e + 1
+        entStart[p]![sd]![e] = tileFrom[p]!
+        entEnd[p]![sd]![e] = jobCounts[p]!
+        const box = entBox[p]![sd]!
+        for (let c = 0; c < 6; c++) box[e * 6 + c] = acc[p * 6 + c]!
       }
     }
-    if (jobSlot >= tileCache) finishRebuild()
+    if (jobPos >= orderLen) finishRebuild()
   }
 
   /** 換上寫好的那一份、發布實例數、標上傳 */
@@ -1142,10 +1360,12 @@ export function createVegetation(
       if (IS_POINT[name]) {
         // 【三條要一起換到同一側】換一半的話位置與顏色會對不上株
         const a = altPt[name]![side[name]!]!
-        const geo = (pools[name] as Points).geometry
-        geo.setAttribute('position', a[0]!)
-        geo.setAttribute('color', a[1]!)
-        geo.setAttribute('aSize', a[2]!)
+        for (const pts of pointRuns[name]!) {
+          const geo = pts.geometry
+          geo.setAttribute('position', a[0]!)
+          geo.setAttribute('color', a[1]!)
+          geo.setAttribute('aSize', a[2]!)
+        }
         // 【逐條寫，不走 `[[attr, size], …]` 的迴圈】那種寫法每次重建都配一組臨時陣列
         a[0]!.addUpdateRange(0, used * 3)
         a[0]!.needsUpdate = true
@@ -1153,23 +1373,90 @@ export function createVegetation(
         a[1]!.needsUpdate = true
         a[2]!.addUpdateRange(0, used)
         a[2]!.needsUpdate = true
-        geo.setDrawRange(0, used)
-        continue
+      } else {
+        // 【只上傳用到的那一段】容量是實測最大值的兩倍，整條傳等於白傳一倍
+        const mat = altMat[name]![side[name]!]!
+        const col = altCol[name]![side[name]!]!
+        mat.addUpdateRange(0, used * 16)
+        mat.needsUpdate = true
+        col.addUpdateRange(0, used * 3)
+        col.needsUpdate = true
       }
-      const mesh = pools[name] as InstancedMesh
-      mesh.instanceMatrix = altMat[name]![side[name]!]!
-      mesh.instanceColor = altCol[name]![side[name]!]!
-      mesh.count = used
-      // 【只上傳用到的那一段】容量是實測最大值的兩倍，整條傳等於白傳一倍
-      mesh.instanceMatrix.addUpdateRange(0, used * 16)
-      mesh.instanceMatrix.needsUpdate = true
-      mesh.instanceColor!.addUpdateRange(0, used * 3)
-      mesh.instanceColor!.needsUpdate = true
+      // 【換上時整條畫】下一次 `cull` 才分段；沒有人呼叫 `cull` 的話就一直是整條
+      showAll(p)
     }
     stats.overflow = jobOverflow
     job = false
     sinceRebuild = 0
     stats.rebuilds++
+  }
+
+  // ── 逐段畫 ──────────────────────────────────────────
+  /** `visibleRuns` 的輸出。一池一池輪流用，長度取區段表最長的那一張 */
+  let maxEnt = 1
+  for (let p = 0; p < poolCount; p++) maxEnt = Math.max(maxEnt, entStart[p]![0]!.length)
+  const runStart = new Int32Array(maxEnt)
+  const runEnd = new Int32Array(maxEnt)
+  const planes = new Float64Array(24)
+
+  /** 第 p 池畫 `runStart/runEnd` 的前 `n` 段；其餘的段藏起來 */
+  function setRuns(p: number, n: number): void {
+    const name = POOL_NAMES[p]!
+    const sd = side[name]!
+    if (IS_POINT[name]) {
+      const runs = pointRuns[name]!
+      for (let r = 0; r < RUN_CAP; r++) {
+        const pts = runs[r]!
+        if (r < n) {
+          pts.visible = true
+          pts.geometry.setDrawRange(runStart[r]!, runEnd[r]! - runStart[r]!)
+        } else {
+          // 【第 0 段只清空不藏】它是其餘段的父物件，藏了連孩子一起不畫
+          if (r > 0) pts.visible = false
+          pts.geometry.setDrawRange(0, 0)
+        }
+      }
+      return
+    }
+    const runs = meshRuns[name]!
+    const mat = altMat[name]![sd]!
+    const col = altCol[name]![sd]!
+    for (let r = 0; r < RUN_CAP; r++) {
+      const run = runs[r]!
+      if (r < n) {
+        run.mesh.visible = true
+        aimRun(run, mat, col, runStart[r]!)
+        run.mesh.count = runEnd[r]! - runStart[r]!
+      } else {
+        if (r > 0) run.mesh.visible = false
+        run.mesh.count = 0
+      }
+    }
+  }
+
+  /** 整條畫成一段 —— 剛換上、`CULL` 關掉、沒有相機時 */
+  function showAll(p: number): void {
+    const used = counts[POOL_NAMES[p]!]
+    runStart[0] = 0
+    runEnd[0] = used
+    setRuns(p, used > 0 ? 1 : 0)
+  }
+
+  function cull(camera: Camera): void {
+    if (!CULL.enabled) {
+      for (let p = 0; p < poolCount; p++) showAll(p)
+      return
+    }
+    frustumPlanesOf(camera, planes)
+    for (let p = 0; p < poolCount; p++) {
+      const used = counts[POOL_NAMES[p]!]
+      const sd = side[POOL_NAMES[p]!]!
+      const limit = used >= RUN_SPLIT_MIN ? RUN_CAP : 1
+      const n = used === 0 ? 0 : visibleRuns(
+        entN[p]![sd]!, entStart[p]![sd]!, entEnd[p]![sd]!, entBox[p]![sd]!,
+        planes, limit, runStart, runEnd)
+      setRuns(p, n)
+    }
   }
 
   function update(cx: number, cz: number): void {
@@ -1228,6 +1515,7 @@ export function createVegetation(
     // 【`PointsMaterial.color` 逐通道乘上頂點色】所以 1 是恆等
     setPointLight(scale) { pointMaterial.color.setScalar(scale) },
     update,
+    cull,
     settle,
     counts,
     stats,
@@ -1244,9 +1532,11 @@ export function createVegetation(
       material.dispose()
       pointMaterial.dispose()
       for (const name of POOL_NAMES) {
-        const p = pools[name]
-        if (p instanceof InstancedMesh) p.dispose()
-        else p.geometry.dispose()
+        for (const run of meshRuns[name] ?? []) {
+          run.mesh.dispose()
+          if (run.mesh.geometry !== geometries[name as MeshPool]) run.mesh.geometry.dispose()
+        }
+        for (const pts of pointRuns[name] ?? []) pts.geometry.dispose()
       }
     },
   }

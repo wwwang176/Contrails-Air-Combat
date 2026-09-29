@@ -1,8 +1,10 @@
 import {
-  Group, Mesh, MeshStandardMaterial, type BufferGeometry, type Object3D, type WebGLRenderer,
+  Group, Mesh, MeshStandardMaterial, type BufferGeometry, type Camera, type Object3D,
+  type WebGLRenderer,
 } from 'three'
 import { createOcean } from './ocean'
 import { SCENERY_CHUNK, SCENERY_MIN_TRIS, splitByGrid } from './sceneryChunks'
+import { CULL } from './cullRuns'
 import { createFieldClipmap, type ClipLevelSpec, type FieldClipmap } from './fieldClipmap'
 import { floraSplats } from './buildingBake'
 import { farmSettlementFlora } from './farmSettlements'
@@ -163,6 +165,11 @@ export interface Terrain {
    */
   settle?(): void
   /**
+   * 依這一台相機剔掉看不到的植被、近海象限與佈景塊。**每次 render 之前呼叫** ——
+   * `main.ts` 掛在 `scene.onBeforeRender`，戰鬥、機庫、選單三個畫面都走得到。
+   */
+  cull(camera: Camera): void
+  /**
    * 這一點落在哪一圈：樹、灌木、房子的級數與地面由哪一層畫。測距工具
    * （`hud/rangeProbe.ts`）用，距離從上一次 `update` 的中心量。**只有內陸有**
    */
@@ -288,6 +295,10 @@ function createLeyteTerrain(): Terrain {
       ocean.update(time, centerX, centerZ)
       flora.update(centerX, centerZ)
     },
+    cull(camera) {
+      ocean.cull(camera)
+      flora.cull(camera)
+    },
     settle() { flora.settle() },
     dispose() {
       disposed = true
@@ -323,6 +334,7 @@ function createSeaTerrain(): Terrain {
     fieldClip: null,
     setPalette(p) { ocean.setPalette(p) },
     update(time, centerX, centerZ) { ocean.update(time, centerX, centerZ) },
+    cull(camera) { ocean.cull(camera) },
     dispose() { ocean.dispose() },
   }
 }
@@ -389,6 +401,10 @@ function createArchipelagoTerrain(): Terrain {
     update(time, centerX, centerZ) {
       ocean.update(time, centerX, centerZ)
       flora.update(centerX, centerZ)
+    },
+    cull(camera) {
+      ocean.cull(camera)
+      flora.cull(camera)
     },
     settle() { flora.settle() },
     dispose() {
@@ -690,6 +706,13 @@ function createInlandTerrain(
         ...floraRings(x, z, centre.x, centre.z),
         `地面：${clipmap === null ? '逐像素算（沒有貼圖）' : clipmap.layerAt(x, z)}`,
       ]
+    },
+    cull(camera) {
+      vegetation.cull(camera)
+      // 【佈景塊走 three 自己的剔除】`__cull` 關掉時整顆照畫，與切塊前相同
+      if (sceneryGroup !== null) {
+        for (const m of sceneryGroup.children) m.frustumCulled = CULL.enabled
+      }
     },
     settle() { vegetation.settle() },
     dispose() {
