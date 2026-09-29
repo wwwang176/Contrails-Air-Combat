@@ -6,8 +6,9 @@ import { DEG } from './core/math'
 import { createScene } from './render/scene'
 import {
   fieldInnerFor, readAntialias, readBloom, readQuality, saveAntialias, saveBloom, saveQuality,
+  type BloomLevel,
 } from './render/quality'
-import { createBloomPass, useBloom, useBloomOccluder } from './render/bloom'
+import { BLOOM_HIGH, BLOOM_LOW, createBloomPass, useBloom, useBloomOccluder } from './render/bloom'
 import { OCEAN_GLOW } from './render/ocean'
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
@@ -33,7 +34,7 @@ import { arenaKills, createArenaState, stepArena } from './world/arena'
 import { createTerrain, preloadTerrainScenery, type TerrainGfx, type TerrainKind } from './render/terrain'
 import { createObjectiveRing } from './render/objectiveRing'
 import { timeScale } from './battle/mission'
-import { createTracers, TRACER_GLOW } from './render/tracers'
+import { createTracers, TRACER_GLOW, TRACER_GLOW_MIN_RADIUS_PX } from './render/tracers'
 import { createMuzzles, createTurretMuzzles } from './render/muzzle'
 import { createTurretBarrels } from './render/turretBarrels'
 import { createSparks } from './render/sparks'
@@ -351,7 +352,17 @@ const bloom = createBloomPass(ctx.renderer, (kind, on, halfHeight) => {
     TRACER_GLOW.halfHeight.value = halfHeight
   }
 })
-bloom.enabled = readBloom()
+/**
+ * 套用光暈檔位。**遠處曳光彈的放粗跟著解析度走**：半解析度的光源圖上它不到一個
+ * 像素、會閃，要放粗；全解析度蓋得到像素，不放
+ */
+function applyBloom(level: BloomLevel): void {
+  bloom.enabled = level !== 'off'
+  bloom.setQuality(level === 'high' ? BLOOM_HIGH : BLOOM_LOW)
+  TRACER_GLOW.minRadiusPx.value = level === 'high' ? 0 : TRACER_GLOW_MIN_RADIUS_PX
+}
+let bloomLevel = readBloom()
+applyBloom(bloomLevel)
 
 const tracers = createTracers()
 ctx.scene.add(tracers.object)
@@ -3694,10 +3705,11 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     saveAimAssist(on)
     menu.renderAimAssist(on)
   },
-  onBloom(on) {
-    bloom.enabled = on
-    saveBloom(on)
-    menu.renderBloom(on)
+  onBloom(level) {
+    bloomLevel = level
+    applyBloom(level)
+    saveBloom(level)
+    menu.renderBloom(level)
   },
   onLang(lang) {
     saveLang(lang)
@@ -3713,7 +3725,7 @@ menu.renderQuality(startQuality)
 menu.renderAntialias(readAntialias())
 menu.renderVolume(readVolume())
 menu.renderAimAssist(aimAssist.enabled)
-menu.renderBloom(bloom.enabled)
+menu.renderBloom(bloomLevel)
 menu.renderLang(getLang())
 menu.renderSetup(setup)
 menu.show(screen)

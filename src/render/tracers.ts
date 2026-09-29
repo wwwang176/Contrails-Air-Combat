@@ -50,13 +50,16 @@ const RADIAL_SEGMENTS = 4
  *
  * - `halfHeight`：光源圖高度的一半，px
  * - `minRadiusPx`：光源圖上的最小半徑，px。細於它就放粗到它、同比例調淡，
- *   總亮度不變。0 = 不放粗
+ *   總亮度不變。0 = 不放粗（光暈「高」是全解析度，蓋得到像素，不放）
  */
 export const TRACER_GLOW = {
   pass: { value: 0 },
   halfHeight: { value: 270 },
-  minRadiusPx: { value: 0.75 },
+  minRadiusPx: { value: 0 },
 }
+
+/** 光暈「低」（半解析度）時遠處曳光彈的最小半徑，px */
+export const TRACER_GLOW_MIN_RADIUS_PX = 0.75
 
 /**
  * 光暈那一趟的頂點調整：以實例中心的深度算頭端半徑有幾個像素，不夠就把截面

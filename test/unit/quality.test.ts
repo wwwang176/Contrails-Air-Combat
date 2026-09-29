@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  ANTIALIAS_LEVELS, DEFAULT_ANTIALIAS, DEFAULT_QUALITY, QUALITY_LEVELS, fieldInnerFor, pixelRatioFor,
-  qualityAvailable, readQuality,
+  ANTIALIAS_LEVELS, BLOOM_LEVELS, DEFAULT_ANTIALIAS, DEFAULT_BLOOM, DEFAULT_QUALITY, QUALITY_LEVELS,
+  fieldInnerFor, pixelRatioFor, qualityAvailable, readBloom, readQuality, saveBloom,
 } from '../../src/render/quality'
 import { zh } from '../../src/i18n/zh'
 
@@ -127,5 +127,50 @@ describe('readQuality', () => {
   it('localStorage 會拋時回到預設', () => {
     g['localStorage'] = { getItem: () => { throw new Error('blocked') } }
     expect(readQuality()).toBe(DEFAULT_QUALITY)
+  })
+})
+
+describe('光暈檔位', () => {
+  const store = new Map<string, string>()
+  const g = globalThis as Record<string, unknown>
+  const saved = g['localStorage']
+  afterEach(() => {
+    store.clear()
+    g['localStorage'] = saved
+  })
+  const useStore = () => {
+    g['localStorage'] = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => { store.set(k, v) },
+    }
+  }
+
+  it('三檔：關、低、高，預設低', () => {
+    expect(BLOOM_LEVELS.map((lv) => lv.value)).toEqual(['off', 'low', 'high'])
+    expect(DEFAULT_BLOOM).toBe('low')
+  })
+
+  it('存了什麼讀回什麼', () => {
+    useStore()
+    for (const lv of BLOOM_LEVELS) {
+      saveBloom(lv.value)
+      expect(readBloom()).toBe(lv.value)
+    }
+  })
+
+  /** 【舊的開關】開是半解析度，對到低；關還是關 */
+  it('舊版存的 1／0 對到低／關', () => {
+    useStore()
+    store.set('gfx.bloom', '1')
+    expect(readBloom()).toBe('low')
+    store.set('gfx.bloom', '0')
+    expect(readBloom()).toBe('off')
+  })
+
+  it('沒存過或壞掉的值回到預設', () => {
+    useStore()
+    expect(readBloom()).toBe(DEFAULT_BLOOM)
+    store.set('gfx.bloom', 'ultra')
+    expect(readBloom()).toBe(DEFAULT_BLOOM)
   })
 })

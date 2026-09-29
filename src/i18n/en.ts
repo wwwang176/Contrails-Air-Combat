@@ -223,6 +223,8 @@ export const en: Record<MessageKey, string> = {
   'settings.quality': 'Quality',
   'settings.aa': 'Anti-aliasing',
   'settings.bloom': 'Glow',
+  'settings.bloom.low': 'Low',
+  'settings.bloom.high': 'High',
   'settings.volume': 'Volume',
   'settings.assist': 'Aim assist',
   'reload.title': 'Reload required',
