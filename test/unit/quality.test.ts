@@ -19,13 +19,13 @@ describe('畫質檔位', () => {
 
   /** 【由高到低】順序即按鈕順序；亂序的話選單看起來像壞了 */
   it('五個檔位由高到低', () => {
-    expect(QUALITY_LEVELS.map((lv) => lv.pixelRatio)).toEqual([2, 1.5, 1, 0.8, 0.65])
+    expect(QUALITY_LEVELS.map((lv) => lv.pixelRatio)).toEqual([2, 1.5, 1, 0.75, 0.5])
     for (const lv of QUALITY_LEVELS) expect(zh[lv.labelKey].length).toBeGreaterThan(0)
   })
 
   it('不超過螢幕的 dpr 就照檔位畫', () => {
     expect(pixelRatioFor(1, 2)).toBe(1)
-    expect(pixelRatioFor(0.65, 1)).toBe(0.65)
+    expect(pixelRatioFor(0.5, 1)).toBe(0.5)
     expect(pixelRatioFor(1.5, 2)).toBe(1.5)
   })
 
