@@ -16,7 +16,7 @@ import type { TimeOfDay } from '../world/timeOfDay'
 import type { Screen, ScreenEvent } from './screens'
 import { captionOf, markTutorialSeen, type Tutorial } from './tutorials'
 import {
-  ANTIALIAS_LEVELS, DEFAULT_ANTIALIAS, DEFAULT_QUALITY, QUALITY_LEVELS,
+  ANTIALIAS_LEVELS, DEFAULT_ANTIALIAS, DEFAULT_QUALITY, QUALITY_LEVELS, qualityAvailable,
 } from '../render/quality'
 import { DEFAULT_VOLUME_DB, VOLUME_LEVELS } from '../audio/volume'
 import { AIM_ASSIST_LEVELS } from '../input/aimAssist'
@@ -52,11 +52,11 @@ export interface MenuHooks {
    */
   onAircraft(spec: AircraftSpec): void
   /**
-   * 暫停選單裡換了繪圖解析度的檔位（`render/quality.ts` 的 `scale`）。
+   * 暫停選單裡換了繪圖解析度的檔位（`render/quality.ts` 的 `pixelRatio`）。
    *
    * 【與 `onResume` 同一類】overlay 上的動作，不換畫面。呼叫端負責套用與記住。
    */
-  onQuality(scale: number): void
+  onQuality(pixelRatio: number): void
   /**
    * 設定裡換了抗鋸齒，而且玩家**已經在警告框上確認過**。
    *
@@ -99,7 +99,7 @@ export interface Menu {
    *
    * 【呼叫端要在開場叫一次】選單不負責記住設定，它只知道畫面上該標哪一顆。
    */
-  renderQuality(scale: number): void
+  renderQuality(pixelRatio: number): void
   /** 同上，抗鋸齒目前**已生效**的值 */
   renderAntialias(on: boolean): void
   /** 同上，音量目前**已生效**的值（null 是關閉） */
@@ -135,6 +135,8 @@ interface OptItem<T> {
   readonly hint?: string
   readonly value: T
   readonly sil: string
+  /** 按不下去（畫質在這台螢幕上沒作用的檔位） */
+  readonly disabled?: boolean
 }
 
 /** 場地的選項。**順序即按鈕順序。**群島在前：它是預設，也是有東西可看的那一個 */
@@ -695,6 +697,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       const small = hint === '' ? '' : `<small>${escapeHtml(hint)}</small>`
       const label = it.labelKey !== undefined ? t(it.labelKey) : it.label ?? ''
       b.innerHTML = `${it.sil}<span>${escapeHtml(label)}</span>${small}`
+      b.disabled = it.disabled === true
       b.addEventListener('click', () => onPick(it.value))
       host.appendChild(b)
     }
@@ -727,7 +730,10 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       AIM_ASSIST_LEVELS.map((lv) => ({ labelKey: lv.labelKey, value: lv.value, sil: '' })),
       draftAssist, (v) => { draftAssist = v; drawSettingRows() })
     optRow(el.quality,
-      QUALITY_LEVELS.map((lv) => ({ labelKey: lv.labelKey, value: lv.scale, sil: '' })),
+      QUALITY_LEVELS.map((lv) => ({
+        labelKey: lv.labelKey, value: lv.pixelRatio, sil: '',
+        disabled: !qualityAvailable(lv.pixelRatio, window.devicePixelRatio),
+      })),
       draftQuality, (v) => { draftQuality = v; drawSettingRows() })
     optRow(el.antialias,
       ANTIALIAS_LEVELS.map((lv) => ({ labelKey: lv.labelKey, value: lv.value, sil: '' })),
@@ -784,9 +790,9 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     drawSettingRows()
   }
 
-  function renderQuality(scale: number): void {
-    appliedQuality = scale
-    draftQuality = scale
+  function renderQuality(pixelRatio: number): void {
+    appliedQuality = pixelRatio
+    draftQuality = pixelRatio
     drawSettingRows()
   }
 

@@ -3,9 +3,9 @@
  * —— `render/scene.ts` 與 `ui/menu.ts` 都要用它，UI 那一側不該為了幾個常數把
  * 整個算繪堆疊拉進來。
  *
- * 【為什麼是原生的比例而不是絕對倍率】同一個絕對值在不同螢幕上意義不同：
- * dpr 1 的機器設 1.5 會變成超取樣（更慢），dpr 2 的機器設 1.5 反而是降畫質。
- * 以「原生的幾成」表達，三個檔位在任何螢幕上都是同一件事。
+ * 【檔位是絕對的 pixel ratio】同一檔在任何螢幕上的負擔相同：平衡在桌機與手機都是
+ * 每個 CSS 像素畫一個像素。代價是比螢幕 dpr 高的檔位沒有作用 —— 那幾檔夾回螢幕
+ * 的 dpr，選單上灰掉（`qualityAvailable`）。
  *
  * 【HUD 不受影響】儀表板是另一張 2D 畫布，尺寸吃 `window.devicePixelRatio`
  * （`hud/Hud.ts`），與這裡設的 pixel ratio 無關 —— 降檔位時文字與刻度仍是原生清晰度。
@@ -15,12 +15,12 @@ import type { MessageKey } from '../i18n'
 export interface QualityLevel {
   /** 按鈕上的字的鍵（`src/i18n`） */
   readonly labelKey: MessageKey
-  /** 原生解析度的幾成 */
-  readonly scale: number
+  /** 給 renderer 的 pixel ratio，再夾到 `pixelRatioFor` 的上限 */
+  readonly pixelRatio: number
   /**
    * 鏡頭周圍多少公尺內的田色仍逐像素算，m；0 = 全部查貼圖。
    *
-   * 【為什麼清晰檔要留一圈】貼圖是 2 m 一格，貼地 100 m 以下田埂的邊緣會軟；
+   * 【為什麼前兩檔要留一圈】貼圖是 2 m 一格，貼地 100 m 以下田埂的邊緣會軟；
    * 算式在那一圈裡與貼圖上線前的畫面逐位元相同。代價只在貼地飛時付 ——
    * 平飛與投彈時那一圈是畫面很小的一塊。見 `render/fieldClipmap.ts`。
    */
@@ -28,44 +28,62 @@ export interface QualityLevel {
 }
 
 /**
- * 順序即按鈕順序。**由清晰到流暢**。
+ * 順序即按鈕順序。**由高到低**。
  *
- * 【標籤只寫感受，不寫比例】「八成」「六成五」是這裡的實作細節，玩家要選的是
- * 畫面清楚還是順，不是解析度乘數 —— 而且那個數字在不同螢幕上的意義並不相同。
+ * 【標籤只寫感受，不寫數字】pixel ratio 是這裡的實作細節，玩家要選的是畫面清楚
+ * 還是順，不是解析度乘數。
  */
 export const QUALITY_LEVELS: readonly QualityLevel[] = [
-  { labelKey: 'settings.quality.sharp', scale: 1, fieldInner: 500 },
-  { labelKey: 'settings.quality.balanced', scale: 0.8, fieldInner: 0 },
-  { labelKey: 'settings.quality.smooth', scale: 0.65, fieldInner: 0 },
+  { labelKey: 'settings.quality.ultra', pixelRatio: 2, fieldInner: 500 },
+  { labelKey: 'settings.quality.sharp', pixelRatio: 1.5, fieldInner: 500 },
+  { labelKey: 'settings.quality.balanced', pixelRatio: 1, fieldInner: 0 },
+  { labelKey: 'settings.quality.smooth', pixelRatio: 0.8, fieldInner: 0 },
+  { labelKey: 'settings.quality.fast', pixelRatio: 0.65, fieldInner: 0 },
 ]
 
 /** 沒有設定過時用的檔位：平衡 */
-export const DEFAULT_QUALITY = 0.8
+export const DEFAULT_QUALITY = 1
 
 /**
- * 檔位的田色內圈半徑。**存的是 `scale`，查表拿另一個欄位** —— 設定只記一個
- * 數字，其餘都由它查出來。對不上任何檔位（手改過的存檔）回到清晰那一檔：
+ * pixel ratio 的上限。4K 筆電的 dpr 可以到 3，照畫的話像素數比 2 多出一倍以上。
+ */
+const MAX_PIXEL_RATIO = 2
+
+/** 這台螢幕畫得到的最高 pixel ratio：螢幕的 dpr，不超過 `MAX_PIXEL_RATIO` */
+function deviceCap(devicePixelRatio: number): number {
+  const dpr = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1
+  return Math.min(dpr, MAX_PIXEL_RATIO)
+}
+
+/**
+ * 檔位的田色內圈半徑。**存的是 `pixelRatio`，查表拿另一個欄位** —— 設定只記一個
+ * 數字，其餘都由它查出來。對不上任何檔位（手改過的存檔）回到第一檔：
  * 寧可多算一圈，也不要讓貼地的畫面變軟而沒有人選過。
  */
-export function fieldInnerFor(scale: number): number {
-  const lv = QUALITY_LEVELS.find((q) => q.scale === scale)
+export function fieldInnerFor(pixelRatio: number): number {
+  const lv = QUALITY_LEVELS.find((q) => q.pixelRatio === pixelRatio)
   return (lv ?? QUALITY_LEVELS[0]!).fieldInner
 }
 
 /**
- * 檔位換算成要給 renderer 的 pixel ratio。
+ * 檔位換算成要給 renderer 的 pixel ratio：檔位本身，夾到這台螢幕的上限。
  *
- * 【上限 2 是既有行為】`createScene` 原本就是 `min(devicePixelRatio, 2)`，
- * 這裡保留它：4K 筆電的 dpr 可以到 3，全開會讓像素數多出一倍以上。
- *
- * 【不接受超過 1 的檔位】那是超取樣，比原生更慢，不在這個選單提供的範圍內，
- * 夾到 1；壞掉的輸入（NaN、無限大、0、負數）一律回到預設 —— 0 像素的畫布是
- * 黑畫面，而且不會報錯。
+ * 【不超取樣】畫得比螢幕 dpr 細只會更慢。壞掉的輸入（NaN、無限大、0、負數）
+ * 一律回到預設 —— 0 像素的畫布是黑畫面，而且不會報錯。
  */
-export function pixelRatioFor(scale: number, devicePixelRatio: number): number {
-  const base = Math.min(devicePixelRatio, 2)
-  const s = Number.isFinite(scale) && scale > 0 ? Math.min(scale, 1) : DEFAULT_QUALITY
-  return base * s
+export function pixelRatioFor(pixelRatio: number, devicePixelRatio: number): number {
+  const q = Number.isFinite(pixelRatio) && pixelRatio > 0 ? pixelRatio : DEFAULT_QUALITY
+  return Math.min(q, deviceCap(devicePixelRatio))
+}
+
+/**
+ * 這一檔在這台螢幕上有沒有作用：夾過上限之後，是否仍比下一檔畫得細。
+ * 沒作用的那幾檔與下一檔畫出來一模一樣，選單把它們灰掉。最低一檔恆有作用。
+ */
+export function qualityAvailable(pixelRatio: number, devicePixelRatio: number): boolean {
+  const i = QUALITY_LEVELS.findIndex((q) => q.pixelRatio === pixelRatio)
+  const lower = QUALITY_LEVELS[i + 1]
+  return i < 0 || lower === undefined || lower.pixelRatio < deviceCap(devicePixelRatio)
 }
 
 /**
@@ -86,7 +104,8 @@ export const ANTIALIAS_LEVELS: readonly { labelKey: MessageKey; value: boolean }
 /** 沒有設定過時的抗鋸齒：開啟 */
 export const DEFAULT_ANTIALIAS = true
 
-const QUALITY_KEY = 'gfx.quality'
+/** 存的是檔位的 pixel ratio。舊版的 `gfx.quality` 存相對比例，意義不同，不讀 */
+const QUALITY_KEY = 'gfx.pixelRatio'
 const ANTIALIAS_KEY = 'gfx.antialias'
 
 /**
@@ -98,16 +117,18 @@ const ANTIALIAS_KEY = 'gfx.antialias'
  */
 export function readQuality(): number {
   try {
-    const v = Number(localStorage.getItem(QUALITY_KEY))
-    return Number.isFinite(v) && v > 0 ? Math.min(v, 1) : DEFAULT_QUALITY
+    const v = localStorage.getItem(QUALITY_KEY)
+    // 【只認五個檔位】`Number('')` 是 0，用數字比對的話被清空的值會被當成某個數
+    const hit = QUALITY_LEVELS.find((q) => String(q.pixelRatio) === v)
+    return hit === undefined ? DEFAULT_QUALITY : hit.pixelRatio
   } catch {
     return DEFAULT_QUALITY
   }
 }
 
-export function saveQuality(scale: number): void {
+export function saveQuality(pixelRatio: number): void {
   try {
-    localStorage.setItem(QUALITY_KEY, String(scale))
+    localStorage.setItem(QUALITY_KEY, String(pixelRatio))
   } catch { /* 存不了就算了，見上面 */ }
 }
 

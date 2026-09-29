@@ -3623,13 +3623,13 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     // 不管看過沒有
     menu.showTutorials(playerTutorials(), () => {})
   },
-  onQuality(scale) {
-    ctx.setQuality(scale)
-    saveQuality(scale)
-    // 【田色的內圈跟著檔位】清晰留一圈算式，其餘純貼圖；純海面沒有這一項
-    terrain.fieldClip?.setInnerRadius(fieldInnerFor(scale))
+  onQuality(pixelRatio) {
+    ctx.setQuality(pixelRatio)
+    saveQuality(pixelRatio)
+    // 【田色的內圈跟著檔位】前兩檔留一圈算式，其餘純貼圖；純海面沒有這一項
+    terrain.fieldClip?.setInnerRadius(fieldInnerFor(pixelRatio))
     // 【自己重畫】選單不記得目前的檔位，按鈕的選中狀態要由這裡再餵一次
-    menu.renderQuality(scale)
+    menu.renderQuality(pixelRatio)
   },
   onAntialias(on) {
     // 【選單已經問過了】它只在玩家按下「儲存並重新載入」之後才送這個事件。

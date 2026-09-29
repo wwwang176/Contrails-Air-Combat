@@ -260,9 +260,11 @@ export const en: Record<MessageKey, string> = {
   'brief.versus': 'vs',
   'brief.go': 'Launch',
 
+  'settings.quality.ultra': 'Ultra',
   'settings.quality.sharp': 'Sharp',
   'settings.quality.balanced': 'Balanced',
   'settings.quality.smooth': 'Smooth',
+  'settings.quality.fast': 'Fast',
   'settings.volume.low': 'Low',
   'settings.volume.mid': 'Medium',
   'settings.volume.high': 'High',
