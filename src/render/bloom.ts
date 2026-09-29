@@ -13,6 +13,7 @@ import {
   WebGLRenderTarget,
   WebGLRenderer,
   type Camera,
+  type Material,
   type Object3D,
   type Texture,
 } from 'three'
@@ -67,9 +68,18 @@ export function useBloom(root: Object3D): void {
  * 要掛的時候自己再標一次。
  *
  * 【只給頂點不在著色器裡位移的網格】遮擋那一趟換成只寫深度的材質，位移會不見
+ *
+ * 【不寫深度的跳過】槳盤、座艙玻璃在主畫面裡不擋後面的東西（`depthWrite: false`）；
+ * 標上去的話會被只寫深度的材質變成實心，透過槳盤看得到的火，光暈卻被整個截掉
  */
 export function useBloomOccluder(root: Object3D): void {
-  root.traverse((o) => o.layers.enable(OCCLUDER_LAYER))
+  root.traverse((o) => {
+    const m = (o as { material?: Material | Material[] }).material
+    if (m === undefined) return
+    const list = Array.isArray(m) ? m : [m]
+    if (list.some((x) => !x.depthWrite)) return
+    o.layers.enable(OCCLUDER_LAYER)
+  })
 }
 
 /** 疊回畫布時的強度。**起始值，由試看裁定** */
@@ -269,7 +279,13 @@ export function createBloomPass(
       const savedLayers = camera.layers.mask
       const savedAutoUpdate = scene.matrixWorldAutoUpdate
       const savedOverride = scene.overrideMaterial
+      // 【統計不歸零】three 每次 render 預設把 `info.render` 清掉，光暈這幾趟會蓋掉主場景
+      // 的數字（`__renderInfo` 只剩最後那一個四邊形）。關掉之後是整幀的總數，
+      // 每一趟有沒有畫到東西改看前後差
+      const savedAutoReset = renderer.info.autoReset
+      const info = renderer.info.render
       try {
+        renderer.info.autoReset = false
         renderer.autoClear = false
         renderer.setClearColor(0x000000, 0)
 
@@ -285,17 +301,19 @@ export function createBloomPass(
         // 2. 窄光源。這一趟沒畫到任何東西就不模糊（例如內陸沒有海）
         camera.layers.set(BLOOM_NARROW_LAYER)
         onNarrowPass?.(true)
+        let calls = info.calls
         renderer.render(scene, camera)
         onNarrowPass?.(false)
-        const narrowOn = renderer.info.render.calls > 0
+        const narrowOn = info.calls > calls
         if (narrowOn) blur(narrow)
 
         // 3. 寬光源。只清顏色：遮擋物與海面的深度留著照樣擋
         renderer.setRenderTarget(source)
         renderer.clear(true, false, false)
         camera.layers.set(BLOOM_LAYER)
+        calls = info.calls
         renderer.render(scene, camera)
-        const wideOn = renderer.info.render.calls > 0
+        const wideOn = info.calls > calls
         if (wideOn) blur(wide)
 
         camera.layers.mask = savedLayers
@@ -309,6 +327,7 @@ export function createBloomPass(
         renderer.setRenderTarget(savedTarget)
         renderer.render(quadScene, quadCamera)
       } finally {
+        renderer.info.autoReset = savedAutoReset
         onNarrowPass?.(false)
         camera.layers.mask = savedLayers
         scene.matrixWorldAutoUpdate = savedAutoUpdate
