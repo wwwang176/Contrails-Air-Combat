@@ -168,11 +168,14 @@ function lowTarget(depth: boolean): WebGLRenderTarget {
 }
 
 /**
- * @param onNarrowPass 窄光源那一趟的前後各叫一次（true、false）。海面同一個材質
- *   在光暈裡只留亮部，靠它切換（`ocean.ts` 的 `OCEAN_GLOW`）
+ * 光源那兩趟的前後各叫一次（`on` 為 true、false）。給那些同一個材質在光暈裡要畫得
+ * 不一樣的東西切換：海面只留亮部（`ocean.ts` 的 `OCEAN_GLOW`），遠處的曳光彈放粗
+ * （`tracers.ts` 的 `TRACER_GLOW`）。`halfHeight` 是光源圖高度的一半，px
  */
+export type GlowPassHook = (kind: 'narrow' | 'wide', on: boolean, halfHeight: number) => void
+
 export function createBloomPass(
-  renderer: WebGLRenderer, onNarrowPass?: (on: boolean) => void,
+  renderer: WebGLRenderer, onGlowPass?: GlowPassHook,
 ): BloomPass {
   // 光源那一張帶深度：遮擋物的深度要留給兩種光源用，同一團火裡前後的火塊也要照常遮擋
   const source = lowTarget(true)
@@ -300,10 +303,10 @@ export function createBloomPass(
 
         // 2. 窄光源。這一趟沒畫到任何東西就不模糊（例如內陸沒有海）
         camera.layers.set(BLOOM_NARROW_LAYER)
-        onNarrowPass?.(true)
+        onGlowPass?.('narrow', true, height / 2)
         let calls = info.calls
         renderer.render(scene, camera)
-        onNarrowPass?.(false)
+        onGlowPass?.('narrow', false, height / 2)
         const narrowOn = info.calls > calls
         if (narrowOn) blur(narrow)
 
@@ -311,8 +314,10 @@ export function createBloomPass(
         renderer.setRenderTarget(source)
         renderer.clear(true, false, false)
         camera.layers.set(BLOOM_LAYER)
+        onGlowPass?.('wide', true, height / 2)
         calls = info.calls
         renderer.render(scene, camera)
+        onGlowPass?.('wide', false, height / 2)
         const wideOn = info.calls > calls
         if (wideOn) blur(wide)
 
@@ -328,7 +333,8 @@ export function createBloomPass(
         renderer.render(quadScene, quadCamera)
       } finally {
         renderer.info.autoReset = savedAutoReset
-        onNarrowPass?.(false)
+        onGlowPass?.('narrow', false, height / 2)
+        onGlowPass?.('wide', false, height / 2)
         camera.layers.mask = savedLayers
         scene.matrixWorldAutoUpdate = savedAutoUpdate
         scene.overrideMaterial = savedOverride

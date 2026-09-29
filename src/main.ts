@@ -33,7 +33,7 @@ import { arenaKills, createArenaState, stepArena } from './world/arena'
 import { createTerrain, preloadTerrainScenery, type TerrainGfx, type TerrainKind } from './render/terrain'
 import { createObjectiveRing } from './render/objectiveRing'
 import { timeScale } from './battle/mission'
-import { createTracers } from './render/tracers'
+import { createTracers, TRACER_GLOW } from './render/tracers'
 import { createMuzzles, createTurretMuzzles } from './render/muzzle'
 import { createTurretBarrels } from './render/turretBarrels'
 import { createSparks } from './render/sparks'
@@ -343,7 +343,14 @@ function wireTerrain(force = false): void {
 }
 
 /** 光暈，主場景畫完之後疊上去。戰鬥、機庫、主選單的背景都畫 */
-const bloom = createBloomPass(ctx.renderer, (on) => { OCEAN_GLOW.pass.value = on ? 1 : 0 })
+const bloom = createBloomPass(ctx.renderer, (kind, on, halfHeight) => {
+  if (kind === 'narrow') {
+    OCEAN_GLOW.pass.value = on ? 1 : 0
+  } else {
+    TRACER_GLOW.pass.value = on ? 1 : 0
+    TRACER_GLOW.halfHeight.value = halfHeight
+  }
+})
 bloom.enabled = readBloom()
 
 const tracers = createTracers()
@@ -3959,6 +3966,10 @@ if (initialRecoveryFailure !== null) {
  * 真實幀率比對，兩者對不上就是覆蓋層量錯了東西。
  */
 ;(window as unknown as Record<string, unknown>)['__perfFps'] = (): number => perf.fps
+/** 光暈裡遠處曳光彈的最小半徑（光源圖的 px，0 = 不放粗），同頁 A/B 用 */
+;(window as unknown as Record<string, unknown>)['__tracerGlowMin'] = (px: number): void => {
+  TRACER_GLOW.minRadiusPx.value = px
+}
 /** 光暈的同頁 A/B：不經設定頁、不存檔，量完重整就回到設定的值 */
 ;(window as unknown as Record<string, unknown>)['__bloom'] = (on: boolean): void => { bloom.enabled = on }
 /** 海面光暈的門檻：天空反射之前的線性亮度在這一段之間漸漸留下來 */
