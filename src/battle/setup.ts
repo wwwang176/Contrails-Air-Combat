@@ -993,6 +993,11 @@ export function createBattle(
   // 中性值是 1，所以遭遇戰與殲滅任務這一整條逐字如舊。見 `MissionTuning`
   const priority = new Float64Array(capacity).fill(1)
   const protectedMask = new Uint8Array(capacity)
+  // 【轟炸機倍率先寫，transit 的再蓋上去】被護送的那幾席以 `convoyPriority` 為準
+  const bomberPriority = cfg.tuning.bomberPriority ?? 1
+  for (const c of world.combatants) {
+    if (c.aircraft.spec.role === 'bomber') priority[c.index] = bomberPriority
+  }
   for (const seat of convoySeats) {
     priority[seat] = cfg.tuning.convoyPriority
     protectedMask[seat] = 1
