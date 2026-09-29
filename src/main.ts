@@ -3964,6 +3964,8 @@ if (initialRecoveryFailure !== null) {
   OCEAN_GLOW.range.value.set(lo, hi)
   OCEAN_GLOW.gain.value = gain
 }
+/** 光暈的半徑：用幾層模糊（1…4） */
+;(window as unknown as Record<string, unknown>)['__bloomRadius'] = (n: number): void => { bloom.setRadius(n) }
 /** 光暈色調的比較：白心的量、暈的強度、白心的亮度區間 */
 ;(window as unknown as Record<string, unknown>)['__bloomLook'] = (
   white: number, strength?: number, hotFrom?: number, hotTo?: number,
