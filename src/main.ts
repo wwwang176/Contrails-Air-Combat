@@ -7,7 +7,7 @@ import { createScene } from './render/scene'
 import {
   fieldInnerFor, readAntialias, readBloom, readQuality, saveAntialias, saveBloom, saveQuality,
 } from './render/quality'
-import { createBloomPass, useBloom } from './render/bloom'
+import { createBloomPass, useBloom, useBloomOccluder } from './render/bloom'
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
 import {
@@ -279,6 +279,17 @@ function playThunder(distance: number, bearing: number): void {
  */
 let objectiveRing = createObjectiveRing()
 ctx.scene.add(terrain.object)
+tagTerrainOccluders(terrain.object)
+
+/**
+ * 地形裡會擋住光暈的：陸地（索引 2）與佈景（索引 4 起）。索引契約與 `__gfx` 共用。
+ * 海面與植被不標，理由見 `render/bloom.ts`
+ */
+function tagTerrainOccluders(root: Object3D): void {
+  const land = root.children[2]
+  if (land !== undefined) useBloomOccluder(land)
+  for (let i = 4; i < root.children.length; i++) useBloomOccluder(root.children[i]!)
+}
 
 /**
  * 把地形接給每一架 AI，並清掉上一場的鎖存。
@@ -554,6 +565,7 @@ function attachLod(v: Visual, id: string): void {
   if (v.lod !== null) {
     v.lod.group.visible = false
     ctx.scene.add(v.lod.group)
+    useBloomOccluder(v.lod.group)
   }
   v.far = false
 }
@@ -569,6 +581,7 @@ function attachVisual(c: Combatant): Visual {
     wrecked: false,
   }
   ctx.scene.add(v.model.group)
+  useBloomOccluder(v.model.group)
   attachLod(v, c.aircraft.spec.id)
   visuals.set(c, v)
   return v
@@ -1620,6 +1633,7 @@ function buildBattleTerrain(): void {
   terrain.dispose()
   terrain = createTerrain(terrainKind, terrainGfx())
   ctx.scene.add(terrain.object)
+  tagTerrainOccluders(terrain.object)
   // 【時段與地形同一個來源】任務讀卡片（省略 = 正午），遭遇戰讀玩家在編組頁
   // 選的那一格。天空、霧、三盞燈與海一次換完 —— 分開叫的話漏掉海的症狀是
   // 「黃昏的天配中午的海」，而且不會有東西報錯
@@ -1719,6 +1733,7 @@ function startWorld(cfg: BattleConfig): void {
   if (world.ships.length > 0) {
     shipModels = createShipModels(world.ships)
     ctx.scene.add(shipModels.object)
+    useBloomOccluder(shipModels.object)
   }
   // 地面目標與船同一個做法：每一場重建
   if (groundModels !== null) {
@@ -1734,6 +1749,7 @@ function startWorld(cfg: BattleConfig): void {
   if (world.groundTargets.length > 0) {
     groundModels = createGroundModels(world.groundTargets)
     ctx.scene.add(groundModels.object)
+    useBloomOccluder(groundModels.object)
     searchlights = createSearchlights(world.groundTargets, glareTexture)
     ctx.scene.add(searchlights.object)
   }
@@ -1746,6 +1762,7 @@ function startWorld(cfg: BattleConfig): void {
   if (world.balloons.length > 0) {
     balloonModels = createBalloonModels(world.balloons)
     ctx.scene.add(balloonModels.object)
+    useBloomOccluder(balloonModels.object)
   }
 
   // 5. 撤離圓環。【比照地形每一場都重建】那條路徑因此每一場都在走，不是
@@ -2808,6 +2825,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
       // 釋放。配置只發生在復活那一刻
       v.model = buildAircraft(c.aircraft.spec)
       ctx.scene.add(v.model.group)
+      useBloomOccluder(v.model.group)
       attachLod(v, c.aircraft.spec.id)
       v.wrecked = false
     }
