@@ -114,29 +114,35 @@ const UP_FRAGMENT = `
 /**
  * 疊回畫布。離屏圖是線性的，這裡轉成畫布的色彩空間再加上去。
  *
- * `white`：往白色靠的比例，白色取三個通道的最大值（亮度不變）。`core` 為真時只有
- * 亮的地方變白 —— 強光的核心過曝成白，外圍的暈保留火焰的顏色
+ * 【白心看光源，不看暈】強光的核心過曝成白，外圍的暈保留火焰的顏色。白的多寡取
+ * **模糊前**那張光源圖的亮度：火球中心是好幾層加法火塊疊在一起的地方，那個亮度
+ * 不隨距離變。拿模糊後的暈當門檻的話，暈的亮度跟火球佔畫面的面積成正比 ——
+ * 近處整顆火球都過門檻，變成一團白
  */
 const COMPOSITE_FRAGMENT = `
   uniform sampler2D src;
+  uniform sampler2D hotMap;
   uniform float strength;
   uniform float white;
-  uniform bool core;
+  uniform vec2 hotRange;
   varying vec2 vUv;
   void main() {
-    vec3 c = texture2D(src, vUv).rgb;
-    float peak = max(c.r, max(c.g, c.b));
-    float k = core ? white * smoothstep(0.05, 0.6, peak) : white;
-    c = mix(c, vec3(peak), k);
-    gl_FragColor = vec4(c * strength, 1.0);
+    vec3 c = texture2D(src, vUv).rgb * strength;
+    // 熱度用亮度：綠的權重最大，所以偏黃的火心與淡黃的曳光彈先變白，暗紅的火尾不會
+    float hot = dot(texture2D(hotMap, vUv).rgb, vec3(0.2126, 0.7152, 0.0722));
+    c += vec3(white * smoothstep(hotRange.x, hotRange.y, hot));
+    gl_FragColor = vec4(c, 1.0);
     #include <colorspace_fragment>
   }
 `
 
 export interface BloomPass {
   enabled: boolean
-  /** 光暈的色調：往白色靠的比例 0…1；`core` 為真時只有亮的核心變白 */
-  setLook(white: number, core: boolean, strength?: number): void
+  /**
+   * 光暈的色調：`white` 是白心的量（0 = 沒有），光源亮度在 `hotFrom`…`hotTo`
+   * 之間漸漸變白；`strength` 是暈的強度
+   */
+  setLook(white: number, strength?: number, hotFrom?: number, hotTo?: number): void
   /** 主場景畫完之後呼叫。`enabled` 為 false 時什麼都不做 */
   render(scene: Scene, camera: Camera): void
   dispose(): void
@@ -150,7 +156,13 @@ function lowTarget(depth: boolean): WebGLRenderTarget {
   return t
 }
 
-export function createBloomPass(renderer: WebGLRenderer): BloomPass {
+/**
+ * @param onGlowPass 光源那一趟的前後各叫一次（true、false）。給那些同一個材質
+ *   在光暈裡要畫得不一樣的東西切換用 —— 海面只留亮部（`ocean.ts` 的 `OCEAN_GLOW`）
+ */
+export function createBloomPass(
+  renderer: WebGLRenderer, onGlowPass?: (on: boolean) => void,
+): BloomPass {
   // 光源那一張帶深度：同一團火裡前後的火塊要照常遮擋
   const source = lowTarget(true)
   const levels: WebGLRenderTarget[] = []
@@ -171,8 +183,8 @@ export function createBloomPass(renderer: WebGLRenderer): BloomPass {
   })
   const composite = new ShaderMaterial({
     uniforms: {
-      src: { value: levels[0]!.texture }, strength: { value: BLOOM_STRENGTH },
-      white: { value: 0 }, core: { value: false },
+      src: { value: levels[0]!.texture }, hotMap: { value: source.texture },
+      strength: { value: BLOOM_STRENGTH }, white: { value: 0 }, hotRange: { value: new Vector2(1, 2) },
     },
     vertexShader: FULLSCREEN_VERTEX, fragmentShader: COMPOSITE_FRAGMENT,
     blending: AdditiveBlending, transparent: true,
@@ -222,10 +234,10 @@ export function createBloomPass(renderer: WebGLRenderer): BloomPass {
 
   const bloom: BloomPass = {
     enabled: true,
-    setLook(white, core, strength = BLOOM_STRENGTH) {
+    setLook(white, strength = BLOOM_STRENGTH, hotFrom = 1, hotTo = 2) {
       composite.uniforms['white']!.value = white
-      composite.uniforms['core']!.value = core
       composite.uniforms['strength']!.value = strength
+      ;(composite.uniforms['hotRange']!.value as Vector2).set(hotFrom, hotTo)
     },
     render(scene, camera) {
       if (!bloom.enabled) return
@@ -252,7 +264,9 @@ export function createBloomPass(renderer: WebGLRenderer): BloomPass {
 
         // 2. 光源，照遮擋物的深度測試
         camera.layers.set(BLOOM_LAYER)
+        onGlowPass?.(true)
         renderer.render(scene, camera)
+        onGlowPass?.(false)
         camera.layers.mask = savedLayers
         scene.matrixWorldAutoUpdate = savedAutoUpdate
         // 這一幀沒有任何光源：模糊與疊加全部省掉
@@ -281,6 +295,7 @@ export function createBloomPass(renderer: WebGLRenderer): BloomPass {
         // 5. 疊回畫布
         pass(composite, levels[0]!.texture, savedTarget)
       } finally {
+        onGlowPass?.(false)
         camera.layers.mask = savedLayers
         scene.matrixWorldAutoUpdate = savedAutoUpdate
         scene.overrideMaterial = savedOverride

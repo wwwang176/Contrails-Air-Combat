@@ -8,6 +8,7 @@ import {
   fieldInnerFor, readAntialias, readBloom, readQuality, saveAntialias, saveBloom, saveQuality,
 } from './render/quality'
 import { createBloomPass, useBloom, useBloomOccluder } from './render/bloom'
+import { OCEAN_GLOW } from './render/ocean'
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
 import {
@@ -342,7 +343,7 @@ function wireTerrain(force = false): void {
 }
 
 /** 戰鬥畫面的光暈，主場景畫完之後疊上去。選單與機庫不畫 */
-const bloom = createBloomPass(ctx.renderer)
+const bloom = createBloomPass(ctx.renderer, (on) => { OCEAN_GLOW.pass.value = on ? 1 : 0 })
 bloom.enabled = readBloom()
 
 const tracers = createTracers()
@@ -3958,10 +3959,14 @@ if (initialRecoveryFailure !== null) {
 ;(window as unknown as Record<string, unknown>)['__perfFps'] = (): number => perf.fps
 /** 光暈的同頁 A/B：不經設定頁、不存檔，量完重整就回到設定的值 */
 ;(window as unknown as Record<string, unknown>)['__bloom'] = (on: boolean): void => { bloom.enabled = on }
-/** 光暈色調的比較：往白色靠的比例、是否只有核心變白、強度 */
+/** 海面光暈的門檻：天空反射之前的線性亮度在這一段之間漸漸留下來 */
+;(window as unknown as Record<string, unknown>)['__oceanGlow'] = (lo: number, hi: number): void => {
+  OCEAN_GLOW.range.value.set(lo, hi)
+}
+/** 光暈色調的比較：白心的量、暈的強度、白心的亮度區間 */
 ;(window as unknown as Record<string, unknown>)['__bloomLook'] = (
-  white: number, core: boolean, strength?: number,
-): void => { bloom.setLook(white, core, strength) }
+  white: number, strength?: number, hotFrom?: number, hotTo?: number,
+): void => { bloom.setLook(white, strength, hotFrom, hotTo) }
 
 /**
  * **量測出口**：上一幀的 draw call 與三角形數（`renderer.info.render`）。
