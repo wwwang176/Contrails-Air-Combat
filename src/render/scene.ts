@@ -10,6 +10,7 @@ import { applyLightPalette, createLights, type Lights } from './lighting'
 import { applySkyPalette, createSky } from './sky'
 import { createFog } from './fog'
 import { setOceanRenderer } from './ocean'
+import { installLightSkip } from './lightSkip'
 import { DEFAULT_QUALITY, pixelRatioFor, readAntialias } from './quality'
 import { DAY_PALETTES, paletteSkyColorAt, type DayPalette, type TimeOfDay } from './timeOfDay'
 
@@ -84,6 +85,8 @@ export function createScene(
   canvas: HTMLCanvasElement,
   timeOfDay: TimeOfDay = 'noon',
 ): SceneContext {
+  // 【沒亮的點光源不算】改的是 three 的 chunk，必須在第一次編譯之前
+  installLightSkip()
   // 【抗鋸齒只能在這裡決定】它是建立 context 的參數，事後換不了 —— 設定改了
   // 之後要重新載入才生效，見 `render/quality.ts` 與 `ui/menu.ts` 的設定列
   const renderer = new WebGLRenderer({ canvas, antialias: readAntialias() })
