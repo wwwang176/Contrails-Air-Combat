@@ -4,6 +4,7 @@ import {
   HalfFloatType,
   LinearFilter,
   Mesh,
+  MeshBasicMaterial,
   OrthographicCamera,
   PlaneGeometry,
   Scene,
@@ -25,16 +26,19 @@ import {
  *
  * ```
  *   1  主場景照舊直接畫到畫布（這一支不碰）
- *   2  只畫光暈圖層，到半解析度的離屏圖
- *   3  1/4 → 1/32 往下取樣，再逐層往上疊回 1/4（dual Kawase）
- *   4  1/4 那一張以加法疊回畫布
+ *   2  遮擋物（地形、佈景、飛機、船、地面單位）只寫深度，到半解析度的離屏圖
+ *   3  光暈圖層畫到同一張，被遮擋物擋住的部分不畫
+ *   4  1/4 → 1/32 往下取樣，再逐層往上疊回 1/4（dual Kawase）
+ *   5  1/4 那一張以加法疊回畫布
  * ```
  *
  * 【主場景不改畫到離屏】那條路（`lowResTransparency.ts`）每幀多一次全解析度的
  * MSAA 解析與複製，Iris Xe 上約 13 ms，見 `main.ts` 煙那一段的註解。這裡的離屏圖
  * 都是半解析度以下，全解析度的只有最後那一趟疊加。
  *
- * 【沒有遮擋】光暈圖層不讀主場景的深度：躲在機身或山後面的火，光暈照樣透出來。
+ * 【遮擋物另標一層，不是整個場景重畫】煙、水霧這些半透明的東西不能擋光 ——
+ * 火就在自己的煙裡。海面不標：它的波浪在頂點著色器裡位移，換成只寫深度的
+ * 材質就變回平面。植被不標：樹後面透一點光暈看不出來，而它的頂點數最多。
  *
  * 熱路徑：`render` 每幀一次，不配置。
  */
@@ -42,9 +46,22 @@ import {
 /** 光暈圖層。物件同時留在第 0 層，主場景照常畫它 */
 export const BLOOM_LAYER = 2
 
+/** 遮擋圖層。物件同時留在第 0 層，主場景照常畫它 */
+export const OCCLUDER_LAYER = 3
+
 /** 把一個物件（連同它底下的）標成光源。物件要在建立時就掛好子物件 */
 export function useBloom(root: Object3D): void {
   root.traverse((o) => o.layers.enable(BLOOM_LAYER))
+}
+
+/**
+ * 把一個物件（連同它底下的）標成會擋住光暈的東西。**之後才掛上去的子物件不算**，
+ * 要掛的時候自己再標一次。
+ *
+ * 【只給頂點不在著色器裡位移的網格】遮擋那一趟換成只寫深度的材質，位移會不見
+ */
+export function useBloomOccluder(root: Object3D): void {
+  root.traverse((o) => o.layers.enable(OCCLUDER_LAYER))
 }
 
 /** 疊回畫布時的強度。**起始值，由試看裁定** */
@@ -146,6 +163,16 @@ export function createBloomPass(renderer: WebGLRenderer): BloomPass {
     depthTest: false, depthWrite: false, toneMapped: false,
   })
 
+  /**
+   * 遮擋那一趟的材質：只寫深度。
+   *
+   * 【往後推一點】地面火與燃燒的殘骸貼著地表，遮擋深度與光源深度幾乎相同，半解析度
+   * 下兩者會互相穿插，光暈跟著閃。推開幾個深度單位，貼著的那一層才照常亮
+   */
+  const occluderMaterial = new MeshBasicMaterial({
+    colorWrite: false, polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 4,
+  })
+
   const quad = new Mesh(new PlaneGeometry(2, 2), down)
   quad.frustumCulled = false
   const quadScene = new Scene()
@@ -188,22 +215,29 @@ export function createBloomPass(renderer: WebGLRenderer): BloomPass {
       renderer.getClearColor(savedClear)
       const savedLayers = camera.layers.mask
       const savedAutoUpdate = scene.matrixWorldAutoUpdate
+      const savedOverride = scene.overrideMaterial
       try {
         renderer.autoClear = false
         renderer.setClearColor(0x000000, 0)
 
-        // 1. 光源。世界矩陣剛在主場景那一趟更新過，這一趟不再走一次整棵樹
+        // 1. 遮擋物只寫深度。世界矩陣剛在主場景那一趟更新過，這兩趟不再走一次整棵樹
         renderer.setRenderTarget(source)
         renderer.clear(true, true, false)
-        camera.layers.set(BLOOM_LAYER)
         scene.matrixWorldAutoUpdate = false
+        camera.layers.set(OCCLUDER_LAYER)
+        scene.overrideMaterial = occluderMaterial
+        renderer.render(scene, camera)
+        scene.overrideMaterial = savedOverride
+
+        // 2. 光源，照遮擋物的深度測試
+        camera.layers.set(BLOOM_LAYER)
         renderer.render(scene, camera)
         camera.layers.mask = savedLayers
         scene.matrixWorldAutoUpdate = savedAutoUpdate
         // 這一幀沒有任何光源：模糊與疊加全部省掉
         if (renderer.info.render.calls === 0) return
 
-        // 2. 往下取樣。每一層先清掉，往上疊的時候才不會留著上一幀
+        // 3. 往下取樣。每一層先清掉，往上疊的時候才不會留著上一幀
         let src: Texture = source.texture
         let srcW = width
         let srcH = height
@@ -217,17 +251,18 @@ export function createBloomPass(renderer: WebGLRenderer): BloomPass {
           srcH = Math.max(1, height >> (i + 1))
         }
 
-        // 3. 往上取樣，加到上一層原本的內容上
+        // 4. 往上取樣，加到上一層原本的內容上
         for (let i = LEVELS - 1; i > 0; i--) {
           upTexel.set(1 / Math.max(1, width >> (i + 1)), 1 / Math.max(1, height >> (i + 1)))
           pass(up, levels[i]!.texture, levels[i - 1]!)
         }
 
-        // 4. 疊回畫布
+        // 5. 疊回畫布
         pass(composite, levels[0]!.texture, savedTarget)
       } finally {
         camera.layers.mask = savedLayers
         scene.matrixWorldAutoUpdate = savedAutoUpdate
+        scene.overrideMaterial = savedOverride
         renderer.setClearColor(savedClear, savedAlpha)
         renderer.autoClear = savedAutoClear
         renderer.setRenderTarget(savedTarget)
@@ -238,6 +273,7 @@ export function createBloomPass(renderer: WebGLRenderer): BloomPass {
       for (const t of levels) t.dispose()
       down.dispose()
       up.dispose()
+      occluderMaterial.dispose()
       composite.dispose()
       quad.geometry.dispose()
     },
