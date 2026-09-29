@@ -42,7 +42,7 @@ describe('照明彈節拍', () => {
     // 第二枚晚 5 秒：進池了但還沒點燃（年齡是負的）、掛在自己的高度
     expect(b.world.flares.age[1]).toBeLessThan(0)
     expect(b.world.flares.y[1]).toBe(1000)
-    expect(b.message).toBe('')
+    expect(b.message).toBeNull()
     expect(b.beatsLeft).toBe(0)
   })
 

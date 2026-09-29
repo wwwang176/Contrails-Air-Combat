@@ -14,6 +14,7 @@
  */
 import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
 import { missionConfigFrom } from '../../src/battle/missions'
+import { t } from '../../src/i18n'
 import { AiController } from '../../src/ai/AiController'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
@@ -279,7 +280,7 @@ console.log('── 表二：沒有被護送者的場次 ───────�
 for (const id of ['japan-m2'] as const) {
   const card = readyCard(id)
   const b = createBattle(new Idle(), missionConfigFrom(card), SEED)
-  console.log(`${card.title.padEnd(12)} convoy = ${b.convoy === null ? 'null' : '不是 null（錯）'}`
+  console.log(`${t(card.titleKey).padEnd(12)} convoy = ${b.convoy === null ? 'null' : '不是 null（錯）'}`
     + `   規則 ${b.cfg.rules.kind}`)
 }
 

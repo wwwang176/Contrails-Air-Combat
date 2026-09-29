@@ -8,6 +8,7 @@ import { BOMBS_CAPACITY } from '../../src/world/bomb'
 import { TORPEDOES_CAPACITY, TORPEDO_RANGE, TORPEDO_SPEED } from '../../src/world/torpedo'
 import { WAKE_SLOTS } from '../../src/render/wake'
 import { loadoutOf } from '../../src/weapons/stores'
+import { LANGS, setLang, t } from '../../src/i18n'
 
 /**
  * # 三條戰役與 9 張卡
@@ -34,9 +35,16 @@ describe('三條戰役', () => {
     }
   })
 
-  it('全部標題不重複，而且每一張都有一行說明', () => {
-    expect(new Set(ALL.map((m) => m.title)).size).toBe(9)
-    for (const m of ALL) expect(m.summary.length, m.id).toBeGreaterThan(0)
+  it('兩種語言的標題都不重複，而且每一張都有一行說明', () => {
+    try {
+      for (const lang of LANGS) {
+        setLang(lang)
+        expect(new Set(ALL.map((m) => t(m.titleKey))).size, lang).toBe(9)
+        for (const m of ALL) expect(t(m.summaryKey).length, `${lang} ${m.id}`).toBeGreaterThan(0)
+      }
+    } finally {
+      setLang('zh')
+    }
   })
 
   it('九張全部打得起來', () => {

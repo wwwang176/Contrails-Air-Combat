@@ -12,6 +12,7 @@ import type { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { MissionBattle, ReadyMissionCard } from '../../src/battle/missions'
 import type { ReinforceBeat, WithdrawBeat } from '../../src/battle/beats'
+import type { MessageKey } from '../../src/i18n'
 
 /**
  * # 任務卡上的波次與返航
@@ -31,6 +32,10 @@ class Idle implements Controller {
     out.firing = false
   }
 }
+
+/** 預警與返航的文字用哪一句都可以 —— 驗的是鍵有沒有原樣帶過去 */
+const WARN: MessageKey = 'mission.allies-m1.wave.more'
+const BACK: MessageKey = 'mission.japan-m2.withdraw'
 
 /** 一張只為了測翻譯而捏的卡。**不改動 `MISSIONS`** */
 function card(patch: Partial<MissionBattle>): ReadyMissionCard {
@@ -63,7 +68,7 @@ describe('波次的翻譯', () => {
     // 【為什麼 toBe】下游三張依物件識別的快取認的是參考
     const c = card({
       waves: [{
-        when: { kind: 'clock', at: 30 }, warn: '敵機！', warnLead: 3,
+        when: { kind: 'clock', at: 30 }, warnKey: WARN, warnLead: 3,
         side: 'theirs', spec: P51D, count: 4,
       }],
     })
@@ -76,13 +81,13 @@ describe('波次的翻譯', () => {
   it('side 決定隊伍，與機種無關 —— 同一台可以是友軍也可以是敵軍', () => {
     const mine = card({
       waves: [{
-        when: { kind: 'clock', at: 1 }, warn: 'x', warnLead: 0,
+        when: { kind: 'clock', at: 1 }, warnKey: WARN, warnLead: 0,
         side: 'mine', spec: A6M5, count: 2,
       }],
     })
     const theirs = card({
       waves: [{
-        when: { kind: 'clock', at: 1 }, warn: 'x', warnLead: 0,
+        when: { kind: 'clock', at: 1 }, warnKey: WARN, warnLead: 0,
         side: 'theirs', spec: A6M5, count: 2,
       }],
     })
@@ -93,7 +98,7 @@ describe('波次的翻譯', () => {
   it('轟炸機也放得進去 —— 沒有「第 0 台是戰鬥機」那個假設了', () => {
     const c = card({
       waves: [{
-        when: { kind: 'clock', at: 1 }, warn: 'x', warnLead: 0,
+        when: { kind: 'clock', at: 1 }, warnKey: WARN, warnLead: 0,
         side: 'theirs', spec: B17G, count: 3,
       }],
     })
@@ -104,7 +109,7 @@ describe('波次的翻譯', () => {
     const c = card({
       waves: [{
         when: { kind: 'alive', side: 'theirs', role: 'fighter', atMost: 1, byLatest: 150 },
-        warn: 'x', warnLead: 0, side: 'theirs', spec: P51D, count: 4,
+        warnKey: WARN, warnLead: 0, side: 'theirs', spec: P51D, count: 4,
       }],
     })
     const when = reinforces(missionConfigFrom(c))[0]!.when
@@ -118,13 +123,13 @@ describe('波次的翻譯', () => {
   it('時鐘條件、預警文字與提前量原樣帶過去', () => {
     const c = card({
       waves: [{
-        when: { kind: 'clock', at: 42 }, warn: '敵方護航機！', warnLead: 4,
+        when: { kind: 'clock', at: 42 }, warnKey: WARN, warnLead: 4,
         side: 'theirs', spec: P51D, count: 1,
       }],
     })
     const beat = reinforces(missionConfigFrom(c))[0]!
     expect(beat.when).toEqual({ kind: 'clock', at: 42 })
-    expect(beat.warn).toBe('敵方護航機！')
+    expect(beat.warnKey).toBe(WARN)
     expect(beat.warnLead).toBe(4)
   })
 
@@ -133,13 +138,13 @@ describe('波次的翻譯', () => {
     // 第二批不往前挪就會生在他背後
     const base = card({
       waves: [{
-        when: { kind: 'clock', at: 1 }, warn: 'x', warnLead: 0,
+        when: { kind: 'clock', at: 1 }, warnKey: WARN, warnLead: 0,
         side: 'theirs', spec: P51D, count: 1,
       }],
     })
     const moved = card({
       waves: [{
-        when: { kind: 'clock', at: 1 }, warn: 'x', warnLead: 0,
+        when: { kind: 'clock', at: 1 }, warnKey: WARN, warnLead: 0,
         side: 'theirs', spec: P51D, count: 1, along: -1.0,
       }],
     })
@@ -160,8 +165,8 @@ describe('波次的翻譯', () => {
     // 不蘊含「位置不同」。分開的是橫向槽位，那要算過 `unitFrame` 才看得到
     const n = 6
     const c = card({
-      waves: Array.from({ length: n }, (_, i) => ({
-        when: { kind: 'clock' as const, at: 1 }, warn: `w${i}`, warnLead: 0,
+      waves: Array.from({ length: n }, () => ({
+        when: { kind: 'clock' as const, at: 1 }, warnKey: WARN, warnLead: 0,
         side: 'theirs' as const, spec: P51D, count: 1,
       })),
     })
@@ -181,9 +186,9 @@ describe('波次的翻譯', () => {
     // 分隊在建構期就綁死了自己的座位與隊伍
     const c = card({
       waves: [
-        { when: { kind: 'clock', at: 100 }, warn: '紅', warnLead: 0,
+        { when: { kind: 'clock', at: 100 }, warnKey: WARN, warnLead: 0,
           side: 'theirs', spec: P51D, count: 4 },
-        { when: { kind: 'clock', at: 0 }, warn: '藍', warnLead: 0,
+        { when: { kind: 'clock', at: 0 }, warnKey: WARN, warnLead: 0,
           side: 'mine', spec: P51D, count: 1 },
       ],
     })
@@ -203,7 +208,7 @@ describe('波次的翻譯', () => {
   it('地面戰果的條件原樣帶過去', () => {
     const c = card({
       waves: [{
-        when: { kind: 'ground', below: 6, byLatest: 40 }, warn: 'x', warnLead: 0,
+        when: { kind: 'ground', below: 6, byLatest: 40 }, warnKey: WARN, warnLead: 0,
         side: 'theirs', spec: P51D, count: 2,
       }],
     })
@@ -217,7 +222,7 @@ describe('波次的翻譯', () => {
     const c = card({
       ground,
       waves: [{
-        when: { kind: 'ground', below: 2, byLatest: 1 }, warn: 'x', warnLead: 0,
+        when: { kind: 'ground', below: 2, byLatest: 1 }, warnKey: WARN, warnLead: 0,
         side: 'theirs', spec: P51D, count: 2,
       }],
     })
@@ -236,9 +241,9 @@ describe('波次的翻譯', () => {
     const c = card({
       ground: [{ unit: 'fuelDump', team: 'red', x: 0, z: -3000, heading: 0 }],
       waves: [
-        { when: { kind: 'ground', below: 1, byLatest: 0.5 }, warn: '甲', warnLead: 0,
+        { when: { kind: 'ground', below: 1, byLatest: 0.5 }, warnKey: WARN, warnLead: 0,
           side: 'theirs', spec: P51D, count: 2 },
-        { when: { kind: 'clock', at: 1 }, warn: '乙', warnLead: 0,
+        { when: { kind: 'clock', at: 1 }, warnKey: WARN, warnLead: 0,
           side: 'theirs', spec: P51D, count: 2 },
       ],
     })
@@ -255,7 +260,7 @@ describe('波次的翻譯', () => {
     for (const count of [0, SCHWARM_SIZE + 1]) {
       const c = card({
         waves: [{
-          when: { kind: 'clock', at: 1 }, warn: 'x', warnLead: 0,
+          when: { kind: 'clock', at: 1 }, warnKey: WARN, warnLead: 0,
           side: 'theirs', spec: P51D, count,
         }],
       })
@@ -269,7 +274,7 @@ describe('返航的翻譯', () => {
     // 【兩條路必須同一條】返航節拍與撤離卡指的是同一個圈
     const c = card({
       withdraw: {
-        when: { kind: 'clock', at: 10 }, message: '返航',
+        when: { kind: 'clock', at: 10 }, messageKey: BACK,
         distance: 12000, radius: 1000, seconds: 158,
       },
     })
@@ -279,17 +284,17 @@ describe('返航的翻譯', () => {
     expect(w.point.z).toBe(-12000)
     expect(w.radius).toBe(1000)
     expect(w.seconds).toBe(158)
-    expect(w.message).toBe('返航')
+    expect(w.messageKey).toBe(BACK)
   })
 
   it('波次與返航可以同時存在，波次排在前面', () => {
     const c = card({
       waves: [{
-        when: { kind: 'clock', at: 1 }, warn: 'x', warnLead: 0,
+        when: { kind: 'clock', at: 1 }, warnKey: WARN, warnLead: 0,
         side: 'theirs', spec: P51D, count: 2,
       }],
       withdraw: {
-        when: { kind: 'clock', at: 5 }, message: 'RTB',
+        when: { kind: 'clock', at: 5 }, messageKey: BACK,
         distance: 9000, radius: 800, seconds: 120,
       },
     })

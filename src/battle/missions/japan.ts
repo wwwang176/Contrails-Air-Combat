@@ -74,12 +74,12 @@ const LEYTE_BALLOON_ENTRIES: readonly BalloonEntry[] = LEYTE_BALLOONS.map((b): B
 /** 日本線的三關。**這一條線的卡片只住在這裡。** */
 export const JAPAN: readonly MissionCard[] = [
   {
-    id: 'japan-m1', title: '瓜達康納爾上空', type: 'escort',
-    summary: '駕駛零戰護送一式陸攻，擋下美軍戰鬥機，讓陸攻用魚雷擊沉敵艦。',
-    place: '所羅門　瓜達康納爾外海', period: '1942 年 8 月',
+    id: 'japan-m1', titleKey: 'mission.japan-m1.title', type: 'escort',
+    summaryKey: 'mission.japan-m1.summary',
+    placeKey: 'mission.japan-m1.place', period: { year: 1942, month: 8 },
     battle: {
       ...KILL,
-      objective: '讓陸攻擊沉敵艦', banner: '野貓來了，保護好陸攻',
+      objectiveKey: 'mission.japan-m1.objective', bannerKey: 'mission.japan-m1.banner',
       // 【零戰與陸攻，不是 21 型】遊戲每個陣營只有一台戰鬥機模型，卡片寫戰役
       // 不寫次型號
       blueSpec: A6M5, redSpec: F4F4,
@@ -98,16 +98,16 @@ export const JAPAN: readonly MissionCard[] = [
       // 【沒有 `blueLoadout`】陸攻掛魚雷，照 G4M 的預設。覆寫會套到藍隊全體
       recycle: {
         side: 'theirs', role: 'fighter', batches: 3,
-        warn: '警告：敵方戰鬥機再度升空', warnLead: 5,
+        warnKey: 'mission.japan-m1.recycle', warnLead: 5,
       },
     },
   },
   {
-    id: 'japan-m2', title: '雷伊泰前線', type: 'strike',
-    summary: '駕駛疾風掛彈攻擊美軍補給車隊，趕在它們抵達前線之前，然後撤離。',
-    place: '菲律賓　雷伊泰島', period: '1944 年 11 月',
+    id: 'japan-m2', titleKey: 'mission.japan-m2.title', type: 'strike',
+    summaryKey: 'mission.japan-m2.summary',
+    placeKey: 'mission.japan-m2.place', period: { year: 1944, month: 11 },
     battle: {
-      objective: '炸毀補給卡車', banner: '找到車隊，別讓它們抵達前線',
+      objectiveKey: 'mission.japan-m2.objective', bannerKey: 'mission.japan-m2.banner',
       blueSpec: KI84, redSpec: F6F5, convoySpec: null,
       // 【疾風六架】雷伊泰期間陸航的戰力一直在耗損（誉發動機故障、燃料差、補充跟
       // 不上），對地攻擊多是幾架的小編隊
@@ -187,44 +187,44 @@ export const JAPAN: readonly MissionCard[] = [
       waves: [
         {
           when: { kind: 'destroyed', atLeast: 1, unit: 'usTruck', byLatest: 90 },
-          warn: '敵艦載機接近中',
+          warnKey: 'mission.japan-m2.wave.carrier',
           warnLead: 6,
           side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI, altitude: 2500,
         },
         {
           when: { kind: 'clock', at: 150 },
-          warn: '敵艦載機接近中',
+          warnKey: 'mission.japan-m2.wave.carrier',
           warnLead: 6,
           side: 'theirs', spec: F6F5, count: 2, altitude: 2000,
         },
         {
           when: { kind: 'clock', at: 240 },
-          warn: '敵艦載機接近中',
+          warnKey: 'mission.japan-m2.wave.carrier',
           warnLead: 6,
           side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI, altitude: 2500,
         },
         {
           when: { kind: 'destroyed', atLeast: 6, unit: 'usTruck' },
-          warn: '撤離戰區',
+          warnKey: 'mission.japan-m2.withdraw',
           warnLead: 0,
           side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI + 0.4, along: 0.35, altitude: 3000,
         },
         {
           when: { kind: 'destroyed', atLeast: 6, unit: 'usTruck' },
-          warn: '撤離戰區',
+          warnKey: 'mission.japan-m2.withdraw',
           warnLead: 20,
           side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI, along: 0.5, altitude: 3000,
         },
         {
           when: { kind: 'destroyed', atLeast: 6, unit: 'usTruck' },
-          warn: '撤離戰區',
+          warnKey: 'mission.japan-m2.withdraw',
           warnLead: 40,
           side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI - 0.4, along: 0.75, altitude: 3000,
         },
       ],
       withdraw: {
         when: { kind: 'destroyed', atLeast: 6, unit: 'usTruck' },
-        message: '撤離戰區',
+        messageKey: 'mission.japan-m2.withdraw',
         // 【負值 = 在開局位置的後方】撤離點在 Ki-84 來的方向
         distance: -EVACUATE_Z,
         // 【圈小】要對準了才飛得進去，不是往那個方向飛就結束
@@ -234,12 +234,12 @@ export const JAPAN: readonly MissionCard[] = [
     },
   },
   {
-    id: 'japan-m3', title: '倫內爾島', type: 'strike',
-    summary: '駕駛一式陸攻趁著黃昏貼海飛行，用魚雷擊沉美軍艦隊。',
-    place: '所羅門　倫內爾島外海', period: '1943 年 1 月',
+    id: 'japan-m3', titleKey: 'mission.japan-m3.title', type: 'strike',
+    summaryKey: 'mission.japan-m3.summary',
+    placeKey: 'mission.japan-m3.place', period: { year: 1943, month: 1 },
     battle: {
       ...KILL,
-      objective: '擊沉敵艦', banner: '壓低高度，衝向艦隊',
+      objectiveKey: 'mission.japan-m3.objective', bannerKey: 'mission.japan-m3.banner',
       // 【F4F-4 不是 F6F-5】1943 年 1 月的攔截者是企業號 VF-10 的野貓；
       // 地獄貓 1943 年 8 月才首戰，晚了七個月。
       blueSpec: G4M, redSpec: F4F4,

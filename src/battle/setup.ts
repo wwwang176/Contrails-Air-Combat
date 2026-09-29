@@ -56,6 +56,7 @@ import {
 import { createGroundTarget, resetGroundTarget, type GroundTarget } from '../world/groundTargets'
 import { parkedOffset } from '../world/groundAirframe'
 import type { GroundUnitId } from '../render/geometry/ground'
+import type { MessageKey } from '../i18n'
 import { clearBursts, clearFlak } from '../world/flak'
 import { clearFlares, FLARE_LANES, FLARE_RELIGHT_DELAY, spawnFlare } from '../world/flares'
 import type { BalloonEntry, GroundEntry, MissionFleet } from './missions'
@@ -472,22 +473,24 @@ export interface Battle {
    */
   beatsLeft: number
   /**
-   * 畫面中心的訊息。空字串 = 沒有。
+   * 畫面中心的訊息的鍵（`src/i18n`）。null = 沒有。
+   *
+   * 【存鍵不存文字】畫面那一層每幀查表，語言切換時已經在畫面上的訊息跟著換。
    *
    * 【過期由 `stepBeats` 清掉，不由畫面那一層判斷】它吃的是物理時間（與
    * 倒數同一套）。放在畫面那一層的話，暫停時訊息會繼續倒數。
    */
-  message: string
+  message: MessageKey | null
   /** 訊息顯示到哪一個世界時間 */
   messageUntil: number
   /**
-   * 撤離節拍改寫過的任務目標文字。空字串 = 沿用卡片上的。
+   * 撤離節拍改寫過的任務目標的鍵。null = 沿用卡片上的。
    *
    * 【為什麼不是讓畫面那一層去推】`mission` 被換成 evacuate 之後，右上角
    * 的計量自動變成距離，而目標文字仍然是卡片上那一句 —— 一句已經不成立的
    * 目標，配著一個指向新終點的距離。
    */
-  objectiveText: string
+  objectiveKey: MessageKey | null
   /**
    * **這一刻**的任務規則。開場等於 `cfg.rules`，返航節拍會換掉它。
    *
@@ -1147,9 +1150,9 @@ export function createBattle(
     flareLane: new Int32Array(FLARE_LANES).fill(-1),
     flareDue: new Float64Array(FLARE_LANES).fill(-1),
     flareCursor: 0,
-    message: '',
+    message: null,
     messageUntil: 0,
-    objectiveText: '',
+    objectiveKey: null,
     rules: cfg.rules,
     evacOrder: evacOrderOf(cfg.rules),
     spawnOrientations: world.combatants.map((c) => c.aircraft.state.orientation.clone()),
@@ -1309,7 +1312,7 @@ function stepBeats(b: Battle): void {
   const now = b.world.time
   // 【過期的訊息在這裡收掉】`message` 因此恆是「這一刻該顯示的那一則」，
   // 畫面那一層照抄就好，不必自己持有一份計時
-  if (b.message !== '' && now >= b.messageUntil) b.message = ''
+  if (b.message !== null && now >= b.messageUntil) b.message = null
   // 【走完就不再掃全場】節拍是一場裡的幾個瞬間，而這個函數每個物理步都跑
   if (b.beatsLeft === 0) return
 
@@ -1370,8 +1373,8 @@ function stepBeats(b: Battle): void {
       st.phase = 'warned'
       st.dueAt = now + (beat.kind === 'reinforce' ? beat.warnLead : 0)
       // 【照明彈沒有訊息】天亮起來就是通知
-      if (beat.kind === 'reinforce') b.message = beat.warn
-      else if (beat.kind === 'withdraw') b.message = beat.message
+      if (beat.kind === 'reinforce') b.message = beat.warnKey
+      else if (beat.kind === 'withdraw') b.message = beat.messageKey
       if (beat.kind !== 'flare') b.messageUntil = st.dueAt + MESSAGE_SECONDS
     }
     // 【落下來而不是 continue】`warnLead` 為 0 的節拍，預警與生效是同一刻。
@@ -1405,7 +1408,7 @@ function stepBeats(b: Battle): void {
       b.evacOrder = evacOrderOf(b.rules)
       // 【目標文字也要跟著換】計量已經變成到新終點的距離，文字卻還是卡片上
       // 那一句 —— 兩者搭起來會指向一個不存在的任務
-      b.objectiveText = beat.message
+      b.objectiveKey = beat.messageKey
     }
   }
 }
@@ -1820,7 +1823,7 @@ function stepRecycle(b: Battle, beat: RecycleBeat, st: BeatState, now: number): 
       due = now + beat.warnLead
       b.reviveAt[f] = due
       b.batches++
-      b.message = beat.warn
+      b.message = beat.warnKey
       b.messageUntil = due + MESSAGE_SECONDS
     }
     if (due < 0) continue

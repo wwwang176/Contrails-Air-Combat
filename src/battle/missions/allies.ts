@@ -13,11 +13,11 @@ import type { MissionCard } from './types'
 /** 盟軍線的三關。**這一條線的卡片只住在這裡。** */
 export const ALLIES: readonly MissionCard[] = [
   {
-    id: 'allies-m1', title: '柏林上空', type: 'escort',
-    summary: '駕駛 P-51D，護送 B-17 第一次在白天轟炸柏林。',
-    place: '德國　柏林上空', period: '1944 年 3 月',
+    id: 'allies-m1', titleKey: 'mission.allies-m1.title', type: 'escort',
+    summaryKey: 'mission.allies-m1.summary',
+    placeKey: 'mission.allies-m1.place', period: { year: 1944, month: 3 },
     battle: {
-      ...CONVOY, objective: '護送 B-17 抵達柏林', banner: '敵機來了，護住轟炸機',
+      ...CONVOY, objectiveKey: 'mission.allies-m1.objective', bannerKey: 'mission.allies-m1.banner',
       blueSpec: P51D, redSpec: BF109K4, convoySpec: B17G,
       /**
        * 【藍隊 20 席用滿】4 架 P-51 加 16 架 B-17，沒有我方增援的空間。
@@ -42,14 +42,14 @@ export const ALLIES: readonly MissionCard[] = [
        */
       recycle: {
         side: 'theirs', batches: 3,
-        warn: '更多攔截機升空',
+        warnKey: 'mission.allies-m1.recycle',
         warnLead: 5,
       },
       waves: [
         {
           when: { kind: 'clock', at: 60 },
           // 【不宣稱方位】預警在戰鬥中顯示，玩家那時可能朝任何方向
-          warn: '警告：更多敵機接近',
+          warnKey: 'mission.allies-m1.wave.more',
           warnLead: 5,
           side: 'theirs', spec: BF109K4, count: 4,
           // 【從後方】省略的話沿用紅方的正面進場
@@ -57,7 +57,7 @@ export const ALLIES: readonly MissionCard[] = [
         },
         {
           when: { kind: 'clock', at: 110 },
-          warn: '警告：敵機加入攔截',
+          warnKey: 'mission.allies-m1.wave.join',
           warnLead: 5,
           side: 'theirs', spec: BF109K4, count: 4,
           starboard: 90 * DEG,
@@ -68,13 +68,13 @@ export const ALLIES: readonly MissionCard[] = [
     },
   },
   {
-    id: 'allies-m2', title: '梅澤堡的油廠', type: 'strike',
-    summary: '駕駛 B-17G，頂著敵機與高射砲，炸毀洛伊納油廠。',
-    // 【與德 M1 是同一場的兩個座位】空域字串要不同 —— 簡報的護欄要求
-    // 各關互不相同；這一關的視角在廠區上空，德 M1 在梅澤堡外圍攔截
-    place: '德國中部　洛伊納油廠上空', period: '1944 年 11 月',
+    id: 'allies-m2', titleKey: 'mission.allies-m2.title', type: 'strike',
+    summaryKey: 'mission.allies-m2.summary',
+    // 【與德 M1 是同一場的兩個座位】空域要不同 —— 簡報的護欄要求各關互不
+    // 相同；這一關的視角在廠區上空，德 M1 在梅澤堡外圍攔截
+    placeKey: 'mission.allies-m2.place', period: { year: 1944, month: 11 },
     battle: {
-      objective: '炸毀洛伊納油廠', banner: '撐過攔截，把炸彈投進油廠',
+      objectiveKey: 'mission.allies-m2.objective', bannerKey: 'mission.allies-m2.banner',
       blueSpec: B17G, redSpec: BF109K4, convoySpec: null,
       /**
        * 【十二架分三群擺開】玩家在中間那一群的前頭，前後各一群
@@ -116,7 +116,7 @@ export const ALLIES: readonly MissionCard[] = [
       destroyCount: 6,
       waves: [{
         when: { kind: 'clock', at: 90 },
-        warn: '警告：敵機從後方接近',
+        warnKey: 'mission.allies-m2.wave.rear',
         warnLead: 5,
         side: 'theirs', spec: BF109K4, count: 4,
         // 【從後方】對應突擊大隊從尾部衝進轟炸箱。省略的話沿用紅方的正面
@@ -126,12 +126,12 @@ export const ALLIES: readonly MissionCard[] = [
     },
   },
   {
-    id: 'allies-m3', title: '沖繩外海', type: 'annihilate',
-    summary: '駕駛 F6F-5 守護航母，擋下俯衝的零戰和貼著海面來的雷擊機。',
-    place: '沖繩外海　慶良間列島以西', period: '1945 年 4 月',
+    id: 'allies-m3', titleKey: 'mission.allies-m3.title', type: 'annihilate',
+    summaryKey: 'mission.allies-m3.summary',
+    placeKey: 'mission.allies-m3.place', period: { year: 1945, month: 4 },
     battle: {
       ...KILL,
-      objective: '守住航母', banner: '零戰來了，別讓它們靠近航母',
+      objectiveKey: 'mission.allies-m3.objective', bannerKey: 'mission.allies-m3.banner',
       blueSpec: F6F5, redSpec: A6M5,
       // 【零戰掛爆戦】1945 年 4 月的沖繩，零戰掛彈攻擊第 58 特遣艦隊。A6M5 預設
       // 不掛彈，只有這一關指定；依機種複寫，第五批陸攻的魚雷不受影響
@@ -185,7 +185,7 @@ export const ALLIES: readonly MissionCard[] = [
         // 【寫成無線電通報，不寫批數】玩家不知道也不該知道自己在打第幾批
         // —— 那是設定檔的內部結構。1945 年的第 58 特遣艦隊有戰鬥機管制台，
         // 雷達通報就是這一則訊息的來源
-        warn: '雷達發現更多零戰',
+        warnKey: 'mission.allies-m3.recycle',
         warnLead: 5,
         starboard: 45 * DEG,
       },
@@ -196,7 +196,7 @@ export const ALLIES: readonly MissionCard[] = [
       waves: [
         {
           when: { kind: 'batch', at: 4 },
-          warn: '低空發現雷擊機',
+          warnKey: 'mission.allies-m3.wave.torpedo',
           warnLead: 6,
           side: 'theirs', spec: G4M, count: 4,
           /**

@@ -42,7 +42,7 @@ const WAVE: FlightPlan = {
 }
 
 const BEATS: readonly Beat[] = [
-  { kind: 'reinforce', when: { kind: 'clock', at: 1 }, warn: '敵機！', warnLead: 0, flight: WAVE },
+  { kind: 'reinforce', when: { kind: 'clock', at: 1 }, warnKey: 'mission.allies-m1.wave.more', warnLead: 0, flight: WAVE },
 ]
 
 /** **同一個物件**餵給兩次 `createBattle` —— 重建走的就是這一份不可變的設定 */

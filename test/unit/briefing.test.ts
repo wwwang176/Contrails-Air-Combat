@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { briefingOf, missionTypeName, type Briefing } from '../../src/ui/briefing'
+import { briefingOf, missionTypeName, type Briefing, type BriefingFact } from '../../src/ui/briefing'
+import { formatMonth, setLang, t } from '../../src/i18n'
 import { MISSIONS, type MissionCard } from '../../src/battle/missions'
 import { cardWith, readyCard, ESCORT_CARD, KILL_CARD } from '../fixtures/mission'
 
@@ -16,25 +17,27 @@ import { cardWith, readyCard, ESCORT_CARD, KILL_CARD } from '../fixtures/mission
  * 標籤一個都不能回到 `facts` 裡；戰鬥那一側的資料（`waves`／`withdraw`）
  * 一格都沒動，由 `battle-*.test.ts` 顧。
  */
-const fact = (b: Briefing, label: string): string | undefined =>
-  b.facts?.find((f) => f.label === label)?.value
-/** 出擊前不該知道的標籤。任何一個回到簡報上都是回歸 */
-const SECRET = ['時限', '敵方增援', '我方增援', '中途變更', '撤離點', '戰場', '航程']
+const fact = (b: Briefing, id: BriefingFact['id']): string | undefined =>
+  b.facts?.find((f) => f.id === id)?.value
+/**
+ * 出擊前不該知道的事（時限、增援、中途變更、撤離點）一個都不上簡報：簡報只有空域與
+ * 時期兩列。任何第三列都是回歸
+ */
 const noSecrets = (b: Briefing): string[] =>
-  (b.facts ?? []).map((f) => f.label).filter((l) => SECRET.includes(l))
+  (b.facts ?? []).map((f) => f.id).filter((id) => id !== 'place' && id !== 'period')
 
 describe('briefingOf —— 護送（盟 M1）', () => {
   const b = briefingOf(readyCard(ESCORT_CARD))
 
   it('標題、類型、說明照卡', () => {
     expect(b.ready).toBe(true)
-    expect(b.title).toBe('柏林上空')
+    expect(b.title).toBe(t('mission.allies-m1.title'))
     expect(b.kind).toBe(missionTypeName('escort'))
-    expect(b.summary).toContain('柏林')
+    expect(b.summary).toBe(t('mission.allies-m1.summary'))
   })
 
   it('目標照卡', () => {
-    expect(b.objective).toBe('護送 B-17 抵達柏林')
+    expect(b.objective).toBe(t('mission.allies-m1.objective'))
   })
 
   it('我方兩列：P-51D ×4，加上要護送的 B-17G ×16；敵方 Bf 109 K-4 ×10', () => {
@@ -49,8 +52,8 @@ describe('briefingOf —— 護送（盟 M1）', () => {
 
   it('兩列：空域在前、時期第二，而且沒有任何出擊前不該知道的欄位', () => {
     expect(b.facts).toEqual([
-      { label: '空域', value: '德國　柏林上空' },
-      { label: '時期', value: '1944 年 3 月' },
+      { id: 'place', label: t('brief.place'), value: t('mission.allies-m1.place') },
+      { id: 'period', label: t('brief.period'), value: formatMonth(1944, 3) },
     ])
     expect(noSecrets(b)).toEqual([])
   })
@@ -74,26 +77,43 @@ describe('briefingOf —— 打擊（德 M3）', () => {
   const b = briefingOf(readyCard('germany-m3'))
 
   it('目標照卡，起飛的波次不上簡報', () => {
-    expect(b.objective).toBe(readyCard('germany-m3').battle.objective)
+    expect(b.objective).toBe(t(readyCard('germany-m3').battle.objectiveKey))
     expect(noSecrets(b)).toEqual([])
   })
 
   it('空域與時期', () => {
-    expect(fact(b, '空域')).toBe('比利時　阿什 Y-29 機場')
-    expect(fact(b, '時期')).toBe('1945 年 1 月')
+    expect(fact(b, 'place')).toBe(t('mission.germany-m3.place'))
+    expect(fact(b, 'period')).toBe(formatMonth(1945, 1))
     expect(b.mine).toEqual([{ id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 8 }])
   })
 })
 
 describe('briefingOf —— 其他', () => {
   it('日 M2 的空域是雷伊泰島', () => {
-    expect(fact(briefingOf(readyCard('japan-m2')), '空域')).toBe('菲律賓　雷伊泰島')
+    expect(fact(briefingOf(readyCard('japan-m2')), 'place')).toBe(t('mission.japan-m2.place'))
   })
 
   it('日 M2 的目標寫出兩段：先炸卡車、再撤離', () => {
     const b = briefingOf(readyCard('japan-m2'))
     if (!b.ready) throw new Error('日 M2 應該打得起來')
-    expect(b.objective).toBe('炸毀補給卡車 → 撤離戰區')
+    expect(b.objective).toBe(`${t('mission.japan-m2.objective')} → ${t('mission.japan-m2.withdraw')}`)
+  })
+
+  it('換成英文，簡報跟著換', () => {
+    try {
+      setLang('en')
+      const b = briefingOf(readyCard(ESCORT_CARD))
+      expect(b.title).toBe(t('mission.allies-m1.title'))
+      expect(b.facts!.map((f) => f.label)).toEqual([t('brief.place'), t('brief.period')])
+      expect(fact(b, 'period')).toBe(formatMonth(1944, 3))
+    } finally {
+      setLang('zh')
+    }
+    // 對照：切回中文之後不是英文那一句
+    setLang('en')
+    const en = t('mission.allies-m1.title')
+    setLang('zh')
+    expect(briefingOf(readyCard(ESCORT_CARD)).title).not.toBe(en)
   })
 
   it('殲滅卡沒有護送列', () => {
@@ -120,14 +140,15 @@ describe('briefingOf —— 其他', () => {
   it('準備中的卡只帶標題、類型、說明', () => {
     // 【自己組，不從 MISSIONS 找】卡表裡的目錄卡會隨著關卡做完而消失
     const card: MissionCard = {
-      id: 'test-m0', title: '還沒做的一關', type: 'strike',
-      summary: '這一張只有目錄。', place: '無', period: '無', battle: null,
+      id: 'test-m0', titleKey: 'mission.japan-m3.title', type: 'strike',
+      summaryKey: 'mission.japan-m3.summary', placeKey: 'mission.japan-m3.place',
+      period: { year: 1943, month: 1 }, battle: null,
     }
     const b = briefingOf(card)
     expect(b.ready).toBe(false)
-    expect(b.title).toBe(card.title)
+    expect(b.title).toBe(t(card.titleKey))
     expect(b.kind).toBe(missionTypeName(card.type))
-    expect(b.summary).toBe(card.summary)
+    expect(b.summary).toBe(t(card.summaryKey))
     expect(b.objective).toBeUndefined()
     expect(b.mine).toBeUndefined()
     expect(b.facts).toBeUndefined()
@@ -137,13 +158,14 @@ describe('briefingOf —— 其他', () => {
     for (const c of Object.values(MISSIONS).flat()) {
       if (c.battle === null) continue
       const b = briefingOf(c)
-      expect(b.facts!.map((f) => f.label), c.id).toEqual(['空域', '時期'])
-      for (const f of b.facts!) expect(f.value.length, `${c.id} ${f.label}`).toBeGreaterThan(0)
+      expect(b.facts!.map((f) => f.id), c.id).toEqual(['place', 'period'])
+      for (const f of b.facts!) expect(f.value.length, `${c.id} ${f.id}`).toBeGreaterThan(0)
     }
   })
 
   it('九張卡的空域各不相同 —— 每一關取材自不同的地方', () => {
     const all = Object.values(MISSIONS).flat()
-    expect(new Set(all.map((c) => c.place)).size).toBe(9)
+    expect(new Set(all.map((c) => c.placeKey)).size).toBe(9)
+    expect(new Set(all.map((c) => t(c.placeKey))).size).toBe(9)
   })
 })

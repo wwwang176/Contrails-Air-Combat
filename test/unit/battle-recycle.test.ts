@@ -36,7 +36,7 @@ const ENTRY = { ...HEAD_ON.red, along: -0.8 }
 
 const RECYCLE: RecycleBeat = {
   kind: 'recycle', team: 'red', role: 'fighter', batches: 2,
-  warn: '再來', warnLead: 5, entry: ENTRY,
+  warnKey: 'mission.allies-m1.recycle', warnLead: 5, entry: ENTRY,
 }
 
 /** 藍 4（分隊 0，玩家）、紅 8（分隊 1、2） */
@@ -77,7 +77,7 @@ describe('整隊重生', () => {
     stepBattle(b, DT)
     expect(b.batches).toBe(1)
     expect(b.reviveAt[1]).toBeGreaterThan(0)
-    expect(b.message).toBe('再來')
+    expect(b.message).toBe(RECYCLE.warnKey)
     for (const c of seats(b, 1)) expect(c.alive).toBe(false)
   })
 

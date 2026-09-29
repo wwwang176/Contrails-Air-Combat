@@ -4,6 +4,7 @@ import type { AircraftSpec } from '../specs/types'
 import type { FlightPlan } from './order'
 import type { SideEntry } from './entry'
 import type { GroundUnitId } from '../render/geometry/ground'
+import type { MessageKey } from '../i18n'
 
 /**
  * # 節拍 —— 一場仗中途會發生的事
@@ -83,12 +84,12 @@ export type BeatCondition =
     readonly byLatest?: number
   }
 
-/** 一支增援進場。條件成立後先顯示 `warn`，過 `warnLead` 秒才真的來。 */
+/** 一支增援進場。條件成立後先顯示 `warnKey`，過 `warnLead` 秒才真的來。 */
 export interface ReinforceBeat {
   readonly kind: 'reinforce'
   readonly when: BeatCondition
-  /** 畫面中心的預警文字 */
-  readonly warn: string
+  /** 畫面中心的預警文字的鍵（`src/i18n`） */
+  readonly warnKey: MessageKey
   /** 預警到進場之間的秒數 */
   readonly warnLead: number
   readonly flight: FlightPlan
@@ -98,8 +99,8 @@ export interface ReinforceBeat {
 export interface WithdrawBeat {
   readonly kind: 'withdraw'
   readonly when: BeatCondition
-  /** 畫面中心的文字 */
-  readonly message: string
+  /** 畫面中心的文字的鍵 */
+  readonly messageKey: MessageKey
   readonly point: Vector3
   readonly radius: number
   readonly seconds: number
@@ -120,7 +121,7 @@ export interface RecycleBeat {
   /** 只回收這個角色的小隊（看 roster 第一席）。省略 = 該隊全部 */
   readonly role?: AircraftSpec['role']
   readonly batches: number
-  readonly warn: string
+  readonly warnKey: MessageKey
   readonly warnLead: number
   /** 重生的進場座標框，同 `ReinforceBeat.flight.entry` */
   readonly entry: SideEntry

@@ -1,6 +1,7 @@
 import { Vector3 } from 'three'
 import { createBattle, stepBattle } from '../../src/battle/setup'
 import { missionConfigFrom } from '../../src/battle/missions'
+import { t } from '../../src/i18n'
 import { AiController } from '../../src/ai/AiController'
 import type { Combatant } from '../../src/world/World'
 import { Idle } from './spawn-snapshot'
@@ -64,7 +65,7 @@ function num(x: number | undefined): string {
 const FWD = new Vector3(0, 0, -1)
 const nose = new Vector3()
 
-console.log(`${card.id}（${card.title}）座位 ${me.index}，${SECONDS} s`)
+console.log(`${card.id}（${t(card.titleKey)}）座位 ${me.index}，${SECONDS} s`)
 console.log('  t     高度   TAS   機首°  航跡°  aimY   意圖      模式        '
   + '相位   cRatio  spdAdv  最近敵機')
 

@@ -65,8 +65,8 @@ describe('節拍的條件', () => {
       duty: 'combat' as const, lane: 0, tier: 0,
     }
     const beats: Beat[] = [
-      { kind: 'reinforce', when: { kind: 'clock', at: 10 }, warn: 'x', warnLead: 5, flight },
-      { kind: 'reinforce', when: { kind: 'clock', at: 20 }, warn: 'y', warnLead: 5, flight },
+      { kind: 'reinforce', when: { kind: 'clock', at: 10 }, warnKey: 'mission.allies-m1.wave.more', warnLead: 5, flight },
+      { kind: 'reinforce', when: { kind: 'clock', at: 20 }, warnKey: 'mission.allies-m1.wave.join', warnLead: 5, flight },
     ]
     const st = createBeatStates(beats)
     expect(st).toHaveLength(2)

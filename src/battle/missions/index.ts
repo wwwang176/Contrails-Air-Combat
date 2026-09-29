@@ -367,7 +367,7 @@ function withdrawBeat(w: MissionWithdraw, altitude: number): WithdrawBeat {
   return {
     kind: 'withdraw',
     when: triggerToCondition(w.when),
-    message: w.message,
+    messageKey: w.messageKey,
     point: evacuatePoint(altitude, w.distance),
     radius: w.radius,
     seconds: w.seconds,
@@ -398,7 +398,7 @@ function waveBeat(
   return {
     kind: 'reinforce',
     when: triggerToCondition(w.when),
-    warn: w.warn,
+    warnKey: w.warnKey,
     warnLead: w.warnLead,
     flight: {
       team: ours ? 'blue' : 'red',
@@ -439,7 +439,7 @@ function recycleBeat(r: MissionRecycle, plan: EntryPlan): RecycleBeat {
     team: r.side === 'mine' ? 'blue' : 'red',
     ...(r.role === undefined ? {} : { role: r.role }),
     batches: r.batches,
-    warn: r.warn,
+    warnKey: r.warnKey,
     warnLead: r.warnLead,
     entry: turnedEntry(plan, r.side, r.starboard),
   }

@@ -392,7 +392,7 @@ describe('音效的戰鬥事件接線', () => {
   })
 
   it('增援預警換新時播無線電', () => {
-    const at = lines('messageText = battle.message')[0]!
+    const at = lines('messageKey = battle.message')[0]!
     expect(SRC.slice(at - 3, at + 6).join('\n')).toContain("audio.playPool('radio'")
   })
 })

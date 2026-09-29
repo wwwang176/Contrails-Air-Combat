@@ -29,11 +29,11 @@ const ASCH_GROUND: readonly GroundEntry[] = [
 /** 德軍線的三關。**這一條線的卡片只住在這裡。** */
 export const GERMANY: readonly MissionCard[] = [
   {
-    id: 'germany-m1', title: '梅澤堡上空', type: 'intercept',
-    summary: '駕駛 Bf 109 K-4 衝進 B-17 轟炸機群，甩開護航的野馬，把轟炸機打下來。',
-    place: '德國中部　梅澤堡—洛伊納', period: '1944 年 11 月',
+    id: 'germany-m1', titleKey: 'mission.germany-m1.title', type: 'intercept',
+    summaryKey: 'mission.germany-m1.summary',
+    placeKey: 'mission.germany-m1.place', period: { year: 1944, month: 11 },
     battle: {
-      objective: '擊落 B-17', banner: '轟炸機群來了，攔住它們',
+      objectiveKey: 'mission.germany-m1.objective', bannerKey: 'mission.germany-m1.banner',
       blueSpec: BF109K4, redSpec: P51D, convoySpec: B17G,
       /**
        * 【在路途上攔截】B-17 是 transit：從進場點直飛終點、不迴轉、不投彈。
@@ -59,13 +59,13 @@ export const GERMANY: readonly MissionCard[] = [
       waves: [
         {
           when: { kind: 'clock', at: 0 },
-          warn: '前方轟炸機群，P-51 護航',
+          warnKey: 'mission.germany-m1.wave.escort',
           warnLead: 0,
           side: 'theirs', spec: P51D, count: 4,
         },
         {
           when: { kind: 'clock', at: 60 },
-          warn: '警告：敵方護航機接近中',
+          warnKey: 'mission.germany-m1.wave.more',
           warnLead: 4,
           side: 'theirs', spec: P51D, count: 4,
         },
@@ -73,11 +73,11 @@ export const GERMANY: readonly MissionCard[] = [
     },
   },
   {
-    id: 'germany-m2', title: '波爾塔瓦之夜', type: 'strike',
-    summary: '駕駛 He 111 趁夜飛到波爾塔瓦機場，炸毀停在地上的 B-17。',
-    place: '烏克蘭　波爾塔瓦機場上空', period: '1944 年 6 月',
+    id: 'germany-m2', titleKey: 'mission.germany-m2.title', type: 'strike',
+    summaryKey: 'mission.germany-m2.summary',
+    placeKey: 'mission.germany-m2.place', period: { year: 1944, month: 6 },
     battle: {
-      objective: '炸毀全部停放的 B-17', banner: '機場就在前方，準備投彈',
+      objectiveKey: 'mission.germany-m2.objective', bannerKey: 'mission.germany-m2.banner',
       blueSpec: HE111, redSpec: P51D, convoySpec: null,
       // 【沒有敵機】史實上蘇軍夜戰機沒有攔到任何一架；壓力全在地面的防空。
       // `redSpec` 只是型別要填：野馬就在皮里亞廷，沒起飛
@@ -110,11 +110,11 @@ export const GERMANY: readonly MissionCard[] = [
     },
   },
   {
-    id: 'germany-m3', title: '底板行動', type: 'strike',
-    summary: '駕駛 Bf 109 K-4 貼著樹梢衝進機場，趁野馬還沒起飛把它們打掉。',
-    place: '比利時　阿什 Y-29 機場', period: '1945 年 1 月',
+    id: 'germany-m3', titleKey: 'mission.germany-m3.title', type: 'strike',
+    summaryKey: 'mission.germany-m3.summary',
+    placeKey: 'mission.germany-m3.place', period: { year: 1945, month: 1 },
     battle: {
-      objective: '擊毀全部野馬', banner: '野馬還在地上，快衝進去',
+      objectiveKey: 'mission.germany-m3.objective', bannerKey: 'mission.germany-m3.banner',
       blueSpec: BF109K4, redSpec: P51D, convoySpec: null,
       // 【敵機全部從地上來】沒有空中巡邏，起飛的野馬全部由波次給。
       // 紅隊席位：停機線 12（三個小隊）
@@ -149,19 +149,19 @@ export const GERMANY: readonly MissionCard[] = [
       waves: [
         {
           when: { kind: 'clock', at: 0 },
-          warn: '野馬開始滑向跑道',
+          warnKey: 'mission.germany-m3.wave.taxi',
           warnLead: 0,
           side: 'theirs', spec: P51D, count: 4, takeoff: TAKEOFF_LINE, departs: 'parkedP51',
         },
         {
           when: { kind: 'clock', at: 30 },
-          warn: '更多野馬準備起飛',
+          warnKey: 'mission.germany-m3.wave.more',
           warnLead: 0,
           side: 'theirs', spec: P51D, count: 4, takeoff: TAKEOFF_LINE, departs: 'parkedP51',
         },
         {
           when: { kind: 'clock', at: 60 },
-          warn: '剩下的野馬全部出動',
+          warnKey: 'mission.germany-m3.wave.last',
           warnLead: 0,
           side: 'theirs', spec: P51D, count: 4, takeoff: TAKEOFF_LINE, departs: 'parkedP51',
         },

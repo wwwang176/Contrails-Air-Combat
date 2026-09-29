@@ -75,10 +75,11 @@ function harmless(b: Battery): Battery {
 const CARD: ReadyMissionCard = (() => {
   const kill = readyCard(KILL_CARD).battle
   return {
-    id: 'test-evac', title: '測試用撤離', type: 'withdraw', summary: '',
-    place: '測試', period: '測試',
+    id: 'test-evac', titleKey: 'mission.japan-m2.withdraw', type: 'withdraw',
+    summaryKey: 'mission.japan-m2.withdraw',
+    placeKey: 'mission.japan-m2.place', period: { year: 1944, month: 11 },
     battle: {
-      objective: '飛抵撤離點',
+      objectiveKey: 'mission.japan-m2.withdraw',
       blueSpec: kill.blueSpec, redSpec: kill.redSpec, convoySpec: null,
       // 【場景刻意小】這一組數字要滿足的只有一件事：飛得到、而且飛不到
       // 的時候時限會先到。20 km / 176 s / 16 架敵機是關卡的尺寸，不是判定
