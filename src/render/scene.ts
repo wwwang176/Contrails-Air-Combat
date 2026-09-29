@@ -65,12 +65,12 @@ export interface SceneContext {
   setPalette(p: DayPalette): void
   resize(): void
   /**
-   * 換繪圖解析度的檔位（`render/quality.ts` 的 `scale`）。
+   * 換繪圖解析度的檔位（`render/quality.ts` 的 `pixelRatio`）。
    *
    * 【只動 3D 那張畫布】HUD 是另一張 2D 畫布，尺寸吃 `devicePixelRatio`，
    * 所以降檔位時儀表與文字仍然是原生清晰度。
    */
-  setQuality(scale: number): void
+  setQuality(pixelRatio: number): void
 }
 
 /** 給 `setPalette` 用的暫存。模組私有，禁止跨模組共用。 */
@@ -90,8 +90,7 @@ export function createScene(
   // 【要排在建地形之前】海面的逐面量表需要一個 renderer 才畫得出來，而
   // 沒登記時近海會退回逐片段自己算（畫面相同，只是比較慢）
   setOceanRenderer(renderer)
-  let qualityScale = DEFAULT_QUALITY
-  renderer.setPixelRatio(pixelRatioFor(qualityScale, window.devicePixelRatio))
+  let quality = DEFAULT_QUALITY
   renderer.shadowMap.enabled = false // M1 不啟用陰影，見 spec §15
 
   const scene = new Scene()
@@ -119,6 +118,9 @@ export function createScene(
   const resize = () => {
     const w = window.innerWidth
     const h = window.innerHeight
+    // 【每次都重算 pixel ratio】視窗拖到另一個 dpr 的螢幕時也會觸發 resize；
+    // 檔位的上限是螢幕的 dpr，沿用舊的值會在新螢幕上畫錯像素數
+    renderer.setPixelRatio(pixelRatioFor(quality, window.devicePixelRatio))
     // 第三個參數是 updateStyle。關掉的話 three 只設 canvas.width/height（＝
     // 緩衝區像素數），不設 CSS 尺寸——canvas 於是拿緩衝區像素數當 CSS 像素
     // 去排版。dpr=2 的螢幕上版面就變成視窗的兩倍大，只看得到左上四分之一，
@@ -148,12 +150,11 @@ export function createScene(
   setPalette(DAY_PALETTES[timeOfDay])
 
   /**
-   * 【要跟著 resize】`setPixelRatio` 只記下比例，真正換緩衝區尺寸的是
-   * `setSize` —— 少了這一行，檔位換了畫面卻還是舊的像素數。
+   * 【走 resize】pixel ratio 在那裡套用，而真正換緩衝區尺寸的是它裡面的
+   * `setSize` —— 只設比例的話，檔位換了畫面卻還是舊的像素數。
    */
-  const setQuality = (scale: number): void => {
-    qualityScale = scale
-    renderer.setPixelRatio(pixelRatioFor(qualityScale, window.devicePixelRatio))
+  const setQuality = (pixelRatio: number): void => {
+    quality = pixelRatio
     resize()
   }
 

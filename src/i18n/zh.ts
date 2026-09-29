@@ -262,9 +262,11 @@ export const zh = {
   'brief.versus': '對',
   'brief.go': '出擊',
 
+  'settings.quality.ultra': '極致',
   'settings.quality.sharp': '清晰',
   'settings.quality.balanced': '平衡',
   'settings.quality.smooth': '流暢',
+  'settings.quality.fast': '極速',
   'settings.volume.low': '低',
   'settings.volume.mid': '中',
   'settings.volume.high': '高',
