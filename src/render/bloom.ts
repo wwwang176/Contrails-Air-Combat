@@ -21,22 +21,23 @@ import {
 /**
  * # 光暈（選擇性 bloom）
  *
- * 只有標在光暈圖層上的東西會暈開：曳光彈、槍口焰、火球、爆炸與火災的火焰、
- * 照明彈（寬的那一層），海面的碎光與太陽高光（窄的那一層）。天空、雲、海的
- * 本色不參與 —— 畫面是 8 位元 sRGB、沒有 HDR，用亮度門檻挑光源的話白天整片天
+ * 只有標在光暈圖層上的東西會暈開：火球、爆炸與火災的火焰、爆炸火花、照明彈
+ * （寬的那一層），曳光彈、槍口焰、海面的碎光與太陽高光（窄的那一層）。天空、雲、
+ * 海的本色不參與 —— 畫面是 8 位元 sRGB、沒有 HDR，用亮度門檻挑光源的話白天整片天
  * 會跟著暈。
  *
  * ```
  *   1  主場景照舊直接畫到畫布（這一支不碰）
  *   2  遮擋物（地形、佈景、飛機、船、地面單位）只寫深度，到光源圖
  *      （`BLOOM_LOW` 半解析度、`BLOOM_HIGH` 全解析度）
- *   3  窄光源（海面）畫到同一張，往下取樣兩層再疊回
+ *   3  窄光源（曳光彈、槍口焰、海面）畫到同一張，往下取樣兩層再疊回
  *   4  只清顏色、留著深度，寬光源畫到同一張，往下取樣四層再疊回
  *   5  兩份結果以加法疊回畫布
  * ```
  *
- * 【兩種寬度】海面的碎光小而多，暈開四層的話整片海蒙上一層霧；爆炸大而少，
- * 暈只開兩層又看不出在發光。兩者共用遮擋物的深度，所以遮擋只畫一次。
+ * 【兩種寬度】海面的碎光小而多，暈開四層的話整片海蒙上一層霧；曳光彈是細線，
+ * 暈開四層就糊成一顆圓球，看不出是一道火線。爆炸大而少，暈只開兩層又看不出在
+ * 發光。兩者共用遮擋物的深度，所以遮擋只畫一次。
  *
  * 【主場景不改畫到離屏】那條路（`lowResTransparency.ts`）每幀多一次全解析度的
  * MSAA 解析與複製，Iris Xe 上約 13 ms，見 `main.ts` 煙那一段的註解。這裡的離屏圖
@@ -50,18 +51,23 @@ import {
  * 熱路徑：`render` 每幀一次，不配置。
  */
 
-/** 寬光暈的圖層（爆炸、火、曳光彈、照明彈）。物件同時留在第 0 層，主場景照常畫它 */
+/** 寬光暈的圖層（爆炸、火、照明彈）。物件同時留在第 0 層，主場景照常畫它 */
 export const BLOOM_LAYER = 2
 
 /** 遮擋圖層。物件同時留在第 0 層，主場景照常畫它 */
 export const OCCLUDER_LAYER = 3
 
-/** 窄光暈的圖層（海面）。物件同時留在第 0 層，主場景照常畫它 */
+/** 窄光暈的圖層（曳光彈、槍口焰、海面）。物件同時留在第 0 層，主場景照常畫它 */
 export const BLOOM_NARROW_LAYER = 4
 
-/** 把一個物件（連同它底下的）標成光源。物件要在建立時就掛好子物件 */
+/** 把一個物件（連同它底下的）標成寬光暈的光源。物件要在建立時就掛好子物件 */
 export function useBloom(root: Object3D): void {
   root.traverse((o) => o.layers.enable(BLOOM_LAYER))
+}
+
+/** 把一個物件（連同它底下的）標成窄光暈的光源。物件要在建立時就掛好子物件 */
+export function useNarrowBloom(root: Object3D): void {
+  root.traverse((o) => o.layers.enable(BLOOM_NARROW_LAYER))
 }
 
 /**
@@ -99,10 +105,12 @@ export interface BloomQuality {
   readonly narrowLevels: number
 }
 
-/** 低：半解析度。遠處的曳光彈在這張圖上不到一個像素，要放粗（`tracers.ts` 的 `TRACER_GLOW`） */
+/**
+ * 低：半解析度。高：全解析度，暈的邊緣更細。兩檔的光源圖都沒有抗鋸齒，遠處的
+ * 曳光彈在上面都不到一個像素，都要放粗（`tracers.ts` 的 `TRACER_GLOW`）
+ */
 export const BLOOM_LOW: BloomQuality = { scale: 0.5, wideLevels: 4, narrowLevels: 2 }
 
-/** 高：全解析度，細線本來就蓋得到像素 */
 export const BLOOM_HIGH: BloomQuality = { scale: 1, wideLevels: 5, narrowLevels: 3 }
 
 const MAX_WIDE_LEVELS = 5
@@ -188,8 +196,8 @@ function lowTarget(depth: boolean): WebGLRenderTarget {
 
 /**
  * 光源那兩趟的前後各叫一次（`on` 為 true、false）。給那些同一個材質在光暈裡要畫得
- * 不一樣的東西切換：海面只留亮部（`ocean.ts` 的 `OCEAN_GLOW`），遠處的曳光彈放粗
- * （`tracers.ts` 的 `TRACER_GLOW`）。`halfHeight` 是光源圖高度的一半，px
+ * 不一樣的東西切換，兩者都在窄的那一趟：海面只留亮部（`ocean.ts` 的 `OCEAN_GLOW`），
+ * 遠處的曳光彈放粗（`tracers.ts` 的 `TRACER_GLOW`）。`halfHeight` 是光源圖高度的一半，px
  */
 export type GlowPassHook = (kind: 'narrow' | 'wide', on: boolean, halfHeight: number) => void
 

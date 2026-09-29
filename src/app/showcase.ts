@@ -2,7 +2,7 @@ import { Euler, Group, type PerspectiveCamera, Quaternion, type Scene, Vector3 }
 import { buildAircraft, type AircraftModel } from '../render/geometry/buildAircraft'
 import { createTracers, type Tracers } from '../render/tracers'
 import { createMuzzles, type MuzzleSource, type Muzzles } from '../render/muzzle'
-import { useBloom, useBloomOccluder } from '../render/bloom'
+import { useBloomOccluder, useNarrowBloom } from '../render/bloom'
 import { createBombs, createTorpedoes, type BombVisuals } from '../render/bombs'
 import { Bombs, BOMB_TERMINAL_SPEED, bombDragK } from '../world/bomb'
 import { BOMB_SALVO_INTERVAL } from '../weapons/bomb'
@@ -425,8 +425,8 @@ export function createShowcase(scene: Scene, view: HTMLElement, stage: HTMLEleme
   const muzzles: Muzzles<MuzzleSource> = createMuzzles(1)
   group.add(muzzles.object)
   // 開火與戰鬥裡一樣會暈開（`render/bloom.ts`）
-  useBloom(tracers.object)
-  useBloom(muzzles.object)
+  useNarrowBloom(tracers.object)
+  useNarrowBloom(muzzles.object)
   const bombVisuals: BombVisuals = createBombs()
   group.add(bombVisuals.object)
   const torpedoVisuals: BombVisuals = createTorpedoes()
