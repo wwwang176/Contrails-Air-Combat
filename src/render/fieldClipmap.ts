@@ -1,5 +1,5 @@
 import {
-  AddEquation, Color, CustomBlending, DoubleSide, Group, OneFactor, OneMinusSrcAlphaFactor, SrcAlphaFactor, LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, OrthographicCamera,
+  AddEquation, CustomBlending, DoubleSide, Group, OneFactor, OneMinusSrcAlphaFactor, SrcAlphaFactor, LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, OrthographicCamera,
   PlaneGeometry, Scene, ShaderMaterial, Vector2, Vector4, WebGLRenderTarget,
   type BufferGeometry, type DataTexture, type WebGLProgramParametersWithUniforms, type WebGLRenderer,
 } from 'three'
@@ -12,8 +12,8 @@ import type { Season } from './season'
  * 田的顏色由 `fields.ts` 的著色器**每個像素當場算**：區塊種子、田格邊界、樹籬
  * 帶、條紋，廠區再疊距離場。Iris Xe 上那支算式是整層地面成本的七成。這裡把它
  * **烘成兩張跟著鏡頭走的貼圖**，地面改成查貼圖；鏡頭周圍一圈仍走算式，
- * 那一圈的畫質與原本逐位元相同。遠圖外面可以再一層只烘疊圖的（`horizon`），
- * 那裡田色仍走算式、疊圖照透明度疊上去。
+ * 那一圈的畫質與原本逐位元相同。遠圖外面可以再一層更粗的（`horizon`），再外面
+ * 是那一層的平均色 —— 遠處不走算式。
  *
  * ## 一層是什麼
  *
@@ -137,9 +137,9 @@ export interface FieldClipmapOptions {
   readonly near: ClipLevelSpec
   readonly far: ClipLevelSpec
   /**
-   * 遠圖外面再一層，只烘疊圖（鎮的地面、河漫灘、礦坑、屋頂與樹冠的色塊），不烘田色：
-   * 遠圖外的田色照舊走算式，這一層照它的透明度疊上去。省略的話遠圖外沒有疊圖，
-   * `beyondFar` 的粗網格畫在遠圖外
+   * 遠圖外面再一層，田色與疊圖都烘，遠處的樣子（與遠圖同一種烘法）。遠圖窗外讀它，
+   * 它的窗外讀它的平均色 —— 見地面著色器的 `horizonColourAt`。省略的話遠圖窗外
+   * 走算式，`beyondFar` 的粗網格畫在遠圖外
    */
   readonly horizon?: ClipLevelSpec
   /**
@@ -294,13 +294,8 @@ void main() { gl_FragColor = vCol; }`,
   const replaced: Mesh[] = []
   const beyond: Mesh[] = []
 
-  const clearPrev = new Color()
   const bakePiece = (L: Level, p: TorusPiece, last: boolean): void => {
     for (const o of overlays.children) o.visible = L !== near || o.userData['near'] === true
-    // 【最外層只烘疊圖】田色那一片不畫，底色是全透明的黑：顏色存的是乘過透明度的
-    // 值，地面著色器照「疊在上面」合成，田色不被粗格子糊掉
-    const overlaysOnly = L === horizon
-    fieldQuad.visible = !overlaysOnly
     // 【viewport／scissor 設在 RT 上】`setRenderTarget` 讀的是 RT 自己那一份，
     // `renderer.setViewport` 設的是畫布的
     L.rt.viewport.set(p.tx, p.tz, p.w, p.h)
@@ -312,18 +307,7 @@ void main() { gl_FragColor = vCol; }`,
     bakeMat.uniforms['uMetres']!.value = L.m
     bakeMat.uniforms['uBakeFar']!.value = L === near ? 0 : 1
     renderer.setRenderTarget(L.rt)
-    if (overlaysOnly) {
-      // 清的範圍受 RT 的 scissor 限制，只清這一片。畫完才換回原本的清除色 ——
-      // `autoClear` 開著的話 `render` 自己會再清一次
-      renderer.getClearColor(clearPrev)
-      const alpha = renderer.getClearAlpha()
-      renderer.setClearColor(0x000000, 0)
-      renderer.clear(true, false, false)
-      renderer.render(bakeScene, bakeCam)
-      renderer.setClearColor(clearPrev, alpha)
-    } else {
-      renderer.render(bakeScene, bakeCam)
-    }
+    renderer.render(bakeScene, bakeCam)
     stats.pieces++
     stats.texels += p.w * p.h
   }
@@ -371,19 +355,54 @@ void main() { gl_FragColor = vCol; }`,
       uHor: { value: horizon.rt.texture },
       uHorCentre: { value: horizon.centre },
       uHorSpan: { value: horizon.span },
+      // 最小一級 mipmap（1×1）的級數：那一格是整張窗的平均色
+      uHorTop: { value: Math.log2(horizon.n) },
     }),
   }
-  // 【遠圖外疊最外層】田色走算式，最外層存的是乘過透明度的疊圖，照「疊在上面」合成
-  const horizonDecl = horizon === null ? '' : 'uniform sampler2D uHor; uniform vec2 uHorCentre; uniform float uHorSpan;'
+  const horizonDecl = horizon === null ? ''
+    : 'uniform sampler2D uHor; uniform vec2 uHorCentre; uniform float uHorSpan; uniform float uHorTop;'
   const horizonGrad = horizon === null ? '' : `
   vec2 qH = w / uHorSpan;
   vec2 dHx = dFdx(qH); vec2 dHy = dFdy(qH);
   float eH = max(abs(w.x - uHorCentre.x), abs(w.y - uHorCentre.y)) / (0.5 * uHorSpan);`
-  const horizonBlend = horizon === null ? '' : `
-  if (uBypass < 0.5 && eF >= 1.0 && eH < 1.0) {
-    vec4 o = textureGrad(uHor, fract(qH), dHx, dHy);
-    c = c * (1.0 - o.a) + o.rgb;
-  }`
+  /**
+   * 遠圖外的顏色。**有最外層時整圈讀貼圖，不走算式**：
+   *
+   * ```
+   *   遠圖窗外、最外層窗內   最外層的貼圖（田色與疊圖都烘在裡面，有 mipmap）
+   *   最外層窗外            最外層最小一級 mipmap 的顏色 —— 整張窗的平均色
+   * ```
+   *
+   * 【為什麼不走算式】15 km 外一個像素蓋好幾十公尺，逐像素算的田格與樹籬沒有過濾，
+   * 畫出來是閃爍的鋸齒；而那一圈在低空平視時佔畫面不少，算式是地面最貴的一段
+   * （洛伊納實測整圈換掉省 1.3～2.1 ms）。
+   *
+   * 【兩個交界都漸變】遠圖到最外層、最外層到平均色，各在窗緣 `uEdgeBlend` 的寬度裡
+   * 混過去 —— 格子粗細不同，硬切會是一條看得見的線
+   */
+  const horizonColour = horizon === null ? '' : `
+vec3 horizonColourAt(vec2 qH, vec2 dHx, vec2 dHy, float eH) {
+  vec3 avg = textureLod(uHor, vec2(0.5), uHorTop).rgb;
+  if (eH >= 1.0) return avg;
+  vec3 h = textureGrad(uHor, fract(qH), dHx, dHy).rgb;
+  return mix(h, avg, smoothstep(1.0 - uEdgeBlend, 1.0, eH));
+}`
+  /** 遠圖窗外在不在「算式」那一邊：有最外層時整圈讀貼圖 */
+  const farOutProc = horizon === null ? ' || eF >= 1.0' : ''
+  const farOutTex = horizon === null ? ' && eF < 1.0' : ''
+  const texBlock = horizon === null ? `
+    vec3 t = textureGrad(uFar, fract(qF), dFx, dFy).rgb;
+    float tN = smoothstep(1.0 - uEdgeBlend, 1.0, eN);
+    if (tN < 1.0) t = mix(textureGrad(uNear, fract(qN), dNx, dNy).rgb, t, tN);` : `
+    // 【遠圖讀不到的地方不讀】窗外是環面上別處的內容
+    float tF = smoothstep(1.0 - uEdgeBlend, 1.0, eF);
+    vec3 t = vec3(0.0);
+    if (tF < 1.0) {
+      t = textureGrad(uFar, fract(qF), dFx, dFy).rgb;
+      float tN = smoothstep(1.0 - uEdgeBlend, 1.0, eN);
+      if (tN < 1.0) t = mix(textureGrad(uNear, fract(qN), dNx, dNy).rgb, t, tN);
+    }
+    if (tF > 0.0) t = mix(t, horizonColourAt(qH, dHx, dHy, eH), tF);`
   const material = new MeshStandardMaterial({ flatShading: true, roughness: ROUGHNESS })
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     Object.assign(shader.uniforms, U, candUniforms())
@@ -399,7 +418,8 @@ uniform sampler2D uFar; uniform vec2 uFarCentre; uniform float uFarSpan;
 uniform vec2 uCam; uniform float uInner; uniform float uInnerBand; uniform float uEdgeBlend;
 uniform float uBypass;
 ${horizonDecl}
-${glsl}`)
+${glsl}
+${horizonColour}`)
       .replace('#include <color_fragment>', `
 {
   vec2 w = vFarmWorld.xz;
@@ -412,10 +432,10 @@ ${glsl}`)
   float eN = max(abs(w.x - uNearCentre.x), abs(w.y - uNearCentre.y)) / (0.5 * uNearSpan);
   float eF = max(abs(w.x - uFarCentre.x), abs(w.y - uFarCentre.y)) / (0.5 * uFarSpan);
   float tIn = uInner <= 0.0 ? 1.0 : smoothstep(uInner - uInnerBand, uInner, distance(w, uCam));
-  bool proc = uBypass > 0.5 || eF >= 1.0 || tIn < 1.0;
-  bool tex = uBypass < 0.5 && eF < 1.0 && tIn > 0.0;
+  bool proc = uBypass > 0.5 || tIn < 1.0${farOutProc};
+  bool tex = uBypass < 0.5 && tIn > 0.0${farOutTex};
   vec3 c = vec3(0.0);
-  // 算式：旁路、內圈、遠窗外（遠景環 15 km 外）。近窗外畫遠處的樣子，與遠圖烘的相同
+  // 算式：旁路、內圈；沒有最外層時還有遠窗外。近窗外畫遠處的樣子，與遠圖烘的相同
   fieldFar = eN >= 1.0 ? 1.0 : 0.0;
   if (proc) c = fieldColorAt(w);
   // 【內圈疊回烘進貼圖的平面】算式裡沒有街、鎮地面、礦坑；貼圖的透明度記著它們。
@@ -426,12 +446,9 @@ ${glsl}`)
     vec4 o = eN < 1.0 ? textureGrad(uNear, fract(qN), dNx, dNy) : textureGrad(uFar, fract(qF), dFx, dFy);
     c = mix(c, o.rgb, clamp(o.a * 4.0, 0.0, 1.0));
   }
-  if (tex) {
-    vec3 t = textureGrad(uFar, fract(qF), dFx, dFy).rgb;
-    float tN = smoothstep(1.0 - uEdgeBlend, 1.0, eN);
-    if (tN < 1.0) t = mix(textureGrad(uNear, fract(qN), dNx, dNy).rgb, t, tN);
+  if (tex) {${texBlock}
     c = proc ? mix(c, t, tIn) : t;
-  }${horizonBlend}
+  }
   diffuseColor.rgb = c;
 }`)
   }
@@ -505,10 +522,11 @@ uniform vec2 uFarCentre; uniform float uFarSpan;`)
       if (edge(far.centre, far.span) < 1) {
         return `遠圖：${far.m.toFixed(1)} m／格（±${km(far.span / 2)}），寬樹籬、屋頂樹冠色塊`
       }
-      if (horizon !== null && edge(horizon.centre, horizon.span) < 1) {
-        return `最外層：田逐像素算＋疊圖 ${horizon.m.toFixed(0)} m／格（±${km(horizon.span / 2)}）`
+      if (horizon === null) return '遠圖外：田逐像素算＋粗網格'
+      if (edge(horizon.centre, horizon.span) < 1) {
+        return `最外層：${horizon.m.toFixed(0)} m／格（±${km(horizon.span / 2)}），田與疊圖都烘`
       }
-      return '最外層外：田逐像素算＋粗網格'
+      return '最外層外：最外層的平均色＋粗網格'
     },
     setInnerRadius(m) { U.uInner.value = m },
     benchFarBake(trees) {

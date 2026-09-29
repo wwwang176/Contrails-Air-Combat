@@ -80,9 +80,10 @@ export interface TerrainGfx {
 export const FIELD_CLIP_NEAR: ClipLevelSpec = { size: 2048, metersPerTexel: 2 }
 export const FIELD_CLIP_FAR: ClipLevelSpec = { size: 4096, metersPerTexel: 30000 / 4096 }
 /**
- * 遠圖外那一層：只烘疊圖（鎮的地面、河漫灘、礦坑、屋頂與樹冠的色塊），29 m 一格蓋
- * 60 km —— 場地 30 km 見方，鏡頭在場地裡的時候整張場地都在窗裡。15 km 外一棟房子
- * 本來就不到一個像素，這一層只要畫得出鎮與林子的一團顏色
+ * 遠圖外那一層：田色與疊圖（鎮的地面、河漫灘、礦坑、屋頂與樹冠的色塊）都烘，29 m 一格
+ * 蓋 60 km —— 場地 30 km 見方，鏡頭在場地裡的時候整張場地都在窗裡。15 km 外一棟房子、
+ * 一條樹籬本來就不到一個像素，這一層只要畫得出田、鎮與林子的一團團顏色。它的窗外
+ * 是它的平均色
  */
 export const FIELD_CLIP_HORIZON: ClipLevelSpec = { size: 2048, metersPerTexel: 60000 / 2048 }
 
