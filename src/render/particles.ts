@@ -1,9 +1,10 @@
 import {
-  Color, DynamicDrawUsage, InstancedBufferAttribute, InstancedMesh,
+  AdditiveBlending, Color, DynamicDrawUsage, InstancedBufferAttribute, InstancedMesh,
   Matrix4, MeshBasicMaterial, PlaneGeometry, Quaternion, Texture, Vector3,
   type Blending,
 } from 'three'
 import { hash01 } from './scatter'
+import { applyFireFog } from './fireFog'
 import type { Anchors } from './anchors'
 
 export interface ParticleConfig {
@@ -65,6 +66,11 @@ export interface ParticleConfig {
    * 【給了它就等於關掉軟邊圓形】見 `injectBillboard` 的 `soft`。
    */
   alphaMap?: Texture | undefined
+  /**
+   * 吃霧的比例（`render/fireFog.ts`）。**省略 = three 的霧**，煙、塵、水霧都是。
+   * 火的那幾池給 `FIRE_FOG`：自己發光的東西，遠處不該跟煙一樣被霧吃掉
+   */
+  fog?: number
 }
 
 export interface Particles {
@@ -379,7 +385,17 @@ export function createParticles(cfg: ParticleConfig): Particles {
     alphaMap: cfg.alphaMap ?? null,
   })
   const soft = cfg.alphaMap === undefined
-  material.onBeforeCompile = (s): void => { injectBillboard(s, soft) }
+  const fog = cfg.fog
+  const additive = cfg.blending === AdditiveBlending
+  material.onBeforeCompile = (s): void => {
+    injectBillboard(s, soft)
+    if (fog !== undefined) applyFireFog(s, fog, additive)
+  }
+  // 【火的池子要有自己的 program key】預設的 key 是 onBeforeCompile 的原始碼，
+  // 火與煙的字串一模一樣 —— 共用的話後建的拿到前一個的程式，煙變成只吃一半霧
+  if (fog !== undefined) {
+    material.customProgramCacheKey = () => `particles-fog:${fog}:${additive ? 'add' : 'norm'}:${soft ? 'soft' : 'map'}`
+  }
 
   const object = new InstancedMesh(geometry, material, capacity)
   object.instanceMatrix.setUsage(DynamicDrawUsage)

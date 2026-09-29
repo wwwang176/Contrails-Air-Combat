@@ -4,6 +4,7 @@ import {
 import { FIRE_CHUNK_DRAG, FIRE_CHUNK_LIFE, FIRE_CHUNK_SIZE } from './chunks'
 import { jetFalloff, jetProfileRadius, type WaterJets } from './waterJets'
 import { createParticles, type Particles } from './particles'
+import { FIRE_FOG } from './fireFog'
 import { coneDirection } from './scatter'
 import {
   SMOKE_ALPHA, SMOKE_DRAG, SMOKE_GRAVITY, SMOKE_LIFE, SMOKE_LIFE_JITTER,
@@ -711,6 +712,7 @@ export function createFireGlow(
     drag: 3.2,
     alphaFrom,
     color: fireGlowColor,
+    fog: FIRE_FOG,
   })
 }
 
