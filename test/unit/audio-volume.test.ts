@@ -51,7 +51,8 @@ describe('音量設定', () => {
   })
 
   it('四個檔位：關閉、低、中、高', () => {
-    expect(VOLUME_LEVELS.map((l) => l.label)).toEqual(['關閉', '低', '中', '高'])
+    expect(VOLUME_LEVELS.map((l) => l.labelKey)).toEqual(
+      ['common.off', 'settings.volume.low', 'settings.volume.mid', 'settings.volume.high'])
   })
 })
 

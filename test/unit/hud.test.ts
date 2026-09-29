@@ -19,6 +19,8 @@ import { edgeClamp, edgeReach, minimapSymbol, MINIMAP_LEVEL_BAND } from '../../s
 import { flightLabel } from '../../src/hud/widgets/roster'
 import { hudWidgets, WIDGET_DRAW } from '../../src/hud/Hud'
 import { aiStateLine, hintKeys } from '../../src/hud/widgets/hints'
+import { zh } from '../../src/i18n/zh'
+import { en } from '../../src/i18n/en'
 import { DEG, RAD } from '../../src/core/math'
 
 describe('indicatedAirspeed', () => {
@@ -543,17 +545,19 @@ describe('上帝視角的 HUD', () => {
   })
 
   /** 【提示行要換】上帝視角下 W/S 不是油門，寫著油門就是騙人 */
-  it('上帝視角的提示行提到 WASD 與 Q/E，不提油門', () => {
-    const god = hintKeys(true)
-    expect(god).toContain('WASD')
-    expect(god).toContain('Q/E')
-    expect(god).not.toContain('油門')
-    expect(hintKeys(false)).toContain('油門')
+  it('上帝視角的提示行提到 WASD 與 Q/E，不提油門的 W/S', () => {
+    for (const table of [zh, en]) {
+      const god = table[hintKeys(true)]
+      expect(god).toContain('WASD')
+      expect(god).toContain('Q/E')
+      expect(god).not.toContain('W/S')
+      expect(table[hintKeys(false)]).toContain('W/S')
+    }
   })
 
   /** 【G 要寫在一般飛行的提示行裡】不然這個模式是不可發現的 */
   it('一般飛行的提示行要告訴玩家 G 進得去', () => {
-    expect(hintKeys(false)).toContain('G')
+    for (const table of [zh, en]) expect(table[hintKeys(false)]).toMatch(/\bG\b/)
   })
 
   it('代飛讀數印得出意圖與模式', () => {

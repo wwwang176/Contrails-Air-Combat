@@ -3,6 +3,7 @@ import { DEG } from '../core/math'
 import { NO_INTERCEPT, solveLead } from '../world/lead'
 import { PROJECTILE_LIFETIME } from '../world/Projectiles'
 import type { Combatant } from '../world/World'
+import type { MessageKey } from '../i18n'
 
 /** 吸附範圍：敵機的預瞄方向離瞄準點在這個夾角之內才拉，rad */
 export const ASSIST_CONE = 4 * DEG
@@ -132,9 +133,9 @@ export class AimAssist {
 }
 
 /** 設定頁的兩個選項 */
-export const AIM_ASSIST_LEVELS: readonly { label: string; value: boolean }[] = [
-  { label: '開啟', value: true },
-  { label: '關閉', value: false },
+export const AIM_ASSIST_LEVELS: readonly { labelKey: MessageKey; value: boolean }[] = [
+  { labelKey: 'common.on', value: true },
+  { labelKey: 'common.off', value: false },
 ]
 
 const AIM_ASSIST_KEY = 'input.aimAssist'

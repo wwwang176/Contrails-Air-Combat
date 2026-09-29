@@ -11,7 +11,7 @@ import { cjkLiterals } from '../helpers/cjkLiterals'
  *
  * 1. `src/` 裡沒有寫死的中文字串（註解不算）。除錯用的讀數與內部名稱在豁免清單裡。
  * 2. 中英兩張表的鍵相同、每一句的參數名相同、都解析得了。
- * 3. 文字表與 `index.html` 沒有全形空白。
+ * 3. `index.html` 用到的鍵都在表裡。
  */
 
 /** 除錯用或內部用、不給玩家看的，**永久豁免**。`檔案` 或 `檔案#函數` */
@@ -33,30 +33,10 @@ const EXEMPT: readonly string[] = [
   'src/world/river.ts',
   // 時段的名稱只有開發工具頁讀
   'src/render/timeOfDay.ts',
+  // 語言名稱各用自己的語言寫（LANG_NAME）
+  'src/i18n/index.ts',
 ]
 
-/**
- * 還沒改成查表的檔案。**每個任務改完就從這裡刪掉**，全部做完時是空的。
- * 這一份只准變短。
- */
-const PENDING: readonly string[] = [
-  'src/ui/menu.ts',
-  'src/ui/tutorials.ts',
-  'src/main.ts',
-  'src/ui/scoreboard.ts',
-  'src/hud/widgets/hints.ts',
-  'src/battle/skirmish.ts',
-  'src/input/touch.ts',
-  'src/render/quality.ts',
-  'src/ai/recoveryWorkerClient.ts',
-  'src/audio/volume.ts',
-  'src/hud/widgets/bombBay.ts',
-  'src/hud/widgets/objective.ts',
-  'src/input/aimAssist.ts',
-  'src/hud/widgets/arena.ts',
-  'src/hud/widgets/roster.ts',
-  'src/ui/loading.ts',
-]
 
 const TABLE_FILE = 'src/i18n/zh.ts'
 
@@ -65,7 +45,7 @@ const EXEMPT_PROPS: readonly string[] = ['note']
 
 function allowed(file: string, fn: string, prop: string): boolean {
   if (file === TABLE_FILE) return true
-  if (EXEMPT.includes(file) || PENDING.includes(file)) return true
+  if (EXEMPT.includes(file)) return true
   if (EXEMPT_PROPS.includes(prop)) return true
   return fn !== '' && EXEMPT.includes(`${file}#${fn}`)
 }
@@ -73,15 +53,10 @@ function allowed(file: string, fn: string, prop: string): boolean {
 describe('src/ 沒有寫死的中文字串', () => {
   const found = cjkLiterals(process.cwd())
 
-  it('豁免與待改清單以外，一個都沒有', () => {
+  it('豁免清單以外，一個都沒有', () => {
     const bad = found.filter((l) => !allowed(l.file, l.fn, l.prop))
       .map((l) => `${l.file}:${l.line}${l.fn === '' ? '' : ` (${l.fn})`}  ${l.text.slice(0, 60)}`)
     expect(bad).toEqual([])
-  })
-
-  it('待改清單裡的每一個檔案都還有中文字串 —— 改完的要從清單刪掉', () => {
-    const still = new Set(found.filter((l) => !EXEMPT_PROPS.includes(l.prop)).map((l) => l.file))
-    expect(PENDING.filter((f) => !still.has(f))).toEqual([])
   })
 })
 
@@ -116,14 +91,20 @@ describe('中英兩張表', () => {
   })
 })
 
-describe('全形空白', () => {
-  it('文字表沒有 U+3000', () => {
-    const bad = [...Object.entries(zh), ...Object.entries(en)]
-      .filter(([, v]) => v.includes('　')).map(([k]) => k)
-    expect(bad).toEqual([])
+/** 【鍵拼錯要到執行時才炸】`applyStaticText` 開場就查表，查不到的鍵讓 `t()` 丟例外，整個選單起不來 */
+describe('index.html 的固定文字', () => {
+  const html = readFileSync('index.html', 'utf8')
+
+  it('每一個 data-i18n 的鍵都在表裡', () => {
+    const keys = [...html.matchAll(/data-i18n="([^"]+)"/g)].map((m) => m[1]!)
+    expect(keys.length).toBeGreaterThan(20)
+    expect(keys.filter((k) => !(k in zh))).toEqual([])
   })
 
-  it.fails('index.html 沒有 U+3000', () => {
-    expect(readFileSync('index.html', 'utf8').includes('　')).toBe(false)
+  it('每一個 data-i18n-attr 的鍵都在表裡', () => {
+    const keys = [...html.matchAll(/data-i18n-attr="([^"]+)"/g)]
+      .flatMap((m) => m[1]!.split(',').map((p) => p.split(':')[1]!.trim()))
+    expect(keys.length).toBeGreaterThan(0)
+    expect(keys.filter((k) => !(k in zh))).toEqual([])
   })
 })

@@ -15,6 +15,7 @@ import { HE111, HE111_HISTORICAL } from '../specs/he111'
 import type { AircraftSpec, HistoricalReference } from '../specs/types'
 import type { TerrainKind } from '../world/terrainKind'
 import type { TimeOfDay } from '../world/timeOfDay'
+import type { MessageKey } from '../i18n'
 
 /** 每隊最少架數。一架也要能打 —— 那時玩家沒有僚機可接，一死就落敗 */
 export const MIN_SIDE = 1
@@ -96,10 +97,10 @@ export interface SkirmishSetup {
  * 佔時反而掉到 0。600 m 在 8v8 與 20v20 兩種規模都落在 4~7%，兩邊都不是
  * 邊界。
  */
-export const ALTITUDES: readonly { readonly label: string; readonly value: number }[] = [
-  { label: '甲板', value: 600 },
-  { label: '低空', value: 1500 },
-  { label: '中空', value: 4000 },
+export const ALTITUDES: readonly { readonly labelKey: MessageKey; readonly value: number }[] = [
+  { labelKey: 'skirmish.alt.deck', value: 600 },
+  { labelKey: 'skirmish.alt.low', value: 1500 },
+  { labelKey: 'skirmish.alt.mid', value: 4000 },
 ]
 
 /**
@@ -253,26 +254,26 @@ export function setLead(setup: SkirmishSetup, index: number): SkirmishSetup {
  */
 export const PRESETS = {
   even: {
-    label: '勢均力敵',
+    labelKey: 'skirmish.preset.even',
     blue: [{ id: 'p51d', count: 4 }, { id: 'p51d', count: 4 }],
     red: [{ id: 'bf109k4', count: 4 }, { id: 'bf109k4', count: 4 }],
   },
   escort: {
-    label: '護航突破',
+    labelKey: 'skirmish.preset.escort',
     blue: [{ id: 'p51d', count: 4 }, { id: 'b17g', count: 4 }],
     red: [{ id: 'bf109k4', count: 4 }, { id: 'bf109k4', count: 4 }, { id: 'bf109k4', count: 2 }],
   },
   few: {
-    label: '以寡擊眾',
+    labelKey: 'skirmish.preset.few',
     blue: [{ id: 'ki84', count: 3 }],
     red: [{ id: 'f6f5', count: 4 }, { id: 'f6f5', count: 4 }, { id: 'f6f5', count: 2 }],
   },
   hunt: {
-    label: '轟炸機獵殺',
+    labelKey: 'skirmish.preset.hunt',
     blue: [{ id: 'bf109k4', count: 4 }, { id: 'bf109k4', count: 4 }],
     red: [{ id: 'b17g', count: 4 }, { id: 'b17g', count: 4 }, { id: 'p51d', count: 2 }],
   },
-} as const satisfies Record<string, { label: string; blue: readonly Flight[]; red: readonly Flight[] }>
+} as const satisfies Record<string, { labelKey: MessageKey; blue: readonly Flight[]; red: readonly Flight[] }>
 
 export type PresetKey = keyof typeof PRESETS
 

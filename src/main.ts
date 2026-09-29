@@ -151,7 +151,7 @@ import { solveLead, NO_INTERCEPT } from './world/lead'
 import { PROJECTILE_LIFETIME } from './world/Projectiles'
 import { PlayerController } from './control/PlayerController'
 import { AiController } from './ai/AiController'
-import { recoveryWorkerFailure } from './ai/recoveryWorkerClient'
+import { recoveryWorkerFailure, type RecoveryFailure } from './ai/recoveryWorkerClient'
 import { VETERAN } from './ai/profile'
 import { HEAD_ON } from './battle/entry'
 import { NEUTRAL_TUNING } from './battle/mission'
@@ -166,7 +166,8 @@ import {
   stepBattle, type Battle,
 } from './battle/setup'
 import { flightOfCombatant, isFlightLeader } from './battle/flights'
-import { t, type MessageKey } from './i18n'
+import { getLang, onLangChange, readLang, saveLang, setLang, t, type MessageKey } from './i18n'
+import { applyStaticText } from './i18n/dom'
 import { aircraftName } from './i18n/names'
 import { lineAbreast, sideSummary } from './battle/order'
 import { fillOrderView } from './battle/orderView'
@@ -193,17 +194,18 @@ const audio = createAudioEngine(ctx.camera)
 audio.setVolume(readVolume())
 
 /** 防墜 Worker 是正式安全系統；失去它時凍結遊戲並清楚告知，不做靜默降級。 */
-function blockForRecoveryWorker(message: string): void {
+function blockForRecoveryWorker(failure: RecoveryFailure): void {
   if (document.getElementById('recovery-worker-blocker') !== null) return
   void document.exitPointerLock?.()
   const blocker = document.createElement('section')
   blocker.id = 'recovery-worker-blocker'
+  blocker.dataset.failure = failure
   blocker.setAttribute('role', 'alert')
   blocker.setAttribute('aria-live', 'assertive')
   const title = document.createElement('h1')
-  title.textContent = '無法啟動飛行'
+  title.textContent = t('recovery.title')
   const detail = document.createElement('p')
-  detail.textContent = `${message} 為避免 AI 在缺少防墜預演時繼續飛行，遊戲已停止。請重新整理；若仍出現，請改用支援 Web Worker 的瀏覽器。`
+  detail.textContent = `${t(failure)} ${t('recovery.body')}`
   blocker.append(title, detail)
   document.body.appendChild(blocker)
 }
@@ -399,6 +401,21 @@ let pendingMission: ReadyMissionCard | null = null
  * 進入戰鬥的路徑，那條路徑也必須先呼叫 `enterBattle()`。
  */
 let battle!: Battle
+
+// 【語言最先定】之後畫的每一段字都查表；`index.html` 裡寫死的是中文
+setLang(readLang())
+applyStaticText(document)
+/**
+ * 換語言時選單以外要跟著換的：`index.html` 的固定文字、結算板、HUD 的打字機。
+ * 選單與觸控按鈕各自訂閱。HUD 每幀查表，不必處理
+ */
+onLangChange(() => {
+  applyStaticText(document)
+  scoreboard.refresh()
+  langChangedAt = elapsed
+  if (battle !== undefined) hudFrame.reportTypedBefore = battle.world.time
+})
+
 /** 蓋住畫面的載入進度（`index.html` 的 `#loading`）。開場就蓋著 */
 const loading = createLoadingScreen()
 /**
@@ -1392,6 +1409,8 @@ function leaveBattle(): void {
 function restartBattle(): void {
   // 【重開也要有橫幅】橫幅在換成另一句時才出現，上一場留下的要清掉
   bannerKey = null
+  // 物理時間從頭算，上一場換語言的時刻對這一場沒有意義
+  hudFrame.reportTypedBefore = -1
   // 【上一場的聲音不帶過來】爆炸的尾巴、延遲中的遠方爆炸、裝填的邊緣都清掉
   audio.stopAll()
   clearCues(cues)
@@ -1461,6 +1480,7 @@ function enterBattle(): void {
   // 【再打一場也要有橫幅】橫幅在換成另一句時才出現，上一場留下的要清掉；
   // 結算的「再打一場」走的是這裡，不是 `restartBattle`
   bannerKey = null
+  hudFrame.reportTypedBefore = -1
   // 1. 上一場的模型全部還回去（殘骸池持有的也在裡面）
   releaseVisuals()
   // 2. 其餘的池子歸零
@@ -1490,23 +1510,24 @@ async function loadBattle(): Promise<void> {
   loading.show()
   try {
     await loading.hold()
-    await loading.step('整理戰場', 0.05)
+    await loading.step('loading.clear', 0.05)
     // 與 `enterBattle` 同樣的第 1、2 段
     bannerKey = null
+    hudFrame.reportTypedBefore = -1
     releaseVisuals()
     resetPools()
     // 【佈景 GLB 進場才載】見 `preloadTerrainScenery`。只有洛伊納與波爾塔瓦
     // 要等，其餘地形是 no-op
-    await loading.step('載入佈景', 0.1)
+    await loading.step('loading.scenery', 0.1)
     await preloadTerrainScenery(battleTerrainKind())
-    await loading.step('鋪設地形', 0.2)
+    await loading.step('loading.terrain', 0.2)
     buildBattleTerrain()
-    await loading.step('編組部隊', 0.5)
+    await loading.step('loading.forces', 0.5)
     startWorld(battleConfig())
     // 【地面與植被在載入畫面裡備好】田色的三張貼圖第一次烘、烘圖的著色器第一次編，
     // 植被每幀只補十幾格 —— 留到開場的話第一幀卡半秒，接著兩秒樹一片片長出來。
     // 以玩家的出生點（開場第一幀地形跟著的那一點）先更新一次、把植被排乾
-    await loading.step('鋪設植被', 0.6)
+    await loading.step('loading.vegetation', 0.6)
     const spawn = player.aircraft.state.position
     terrain.update(elapsed, spawn.x, spawn.z)
     terrain.settle?.()
@@ -1516,11 +1537,11 @@ async function loadBattle(): Promise<void> {
     menu.setTutorialHelp(playerTutorials().length > 0)
     // 【音效在開場就開始背景下載】大多數時候這裡已經載完，等一下就過。
     // 沒載完時這是唯一還要連網的一步，所以進度條給它一整段，每載完一支推一格
-    await loading.step('載入音效', 0.7)
+    await loading.step('loading.audio', 0.7)
     await audio.load((done, total) => {
-      loading.set('載入音效', 0.7 + 0.15 * fileFraction(done, total))
+      loading.set('loading.audio', 0.7 + 0.15 * fileFraction(done, total))
     })
-    await loading.step('編譯著色器', 0.85)
+    await loading.step('loading.shaders', 0.85)
     // 【先編好】沒有這一步，第一幀要一次編完幾十個材質，進場那一下會頓
     await ctx.renderer.compileAsync(ctx.scene, ctx.camera)
     // 【增援批次的塗裝先傳上 GPU】場上已有的機種由下面那一次繪製帶上去；增援的
@@ -1544,7 +1565,7 @@ async function loadBattle(): Promise<void> {
     // 讀回一個像素才等得到 GPU 做完；不等的話那一次繪製還排在佇列裡，開場第一幀等它
     const gl = ctx.renderer.getContext()
     gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4))
-    await loading.finish('出擊')
+    await loading.finish('brief.go')
   } finally {
     loadingBattle = false
     loading.hide()
@@ -1867,6 +1888,8 @@ let bannerKey: MessageKey | null = null
 let bannerStart = 0
 let messageKey: MessageKey | null = null
 let messageStart = 0
+/** 最後一次換語言時的 `elapsed`；在這之前出現的橫幅與訊息整句印，見 `objectiveBannerTypeAge` */
+let langChangedAt = -Infinity
 /** 這一場從 `elapsed` 的哪一刻開始 —— `elapsed` 是全域幀鐘，跨場不歸零 */
 let battleStartedAt = 0
 /**
@@ -3357,6 +3380,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   }
   hudFrame.objectiveBanner = bannerKey === null ? '' : t(bannerKey)
   hudFrame.objectiveBannerAge = bannerKey === null ? -1 : elapsed - bannerStart
+  hudFrame.objectiveBannerTypeAge = bannerStart <= langChangedAt ? -1 : hudFrame.objectiveBannerAge
   // 【分母由 `mission.ts` 給】只有擊沉會填總艘數，其餘任務恆是 −1
   hudFrame.objectiveMetricTotal = m.metricTotal
   // 【−1 由 `mission.ts` 給】只有護送／攔截會填實際架數，其餘任務恆是 −1
@@ -3380,7 +3404,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     // 【增援預警配無線電】訊息消失時不響
     if (messageKey !== null) audio.playPool('radio', 'radio', 0, 0, 0, false)
   }
-  hudFrame.messageAge = messageKey === null ? -1 : elapsed - messageStart
+  hudFrame.messageAge = messageKey === null || messageStart <= langChangedAt ? -1 : elapsed - messageStart
 
   hud.render(hudFrame, frameSeconds)
   if (audioMeter !== null) {
@@ -3624,6 +3648,11 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     saveAimAssist(on)
     menu.renderAimAssist(on)
   },
+  onLang(lang) {
+    saveLang(lang)
+    setLang(lang)
+    menu.renderLang(lang)
+  },
 })
 // 【先套用再畫選單】兩邊讀同一個值，按鈕標的才是畫面實際用的檔位
 const startQuality = readQuality()
@@ -3633,6 +3662,7 @@ menu.renderQuality(startQuality)
 menu.renderAntialias(readAntialias())
 menu.renderVolume(readVolume())
 menu.renderAimAssist(aimAssist.enabled)
+menu.renderLang(getLang())
 menu.renderSetup(setup)
 menu.show(screen)
 
@@ -3651,8 +3681,8 @@ function afterAction(): AfterAction {
   const convoy = battle.convoy
   return {
     mode,
-    title: mode === 'mission' && pendingMission !== null ? t(pendingMission.titleKey) : t('result.skirmish'),
-    objective: t(battle.objectiveKey ?? pendingMission?.battle.objectiveKey ?? 'mission.killAll.objective'),
+    titleKey: mode === 'mission' && pendingMission !== null ? pendingMission.titleKey : 'result.skirmish',
+    objectiveKey: battle.objectiveKey ?? pendingMission?.battle.objectiveKey ?? 'mission.killAll.objective',
     seconds: (battleEndedAt < 0 ? elapsed : battleEndedAt) - battleStartedAt,
     playerSpec: shortName(me.aircraft.spec),
     playerFlight: (flightAt < 0 ? 0 : flightAt) + 1,
@@ -3788,30 +3818,30 @@ if (initialRecoveryFailure !== null) {
   const shipIds = ['essex', 'wichita', 'fletcher', 'lst'] as const
   const fileTotal = AIRCRAFT_MODEL_COUNT + shipIds.length + groundModelUrls().length + BALLOON_MODEL_COUNT
   let filesDone = 0
-  let fileLabel = ''
+  let fileLabel: MessageKey = 'loading.preparing'
   const fileLoaded = (): void => {
     filesDone++
     loading.set(fileLabel, fileFraction(filesDone, fileTotal))
   }
-  const loadGroup = (label: string): Promise<void> => {
+  const loadGroup = (label: MessageKey): Promise<void> => {
     fileLabel = label
     return loading.step(label, fileFraction(filesDone, fileTotal))
   }
   await loading.hold()
-  await loadGroup('載入機體')
+  await loadGroup('loading.aircraft')
   await preloadAircraftModels(fileLoaded)
   // 【船的 GLB 也在開場載】三個艦級全部要 —— allies-m3 的第 58 特遣支隊有
   // 航母。少載一種的症狀是 `createShipModels` 找不到樣板**直接丟例外**，
   // 那一關進不去，而每一條單元測試都還是綠的（GLB 載入不在它們的路徑上）。
-  await loadGroup('載入艦艇')
+  await loadGroup('loading.ships')
   await preloadShipModels(shipIds, fileLoaded)
   // 【地面單位的 GLB 也在開場載】`createGroundModels` 是同步的，樣板沒載到就丟
-  await loadGroup('載入地面單位')
+  await loadGroup('loading.ground')
   await preloadGroundModels(undefined, fileLoaded)
   // 【防空氣球同一個理由】`createBalloonModels` 是同步的
   await preloadBalloonModel(fileLoaded)
   // 【廠區與機場的佈景不在這裡】進場時才載，見 `loadBattle` 的 `preloadTerrainScenery`
-  await loading.finish('完成')
+  await loading.finish('loading.done')
   // 【不擋開場】選單先出來，音效在背景下載；進戰鬥時 `loadBattle` 才等它
   void audio.load()
   requestAnimationFrame(frame)

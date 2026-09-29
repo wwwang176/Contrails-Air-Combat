@@ -4,6 +4,7 @@ import {
   BOMB_TUTORIAL, FIGHTER_BOMB_TUTORIAL, FIGHTER_TUTORIAL, TORPEDO_TUTORIAL, markTutorialSeen, readSeenTutorials,
   tutorialsFor, unseenTutorials, type Tutorial,
 } from '../../src/ui/tutorials'
+import { zh } from '../../src/i18n/zh'
 
 /** 【用 import.meta.glob 而不是 fs】`main.ts` 與 `menu.ts` 抓 DOM，載進 vitest 會直接爆；讀原始碼 */
 const SOURCES = import.meta.glob(['../../index.html', '../../src/main.ts', '../../src/ui/menu.ts'], {
@@ -74,10 +75,10 @@ describe('教學卡的內容', () => {
   })
 
   for (const t of all) {
-    it(`${t.title}：每一格都有一句話，標籤都落在圖內`, () => {
+    it(`${t.id}：每一格都有一句話，標籤都落在圖內`, () => {
       expect(t.panels.length).toBeGreaterThan(0)
       for (const p of t.panels) {
-        expect(p.caption.length).toBeGreaterThan(0)
+        expect(zh[p.captionKey].length).toBeGreaterThan(0)
         for (const g of p.tags) {
           expect(g.x).toBeGreaterThanOrEqual(0)
           expect(g.x).toBeLessThanOrEqual(100)
@@ -87,7 +88,7 @@ describe('教學卡的內容', () => {
       }
     })
 
-    it(`${t.title}：每一格的截圖檔都在 public 裡`, () => {
+    it(`${t.id}：每一格的截圖檔都在 public 裡`, () => {
       for (const p of t.panels) {
         expect(readFileSync(`public${p.image}`).byteLength, p.image).toBeGreaterThan(0)
       }

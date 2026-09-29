@@ -4,6 +4,7 @@ import { drawMinimap } from '../../src/hud/widgets/minimap'
 import { createHudFrame, type HudLayout } from '../../src/hud/types'
 import { hudWidgets, WIDGET_DRAW } from '../../src/hud/Hud'
 import { ARENA_RADIUS } from '../../src/world/arena'
+import { t } from '../../src/i18n'
 
 const LAYOUT: HudLayout = {
   width: 1280, height: 720, cx: 640, cy: 360, unit: 360, scale: 1,
@@ -56,10 +57,10 @@ describe('返回戰場的警告', () => {
     f.arenaRemaining = 8.4
     const c = fakeCtx()
     drawArena(c.ctx, LAYOUT, f)
-    const t = c.texts.map((x) => x.text).join('|')
-    expect(t).toContain('返回戰場')
+    const texts = c.texts.map((x) => x.text)
+    expect(texts).toContain(t('hud.returnToArena'))
     // 【進位】剩 0.2 秒顯示 0 會讓玩家以為已經沒救了
-    expect(t).toContain('9')
+    expect(texts).toContain('9')
   })
 
   it('這一場沒有界就完全不畫', () => {

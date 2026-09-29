@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ANTIALIAS_LEVELS, DEFAULT_ANTIALIAS, DEFAULT_QUALITY, QUALITY_LEVELS, fieldInnerFor, pixelRatioFor,
 } from '../../src/render/quality'
+import { zh } from '../../src/i18n/zh'
 
 /**
  * 繪圖解析度的檔位。**只有換算那一支是邏輯**，其餘是資料 —— 所以這裡守的是
@@ -10,7 +11,7 @@ import {
 describe('畫質檔位', () => {
   /** 【沒設定過的玩家看到平衡】預設是清單裡標為平衡的那一檔 */
   it('預設是平衡那一檔', () => {
-    expect(QUALITY_LEVELS.find((lv) => lv.scale === DEFAULT_QUALITY)?.label).toBe('平衡')
+    expect(QUALITY_LEVELS.find((lv) => lv.scale === DEFAULT_QUALITY)?.labelKey).toBe('settings.quality.balanced')
   })
 
   it('原生那一檔照 dpr，上限沿用既有的 2', () => {
@@ -56,7 +57,7 @@ describe('畫質檔位', () => {
     for (const lv of QUALITY_LEVELS) {
       expect(lv.scale).toBeGreaterThan(0)
       expect(lv.scale).toBeLessThanOrEqual(1)
-      expect(lv.label.length).toBeGreaterThan(0)
+      expect(zh[lv.labelKey].length).toBeGreaterThan(0)
     }
     for (let i = 1; i < QUALITY_LEVELS.length; i++) {
       expect(QUALITY_LEVELS[i]!.scale).toBeLessThan(QUALITY_LEVELS[i - 1]!.scale)
@@ -71,6 +72,6 @@ describe('畫質檔位', () => {
     expect(ANTIALIAS_LEVELS.map((lv) => lv.value)).toEqual([true, false])
     expect(DEFAULT_ANTIALIAS).toBe(true)
     expect(ANTIALIAS_LEVELS[0]!.value).toBe(DEFAULT_ANTIALIAS)
-    for (const lv of ANTIALIAS_LEVELS) expect(lv.label.length).toBeGreaterThan(0)
+    for (const lv of ANTIALIAS_LEVELS) expect(zh[lv.labelKey].length).toBeGreaterThan(0)
   })
 })

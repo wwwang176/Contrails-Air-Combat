@@ -52,7 +52,7 @@ describe('音效的生命週期接線', () => {
   it('進戰鬥前等音效載完，而且把進度掛上載入畫面', () => {
     const fn = body('async function loadBattle(')
     expect(fn).toContain('await audio.load((done, total) =>')
-    expect(fn).toContain("loading.set('載入音效', 0.7 + 0.15 * fileFraction(done, total))")
+    expect(fn).toContain("loading.set('loading.audio', 0.7 + 0.15 * fileFraction(done, total))")
   })
 
   it('離開戰鬥清空佇列、重設邊緣偵測的狀態', () => {

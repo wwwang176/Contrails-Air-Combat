@@ -1,20 +1,14 @@
+import { t, type MessageKey } from '../../i18n'
 import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
 
-const KEYS = 'W/S 油門   V 視角   右鍵 自由視角   I 自機AI   G 上帝視角   F3 效能   ESC 暫停'
-const GOD_KEYS = '滑鼠 轉鏡頭   WASD 平移   Q/E 升降   Shift 加速   Tab 記分板   G 離開   ESC 暫停'
-
-/** 自機交給 AI 時的橫幅。 */
-const AI_BANNER = 'AI 代飛中，按 I 收回操控'
-const GOD_BANNER = '上帝視角，AI 代飛中，按 G 回座艙'
-
 /**
- * 這一幀要顯示哪一行按鍵提示。
+ * 這一幀要顯示哪一行按鍵提示（文字表的鍵）。
  *
  * 【為什麼要分兩行】上帝視角下 W/S 不是油門。寫著油門就是騙人，而按鍵
  * 提示存在的全部理由就是「除了滑鼠以外的操作全部是不可發現的」。
  */
-export function hintKeys(godView: boolean): string {
-  return godView ? GOD_KEYS : KEYS
+export function hintKeys(godView: boolean): MessageKey {
+  return godView ? 'hud.godKeys' : 'hud.keys'
 }
 
 /**
@@ -27,7 +21,7 @@ export function drawHints(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFra
     ctx.font = hudFont(11 * L.scale)
     ctx.textAlign = 'left'
     ctx.textBaseline = 'bottom'
-    ctx.fillText(hintKeys(f.godView), 30 * L.scale, L.height - 10 * L.scale)
+    ctx.fillText(t(hintKeys(f.godView)), 30 * L.scale, L.height - 10 * L.scale)
   }
 
   // 【為什麼一定要有指示燈】接管與否從畫面上看不出來——飛機自己在動，
@@ -41,7 +35,7 @@ export function drawHints(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFra
     ctx.font = hudFont(13 * L.scale, true)
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
-    ctx.fillText(GOD_BANNER, L.cx, 18 * L.scale)
+    ctx.fillText(t('hud.godBanner'), L.cx, 18 * L.scale)
     return
   }
   if (!f.aiFlying) return
@@ -49,7 +43,7 @@ export function drawHints(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFra
   ctx.font = hudFont(13 * L.scale, true)
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
-  ctx.fillText(AI_BANNER, L.cx, 18 * L.scale)
+  ctx.fillText(t('hud.aiBanner'), L.cx, 18 * L.scale)
 
   // 【AI 現在以為自己在做什麼】飛機在做什麼看得見，AI 的判讀看不見。少了
   // 這一行，「它抬頭又低頭」這種回報對不回任何一條規則。

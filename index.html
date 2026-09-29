@@ -67,11 +67,14 @@
       .btn:hover:not(:disabled) { background: var(--btn-hi); }
       .btn.on { color: var(--strong); border-color: var(--sel); box-shadow: inset 0 -2px 0 var(--sel); }
       .btn.tiny { padding: 3px 8px; font-size: 12px; }
+      /* 【min-width】兩個字的「戰鬥」「確定」與三個字寬的按鈕一樣大，英文的「OK」也不會縮成一小塊 */
       .go {
         background: var(--go-bg); color: var(--go-ink); border: 1px solid var(--go-bg);
         font-weight: 700; padding: 12px 42px; font-size: 16px; letter-spacing: .1em;
-        box-shadow: 0 4px 12px rgba(0,0,0,.5);
+        box-shadow: 0 4px 12px rgba(0,0,0,.5); min-width: 132px;
       }
+      /* 與「確定」「了解」並排的取消，理由同 .go 的 min-width */
+      .btn.cancel { min-width: 77px; }
       .lbl { font-size: 11px; letter-spacing: .06em; color: var(--dim); }
       /* 【返回一律在紙的左上角外側】不屬於任何一張紙，屬於這一頁；每頁同一個位置，
          標籤寫回到哪裡，不寫「返回」 */
@@ -210,8 +213,10 @@
       .sheet { width: 386px; padding: 20px 22px 22px; overflow-y: auto; }
       .sheet h2 { font-size: 22px; }
       .sheet .story { margin: 13px 0 17px; font-size: 13px; }
-      .bars { display: flex; flex-direction: column; gap: 8px; }
-      .bars .stat { display: grid; grid-template-columns: 34px 1fr 76px; align-items: center; gap: 10px; }
+      /* 【標籤欄寬度由最長的那個字決定】六列共用同一組欄（.stat 是 contents），
+         條才對得齊；英文的 Firepower 比兩個中文字寬得多 */
+      .bars { display: grid; grid-template-columns: max-content 1fr 76px; align-items: center; gap: 8px 10px; }
+      .bars .stat { display: contents; }
       .bars .k { font-size: 11.5px; }
       /* 【條上要印真值】只比長短的話，讀者分不出「差一點」與「差一倍」 */
       .bars .v { text-align: right; font-weight: 700; font-size: 12px; }
@@ -220,9 +225,9 @@
          時四條一起長出來；轉場曲線尾端慢，讀得到「停在哪裡」 */
       .bars .track i { display: block; height: 100%; width: 0; background: var(--go-bg);
         transition: width .5s cubic-bezier(.22,.7,.25,1); }
-      .sheet .facts { display: grid; grid-template-columns: 1fr; gap: 5px;
-        margin-top: 17px; padding-top: 13px; border-top: 1px solid rgba(47,39,28,.24); }
-      .sheet .fact { display: grid; grid-template-columns: 62px 1fr; font-size: 12px; }
+      .sheet .facts { display: grid; grid-template-columns: max-content 1fr; gap: 5px 12px;
+        margin-top: 17px; padding-top: 13px; border-top: 1px solid rgba(47,39,28,.24); font-size: 12px; }
+      .sheet .fact { display: contents; }
 
       /* ② 簡報 */
       .brief { display: grid; grid-template-columns: 300px 1fr; width: min(1120px, 96vw);
@@ -371,6 +376,12 @@
       .tut-tag { position: absolute; transform: translate(-50%, -50%); white-space: nowrap;
         padding: 2px 8px; font: 700 12px/1.4 var(--f-ui); color: var(--go-ink); background: var(--sel);
         box-shadow: 0 2px 6px rgba(0,0,0,.6); }
+      /* 仿 HUD 的讀數（hud/types.ts 的 hudFont 與 HUD_COLORS）：沒有底色，綠字、出界紅字 */
+      /* 字級跟著圖寬（cqw）：它代表的是截圖裡的 HUD 字，圖縮小時字也要一起縮，三格才不會擠在一起 */
+      .tut-fig { container-type: inline-size; }
+      .tut-tag.hud { padding: 0; background: none; box-shadow: none;
+        font: 700 3.8cqw/1.2 ui-monospace, Consolas, monospace; color: #7dfba8; }
+      .tut-tag.hud.bad { color: #ff5a4d; }
       .tut-cap { font-size: 14px; line-height: 1.6; color: var(--strong); }
       @media (max-width: 720px) { .tut-panels { flex-direction: column; align-items: center; } }
 
@@ -484,6 +495,9 @@
         box-sizing: border-box; border-radius: 2.6vh; border: 2px solid rgba(227, 217, 192, .5);
         background: rgba(24, 20, 14, .3); color: rgba(242, 233, 210, .92);
         font: 700 clamp(11px, 3.4vh, 17px)/1 var(--f-ui); letter-spacing: .06em; }
+      /* 英文字比兩個中文字長，字小一號才不會塞滿按鈕 */
+      :lang(en) .t-btn { font-size: clamp(10px, 2.7vh, 14px); letter-spacing: .02em; }
+      :lang(en) .t-btn.t-fire { font-size: clamp(11px, 3.5vh, 17px); }
       .t-btn.down { background: rgba(184, 84, 63, .55); border-color: rgba(242, 233, 210, .9); }
       .t-btn[hidden] { display: none; }
       /* 【暫停鈕貼在航向帶左邊】左上角是效能面板（core/perf.ts，z-index 100），
@@ -524,7 +538,7 @@
         .back { position: fixed; top: 6px; left: 64px; padding: 6px 12px 6px 10px; font-size: 13px; }
         h1 { font-size: 30px; }
         .cover { padding: 16px 36px 14px; }
-        .go { padding: 9px 30px; font-size: 15px; }
+        .go { padding: 9px 30px; font-size: 15px; min-width: 108px; }
         .ask { min-width: 0; padding: 14px 22px 16px; gap: 12px; }
         .ask h2 { font-size: 18px; }
 
@@ -551,7 +565,8 @@
         .obj { font-size: 13px; margin: 0 0 6px; }
         .forces { padding: 8px 0; }
         .unit { margin-bottom: 3px; }
-        .facts { margin-top: 8px; gap: 18px; }
+        /* 【右邊讓出出擊鈕的寬度】出擊鈕黏在底部，英文的空域一長，時期就被它蓋住 */
+        .facts { margin-top: 8px; gap: 4px 18px; padding-right: 130px; }
         .brief .actions { position: sticky; bottom: 0; padding-top: 10px; }
 
         /* 編組：寬度收進畫面、每一隊一列；整頁照樣上下捲 */
@@ -594,11 +609,9 @@
         .sheet { width: calc(50vw - 114px); box-sizing: border-box; padding: 10px 12px 12px; }
         .sheet h2 { font-size: 16px; }
         .sheet .story { margin: 6px 0 8px; font-size: 11.5px; line-height: 1.5; }
-        .bars { gap: 4px; }
-        .bars .stat { grid-template-columns: 28px 1fr 62px; gap: 6px; }
+        .bars { grid-template-columns: max-content 1fr 62px; gap: 4px 6px; }
         .bars .k, .bars .v { font-size: 11px; }
-        .sheet .facts { margin-top: 8px; padding-top: 6px; gap: 3px; }
-        .sheet .fact { grid-template-columns: 50px 1fr; font-size: 11px; }
+        .sheet .facts { margin-top: 8px; padding-top: 6px; gap: 3px 8px; font-size: 11px; }
 
         /* 設定：四組選項排成兩欄 */
         #settings .ask { display: grid; grid-template-columns: auto auto; gap: 12px 28px; justify-items: center; }
@@ -611,9 +624,9 @@
         .ask.tut { width: min(820px, calc(100vw - 24px)); padding: 12px 16px 14px; gap: 10px; }
         .tut-panels { flex-direction: row; align-items: stretch; gap: 10px; }
         .tut-panel { max-width: 200px; gap: 6px; }
-        .tut-fig img { aspect-ratio: auto; height: calc(100vh - 200px); height: calc(100dvh - 200px); }
+        /* 【扣掉的 240px】頁首留白、標題、三行說明與「了解」；扣少了按鈕會被擠出畫面 */
+        .tut-fig img { aspect-ratio: auto; height: calc(100vh - 240px); height: calc(100dvh - 240px); }
         .tut-cap { font-size: 12px; line-height: 1.45; }
-
         /* 戰報：面板收進畫面寬，名單照樣整張列出。
            【按住看的即時看板捲不動】手指按在「戰績」上，所以 20v20 的列要一頁放得下；
            結算時才讓出頂端給 FPS 與齒輪，放不下的上下捲 */
@@ -652,11 +665,12 @@
       <i class="t-ring aim" hidden></i>
       <i class="t-ring look" hidden></i>
       <div class="t-btn t-pause" data-t="pause">Ⅱ</div>
-      <div class="t-btn t-score" data-t="score">戰績</div>
-      <div class="t-btn t-view" data-t="view">視角</div>
+      <div class="t-btn t-score" data-t="score" data-i18n="touch.score">戰績</div>
+      <div class="t-btn t-view" data-t="view" data-i18n="touch.view">視角</div>
+      <!-- 投彈與開火兩顆的字隨狀態換，由 input/touch.ts 寫 -->
       <div class="t-btn t-bomb" data-t="bomb" hidden>瞄準鏡</div>
-      <div class="t-btn t-up" data-t="up">加速</div>
-      <div class="t-btn t-down" data-t="down">減速</div>
+      <div class="t-btn t-up" data-t="up" data-i18n="touch.up">加速</div>
+      <div class="t-btn t-down" data-t="down" data-i18n="touch.down">減速</div>
       <div class="t-btn t-fire" data-t="fire">開火</div>
     </div>
 
@@ -668,7 +682,7 @@
         <path d="M18 16a20 20 0 0 1 30-4"/>
         <path d="M48 5v7h-7"/>
       </svg>
-      <div>請將手機橫放</div>
+      <div data-i18n="rotate.hint">請將手機橫放</div>
     </div>
 
     <!-- 載入畫面：一開始就蓋著，預載完才收（main.ts）。不加 hidden —— 模型還沒
@@ -676,7 +690,7 @@
     <div id="loading" role="status" aria-live="polite">
       <div class="load-sheet paperbit">
         <div class="load-bar"><i id="loading-fill"></i></div>
-        <div class="load-row"><span id="loading-step">準備中</span><span id="loading-pct">0%</span></div>
+        <div class="load-row"><span id="loading-step" data-i18n="loading.preparing">準備中</span><span id="loading-pct">0%</span></div>
       </div>
     </div>
 
@@ -687,16 +701,16 @@
         <div id="aar-me" class="paperbit" hidden></div>
         <div id="aar-tally" hidden></div>
         <div id="aar-details">
-          <div class="cap">完整名單</div>
+          <div class="cap" data-i18n="score.rosterCap">完整名單</div>
           <div id="tables"></div>
         </div>
         <div id="board-actions" hidden>
           <!-- 兩個回頭的出口依模式擇一顯示（main.ts）。為什麼是兩顆按鈕而不是
                逐幀改 data-act：data-act 是選單那一層唯一的協定，改它等於讓一個
                DOM 屬性變成隱性狀態 -->
-          <button class="btn" data-act="toSetup">回設定頁</button>
-          <button class="btn" data-act="toMission" hidden>回任務列表</button>
-          <button class="go" data-act="fight">再打一場</button>
+          <button class="btn" data-act="toSetup" data-i18n="board.toSetup">回設定頁</button>
+          <button class="btn" data-act="toMission" hidden data-i18n="board.toMission">回任務列表</button>
+          <button class="go" data-act="fight" data-i18n="board.again">再打一場</button>
         </div>
       </div>
     </div>
@@ -705,36 +719,37 @@
       <!-- ① 開場：遮罩 30%。獨立一頁，不併進主選單 -->
       <section id="landing" class="screen" style="--v:.30">
         <div class="cover paperbit"><h1>CONTRAILS AIR: COMBAT</h1></div>
-        <button class="go" data-act="start" style="padding:14px 54px">開始遊戲</button>
+        <button class="go" data-act="start" style="padding:14px 54px" data-i18n="landing.start">開始遊戲</button>
       </section>
 
       <!-- ①b 主選單：遮罩 50%。狀態行由 menu.ts 算出來填 -->
       <!-- 設定的入口。固定在右上角，所有畫面共用一顆；飛行中指標被鎖定、
            點不到任何按鈕，那時由 menu.ts 自己藏起來 -->
-      <button id="gear" class="gear" data-act="settings" title="設定" aria-label="設定">
+      <button id="gear" class="gear" data-act="settings" title="設定" aria-label="設定"
+        data-i18n-attr="title:settings.title,aria-label:settings.title">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
           <circle cx="12" cy="12" r="3.2"/>
           <path d="M12 2.6v2.3M12 19.1v2.3M21.4 12h-2.3M4.9 12H2.6M18.6 5.4l-1.6 1.6M7 17l-1.6 1.6M18.6 18.6L17 17M7 7L5.4 5.4"/>
         </svg>
       </button>
       <!-- 暫停時重看教學。只在暫停選單開著、這一場有卡可看時出現（ui/menu.ts） -->
-      <button id="help" class="gear help" data-act="help" hidden>教學</button>
+      <button id="help" class="gear help" data-act="help" hidden data-i18n="pause.tutorial">教學</button>
       <section id="menu" class="screen" style="--v:.50" hidden>
         <div class="cards">
           <button class="tallcard paperbit" data-act="mission">
             <span class="photo"><i class="tape tl"></i><img src="/ui/mission.jpg" alt=""></span>
-            <span class="t">任務模式</span>
-            <span class="d">參與史實戰役</span>
+            <span class="t" data-i18n="menu.mission">任務模式</span>
+            <span class="d" data-i18n="menu.mission.sub">參與史實戰役</span>
           </button>
           <button class="tallcard paperbit" data-act="skirmish">
             <span class="photo"><i class="tape br"></i><img src="/ui/skirmish.jpg" alt=""></span>
-            <span class="t">遭遇戰</span>
-            <span class="d">建立自己的戰役</span>
+            <span class="t" data-i18n="menu.skirmish">遭遇戰</span>
+            <span class="d" data-i18n="menu.skirmish.sub">建立自己的戰役</span>
           </button>
           <button class="tallcard paperbit" data-act="hangar">
             <span class="photo"><i class="tape tl"></i><img src="/ui/hangar.jpg" alt=""></span>
-            <span class="t">機庫</span>
-            <span class="d">檢視每一架飛機</span>
+            <span class="t" data-i18n="menu.hangar">機庫</span>
+            <span class="d" data-i18n="menu.hangar.sub">檢視每一架飛機</span>
           </button>
         </div>
       </section>
@@ -745,7 +760,7 @@
              它在卷宗底下，所以拖到紙上不會轉鏡頭 -->
         <div id="hangar-view"></div>
         <div class="pane hangar">
-          <button class="back" data-act="back">主選單</button>
+          <button class="back" data-act="back" data-i18n="back.menu">主選單</button>
           <div class="rack" id="hangar-rack"></div>
           <div class="sheet paperbit" id="hangar-sheet"></div>
           <div class="stage" id="hangar-stage"></div>
@@ -755,7 +770,7 @@
       <!-- ①c 陣營：遮罩 60%。三張卡由 menu.ts 畫 -->
       <section id="campaign" class="screen" style="--v:.60" hidden>
         <div class="pane">
-          <button class="back" data-act="back">主選單</button>
+          <button class="back" data-act="back" data-i18n="back.menu">主選單</button>
           <div class="cards" id="campaign-cards"></div>
         </div>
       </section>
@@ -763,7 +778,7 @@
       <!-- ② 簡報：遮罩 70%。左欄路線、右欄簡報，沒有陣營分頁 -->
       <section id="mission" class="screen" style="--v:.70" hidden>
         <div class="pane">
-          <button class="back" data-act="back">陣營</button>
+          <button class="back" data-act="back" data-i18n="back.campaign">陣營</button>
           <div class="brief">
             <div class="left">
               <div class="camphead">
@@ -779,12 +794,12 @@
       <!-- ③ 編組：遮罩 72%，整頁都是要讀的字 -->
       <section id="skirmish" class="screen" style="--v:.72" hidden>
         <div class="pane">
-          <button class="back" data-act="back">主選單</button>
+          <button class="back" data-act="back" data-i18n="back.menu">主選單</button>
           <div class="board">
             <div class="head">
-              <h2>出擊編組</h2>
-              <span class="sub">最多五個小隊，每隊四架</span>
-              <div class="presets"><span class="lbl">想定</span><span id="sk-presets"></span></div>
+              <h2 data-i18n="skirmish.title">出擊編組</h2>
+              <span class="sub" data-i18n="skirmish.sub">最多五個小隊，每隊四架</span>
+              <div class="presets"><span class="lbl" data-i18n="skirmish.presets">想定</span><span id="sk-presets"></span></div>
             </div>
             <div class="sides">
               <section class="side mine" id="sk-mine"></section>
@@ -792,43 +807,43 @@
               <section class="side foe" id="sk-foe"></section>
             </div>
             <div class="setup">
-              <div><div class="lbl" style="margin-bottom:7px">戰場</div><div class="opt wrap" id="sk-terrain"></div></div>
-              <div><div class="lbl" style="margin-bottom:7px">開場高度</div><div class="opt" id="sk-alt"></div></div>
-              <div><div class="lbl" style="margin-bottom:7px">時段</div><div class="opt narrow" id="sk-tod"></div></div>
+              <div><div class="lbl" style="margin-bottom:7px" data-i18n="skirmish.terrain">戰場</div><div class="opt wrap" id="sk-terrain"></div></div>
+              <div><div class="lbl" style="margin-bottom:7px" data-i18n="skirmish.altitude">開場高度</div><div class="opt" id="sk-alt"></div></div>
+              <div><div class="lbl" style="margin-bottom:7px" data-i18n="skirmish.tod">時段</div><div class="opt narrow" id="sk-tod"></div></div>
             </div>
             <div class="foot">
-              <div class="right"><button class="go" data-act="fight">戰　鬥</button></div>
+              <div class="right"><button class="go" data-act="fight" data-i18n="skirmish.fight">戰鬥</button></div>
             </div>
           </div>
         </div>
       </section>
 
       <section id="pause" class="screen" style="--v:.55" hidden>
-        <h2>已暫停</h2>
-        <button class="go" data-act="resume">繼　續</button>
-        <button class="btn" data-act="restart">重新開始</button>
+        <h2 data-i18n="pause.title">已暫停</h2>
+        <button class="go" data-act="resume" data-i18n="common.resume">繼續</button>
+        <button class="btn" data-act="restart" data-i18n="pause.restart">重新開始</button>
         <!-- 兩個出口依模式擇一顯示（main.ts）：遭遇戰回主選單，任務先問過
              再回該陣營的任務表。理由與結算板相同：不逐幀改 data-act -->
-        <button class="btn" data-act="toMenu">回主選單</button>
-        <button class="btn" data-act="abandon" hidden>放棄任務</button>
+        <button class="btn" data-act="toMenu" data-i18n="pause.toMenu">回主選單</button>
+        <button class="btn" data-act="abandon" hidden data-i18n="pause.abandon">放棄任務</button>
       </section>
       <!-- 放棄任務的確認。疊在暫停之上，menu.ts 自己開關 -->
       <section id="confirm" class="screen" style="--v:.60" hidden>
         <div class="ask">
-          <h2>是否放棄進度？</h2>
+          <h2 data-i18n="confirm.abandon.title">是否放棄進度？</h2>
           <div class="row">
-            <button class="go" data-act="abandonNo">繼續任務</button>
-            <button class="btn" data-act="abandonYes">放棄任務</button>
+            <button class="go" data-act="abandonNo" data-i18n="confirm.abandon.no">繼續任務</button>
+            <button class="btn" data-act="abandonYes" data-i18n="pause.abandon">放棄任務</button>
           </div>
         </div>
       </section>
       <!-- 重新開始的確認。與放棄任務同一類：疊在暫停之上，menu.ts 自己開關 -->
       <section id="restart-confirm" class="screen" style="--v:.60" hidden>
         <div class="ask">
-          <h2>要重新開始這一場嗎？</h2>
+          <h2 data-i18n="confirm.restart.title">要重新開始這一場嗎？</h2>
           <div class="row">
-            <button class="go" data-act="restartNo">繼　續</button>
-            <button class="btn" data-act="restartYes">重新開始</button>
+            <button class="go" data-act="restartNo" data-i18n="common.resume">繼續</button>
+            <button class="btn" data-act="restartYes" data-i18n="pause.restart">重新開始</button>
           </div>
         </div>
       </section>
@@ -837,7 +852,7 @@
         <div class="ask tut">
           <h2 id="tut-title"></h2>
           <ol id="tut-panels" class="tut-panels"></ol>
-          <button class="go" data-act="tutorialOk">了　解</button>
+          <button class="go" data-act="tutorialOk" data-i18n="tutorial.ok">了解</button>
         </div>
       </section>
       <!-- 編組頁「加一個小隊」的機種選單。overlay，menu.ts 自己開關；
@@ -846,16 +861,16 @@
         <div class="ask pick">
           <h2 id="plane-pick-title"></h2>
           <div class="palette" id="plane-pick-list"></div>
-          <div class="row"><button class="btn" data-act="planePickCancel">取　消</button></div>
+          <div class="row"><button class="btn cancel" data-act="planePickCancel" data-i18n="common.cancel">取消</button></div>
         </div>
       </section>
       <!-- 回主選單的確認。遭遇戰的出口，與放棄任務同一類 -->
       <section id="menu-confirm" class="screen" style="--v:.60" hidden>
         <div class="ask">
-          <h2>要離開這一場回主選單嗎？</h2>
+          <h2 data-i18n="confirm.menu.title">要離開這一場回主選單嗎？</h2>
           <div class="row">
-            <button class="go" data-act="toMenuNo">繼　續</button>
-            <button class="btn" data-act="toMenuYes">回主選單</button>
+            <button class="go" data-act="toMenuNo" data-i18n="common.resume">繼續</button>
+            <button class="btn" data-act="toMenuYes" data-i18n="pause.toMenu">回主選單</button>
           </div>
         </div>
       </section>
@@ -863,41 +878,46 @@
            齒輪在右上角固定位置，任何畫面都按得到 -->
       <section id="settings" class="screen" style="--v:.60" hidden>
         <div class="ask">
-          <h2>設定</h2>
+          <h2 data-i18n="settings.title">設定</h2>
           <div>
-            <div class="lbl" style="margin-bottom:7px">畫質</div>
+            <div class="lbl" style="margin-bottom:7px" data-i18n="settings.lang">語言</div>
+            <!-- 語言名稱各用自己的語言寫，兩種語言下都一樣 -->
+            <div class="opt narrow" id="set-lang"></div>
+          </div>
+          <div>
+            <div class="lbl" style="margin-bottom:7px" data-i18n="settings.quality">畫質</div>
             <!-- 只調 3D 那張畫布的解析度；HUD 是另一張 2D 畫布，維持原生清晰度 -->
             <div class="opt narrow" id="set-quality"></div>
           </div>
           <div>
-            <div class="lbl" style="margin-bottom:7px">抗鋸齒</div>
+            <div class="lbl" style="margin-bottom:7px" data-i18n="settings.aa">抗鋸齒</div>
             <!-- 建立 WebGL context 時才決定得了，所以改它要重新載入 -->
             <div class="opt narrow" id="set-aa"></div>
           </div>
           <div>
-            <div class="lbl" style="margin-bottom:7px">音量</div>
+            <div class="lbl" style="margin-bottom:7px" data-i18n="settings.volume">音量</div>
             <div class="opt narrow" id="set-volume"></div>
           </div>
           <div>
-            <div class="lbl" style="margin-bottom:7px">瞄準輔助</div>
+            <div class="lbl" style="margin-bottom:7px" data-i18n="settings.assist">瞄準輔助</div>
             <div class="opt narrow" id="set-assist"></div>
           </div>
           <!-- 【選了不算數，按確定才套用】要重新載入的項目得先問過；
                改一下就立刻重整會讓玩家在毫無預期之下丟掉進行中的戰鬥 -->
           <div class="row">
-            <button class="go" data-act="settingsApply">確　定</button>
-            <button class="btn" data-act="settingsCancel">取　消</button>
+            <button class="go" data-act="settingsApply" data-i18n="common.ok">確定</button>
+            <button class="btn cancel" data-act="settingsCancel" data-i18n="common.cancel">取消</button>
           </div>
         </div>
       </section>
       <!-- 需要重新載入才生效的設定，套用前的最後一問。疊在設定之上 -->
       <section id="reload-ask" class="screen" style="--v:.60" hidden>
         <div class="ask">
-          <h2>需要重新載入</h2>
-          <div class="lbl">抗鋸齒要重新載入才會生效，進行中的戰鬥會遺失。</div>
+          <h2 data-i18n="reload.title">需要重新載入</h2>
+          <div class="lbl" data-i18n="reload.body">抗鋸齒要重新載入才會生效，進行中的戰鬥會遺失。</div>
           <div class="row">
-            <button class="go" data-act="reloadYes">儲存並重新載入</button>
-            <button class="btn" data-act="reloadNo">取消</button>
+            <button class="go" data-act="reloadYes" data-i18n="reload.yes">儲存並重新載入</button>
+            <button class="btn" data-act="reloadNo" data-i18n="common.cancel">取消</button>
           </div>
         </div>
       </section>

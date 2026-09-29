@@ -1,5 +1,6 @@
 import type { OrdnanceKind } from '../weapons/stores'
 import type { AircraftSpec } from '../specs/types'
+import type { MessageKey, MessageParams } from '../i18n'
 
 /**
  * # 教學卡
@@ -17,11 +18,22 @@ import type { AircraftSpec } from '../specs/types'
  * 遭遇戰都一樣，換一台同類的飛機不必再登記一次。
  *
  * 【標籤是 HTML，不畫在圖上】疊在截圖上、以圖的百分比定位，字跟著介面的
- * 字型與配色走；換字不必重拍圖。
+ * 字型、配色與語言走；截圖上不能有字，否則換語言時圖上那幾個字還是原來的。
+ *
+ * 文字欄位都是文字表的鍵（`src/i18n`），畫的時候才查。
  */
 
 export interface TutorialTag {
-  readonly text: string
+  readonly textKey: MessageKey
+  /** 句子的參數（HUD 讀數的數值） */
+  readonly params?: MessageParams
+  /** 接在句子後面、不必翻的符號（讀數出界的箭頭） */
+  readonly suffix?: string
+  /**
+   * 仿 HUD 讀數的樣式：等寬字、`ok` 綠、`bad` 紅。省略 = 一般的說明標籤。
+   * 截圖上不能有字，HUD 的讀數在圖上的位置改由這種標籤補回來
+   */
+  readonly hud?: 'ok' | 'bad'
   /** 標籤中心在圖上的位置，以圖寬／圖高的百分比計（0–100） */
   readonly x: number
   readonly y: number
@@ -30,89 +42,94 @@ export interface TutorialTag {
 export interface TutorialPanel {
   /** 截圖，`public/` 底下的路徑。經 `assetUrl` 載 */
   readonly image: string
-  readonly alt: string
+  readonly altKey: MessageKey
   readonly tags: readonly TutorialTag[]
-  readonly caption: string
-  /** 觸控裝置上的說法。**省略 = 與 `caption` 相同**（那一句沒提到滑鼠或按鍵） */
-  readonly touchCaption?: string
+  readonly captionKey: MessageKey
+  /** 觸控裝置上的說法。**省略 = 與 `captionKey` 相同**（那一句沒提到滑鼠或按鍵） */
+  readonly touchCaptionKey?: MessageKey
 }
 
 /** 這一格在這台裝置上要印哪一句 */
-export function captionOf(p: TutorialPanel, touch: boolean): string {
-  return touch ? p.touchCaption ?? p.caption : p.caption
+export function captionOf(p: TutorialPanel, touch: boolean): MessageKey {
+  return touch ? p.touchCaptionKey ?? p.captionKey : p.captionKey
 }
 
 export interface Tutorial {
   /** 記「看過了」用的鍵。**改了等於所有玩家重看一次** */
   readonly id: string
-  readonly title: string
+  readonly titleKey: MessageKey
   readonly panels: readonly TutorialPanel[]
 }
 
 export const FIGHTER_TUTORIAL: Tutorial = {
   id: 'fighter',
-  title: '空戰',
+  titleKey: 'tutorial.fighter.title',
   panels: [
     {
-      image: '/ui/tutorial/fighter-1.jpg', alt: '轉彎中，圓圈與十字分開、中間有一條連線',
-      tags: [{ text: '圓圈', x: 39, y: 29 }, { text: '機頭', x: 83, y: 18 }],
-      caption: '移動滑鼠控制圓圈，飛機會朝圓圈飛過去。',
-      touchCaption: '在左半邊拖曳控制圓圈，飛機會朝圓圈飛過去。',
+      image: '/ui/tutorial/fighter-1.jpg', altKey: 'tutorial.fighter.1.alt',
+      tags: [{ textKey: 'tutorial.tag.circle', x: 39, y: 29 }, { textKey: 'tutorial.tag.nose', x: 83, y: 18 }],
+      captionKey: 'tutorial.fighter.1.caption',
+      touchCaptionKey: 'tutorial.fighter.1.touch',
     },
     {
-      image: '/ui/tutorial/fighter-2.jpg', alt: '十字壓在敵機上開火',
-      tags: [{ text: '機槍', x: 24, y: 42 }],
-      caption: '十字是機槍打的方向，按住左鍵開火。',
-      touchCaption: '十字是機槍打的方向，按住開火鈕開火。',
+      image: '/ui/tutorial/fighter-2.jpg', altKey: 'tutorial.fighter.2.alt',
+      tags: [{ textKey: 'tutorial.tag.guns', x: 24, y: 42 }],
+      captionKey: 'tutorial.fighter.2.caption',
+      touchCaptionKey: 'tutorial.fighter.2.touch',
     },
     {
-      image: '/ui/tutorial/fighter-3.jpg', alt: '敵機的目標框、前方的預瞄小圈與連線',
-      tags: [{ text: '敵機', x: 66, y: 58 }, { text: '預瞄點', x: 41, y: 20 }],
-      caption: '敵機會一直移動，把十字對準前面的小圈再開火。',
+      image: '/ui/tutorial/fighter-3.jpg', altKey: 'tutorial.fighter.3.alt',
+      tags: [{ textKey: 'tutorial.tag.enemy', x: 66, y: 58 }, { textKey: 'tutorial.tag.lead', x: 41, y: 20 }],
+      captionKey: 'tutorial.fighter.3.caption',
     },
   ],
 }
 
 export const TORPEDO_TUTORIAL: Tutorial = {
   id: 'torpedo',
-  title: '投雷',
+  titleKey: 'tutorial.torpedo.title',
   panels: [
     {
-      image: '/ui/tutorial/torpedo-1.jpg', alt: '機腹的瞄準視角', tags: [],
-      caption: '按 B 進入瞄準視角，再按一次離開。',
-      touchCaption: '按瞄準鏡進入瞄準視角，按返回離開。',
+      image: '/ui/tutorial/torpedo-1.jpg', altKey: 'tutorial.sight.alt', tags: [],
+      captionKey: 'tutorial.sight.caption',
+      touchCaptionKey: 'tutorial.sight.touch',
     },
     {
-      image: '/ui/tutorial/torpedo-2.jpg', alt: '落水點的圓圈與往前延伸的航跡線',
-      tags: [{ text: '落水點', x: 49, y: 89 }, { text: '路線', x: 70, y: 40 }],
-      caption: '圈是魚雷會落下的地方，線是它接著跑的路線。綠圈表示可以投雷，紅圈表示高度或角度不對。',
+      image: '/ui/tutorial/torpedo-2.jpg', altKey: 'tutorial.torpedo.2.alt',
+      tags: [{ textKey: 'tutorial.tag.splash', x: 49, y: 89 }, { textKey: 'tutorial.tag.track', x: 70, y: 40 }],
+      captionKey: 'tutorial.torpedo.2.caption',
     },
     {
-      image: '/ui/tutorial/torpedo-3.jpg', alt: '畫面下方的坡度、俯仰、高度三格',
-      tags: [{ text: '高度・角度', x: 50, y: 66 }],
-      caption: '下面三格是高度和角度，變紅的那一格就是要調整的，全部變綠才能投。',
+      image: '/ui/tutorial/torpedo-3.jpg', altKey: 'tutorial.torpedo.3.alt',
+      tags: [
+        { textKey: 'tutorial.tag.gate', x: 50, y: 66 },
+        { textKey: 'hud.gate.bank', params: { v: 1 }, hud: 'ok', x: 16, y: 81 },
+        { textKey: 'hud.gate.pitch', params: { v: -25 }, hud: 'ok', x: 50, y: 81 },
+        { textKey: 'hud.gate.agl', params: { v: 345 }, suffix: ' ▼', hud: 'bad', x: 84, y: 81 },
+      ],
+      captionKey: 'tutorial.torpedo.3.caption',
     },
   ],
 }
 
 export const BOMB_TUTORIAL: Tutorial = {
   id: 'bomb',
-  title: '投彈',
+  titleKey: 'tutorial.bomb.title',
   panels: [
     {
-      image: '/ui/tutorial/bomb-1.jpg', alt: '機腹的瞄準視角', tags: [],
-      caption: '按 B 進入瞄準視角，再按一次離開。',
-      touchCaption: '按瞄準鏡進入瞄準視角，按返回離開。',
+      image: '/ui/tutorial/bomb-1.jpg', altKey: 'tutorial.sight.alt', tags: [],
+      captionKey: 'tutorial.sight.caption',
+      touchCaptionKey: 'tutorial.sight.touch',
     },
     {
-      image: '/ui/tutorial/bomb-2.jpg', alt: '落點的圓圈壓在廠區邊上',
-      tags: [{ text: '落點', x: 62, y: 20 }],
-      caption: '圈是炸彈會落下的地方，把圈對準目標。綠圈表示可以投彈，紅圈表示飛太低或姿態不對。',
+      image: '/ui/tutorial/bomb-2.jpg', altKey: 'tutorial.bomb.2.alt',
+      tags: [{ textKey: 'tutorial.tag.impact', x: 62, y: 20 }],
+      captionKey: 'tutorial.bomb.2.caption',
     },
     {
-      image: '/ui/tutorial/bomb-3.jpg', alt: '畫面下方的彈艙格子',
-      tags: [{ text: '彈艙', x: 50, y: 64 }],
-      caption: '下面這排是彈艙，亮著的是還有的炸彈。',
+      image: '/ui/tutorial/bomb-3.jpg', altKey: 'tutorial.bay.alt',
+      tags: [{ textKey: 'tutorial.tag.bay', x: 50, y: 64 }],
+      captionKey: 'tutorial.bomb.3.caption',
     },
   ],
 }
@@ -123,18 +140,18 @@ export const BOMB_TUTORIAL: Tutorial = {
  */
 export const FIGHTER_BOMB_TUTORIAL: Tutorial = {
   id: 'fighterBomb',
-  title: '投彈',
+  titleKey: 'tutorial.bomb.title',
   panels: [
     {
-      image: '/ui/tutorial/bomb-2.jpg', alt: '落點的圓圈壓在目標上',
-      tags: [{ text: '落點', x: 62, y: 20 }],
-      caption: '圈是炸彈會落下的地方。俯衝把圈壓在目標上，按 B 投彈。',
-      touchCaption: '圈是炸彈會落下的地方。俯衝把圈壓在目標上，按投彈鈕。',
+      image: '/ui/tutorial/bomb-2.jpg', altKey: 'tutorial.fighterBomb.1.alt',
+      tags: [{ textKey: 'tutorial.tag.impact', x: 62, y: 20 }],
+      captionKey: 'tutorial.fighterBomb.1.caption',
+      touchCaptionKey: 'tutorial.fighterBomb.1.touch',
     },
     {
-      image: '/ui/tutorial/bomb-3.jpg', alt: '畫面下方的彈艙格子',
-      tags: [{ text: '炸彈', x: 50, y: 64 }],
-      caption: '下面這排是炸彈，投完會自己補回。',
+      image: '/ui/tutorial/bomb-3.jpg', altKey: 'tutorial.bay.alt',
+      tags: [{ textKey: 'tutorial.tag.bombs', x: 50, y: 64 }],
+      captionKey: 'tutorial.fighterBomb.2.caption',
     },
   ],
 }

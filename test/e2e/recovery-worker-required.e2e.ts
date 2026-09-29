@@ -28,8 +28,10 @@ async function main(): Promise<void> {
     })
     const blocker = page.locator('#recovery-worker-blocker')
     await blocker.waitFor({ state: 'visible', timeout: 5_000 })
-    const text = await blocker.textContent()
-    if (!text?.includes('遊戲已停止')) throw new Error(`阻擋訊息不完整：${text ?? ''}`)
+    const failure = await blocker.getAttribute('data-failure')
+    if (failure !== 'recovery.disabled') throw new Error(`阻擋原因不對：${failure ?? ''}`)
+    const text = (await blocker.locator('p').textContent())?.trim() ?? ''
+    if (text === '') throw new Error('阻擋畫面沒有說明')
   } finally {
     await browser.close()
   }

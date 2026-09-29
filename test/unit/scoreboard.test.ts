@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { scoreRows, sortScoreRows, tallyOf, playerOf, formatDuration, type ScoreRow } from '../../src/ui/scoreboard'
 import { createRoster } from '../../src/battle/pilots'
 import type { Team } from '../../src/world/World'
+import { t } from '../../src/i18n'
 
 const SEATS: { team: Team }[] = [
   { team: 'blue' }, { team: 'blue' }, { team: 'red' }, { team: 'red' },
@@ -92,9 +93,9 @@ describe('playerOf', () => {
 })
 
 describe('formatDuration', () => {
-  it('分與秒', () => {
-    expect(formatDuration(312)).toBe('5 分 12 秒')
-    expect(formatDuration(59.6)).toBe('0 分 59 秒')
-    expect(formatDuration(0)).toBe('0 分 0 秒')
+  it('分與秒；小數捨去、負數夾到 0', () => {
+    expect(formatDuration(312)).toBe(t('score.duration', { m: 5, s: 12 }))
+    expect(formatDuration(59.6)).toBe(t('score.duration', { m: 0, s: 59 }))
+    expect(formatDuration(-3)).toBe(t('score.duration', { m: 0, s: 0 }))
   })
 })

@@ -1,4 +1,5 @@
 import type { Roster } from '../battle/pilots'
+import { t, type MessageKey } from '../i18n'
 import type { Team } from '../world/World'
 
 /**
@@ -77,10 +78,10 @@ export function playerOf(rows: readonly ScoreRow[]): ScoreRow | null {
   return rows.find((r) => r.isPlayer) ?? null
 }
 
-/** 用時 → 「m 分 s 秒」 */
+/** 用時 → 分與秒，照目前的語言 */
 export function formatDuration(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds))
-  return `${Math.floor(s / 60)} 分 ${s % 60} 秒`
+  return t('score.duration', { m: Math.floor(s / 60), s: s % 60 })
 }
 
 /**
@@ -91,9 +92,9 @@ export function formatDuration(seconds: number): string {
  */
 export interface AfterAction {
   readonly mode: 'mission' | 'skirmish'
-  /** 卡名，或「遭遇戰」 */
-  readonly title: string
-  readonly objective: string
+  /** 卡名的鍵，遭遇戰是 `result.skirmish` */
+  readonly titleKey: MessageKey
+  readonly objectiveKey: MessageKey
   readonly seconds: number
   /** 玩家的機種短名 */
   readonly playerSpec: string
@@ -112,13 +113,15 @@ export interface Scoreboard {
    */
   render(blue: ScoreRow[], red: ScoreRow[], banner: 'victory' | 'defeat' | null,
     extra: AfterAction | null): void
+  /** 用上一次 `render` 的內容照目前的語言重畫；還沒畫過就什麼都不做 */
+  refresh(): void
   setVisible(v: boolean): void
 }
 
-const BANNER_TEXT = {
-  skirmish: { victory: '勝　利', defeat: '落　敗' },
-  mission: { victory: '任務達成', defeat: '任務失敗' },
-} as const
+const BANNER_KEY: Record<'skirmish' | 'mission', Record<'victory' | 'defeat', MessageKey>> = {
+  skirmish: { victory: 'score.victory', defeat: 'score.defeat' },
+  mission: { victory: 'score.missionDone', defeat: 'score.missionFailed' },
+}
 
 /**
  * 記分板的 DOM 元件。
@@ -144,58 +147,75 @@ export function createScoreboard(root: HTMLElement): Scoreboard {
   function table(rows: ScoreRow[], team: 'blue' | 'red', title: string): string {
     const body = rows.map((r) => {
       const cls = [r.alive ? '' : 'dead', r.isPlayer ? 'me' : ''].filter(Boolean).join(' ')
-      const name = r.isPlayer ? `${r.name}（你）` : r.name
+      const name = r.isPlayer ? t('score.you', { name: r.name }) : r.name
       return `<tr class="${cls}"><td class="name">${escapeHtml(name)}</td>`
         + `<td>${r.kills}</td><td>${r.deaths}</td><td>${r.assists}</td></tr>`
     }).join('')
-    return `<table class="${team}"><caption>${title}</caption>`
-      + '<thead><tr><th class="name">飛行員</th><th>擊墜</th><th>陣亡</th><th>助攻</th></tr></thead>'
+    const th = (k: MessageKey) => escapeHtml(t(k))
+    return `<table class="${team}"><caption>${escapeHtml(title)}</caption>`
+      + `<thead><tr><th class="name">${th('score.pilot')}</th><th>${th('score.kills')}</th>`
+      + `<th>${th('score.deaths')}</th><th>${th('score.assists')}</th></tr></thead>`
       + `<tbody>${body}</tbody></table>`
   }
 
   function playerCard(blue: ScoreRow[], x: AfterAction): string {
     const p = playerOf(blue)
     if (p === null) return ''
-    const stat = (v: string, k: string) => `<div class="stat"><div class="v">${v}</div><div class="k">${k}</div></div>`
-    return `<div class="who"><div class="n">${escapeHtml(p.name)}　${escapeHtml(x.playerSpec)}</div>`
-      + `<div class="s">我方第 ${x.playerFlight} 小隊長機　·　${p.alive ? '全程存活' : '被擊落'}</div></div>`
-      + stat(String(p.kills), '擊落') + stat(String(p.deaths), '被擊落') + stat(String(p.assists), '助攻')
-      + stat(`${Math.round(x.playerHp01 * 100)}%`, '剩餘結構')
+    const stat = (v: string, k: MessageKey) =>
+      `<div class="stat"><div class="v">${v}</div><div class="k">${escapeHtml(t(k))}</div></div>`
+    return `<div class="who"><div class="n">${escapeHtml(p.name)} ${escapeHtml(x.playerSpec)}</div>`
+      + `<div class="s">${escapeHtml(t('score.flightLead', { n: x.playerFlight }))} · `
+      + `${escapeHtml(t(p.alive ? 'score.survived' : 'score.shotDown'))}</div></div>`
+      + stat(String(p.kills), 'score.stat.kills') + stat(String(p.deaths), 'score.shotDown')
+      + stat(String(p.assists), 'score.assists')
+      + stat(`${Math.round(x.playerHp01 * 100)}%`, 'score.stat.hp')
   }
 
   /**
    * 三組對比數字。**一組是一個 `.item`，橫著並排**（直排佔的高度太多）——
-   * 每一組自己就是「我方　標籤　敵方」，所以拆成三個獨立的盒子不會讓
+   * 每一組自己就是「我方、標籤、敵方」，所以拆成三個獨立的盒子不會讓
    * 左右錯開。
    */
   function tallyItems(blue: ScoreRow[], red: ScoreRow[], x: AfterAction): string {
-    const t = tallyOf(blue, red)
-    const item = (a: string, k: string, b: string) =>
-      `<div class="item"><span class="a">${a}</span><span class="k">${k}</span><span class="b">${b}</span></div>`
-    let html = item(String(t.kills[0]), '擊落', String(t.kills[1]))
-    if (x.convoy !== null) html += item(`${x.convoy.alive} / ${x.convoy.total}`, '轟炸機存活', '—')
-    html += item(`${t.alive[0][0]} / ${t.alive[0][1]}`, '存活', `${t.alive[1][0]} / ${t.alive[1][1]}`)
+    const item = (a: string, k: MessageKey, b: string) =>
+      `<div class="item"><span class="a">${a}</span><span class="k">${escapeHtml(t(k))}</span>`
+      + `<span class="b">${b}</span></div>`
+    const n = tallyOf(blue, red)
+    let html = item(String(n.kills[0]), 'score.stat.kills', String(n.kills[1]))
+    if (x.convoy !== null) html += item(`${x.convoy.alive} / ${x.convoy.total}`, 'score.tally.convoy', '—')
+    html += item(`${n.alive[0][0]} / ${n.alive[0][1]}`, 'score.tally.alive', `${n.alive[1][0]} / ${n.alive[1][1]}`)
     return html
+  }
+
+  let last: Parameters<Scoreboard['render']> | null = null
+
+  function draw(blue: ScoreRow[], red: ScoreRow[], outcome: 'victory' | 'defeat' | null,
+    extra: AfterAction | null): void {
+    const mode = extra?.mode ?? 'skirmish'
+    banner.textContent = outcome === null ? '' : t(BANNER_KEY[mode][outcome])
+    banner.className = outcome ?? ''
+    tables.innerHTML = table(blue, 'blue', t('side.mine')) + table(red, 'red', t('side.foe'))
+    const full = extra !== null
+    sub.hidden = !full
+    me.hidden = !full
+    tally.hidden = !full
+    details.classList.toggle('bare', !full)
+    if (extra !== null) {
+      sub.textContent = [t(extra.objectiveKey), t(extra.titleKey), formatDuration(extra.seconds)].join(' · ')
+      me.innerHTML = playerCard(blue, extra)
+      tally.innerHTML = tallyItems(blue, red, extra)
+      const cap = details.querySelector('.cap')
+      if (cap) cap.textContent = t('score.roster', { n: blue.length + red.length })
+    }
   }
 
   return {
     render(blue, red, outcome, extra) {
-      const mode = extra?.mode ?? 'skirmish'
-      banner.textContent = outcome === null ? '' : BANNER_TEXT[mode][outcome]
-      banner.className = outcome ?? ''
-      tables.innerHTML = table(blue, 'blue', '我方') + table(red, 'red', '敵方')
-      const full = extra !== null
-      sub.hidden = !full
-      me.hidden = !full
-      tally.hidden = !full
-      details.classList.toggle('bare', !full)
-      if (extra !== null) {
-        sub.textContent = `${extra.objective}　·　${extra.title}　·　${formatDuration(extra.seconds)}`
-        me.innerHTML = playerCard(blue, extra)
-        tally.innerHTML = tallyItems(blue, red, extra)
-        const cap = details.querySelector('.cap')
-        if (cap) cap.textContent = `完整名單（${blue.length + red.length} 架）`
-      }
+      last = [blue, red, outcome, extra]
+      draw(blue, red, outcome, extra)
+    },
+    refresh() {
+      if (last !== null) draw(...last)
     },
     setVisible(v) {
       root.hidden = !v
