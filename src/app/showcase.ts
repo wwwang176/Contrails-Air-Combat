@@ -2,6 +2,7 @@ import { Euler, Group, type PerspectiveCamera, Quaternion, type Scene, Vector3 }
 import { buildAircraft, type AircraftModel } from '../render/geometry/buildAircraft'
 import { createTracers, type Tracers } from '../render/tracers'
 import { createMuzzles, type MuzzleSource, type Muzzles } from '../render/muzzle'
+import { useBloom, useBloomOccluder } from '../render/bloom'
 import { createBombs, createTorpedoes, type BombVisuals } from '../render/bombs'
 import { Bombs, BOMB_TERMINAL_SPEED, bombDragK } from '../world/bomb'
 import { BOMB_SALVO_INTERVAL } from '../weapons/bomb'
@@ -423,6 +424,9 @@ export function createShowcase(scene: Scene, view: HTMLElement, stage: HTMLEleme
   group.add(tracers.object)
   const muzzles: Muzzles<MuzzleSource> = createMuzzles(1)
   group.add(muzzles.object)
+  // 開火與戰鬥裡一樣會暈開（`render/bloom.ts`）
+  useBloom(tracers.object)
+  useBloom(muzzles.object)
   const bombVisuals: BombVisuals = createBombs()
   group.add(bombVisuals.object)
   const torpedoVisuals: BombVisuals = createTorpedoes()
@@ -504,6 +508,8 @@ export function createShowcase(scene: Scene, view: HTMLElement, stage: HTMLEleme
     spec = next
     model = buildAircraft(next)
     group.add(model.group)
+    // 鏡頭繞到機後時，機身擋在槍焰與曳光彈前面，光暈也要被擋住
+    useBloomOccluder(model.group)
     orbit.wantDistance = showcaseDistance(next.role)
     if (first) orbit.distance = orbit.wantDistance
     rollOmega = showcaseRollOmega(next)
