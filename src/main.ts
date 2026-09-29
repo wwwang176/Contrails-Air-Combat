@@ -102,6 +102,7 @@ import {
 } from './render/geometry/buildAircraft'
 import { PROP_DISC_RENDER_ORDER } from './render/geometry/assembly'
 import { SKY_RENDER_ORDER } from './render/sky'
+import { CULL } from './render/cullRuns'
 import { Hud } from './hud/Hud'
 import { createAudioMeter, type AudioMeter } from './hud/audioMeter'
 import type { MeterSample } from './audio/meter'
@@ -276,6 +277,11 @@ function playThunder(distance: number, bearing: number): void {
  */
 let objectiveRing = createObjectiveRing()
 ctx.scene.add(terrain.object)
+// 【剔除掛在 render 的開頭】three 在這裡已經更新過場景與相機的矩陣，而自己的
+// 視錐剔除還沒開始。戰鬥、機庫、選單都畫這一個 scene，三個畫面都走得到 ——
+// 每個呼叫 render 的地方各自記得呼叫的話，漏掉一處就是那個畫面少一塊海。
+// 讀的是當下的 `terrain`，換場之後自然跟上
+ctx.scene.onBeforeRender = (_renderer, _scene, camera) => { terrain.cull(camera) }
 
 /**
  * 把地形接給每一架 AI，並清掉上一場的鎖存。
@@ -3949,6 +3955,14 @@ if (initialRecoveryFailure !== null) {
     })
   })
   return out.sort((a, b) => b.tris - a.tris)
+}
+/**
+ * **量測出口**：植被、近海象限、佈景塊的剔除總開關（`CULL`），同頁 A/B 用。
+ * 不給參數就只回目前的狀態。
+ */
+;(window as unknown as Record<string, unknown>)['__cull'] = (on?: boolean): boolean => {
+  if (on !== undefined) CULL.enabled = on
+  return CULL.enabled
 }
 ;(window as unknown as Record<string, unknown>)['__renderInfo'] = () => {
   const r = ctx.renderer.info.render
