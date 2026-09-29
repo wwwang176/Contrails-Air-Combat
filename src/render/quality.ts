@@ -107,8 +107,8 @@ export const DEFAULT_ANTIALIAS = true
 /**
  * 光暈（`render/bloom.ts`）的檔位。換它不必重新載入。
  *
- * - 低：光源圖半解析度，遠處的曳光彈放粗（不然會閃）
- * - 高：光源圖全解析度，不放粗
+ * - 低：光源圖半解析度
+ * - 高：光源圖全解析度，暈的邊緣更細
  */
 export type BloomLevel = 'off' | 'low' | 'high'
 

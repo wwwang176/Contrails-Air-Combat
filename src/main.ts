@@ -8,7 +8,9 @@ import {
   fieldInnerFor, readAntialias, readBloom, readQuality, saveAntialias, saveBloom, saveQuality,
   type BloomLevel,
 } from './render/quality'
-import { BLOOM_HIGH, BLOOM_LOW, createBloomPass, useBloom, useBloomOccluder } from './render/bloom'
+import {
+  BLOOM_HIGH, BLOOM_LOW, createBloomPass, useBloom, useBloomOccluder, useNarrowBloom,
+} from './render/bloom'
 import { OCEAN_GLOW } from './render/ocean'
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
@@ -34,7 +36,7 @@ import { arenaKills, createArenaState, stepArena } from './world/arena'
 import { createTerrain, preloadTerrainScenery, type TerrainGfx, type TerrainKind } from './render/terrain'
 import { createObjectiveRing } from './render/objectiveRing'
 import { timeScale } from './battle/mission'
-import { createTracers, TRACER_GLOW, TRACER_GLOW_MIN_RADIUS_PX } from './render/tracers'
+import { createTracers, TRACER_GLOW } from './render/tracers'
 import { createMuzzles, createTurretMuzzles } from './render/muzzle'
 import { createTurretBarrels } from './render/turretBarrels'
 import { createSparks } from './render/sparks'
@@ -345,28 +347,22 @@ function wireTerrain(force = false): void {
 
 /** 光暈，主場景畫完之後疊上去。戰鬥、機庫、主選單的背景都畫 */
 const bloom = createBloomPass(ctx.renderer, (kind, on, halfHeight) => {
-  if (kind === 'narrow') {
-    OCEAN_GLOW.pass.value = on ? 1 : 0
-  } else {
-    TRACER_GLOW.pass.value = on ? 1 : 0
-    TRACER_GLOW.halfHeight.value = halfHeight
-  }
+  if (kind !== 'narrow') return
+  OCEAN_GLOW.pass.value = on ? 1 : 0
+  TRACER_GLOW.pass.value = on ? 1 : 0
+  TRACER_GLOW.halfHeight.value = halfHeight
 })
-/**
- * 套用光暈檔位。**遠處曳光彈的放粗跟著解析度走**：半解析度的光源圖上它不到一個
- * 像素、會閃，要放粗；全解析度蓋得到像素，不放
- */
+/** 套用光暈檔位 */
 function applyBloom(level: BloomLevel): void {
   bloom.enabled = level !== 'off'
   bloom.setQuality(level === 'high' ? BLOOM_HIGH : BLOOM_LOW)
-  TRACER_GLOW.minRadiusPx.value = level === 'high' ? 0 : TRACER_GLOW_MIN_RADIUS_PX
 }
 let bloomLevel = readBloom()
 applyBloom(bloomLevel)
 
 const tracers = createTracers()
 ctx.scene.add(tracers.object)
-useBloom(tracers.object)
+useNarrowBloom(tracers.object)
 
 
 /**
@@ -610,14 +606,14 @@ function attachVisual(c: Combatant): Visual {
 // 【容量照滿編訂而不是照這一場的架數】池子是基礎設施，建一次永不重建
 const muzzles = createMuzzles(MAX_COMBATANTS)
 ctx.scene.add(muzzles.object)
-useBloom(muzzles.object)
+useNarrowBloom(muzzles.object)
 // 【砲塔的槍管與槍焰各一個池】槍管必須跟著砲塔轉 —— 烘進機身的靜態槍管，
 // 在砲塔轉向時彈流會從管子旁邊飛出去，而砲塔的重點就是它會轉。
 const turretBarrels = createTurretBarrels(MAX_COMBATANTS)
 ctx.scene.add(turretBarrels.object)
 const turretMuzzles = createTurretMuzzles(MAX_COMBATANTS)
 ctx.scene.add(turretMuzzles.object)
-useBloom(turretMuzzles.object)
+useNarrowBloom(turretMuzzles.object)
 const sparks = createSparks()
 ctx.scene.add(sparks.object)
 const blastSparks = createBlastSparks()
