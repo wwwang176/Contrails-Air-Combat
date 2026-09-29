@@ -86,6 +86,14 @@ export const FIELD_CLIP_FAR: ClipLevelSpec = { size: 4096, metersPerTexel: 30000
  * 是它的平均色
  */
 export const FIELD_CLIP_HORIZON: ClipLevelSpec = { size: 2048, metersPerTexel: 60000 / 2048 }
+/**
+ * 最外層外面那一層：117 m 一格蓋 240 km，田色與疊圖都烘。它外面才是平均色。
+ *
+ * 【為什麼要它】晴天的霧很淡（正午 30 km 只吃掉 4%），飛高之後 30 km 外的地面佔
+ * 畫面一大片，一片平均色就是一塊平平的色帶。平均色退到 60～86 km 外，那裡的
+ * 地面 117 m 一格已經小於一個像素
+ */
+export const FIELD_CLIP_BACKDROP: ClipLevelSpec = { size: 2048, metersPerTexel: 240000 / 2048 }
 
 export interface Terrain {
   /** 加進場景的那個節點。換地形時整個移除 */
@@ -566,7 +574,8 @@ function createInlandTerrain(
   // 只換地面的話 15 km 外那一圈會與地面接不上。沒有 GPU 就留著算式的材質
   const clipmap = gfx === undefined ? null : createFieldClipmap(gfx.renderer, {
     season, candidates: ground.candidates, ...(site === undefined ? {} : { site }), open,
-    near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR, horizon: FIELD_CLIP_HORIZON, innerRadius: gfx.fieldInner,
+    near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR, horizon: FIELD_CLIP_HORIZON, backdrop: FIELD_CLIP_BACKDROP,
+    innerRadius: gfx.fieldInner,
   })
   if (clipmap !== null) {
     horizon.mesh.material = clipmap.material

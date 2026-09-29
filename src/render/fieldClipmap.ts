@@ -37,6 +37,27 @@ import type { Season } from './season'
 /** 鏡頭離窗中心超過窗寬的幾分之幾就挪窗 */
 export const RECENTRE_FRACTION = 1 / 8
 
+/**
+ * 最外層 → 遠景層、遠景層 → 平均色的兩個圓環（離鏡頭的水平距離，m）。
+ *
+ * 【以鏡頭為圓心，不照窗緣】窗是方的，照窗緣漸變的話從高空看得到直線與角。
+ *
+ * 【圓環一定落在窗內】鏡頭離窗中心至多 `span × RECENTRE_FRACTION`（再遠就挪窗），
+ * 所以窗緣離鏡頭至少 `span / 2 − span × RECENTRE_FRACTION`。圓環的外緣取它的 95%，
+ * 寬度取半窗寬的兩成 —— 漸變帶裡兩張貼圖都讀得到
+ */
+export function outerFades(horizonSpan: number, backdropSpan: number): {
+  horFrom: number, horTo: number, avgFrom: number, avgTo: number
+} {
+  const ring = (span: number): [number, number] => {
+    const to = 0.95 * (span / 2 - span * RECENTRE_FRACTION)
+    return [to - 0.2 * (span / 2), to]
+  }
+  const [horFrom, horTo] = ring(horizonSpan)
+  const [avgFrom, avgTo] = ring(backdropSpan)
+  return { horFrom, horTo, avgFrom, avgTo }
+}
+
 export interface WindowOrigin { readonly ox: number; readonly oz: number }
 
 /** 世界格的矩形，`[x0, x1) × [z0, z1)` */
@@ -143,6 +164,11 @@ export interface FieldClipmapOptions {
    */
   readonly horizon?: ClipLevelSpec
   /**
+   * 最外層外面再一層（要有 `horizon` 才有意義），同一種烘法。有它的話平均色取它的、
+   * 兩個交界改成以鏡頭為圓心的圓環漸變 —— 見 `outerFades`
+   */
+  readonly backdrop?: ClipLevelSpec
+  /**
    * 區塊候選表（`farmGround.ts` 建的那一份）。給了的話烘圖與內圈的算式都查表，
    * 每個片段少比五六顆種子；沒給就走完整的 3×3，答案相同
    */
@@ -240,6 +266,7 @@ export function createFieldClipmap(renderer: WebGLRenderer, opts: FieldClipmapOp
   const near = level(opts.near)
   const far = level(opts.far)
   const horizon = opts.horizon === undefined ? null : level(opts.horizon)
+  const backdrop = horizon === null || opts.backdrop === undefined ? null : level(opts.backdrop)
   const stats: FieldClipmapStats = { recentres: 0, pieces: 0, texels: 0 }
   // 【context 還原後整張重烘】three 重建 GPU 資源時貼圖是空的，而鏡頭沒跨挪窗門檻就
   // 不會再烘 —— 遠處讀到一片黑。標成沒烘過，下一次 `update` 整張重來
@@ -247,6 +274,7 @@ export function createFieldClipmap(renderer: WebGLRenderer, opts: FieldClipmapOp
     near.primed = false
     far.primed = false
     if (horizon !== null) horizon.primed = false
+    if (backdrop !== null) backdrop.primed = false
   }
   renderer.domElement?.addEventListener('webglcontextrestored', onRestored)
 
@@ -366,38 +394,70 @@ void main() { gl_FragColor = vCol; }`,
       // 最小一級 mipmap（1×1）的級數：那一格是整張窗的平均色
       uHorTop: { value: Math.log2(horizon.n) },
     }),
+    ...(horizon === null || backdrop === null ? {} : ((): Record<string, { value: unknown }> => {
+      const f = outerFades(horizon.span, backdrop.span)
+      return {
+        uBack: { value: backdrop.rt.texture },
+        uBackSpan: { value: backdrop.span },
+        uBackTop: { value: Math.log2(backdrop.n) },
+        uHorFade: { value: new Vector2(f.horFrom, f.horTo) },
+        uAvgFade: { value: new Vector2(f.avgFrom, f.avgTo) },
+      }
+    })()),
   }
-  const horizonDecl = horizon === null ? ''
-    : 'uniform sampler2D uHor; uniform vec2 uHorCentre; uniform float uHorSpan; uniform float uHorTop;'
-  const horizonGrad = horizon === null ? '' : `
+  const horizonDecl = (horizon === null ? ''
+    : 'uniform sampler2D uHor; uniform vec2 uHorCentre; uniform float uHorSpan; uniform float uHorTop;')
+    + (backdrop === null ? ''
+      : '\nuniform sampler2D uBack; uniform float uBackSpan; uniform float uBackTop; uniform vec2 uHorFade; uniform vec2 uAvgFade;')
+  const horizonGrad = (horizon === null ? '' : `
   vec2 qH = w / uHorSpan;
   vec2 dHx = dFdx(qH); vec2 dHy = dFdy(qH);
-  float eH = max(abs(w.x - uHorCentre.x), abs(w.y - uHorCentre.y)) / (0.5 * uHorSpan);`
+  float eH = max(abs(w.x - uHorCentre.x), abs(w.y - uHorCentre.y)) / (0.5 * uHorSpan);`)
+    + (backdrop === null ? '' : `
+  vec2 qB = w / uBackSpan;
+  vec2 dBx = dFdx(qB); vec2 dBy = dFdy(qB);
+  float rCam = distance(w, uCam);`)
   /**
    * 遠圖外的顏色。**有最外層時整圈讀貼圖，不走算式**：
    *
    * ```
    *   遠圖窗外、最外層窗內   最外層的貼圖（田色與疊圖都烘在裡面，有 mipmap）
-   *   最外層窗外            最外層最小一級 mipmap 的顏色 —— 整張窗的平均色
+   *   有遠景層時            離鏡頭 horFrom～horTo 由最外層漸變到遠景層，
+   *                        avgFrom～avgTo 再漸變到遠景層的平均色
+   *   沒有遠景層時           最外層窗外是最外層的平均色，照窗緣漸變
    * ```
    *
    * 【為什麼不走算式】15 km 外一個像素蓋好幾十公尺，逐像素算的田格與樹籬沒有過濾，
    * 畫出來是閃爍的鋸齒；而那一圈在低空平視時佔畫面不少，算式是地面最貴的一段
    * （洛伊納實測整圈換掉省 1.3～2.1 ms）。
    *
-   * 【兩個交界都漸變】遠圖到最外層、最外層到平均色，各在窗緣 `uEdgeBlend` 的寬度裡
-   * 混過去 —— 格子粗細不同，硬切會是一條看得見的線
+   * 【只淡田色，疊圖不淡】最外層的透明度記著疊圖的覆蓋率。最外層窗外接手的是
+   * beyondFar 的粗網格（鎮的地面、河漫灘），一出窗就整塊出現 —— 疊圖在窗緣前先淡掉
+   * 的話，鎮會先變糊或消失、再跳出來
    */
-  const horizonColour = horizon === null ? '' : `
+  const horizonColour = horizon === null ? '' : backdrop === null ? `
 vec3 horizonColourAt(vec2 qH, vec2 dHx, vec2 dHy, float eH) {
   vec3 avg = textureLod(uHor, vec2(0.5), uHorTop).rgb;
   if (eH >= 1.0) return avg;
   vec4 h = textureGrad(uHor, fract(qH), dHx, dHy);
-  // 【只淡田色，疊圖不淡】透明度記著疊圖的覆蓋率。窗外接手的是 beyondFar 的粗網格
-  // （鎮的地面、河漫灘），一出窗就整塊出現 —— 疊圖在窗緣先淡掉的話，鎮會先消失再跳出來
   float keep = clamp(h.a * 4.0, 0.0, 1.0);
   return mix(h.rgb, avg, smoothstep(1.0 - uEdgeBlend, 1.0, eH) * (1.0 - keep));
+}` : `
+vec3 backdropColourAt(vec2 qB, vec2 dBx, vec2 dBy, float rCam) {
+  vec3 avg = textureLod(uBack, vec2(0.5), uBackTop).rgb;
+  float tA = smoothstep(uAvgFade.x, uAvgFade.y, rCam);
+  if (tA >= 1.0) return avg;
+  return mix(textureGrad(uBack, fract(qB), dBx, dBy).rgb, avg, tA);
+}
+vec3 horizonColourAt(vec2 qH, vec2 dHx, vec2 dHy, float eH, vec2 qB, vec2 dBx, vec2 dBy, float rCam) {
+  if (eH >= 1.0) return backdropColourAt(qB, dBx, dBy, rCam);
+  vec4 h = textureGrad(uHor, fract(qH), dHx, dHy);
+  float keep = clamp(h.a * 4.0, 0.0, 1.0);
+  float f = smoothstep(uHorFade.x, uHorFade.y, rCam) * (1.0 - keep);
+  if (f <= 0.0) return h.rgb;
+  return mix(h.rgb, backdropColourAt(qB, dBx, dBy, rCam), f);
 }`
+  const horizonArgs = backdrop === null ? 'qH, dHx, dHy, eH' : 'qH, dHx, dHy, eH, qB, dBx, dBy, rCam'
   /** 遠圖窗外在不在「算式」那一邊：有最外層時整圈讀貼圖 */
   const farOutProc = horizon === null ? ' || eF >= 1.0' : ''
   const farOutTex = horizon === null ? ' && eF < 1.0' : ''
@@ -413,7 +473,7 @@ vec3 horizonColourAt(vec2 qH, vec2 dHx, vec2 dHy, float eH) {
       float tN = smoothstep(1.0 - uEdgeBlend, 1.0, eN);
       if (tN < 1.0) t = mix(textureGrad(uNear, fract(qN), dNx, dNy).rgb, t, tN);
     }
-    if (tF > 0.0) t = mix(t, horizonColourAt(qH, dHx, dHy, eH), tF);`
+    if (tF > 0.0) t = mix(t, horizonColourAt(${horizonArgs}), tF);`
   const material = new MeshStandardMaterial({ flatShading: true, roughness: ROUGHNESS })
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     Object.assign(shader.uniforms, U, candUniforms())
@@ -519,6 +579,7 @@ uniform vec2 uFarCentre; uniform float uFarSpan;`)
       recentre(near, camX, camZ)
       recentre(far, camX, camZ)
       if (horizon !== null) recentre(horizon, camX, camZ)
+      if (backdrop !== null) recentre(backdrop, camX, camZ)
       U.uCam.value.set(camX, camZ)
     },
     layerAt(x, z) {
@@ -534,6 +595,13 @@ uniform vec2 uFarCentre; uniform float uFarSpan;`)
         return `遠圖：${far.m.toFixed(1)} m／格（±${km(far.span / 2)}），寬樹籬、屋頂樹冠色塊`
       }
       if (horizon === null) return '遠圖外：田逐像素算＋粗網格'
+      if (backdrop !== null) {
+        const f = outerFades(horizon.span, backdrop.span)
+        const r = Math.hypot(x - U.uCam.value.x, z - U.uCam.value.y)
+        if (r < f.horFrom) return `最外層：${horizon.m.toFixed(0)} m／格，田與疊圖都烘`
+        if (r < f.avgFrom) return `遠景層：${backdrop.m.toFixed(0)} m／格（${km(f.horTo)} 起）`
+        return `遠景層的平均色（${km(f.avgTo)} 起全平均）`
+      }
       if (edge(horizon.centre, horizon.span) < 1) {
         return `最外層：${horizon.m.toFixed(0)} m／格（±${km(horizon.span / 2)}），田與疊圖都烘`
       }
@@ -561,6 +629,7 @@ uniform vec2 uFarCentre; uniform float uFarSpan;`)
       near.rt.dispose()
       far.rt.dispose()
       horizon?.rt.dispose()
+      backdrop?.rt.dispose()
       bakeMat.dispose()
       overlayMat.dispose()
       quadGeo.dispose()
