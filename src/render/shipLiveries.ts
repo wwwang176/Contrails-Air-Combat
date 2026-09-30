@@ -113,14 +113,15 @@ const FLETCHER: ShipLiveryDef = {
   /**
    * 艦首兩舷的白色舷號（1943 年 Measure 21 的照片：深色船身上的白字）。號碼是
    * Fletcher 級的頭六艘 DD-445…450 —— 1942–43 年都在所羅門群島。位置與字高是
-   * **起始值**：艦首往後 11 m、甲板緣下
+   * **起始值**：艦首往後 11 m；那一段甲板緣高 5.4 m，字心放在防污帶（0.45 m）與
+   * 甲板緣的正中
    */
   numbers: {
     values: ['445', '446', '447', '448', '449', '450'],
     mesh: 'FLETCHER_Hull_1',
     marks: [
-      { view: 'starboard', z: -46, y: 4.5, height: 1.8 },
-      { view: 'port', z: -46, y: 4.5, height: 1.8 },
+      { view: 'starboard', z: -46, y: 3.0, height: 1.8 },
+      { view: 'port', z: -46, y: 3.0, height: 1.8 },
     ],
     color: 0xecece8,
   },
