@@ -21,12 +21,14 @@ function seq(seed: number): () => number {
 const L = SHIP_LIVERIES.fletcher!.layout
 
 describe('髒污印子', () => {
-  it('每個印子的起點都在左舷條或右舷條內，不落在甲板條與單色區', () => {
+  /** 【甲板條不蓋】飛行甲板與標線維持乾淨；頂面區（上層結構的頂）要蓋 */
+  it('每個印子的起點都在左右舷條或頂面區內，不落在甲板條', () => {
     const R = shipLiveryRects(L)
     const stamps = grimeStamps(L, seq(7))
     expect(stamps.length).toBeGreaterThan(0)
+    expect(stamps.some((s) => s.strip.y === R.top.y && s.strip.x === R.top.x)).toBe(true)
     for (const st of stamps) {
-      expect([R.port, R.starboard]).toContainEqual(st.strip)
+      expect([R.port, R.starboard, R.top]).toContainEqual(st.strip)
       expect(st.x).toBeGreaterThanOrEqual(st.strip.x)
       expect(st.x).toBeLessThanOrEqual(st.strip.x + st.strip.w)
       expect(st.y).toBeGreaterThanOrEqual(st.strip.y)
@@ -72,7 +74,7 @@ describe('髒污印子', () => {
     const img = { blotch: {}, streak: {}, speck: {} } as never
     drawStamps(g as never, stamps, img)
     const half = 8
-    const want = [R.port, R.starboard].map((r) =>
+    const want = [R.port, R.starboard, R.top].map((r) =>
       [(r.x - half) * k, (r.y - half) * k, (r.w + 2 * half) * k, (r.h + 2 * half) * k])
     expect(clips).toEqual(want)
     expect(draws.length).toBe(stamps.length)

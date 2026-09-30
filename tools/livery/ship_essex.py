@@ -116,6 +116,7 @@ def main(faces, outline=None):
         for a0, b0, a1, b1 in ((zc0, -xc, zc1, -xc), (zc0, xc, zc1, xc),
                                (zc0, -xc, zc0, xc), (zc1, -xc, zc1, xc)):
             L.line('deck', a0, b0, a1, b1, ELEV_EDGE, width_m=0.3)
+    L.top(DECK_BLUE, (40, 52, 76), seed=141)
     L.save(outline)
 
 

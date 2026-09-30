@@ -50,6 +50,7 @@ def main(faces, outline=None):
     L.fill('deck', DECK_BLUE)
     L.plates('deck', z0 - 1, z1 + 1, -hb - 1, hb + 1, 6.0, 1.5, 5, seed=31)
     L.seams('deck', z0, z1, -hb, hb, 6.0, 1.5, SEAM)
+    L.top(DECK_BLUE, SEAM, seed=41)
     L.save(outline)
 
 
