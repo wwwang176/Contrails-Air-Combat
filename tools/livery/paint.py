@@ -89,6 +89,15 @@ class Livery:
     def rect(self, view, a0, b0, a1, b1, fill):
         self.poly(view, [(a0, b0), (a1, b0), (a1, b1), (a0, b1)], fill)
 
+    def rect_on(self, view, nodes, a0, b0, a1, b1, fill):
+        """只塗在 `nodes`（節點名開頭）那幾件的矩形。同一個視圖裡疊在一起的零件共用同一塊
+        像素，只照矩形塗的話，範圍裡別的零件（例如發動機艙旁的機翼）也一起被塗到"""
+        layer = Image.new('L', self.im.size, 0)
+        ImageDraw.Draw(layer).polygon(
+            [self.px(view, a, b) for a, b in [(a0, b0), (a1, b0), (a1, b1), (a0, b1)]], fill=255)
+        own = self.mask(view, nodes).resize(self.im.size, Image.NEAREST)
+        self.im.paste(fill, (0, 0) + self.im.size, ImageChops.multiply(layer, own))
+
     def line(self, view, a0, b0, a1, b1, fill, width_m=0.018):
         self.d.line([self.px(view, a0, b0), self.px(view, a1, b1)], fill=fill,
                     width=max(1, round(self.m(width_m))))
@@ -299,7 +308,10 @@ class Livery:
 
     def balkenkreuz(self, view, a, b, size_m, style='full'):
         """德軍十字。size 是整個十字的寬。
-        style：'full' 黑十字白邊；'outline' 只有白邊（後期機背的簡化樣式）"""
+        style：'full' 黑十字白邊；'outline' 只有白邊（後期機背的簡化樣式）
+
+        【臂端不封白】白邊只沿著四支臂的兩側、在中間轉角處連成 L 形；臂端是開口的，黑臂與
+        兩側白邊齊平到頭"""
         cx, cy = self.px(view, a, b)
         s = self.m(size_m) / 2
         arm = s / 4          # 黑十字臂的半寬
@@ -312,15 +324,14 @@ class Livery:
 
         if style == 'full':
             cross(s, arm + edge, WHITE)
-            cross(s - edge, arm, BLACK)
+            cross(s, arm, BLACK)
         else:
-            # 白色外框，裡面留底色：外框是四個 L 形，用粗線描出來
+            # 白色外框，裡面留底色：四個 L 形，各自一條粗線，臂端不連
             w = max(2, edge * 0.8)
-            pts = [(-arm - edge, -s), (arm + edge, -s), (arm + edge, -arm - edge), (s, -arm - edge),
-                   (s, arm + edge), (arm + edge, arm + edge), (arm + edge, s), (-arm - edge, s),
-                   (-arm - edge, arm + edge), (-s, arm + edge), (-s, -arm - edge), (-arm - edge, -arm - edge)]
-            pts = [(cx + p[0], cy + p[1]) for p in pts]
-            d.line(pts + [pts[0]], fill=WHITE, width=int(w), joint='curve')
+            e = arm + edge
+            for sx, sy in ((1, 1), (1, -1), (-1, -1), (-1, 1)):
+                corner = [(sx * e, sy * s), (sx * e, sy * e), (sx * s, sy * e)]
+                d.line([(cx + p[0], cy + p[1]) for p in corner], fill=WHITE, width=int(w), joint='curve')
 
     def hinomaru(self, view, a, b, r_m, border=0.0):
         """日之丸。border 是白邊寬（m），0 = 沒有白邊"""

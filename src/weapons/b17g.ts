@@ -42,33 +42,26 @@ export const B17G_BATTERY: Battery = {
  * 雙聯砲塔的 `position` 填**兩根管口的中點**，兩根實際的管口在它左右各
  * `BARREL_SPACING`（`world/turrets.ts` 匯出）。
  *
- * ── 位置的來源，逐項標明 ───────────────────────────────────
+ * ── 位置的來源：出貨的 GLB（`b17g.glb`）───────────────────────
  *
- * 這個專案的紀律是「能量的就不要用眼睛判斷」，所以每一格都要說得出來歷。
- * 四座**量自參考模型**，四座是**量到的機身剖面 + 史實站位**：
+ * 旋轉點 = 蒙皮點 − `BARREL_PROTRUDE` × axis（`turretPivot`），所以表裡的蒙皮點
+ * 一律照「旋轉點該在哪」反推：
  *
  * ```
- *   chin   量測  球心機體 z −4.98、腹線 −1.056（旁站 −0.60）
- *                 —— 這是舊 B17G_BATTERY 掛架的同一個值，原樣搬過來
- *   top    量測  機體 z −1.58…−0.63、背線量到 2.37（機身蒙皮只到 1.98）
- *   ball   量測  機體 z  4.52…5.72、腹線量到 −1.26（機身蒙皮只到 −0.64）
- *   tail   量測  槍管機體 z 16.4…17.14、y ≈ 1.0、x ±0.14（backlog §2.15）
- *   cheek  推算  z −4.60 取自史實站位（投彈手艙後段）；x 由 b17g.hull.ts
- *                 在該站量到的半寬 0.98 外推一段槍管
- *   waist  推算  z 6.20／6.80 取自史實站位，**左右交錯**是真機就有的
- *                 （見 b17g.hull.ts 的左右對稱化那一段）；x 由該站量到的
- *                 半寬 1.14 外推
+ *   chin／top／ball  動力砲塔：旋轉點在砲塔球的球心（`B17_ChinTurret`
+ *                    (0, −0.55, −4.98)、`B17_TopTurret` (0, 1.95, −1.28)、
+ *                    `B17_BallTurret` (0, −0.68, 5.12)），蒙皮點 = 球心 + 0.45 × axis
+ *   cheek            手持槍：蒙皮點在頰槍窗的玻璃中心，左右錯開 ——
+ *                    左 `B17_PaneNavFL` (−1.03, 0.56, −4.34)、右 `B17_PaneNavAR`
+ *                    (0.85, 0.53, −5.18)；槍管從玻璃中間伸出去
+ *   waist            手持槍：蒙皮點在腰窗的玻璃中心，左右錯開 ——
+ *                    右 `B17_PaneWaistFR` (1.07, 0.98, 6.28)、左 `B17_PaneWaistAL`
+ *                    (−0.96, 0.98, 7.84)
+ *   tail             槍管機體 z 16.4…17.14、y ≈ 1.0、x ±0.14（backlog §2.15）
  * ```
  *
- * 【為什麼四座是推算不是量測】參考模型的 25 個 mesh **全部叫 `Object_NN`**，
- * 沒有語意名稱；而且有四個三角形數完全相同、都落在同一段 z —— 光看包圍盒
- * 認不出哪個是哪座砲塔。射線法在這裡也失效：從機身裡往外打的射線會**飛過
- * 砲塔打到對側機身或機翼**，實測同一站 maxRadius 0.9 量到 0.89、1.4 量到
- * 1.34，兩個半徑永遠不一致（那正是量測腳本的驗收判準抓到的）。
- *
- * 猜是坑 22 的犯法，所以不猜：改成把砲塔放在**已經逐站量過的機身剖面**上，
- * z 取真機的站位。護欄（回走碰得到機體、朝向符合名字）擋掉粗錯，細節由
- * 試飛裁定。**這幾格日後若量得出來，以量測值為準。**
+ * 窗的位置量法：玻璃那一面的包圍盒中心（`B17_Pane*` 是有厚度的玻璃塊，朝外那面
+ * 是玻璃）。
  *
  * ── 半角與旋轉速率都是設計值 ───────────────────────────────
  *
@@ -80,31 +73,31 @@ export const B17G_BATTERY: Battery = {
  * （轉得快但射界小）。**兩個數字都沒有實測支撐**，由試飛裁定。
  */
 export const B17G_TURRETS: readonly Turret[] = [
-  { id: 'chin', weapon: M2_BROWNING, position: muzzleAt(new Vector3(0, -0.70, -5.43),
+  { id: 'chin', weapon: M2_BROWNING, position: muzzleAt(new Vector3(0, -0.703, -5.403),
       new Vector3(0, -0.34, -0.94).normalize()),
     axis: new Vector3(0, -0.34, -0.94).normalize(),
     halfAngle: 45 * DEG, rotationRate: 60 * DEG, guns: 2 },
-  { id: 'cheekL', weapon: M2_BROWNING, position: muzzleAt(new Vector3(-1.15, 0.35, -4.60),
+  { id: 'cheekL', weapon: M2_BROWNING, position: muzzleAt(new Vector3(-1.03, 0.56, -4.34),
       new Vector3(-0.57, 0, -0.82).normalize()),
     axis: new Vector3(-0.57, 0, -0.82).normalize(),
     halfAngle: 35 * DEG, rotationRate: 90 * DEG, guns: 1 },
-  { id: 'cheekR', weapon: M2_BROWNING, position: muzzleAt(new Vector3(1.15, 0.35, -4.60),
+  { id: 'cheekR', weapon: M2_BROWNING, position: muzzleAt(new Vector3(0.85, 0.53, -5.18),
       new Vector3(0.57, 0, -0.82).normalize()),
     axis: new Vector3(0.57, 0, -0.82).normalize(),
     halfAngle: 35 * DEG, rotationRate: 90 * DEG, guns: 1 },
-  { id: 'top', weapon: M2_BROWNING, position: muzzleAt(new Vector3(0, 2.15, -1.10),
+  { id: 'top', weapon: M2_BROWNING, position: muzzleAt(new Vector3(0, 2.40, -1.28),
       new Vector3(0, 1, 0)),
     axis: new Vector3(0, 1, 0),
     halfAngle: 80 * DEG, rotationRate: 60 * DEG, guns: 2 },
-  { id: 'ball', weapon: M2_BROWNING, position: muzzleAt(new Vector3(0, -1.20, 5.10),
+  { id: 'ball', weapon: M2_BROWNING, position: muzzleAt(new Vector3(0, -1.13, 5.12),
       new Vector3(0, -1, 0)),
     axis: new Vector3(0, -1, 0),
     halfAngle: 80 * DEG, rotationRate: 60 * DEG, guns: 2 },
-  { id: 'waistR', weapon: M2_BROWNING, position: muzzleAt(new Vector3(1.35, 0.55, 6.20),
+  { id: 'waistR', weapon: M2_BROWNING, position: muzzleAt(new Vector3(1.07, 0.98, 6.28),
       new Vector3(1, 0, 0)),
     axis: new Vector3(1, 0, 0),
     halfAngle: 60 * DEG, rotationRate: 90 * DEG, guns: 1 },
-  { id: 'waistL', weapon: M2_BROWNING, position: muzzleAt(new Vector3(-1.35, 0.55, 6.80),
+  { id: 'waistL', weapon: M2_BROWNING, position: muzzleAt(new Vector3(-0.96, 0.98, 7.84),
       new Vector3(-1, 0, 0)),
     axis: new Vector3(-1, 0, 0),
     halfAngle: 60 * DEG, rotationRate: 90 * DEG, guns: 1 },

@@ -26,7 +26,8 @@ def main(faces):
 
     for v in SIDE:
         L.us_star(v, 3.0, 0.2, 0.36, bars=False)
-        L.text(v, 1.85, 0.2, '12', 0.42, WHITE)
+        # 國籍標誌之後（側視帶在 z 4.0 是 y −0.33…0.57）
+        L.text(v, 4.0, 0.12, '12', 0.4, WHITE)
     zc = sum(edges(3.9)) / 2
     L.us_star('top', -3.9, zc, 0.5, bars=False)
     L.us_star('bottom', 3.9, zc, 0.5, bars=False)
