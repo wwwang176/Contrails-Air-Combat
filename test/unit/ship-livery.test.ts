@@ -7,7 +7,8 @@ import {
 import { createGltfLoader } from '../../src/render/geometry/gltfLoader'
 import {
   SHIP_LIVERY_HEIGHT, SHIP_LIVERY_WIDTH, applyShipLiveryUv, partTones, shipLiveryRects,
-  type ShipLiveryLayout, type ShipRect, type ShipStrip,
+  shipPartKind, shipParts,
+  type ShipLiveryLayout, type ShipPartKind, type ShipRect, type ShipStrip,
 } from '../../src/render/shipLivery'
 import { SHIP_LIVERIES, applyShipLivery } from '../../src/render/ships'
 
@@ -151,27 +152,24 @@ describe('零件的深淺', () => {
     return g
   }
 
-  it('同一塊零件的頂點同一個倍率；最大的那一塊是 1；都在幅度之內', () => {
-    const t = partTones(parts(), 0.2)
+  /** 依重心分種類：大塊在原點附近、小塊一在 +X、小塊二在 −X */
+  const KINDS: readonly ShipPartKind[] = [
+    { name: 'big', tone: 1.3, boxes: [{ x: [0, 2], y: [0, 2], z: [-1, 1] }] },
+    { name: 'far', tone: 0.6, boxes: [{ x: [5, 20] }] },
+  ]
+
+  /** 色階是畫面上的倍率；頂點色在線性空間相乘，所以寫進去的是 tone^2.2 */
+  it('同一塊零件的頂點同一個倍率，照重心落在哪一種的框裡', () => {
+    const t = partTones(parts(), KINDS, 'test')
     expect(t.length).toBe(12 * 3)
-    for (let i = 0; i < 6 * 3; i++) expect(t[i]).toBe(1)
-    const a = t[6 * 3]!, b = t[9 * 3]!
-    for (let i = 6 * 3; i < 9 * 3; i++) expect(t[i]).toBe(a)
-    for (let i = 9 * 3; i < 12 * 3; i++) expect(t[i]).toBe(b)
-    for (const v of [a, b]) {
-      expect(v).toBeGreaterThanOrEqual(0.8)
-      expect(v).toBeLessThanOrEqual(1.2)
-    }
-    expect(a).not.toBe(b)
+    for (let i = 0; i < 6 * 3; i++) expect(t[i]).toBeCloseTo(Math.pow(1.3, 2.2), 5)
+    // 兩個小塊都在 |x| 5…20：x 用的是絕對值，兩舷同一種
+    for (let i = 6 * 3; i < 12 * 3; i++) expect(t[i]).toBeCloseTo(Math.pow(0.6, 2.2), 5)
   })
 
-  it('幅度 0 時全部是 1', () => {
-    for (const v of partTones(parts(), 0)) expect(v).toBe(1)
-  })
-
-  /** 【每次載入都一樣】倍率由零件位置算，不是亂數 —— 否則每一場同一艘船的深淺都不同 */
-  it('同一份幾何算兩次結果相同', () => {
-    expect([...partTones(parts(), 0.2)]).toEqual([...partTones(parts(), 0.2)])
+  /** 【認不出來就丟】漏了一種的話那一塊會靜靜地維持原色，看起來像是忘了塗 */
+  it('有零件落不進任何一種時丟錯', () => {
+    expect(() => partTones(parts(), KINDS.slice(0, 1), 'test')).toThrow()
   })
 })
 
@@ -271,13 +269,26 @@ describe('Fletcher 套塗裝', () => {
     expect([...seen].sort()).toEqual(['accent', 'body', 'deck'])
   })
 
-  /** 【上方元件深淺不一】砲械與上層結構一塊一個色階；船殼是最大的那一塊，維持原色 */
-  it('細部與上層結構的零件各有深淺，船殼維持 1', async () => {
+  /**
+   * 【依種類分深淺】建模腳本（`tools/blender/build_fletcher.py`）的零件逐一數得出來：
+   * 砲械 29 塊、上層結構 20 塊。每一塊都要認得出種類，而且每一種的塊數要對 ——
+   * 框畫錯的話某一塊會跑到隔壁那一種，只看「都有認到」抓不到。
+   *
+   * 艦橋 3（艦橋、駕駛室、翼台）、甲板室 7（五段甲板室、前甲板室、艦橋前平台）、
+   * 砲桶 6（四座 20 mm 環、40 mm 的桶身與環）、小艇 2、煙囪 2；
+   * 5 吋砲 10（五座砲塔、五根砲管）、射控 2（射控台、雷達板）、魚雷管 2、
+   * 機砲 11（四座 20 mm 各有砲身與砲管、40 mm 砲架與兩根砲管）、桅 2（桅杆、桁）、
+   * 深水炸彈軌 2
+   */
+  it('Fletcher 的每一塊零件都認得出種類，塊數與建模腳本相符', async () => {
     const def = SHIP_LIVERIES.fletcher!
-    expect(def.partTone).toBeGreaterThan(0)
     const scene = await loadFletcher()
     applyShipLivery(scene, def, new Texture())
-    const tones: Record<string, Set<number>> = {}
+    const want: Record<string, number> = {
+      bridge: 3, house: 7, tub: 6, boat: 2, funnel: 2,
+      gun: 10, director: 2, torpedo: 2, aa: 11, mast: 2, rack: 2,
+    }
+    const got: Record<string, number> = {}
     scene.traverse((o: Object3D) => {
       const mesh = o as Mesh
       if (!mesh.isMesh) return
@@ -286,13 +297,32 @@ describe('Fletcher 套塗裝', () => {
       if (kind !== 'accent' && kind !== 'body') return
       expect(m.vertexColors, mesh.name).toBe(true)
       const c = mesh.geometry.getAttribute('color')
-      expect(c.count).toBe(mesh.geometry.getAttribute('position').count)
-      const s = new Set<number>()
-      for (let i = 0; i < c.count; i++) s.add(c.getX(i))
-      tones[mesh.name] = s
+      const pos = mesh.geometry.getAttribute('position')
+      expect(c.count).toBe(pos.count)
+      const kinds = def.parts[mesh.name]
+      if (kinds === undefined) {
+        // 船殼維持原色
+        for (let i = 0; i < c.count; i++) expect(c.getX(i), mesh.name).toBe(1)
+        return
+      }
+      const parts = shipParts(mesh.geometry)
+      const kindOf = (p: number) => shipPartKind(
+        kinds, parts.centroid[p * 3]!, parts.centroid[p * 3 + 1]!, parts.centroid[p * 3 + 2]!)
+      for (let p = 0; p < parts.count; p++) {
+        const k = kindOf(p)
+        expect(k, `${mesh.name} 第 ${p} 塊`).not.toBeNull()
+        got[k!.name] = (got[k!.name] ?? 0) + 1
+      }
+      // 頂點色就是那一塊的種類的色階（換成線性）
+      for (let i = 0; i < pos.count; i++) {
+        expect(c.getX(i)).toBeCloseTo(Math.pow(kindOf(parts.of[Math.floor(i / 3)]!)!.tone, 2.2), 6)
+      }
+      // 【±40%】負責人指定的幅度
+      for (const k of kinds) {
+        expect(k.tone, k.name).toBeGreaterThanOrEqual(0.6)
+        expect(k.tone, k.name).toBeLessThanOrEqual(1.4)
+      }
     })
-    expect([...tones['FLETCHER_Hull_1']!]).toEqual([1])
-    expect(tones['FLETCHER_Super']!.size).toBeGreaterThan(5)
-    expect(tones['FLETCHER_Guns']!.size).toBeGreaterThan(5)
+    expect(got).toEqual(want)
   })
 })

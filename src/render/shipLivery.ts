@@ -158,18 +158,52 @@ export function shipLiveryPixel(
 }
 
 /**
- * 每一塊相連零件的明暗倍率，逐頂點、rgb 同值，給頂點色用。**幾何要是沒有索引的。**
- *
- * 零件 = 共用頂點（位置相同）連在一起的三角形。最大的那一塊（船殼）固定 1，
- * 其餘在 1 ± `amount` 之間，由零件重心算 —— 同一個模型每次載入都一樣。
- *
- * 【為什麼要深淺】Measure 21 整艘同一個色，低多邊形的方塊零件疊在一起就糊成一團；
- * 一塊一個色階，甲板室、砲座、射控才分得開。實船各塊褪色與補漆的程度本來就不一。
- *
- * 載入期跑一次，不在熱路徑上。
+ * 零件的一種：它的色階，與認它的框。框量的是零件重心（艦體座標，m）；`x` 比的是
+ * |x|，兩舷對稱的零件寫一個框就好。省略的軸不限。
  */
-export function partTones(geo: BufferGeometry, amount: number): Float32Array {
-  if (geo.index !== null) throw new Error('零件深淺要沒有索引的幾何')
+export interface ShipPartBox {
+  readonly x?: readonly [number, number]
+  readonly y?: readonly [number, number]
+  readonly z?: readonly [number, number]
+}
+
+export interface ShipPartKind {
+  readonly name: string
+  /** 畫面上的明暗倍率（sRGB）。寫進頂點色時換成線性，見 `partTones` */
+  readonly tone: number
+  readonly boxes: readonly ShipPartBox[]
+}
+
+/** 重心落在哪一種的框裡；依表的順序取第一個，都不在回 null */
+export function shipPartKind(
+  kinds: readonly ShipPartKind[], cx: number, cy: number, cz: number,
+): ShipPartKind | null {
+  const ax = Math.abs(cx)
+  const inRange = (v: number, r: readonly [number, number] | undefined) =>
+    r === undefined || (v >= r[0] && v <= r[1])
+  for (const k of kinds) {
+    for (const b of k.boxes) {
+      if (inRange(ax, b.x) && inRange(cy, b.y) && inRange(cz, b.z)) return k
+    }
+  }
+  return null
+}
+
+export interface ShipParts {
+  /** 零件數 */
+  readonly count: number
+  /** 第 i 個三角形屬於第幾塊 */
+  readonly of: Int32Array
+  /** 每一塊的重心，xyz 連排 */
+  readonly centroid: Float64Array
+}
+
+/**
+ * 把幾何拆成零件：共用頂點（位置相同）連在一起的三角形是一塊。**幾何要是沒有索引的。**
+ * 塊的編號依第一次出現的三角形排，同一份幾何每次結果相同。
+ */
+export function shipParts(geo: BufferGeometry): ShipParts {
+  if (geo.index !== null) throw new Error('拆零件要沒有索引的幾何')
   const pos = geo.getAttribute('position')
   const n = pos.count
   // 位置相同的頂點合成一個節點，再用併查集把三角形連起來
@@ -192,31 +226,66 @@ export function partTones(geo: BufferGeometry, amount: number): Float32Array {
     parent[find(node[i + 1]!)] = a
     parent[find(node[i + 2]!)] = a
   }
-  // 每一塊的三角形數與重心
-  const tris = new Map<number, number>()
-  const sum = new Map<number, [number, number, number]>()
+  // 併查集的根 → 塊的編號；每一塊的頂點數與座標和
+  const slot = new Map<number, number>()
+  const of = new Int32Array(Math.floor(n / 3))
+  const sums: number[] = []
+  const verts: number[] = []
   for (let i = 0; i + 2 < n; i += 3) {
     const r = find(node[i]!)
-    tris.set(r, (tris.get(r) ?? 0) + 1)
-    const s = sum.get(r) ?? [0, 0, 0]
-    for (let k = 0; k < 3; k++) {
-      s[0] += pos.getX(i + k); s[1] += pos.getY(i + k); s[2] += pos.getZ(i + k)
+    let p = slot.get(r)
+    if (p === undefined) {
+      p = slot.size
+      slot.set(r, p)
+      sums.push(0, 0, 0)
+      verts.push(0)
     }
-    sum.set(r, s)
+    of[i / 3] = p
+    for (let k = 0; k < 3; k++) {
+      sums[p * 3]! += pos.getX(i + k)
+      sums[p * 3 + 1]! += pos.getY(i + k)
+      sums[p * 3 + 2]! += pos.getZ(i + k)
+    }
+    verts[p]! += 3
   }
-  let biggest = -1
-  let most = -1
-  for (const [r, t] of tris) if (t > most) { most = t; biggest = r }
-  const tone = new Map<number, number>()
-  for (const [r, s] of sum) {
-    if (r === biggest) { tone.set(r, 1); continue }
-    const c = 3 * tris.get(r)!
-    const h = Math.sin(s[0] / c * 12.9898 + s[1] / c * 78.233 + s[2] / c * 37.719) * 43758.5453
-    tone.set(r, 1 + amount * (2 * (h - Math.floor(h)) - 1))
+  const centroid = new Float64Array(slot.size * 3)
+  for (let p = 0; p < slot.size; p++) {
+    for (let a = 0; a < 3; a++) centroid[p * 3 + a] = sums[p * 3 + a]! / verts[p]!
   }
+  return { count: slot.size, of, centroid }
+}
+
+/**
+ * 每一塊零件依種類的色階，逐頂點、rgb 同值，給頂點色用。**幾何要是沒有索引的。**
+ *
+ * 【為什麼要深淺】Measure 21 整艘同一個色，低多邊形的方塊零件疊在一起就糊成一團。
+ * 依種類給色階，艦橋、甲板室、砲、射控才分得開。
+ *
+ * 【認不出來就丟】漏了一種的話那一塊靜靜地維持原色，看起來像忘了塗。`label` 是
+ * 丟錯時說是哪一個網格。
+ *
+ * 【頂點色是線性的】它在著色器裡與線性的材質色相乘，直接寫 1.4 的話畫面上只亮
+ * 16%。寫 `tone^2.2`，畫面上的明暗才是 `tone` 倍。
+ *
+ * 載入期跑一次，不在熱路徑上。
+ */
+export function partTones(
+  geo: BufferGeometry, kinds: readonly ShipPartKind[], label: string,
+): Float32Array {
+  const parts = shipParts(geo)
+  const tone = new Float32Array(parts.count)
+  for (let p = 0; p < parts.count; p++) {
+    const cx = parts.centroid[p * 3]!, cy = parts.centroid[p * 3 + 1]!, cz = parts.centroid[p * 3 + 2]!
+    const k = shipPartKind(kinds, cx, cy, cz)
+    if (k === null) {
+      throw new Error(`${label} 的第 ${p} 塊零件（重心 ${cx.toFixed(1)}, ${cy.toFixed(1)}, ${cz.toFixed(1)}）認不出種類`)
+    }
+    tone[p] = Math.pow(k.tone, 2.2)
+  }
+  const n = geo.getAttribute('position').count
   const out = new Float32Array(n * 3)
   for (let i = 0; i < n; i++) {
-    const t = tone.get(find(node[i]!))!
+    const t = tone[parts.of[Math.floor(i / 3)]!]!
     out[i * 3] = t; out[i * 3 + 1] = t; out[i * 3 + 2] = t
   }
   return out

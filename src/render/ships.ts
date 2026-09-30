@@ -4,7 +4,9 @@ import {
   SRGBColorSpace, TextureLoader, Vector3, type Material, type Mesh, type Texture,
 } from 'three'
 import { createGltfLoader } from './geometry/gltfLoader'
-import { applyShipLiveryUv, partTones, type ShipLiveryLayout } from './shipLivery'
+import {
+  applyShipLiveryUv, partTones, type ShipLiveryLayout, type ShipPartKind,
+} from './shipLivery'
 import { SHIP_CLASSES, type Ship, type ShipClassId } from '../world/ships'
 import { MAX_SHIP_GUNS } from '../world/shipGuns'
 import { TURRET_FLASH_SECONDS } from '../world/turrets'
@@ -35,11 +37,64 @@ export interface ShipLiveryDef {
   /** 細部的顏色（sRGB） */
   readonly accentColor: number
   /**
-   * 船身與細部每一塊零件的明暗幅度（0.12 = ±12%）。船殼是最大的那一塊，維持原色。
-   * 見 `shipLivery.ts` 的 `partTones`
+   * 網格名 → 那個網格的零件種類表（見 `shipLivery.ts` 的 `partTones`）。列到的網格
+   * 每一塊零件都要認得出種類；同材質沒列到的網格（船殼）維持原色。
+   *
+   * 【一個網格一張表】砲桶與坐在桶裡的 20 mm 重心幾乎重合，混成一張表的話先列的
+   * 那一種會把兩者都吃掉。
    */
-  readonly partTone: number
+  readonly parts: Readonly<Record<string, readonly ShipPartKind[]>>
 }
+
+/**
+ * Fletcher 的零件種類與色階。**色階在 0.6 … 1.4 之間（±40%），起始值，由截圖裁定。**
+ *
+ * 上層結構偏亮、砲械偏暗：艦橋與甲板室是大塊的淺面，砲、機砲、桅這些細件壓深，
+ * 疊在上面才讀得出輪廓。
+ *
+ * 框是零件重心的範圍（遊戲座標：艦首 −Z）。位置來自建模腳本
+ * `tools/blender/build_fletcher.py` 的零件表（腳本的 +Y 艦首 = 這裡的 −Z）。
+ * 依順序取第一個符合的。
+ */
+const FLETCHER_SUPER_PARTS: readonly ShipPartKind[] = [
+  // 艦橋、駕駛室、舷側翼台
+  { name: 'bridge', tone: 1.3, boxes: [{ x: [0, 1], y: [8, 13], z: [-22, -19] }] },
+  // 20 mm 環（艦橋前平台、翼台）與艦尾 40 mm 的桶
+  { name: 'tub', tone: 1.25, boxes: [
+    { x: [3, 5], y: [6, 11], z: [-27, -17] },
+    { x: [0, 1], y: [6.5, 11], z: [25.5, 27] },
+  ] },
+  { name: 'boat', tone: 1.4, boxes: [{ x: [4, 5], z: [-16, -10] }] },
+  { name: 'funnel', tone: 0.75, boxes: [
+    { x: [0, 1], y: [9, 11], z: [-11, -7] },
+    { x: [0, 1], y: [9, 11], z: [3, 7] },
+  ] },
+  // 五段甲板室、前甲板室、艦橋前平台
+  { name: 'house', tone: 1.15, boxes: [{ x: [0, 1], y: [3.5, 7], z: [-35, 35] }] },
+]
+
+const FLETCHER_GUN_PARTS: readonly ShipPartKind[] = [
+  // 五座 5 吋砲塔與砲管。y 上限擋掉坐在更高處的 40 mm
+  { name: 'gun', tone: 0.85, boxes: [
+    { x: [0, 1], y: [2, 9.6], z: [-44, -28] },
+    { x: [0, 1], y: [2, 9.6], z: [14, 44] },
+  ] },
+  // 四座 20 mm（砲身、砲管）與 40 mm（砲架、兩根砲管）
+  { name: 'aa', tone: 0.6, boxes: [
+    { x: [3, 6], z: [-27, -18] },
+    { x: [0, 1], y: [9.6, 12], z: [23, 28] },
+  ] },
+  // Mk37 射控台與雷達板
+  { name: 'director', tone: 1.0, boxes: [{ x: [0, 1], y: [13, 19], z: [-22, -19] }] },
+  // 前桅與桁
+  { name: 'mast', tone: 0.65, boxes: [{ x: [0, 5], y: [17, 28], z: [-17, -14] }] },
+  { name: 'torpedo', tone: 0.7, boxes: [
+    { x: [0, 1], y: [5, 7.5], z: [-8, 0] },
+    { x: [0, 1], y: [5, 7.5], z: [8, 14.5] },
+  ] },
+  // 艦尾兩條深水炸彈軌
+  { name: 'rack', tone: 0.6, boxes: [{ z: [46, 58] }] },
+]
 
 /**
  * 有塗裝貼圖的艦級。**沒列到的照 GLB 的單色材質。**
@@ -57,8 +112,7 @@ export const SHIP_LIVERIES: Partial<Record<ShipClassId, ShipLiveryDef>> = {
     },
     kinds: { FLETCHER_Body: 'body', FLETCHER_Deck: 'deck', FLETCHER_Accent: 'accent' },
     accentColor: 0x465167,
-    // 【起始值】由截圖裁定
-    partTone: 0.25,
+    parts: { FLETCHER_Super: FLETCHER_SUPER_PARTS, FLETCHER_Guns: FLETCHER_GUN_PARTS },
   },
 }
 
@@ -95,7 +149,12 @@ export function applyShipLivery(root: Object3D, def: ShipLiveryDef, texture: Tex
     // 那一個網格讀到的是 0，整塊變黑
     const toned = kind !== 'deck'
     if (toned) {
-      mesh.geometry.setAttribute('color', new BufferAttribute(partTones(mesh.geometry, def.partTone), 3))
+      const n = mesh.geometry.getAttribute('position').count
+      const kinds = def.parts[mesh.name]
+      const tones = kinds !== undefined
+        ? partTones(mesh.geometry, kinds, mesh.name)
+        : new Float32Array(n * 3).fill(1)
+      mesh.geometry.setAttribute('color', new BufferAttribute(tones, 3))
     }
     let dst = swapped.get(src)
     if (dst === undefined) {
