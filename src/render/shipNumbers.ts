@@ -28,6 +28,11 @@ export interface NumberMark {
   readonly x?: number
   /** 字高，m */
   readonly height: number
+  /**
+   * 甲板上的字頂朝哪一頭。**省略 = 朝艦首**（從艦尾進場讀得正）。航艦兩端各一個號碼，
+   * 艦尾那一個字頂朝艦尾 —— 兩個都朝外
+   */
+  readonly top?: 'bow' | 'stern'
 }
 
 export interface ShipNumbersDef {
@@ -209,7 +214,9 @@ export function buildNumberDecal(
     switch (mark.view) {
       case 'starboard': return [0.5 + (mark.z - z) / box.w, 0.5 + (y - cy) / box.h]
       case 'port': return [0.5 + (z - mark.z) / box.w, 0.5 + (y - cy) / box.h]
-      case 'deck': return [0.5 + (x - cx) / box.w, 0.5 + (mark.z - z) / box.h]
+      case 'deck': return mark.top === 'stern'
+        ? [0.5 - (x - cx) / box.w, 0.5 - (mark.z - z) / box.h]
+        : [0.5 + (x - cx) / box.w, 0.5 + (mark.z - z) / box.h]
     }
   }
   // 號碼框在艦體座標的範圍：(軸, 下限, 上限)，軸 0 = x、1 = y、2 = z。甲板上字高沿 z

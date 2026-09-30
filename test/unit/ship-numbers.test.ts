@@ -188,6 +188,15 @@ describe('貼花', () => {
     expect(m.polygonOffsetFactor).toBeLessThan(0)
   })
 
+  /** 【艦尾那一個朝艦尾】轉 180°：右舷艦首角變成 (0, 0) */
+  it('甲板上字頂朝艦尾的號碼整個轉 180°', () => {
+    const mark: NumberMark = { view: 'deck', z: 0, x: 0, height: 2, top: 'stern' }
+    const g = buildNumberDecal(deck(), mark, box)!
+    const [u, v] = uvNear(g, 2, 6, -1)
+    expect(u).toBeCloseTo(0, 6)
+    expect(v).toBeCloseTo(0, 6)
+  })
+
   it('框外餘量之外的面不挑；一個都沒挑到回 null', () => {
     const far: NumberMark = { view: 'starboard', z: 100, y: 3, height: 2 }
     expect(buildNumberDecal(walls(), far, box)).toBeNull()
