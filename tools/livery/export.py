@@ -18,11 +18,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 SRC = os.path.join(ROOT, 'textures-src')
 OUT = os.path.join(ROOT, 'public', 'textures')
 
-# 遊戲用圖的寬（px），高照 4:3。戰鬥機縮到 1536：每公尺 57–75 px，追尾視角的
+# 遊戲用圖的寬（px），高照 4:3。單發機縮到 1536：每公尺 52–75 px，追尾視角的
 # 自機在 1280 寬的畫面上約每公尺 40 螢幕像素。轟炸機攤到每公尺只有 32–44 px，
 # 再縮近看就粗了，維持原尺寸
 EXPORT_WIDTH = {
     'p51d': 1536, 'f6f5': 1536, 'f4f4': 1536, 'bf109k4': 1536, 'ki84': 1536, 'a6m5': 1536,
+    'ju87': 1536,
     'g4m': 2048, 'he111': 2048, 'b17g': 2048,
 }
 

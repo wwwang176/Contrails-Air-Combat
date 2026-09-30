@@ -26,7 +26,7 @@ function liveried(o: Object3D): o is Mesh {
 beforeAll(loadGlbTemplatesForNode)
 
 describe('塗裝版面', () => {
-  it('九型都有塗裝，貼圖檔都在', () => {
+  it('每一型都有塗裝，貼圖檔都在', () => {
     expect(WITH_LIVERY.length).toBe(Object.keys(GLB_MODELS).length)
     for (const [id, def] of WITH_LIVERY) {
       expect(existsSync(`public${def.livery!.url}`), id).toBe(true)
