@@ -1,5 +1,6 @@
 import {
   BufferAttribute, BufferGeometry, DoubleSide, DynamicDrawUsage, Mesh, MeshBasicMaterial,
+  type Texture,
 } from 'three'
 import { injectVertexAlpha } from './vortex'
 import { TORPEDOES_CAPACITY } from '../world/torpedo'
@@ -79,27 +80,55 @@ export const WAKE_MAX_PER_FRAME = 8
 export const WAKE_SLOTS = TORPEDOES_CAPACITY
 
 /**
+ * 一種航跡的樣子。魚雷用 `TORPEDO_WAKE`；船的艦尾與艦首各一種（`shipWakes.ts`）。
+ */
+export interface WakeStyle {
+  /** 每一格的節點數（含頭端那一格）。要蓋得住「航速 × 壽命 ÷ 間隔」 */
+  readonly nodes: number
+  /** 節點間隔，m */
+  readonly spacing: number
+  /** 一個節點活多久，秒 */
+  readonly life: number
+  /** 剛翻起來與散開之後的半寬，m（再乘上每格的寬度倍率） */
+  readonly halfFrom: number
+  readonly halfTo: number
+  /** 出生時的不透明度 */
+  readonly alpha: number
+  /**
+   * 泡沫紋理沿航向幾公尺重複一次。**省略 = 沒有紋理**（魚雷）。有的話帶子多一組
+   * UV：u 橫跨帶寬（0 左、1 右），v 是節點落下時的里程 —— 紋理釘在水面上，不跟著
+   * 船滑
+   */
+  readonly foamTile?: number
+}
+
+export const TORPEDO_WAKE: WakeStyle = {
+  nodes: WAKE_NODES, spacing: WAKE_NODE_SPACING, life: WAKE_LIFE,
+  halfFrom: WAKE_HALF_FROM, halfTo: WAKE_HALF_TO, alpha: WAKE_ALPHA,
+}
+
+/**
  * 節點的不透明度。出生最濃、到壽命歸零。
  *
  * 【為什麼不是線性】線性之下尾端在 12 秒時還有 0.29 對頭端的 0.55 ——
  * 在深色的海面上那兩個讀起來一樣白，整條看起來像一根沒有方向的白棍。
  * 平方讓前三分之一就掉掉一半以上，於是「哪一端是新的」一眼就分得出來。
  */
-export function wakeAlpha(age: number): number {
-  if (!(age >= 0) || age >= WAKE_LIFE) return 0
-  const k = 1 - age / WAKE_LIFE
-  return WAKE_ALPHA * k * k
+export function wakeAlpha(age: number, style: WakeStyle = TORPEDO_WAKE): number {
+  if (!(age >= 0) || age >= style.life) return 0
+  const k = 1 - age / style.life
+  return style.alpha * k * k
 }
 
 /** 節點的半寬，m。泡沫會散開 */
-export function wakeHalfWidth(age: number): number {
-  const k = age <= 0 ? 0 : age >= WAKE_LIFE ? 1 : age / WAKE_LIFE
-  return WAKE_HALF_FROM + (WAKE_HALF_TO - WAKE_HALF_FROM) * k
+export function wakeHalfWidth(age: number, style: WakeStyle = TORPEDO_WAKE): number {
+  const k = age <= 0 ? 0 : age >= style.life ? 1 : age / style.life
+  return style.halfFrom + (style.halfTo - style.halfFrom) * k
 }
 
 /** 走了 `travelled` 公尺該落幾個節點 */
-export function wakeEmitCount(travelled: number): number {
-  return Math.floor(travelled / WAKE_NODE_SPACING)
+export function wakeEmitCount(travelled: number, style: WakeStyle = TORPEDO_WAKE): number {
+  return Math.floor(travelled / style.spacing)
 }
 
 /**
@@ -142,6 +171,8 @@ export interface Wakes {
    *           半張海圖的線。格子超出範圍直接 return（不丟例外）。
    */
   emit(slot: number, x: number, z: number, id: number): void
+  /** 這一格的寬度倍率（半寬乘上它）。預設 1。船照艦寬給 */
+  widen(slot: number, k: number): void
   /**
    * 老化一幀並重寫頂點。**在渲染幀率呼叫，不在物理步。**
    *
@@ -154,8 +185,22 @@ export interface Wakes {
   dispose(): void
 }
 
-export function createWakes(slots: number = WAKE_SLOTS): Wakes {
-  const total = slots * WAKE_NODES
+/**
+ * @param foam 泡沫紋理（白、alpha 是泡沫的濃淡）。`style.foamTile` 有值才用得到；
+ *   node 測試傳 null，UV 照算
+ */
+export function createWakes(
+  slots: number = WAKE_SLOTS, style: WakeStyle = TORPEDO_WAKE, foam: Texture | null = null,
+): Wakes {
+  const NODES = style.nodes
+  const REAL_NODES = NODES - 1
+  const total = slots * NODES
+  /** 每一格的寬度倍率 */
+  const widthK = new Float32Array(slots).fill(1)
+  /** 每個節點落下時的里程，m；頭端用 `odo` 那一格當下的值 */
+  const nOdo = new Float32Array(total)
+  /** 每一格累計走了多遠，m */
+  const odo = new Float32Array(slots)
   const nx = new Float32Array(total)
   const nz = new Float32Array(total)
   const nAge = new Float32Array(total)
@@ -190,9 +235,16 @@ export function createWakes(slots: number = WAKE_SLOTS): Wakes {
   const geometry = new BufferGeometry()
   geometry.setAttribute('position', position)
   geometry.setAttribute('aAlpha', alpha)
-  geometry.setIndex(new BufferAttribute(ribbonIndices(slots, WAKE_NODES), 1))
+  geometry.setIndex(new BufferAttribute(ribbonIndices(slots, NODES), 1))
+  const foamed = style.foamTile !== undefined
+  const uvAttr = foamed ? new BufferAttribute(new Float32Array(vertexCount * 2), 2) : null
+  if (uvAttr !== null) {
+    uvAttr.setUsage(DynamicDrawUsage)
+    geometry.setAttribute('uv', uvAttr)
+  }
 
   const material = new MeshBasicMaterial({
+    map: foamed ? foam : null,
     color: WAKE_COLOR,
     transparent: true,
     // 【不寫深度】帶子是貼在水面上的一層，會被自己的後半段擋住
@@ -208,20 +260,22 @@ export function createWakes(slots: number = WAKE_SLOTS): Wakes {
 
   const pos = position.array as Float32Array
   const alp = alpha.array as Float32Array
+  const uvs = uvAttr === null ? null : uvAttr.array as Float32Array
 
   /** 第 `j` 舊的正式節點在資料陣列裡的索引 */
   const slotOf = (slot: number, j: number): number =>
-    slot * WAKE_NODES
-    + (((head[slot]! - count[slot]! + j) % WAKE_NODES) + WAKE_NODES) % WAKE_NODES
+    slot * NODES
+    + (((head[slot]! - count[slot]! + j) % NODES) + NODES) % NODES
 
-  const pushNode = (slot: number, x: number, z: number): void => {
-    const i = slot * WAKE_NODES + head[slot]!
+  const pushNode = (slot: number, x: number, z: number, at: number): void => {
+    const i = slot * NODES + head[slot]!
     nx[i] = x
     nz[i] = z
     nAge[i] = 0
-    head[slot] = (head[slot]! + 1) % WAKE_NODES
+    nOdo[i] = at
+    head[slot] = (head[slot]! + 1) % NODES
     // 【容量比總數少一】留最後一格給頭端，否則高速時頭端會被擠掉
-    if (count[slot]! < WAKE_REAL_NODES) {
+    if (count[slot]! < REAL_NODES) {
       count[slot] = count[slot]! + 1
       liveNodes++
     }
@@ -234,6 +288,7 @@ export function createWakes(slots: number = WAKE_SLOTS): Wakes {
     carry[slot] = 0
     seen[slot] = 0
     hasHead[slot] = 0
+    odo[slot] = 0
   }
 
   /** 有效節點的座標。`j < count` 是正式節點，`j === count` 是頭端 */
@@ -250,10 +305,10 @@ export function createWakes(slots: number = WAKE_SLOTS): Wakes {
     slot: number, time: number,
     heightAt: (x: number, z: number, t: number) => number,
   ): void => {
-    const base = slot * WAKE_NODES * 2
+    const base = slot * NODES * 2
     const n = count[slot]! + (hasHead[slot] === 1 ? 1 : 0)
     if (n < 2) {
-      for (let v = 0; v < WAKE_NODES * 2; v++) {
+      for (let v = 0; v < NODES * 2; v++) {
         const o = (base + v) * 3
         pos[o] = 0
         pos[o + 1] = 0
@@ -262,7 +317,7 @@ export function createWakes(slots: number = WAKE_SLOTS): Wakes {
       }
       return
     }
-    for (let j = 0; j < WAKE_NODES; j++) {
+    for (let j = 0; j < NODES; j++) {
       // 【超出節點數的那幾格塌到最後一個上】它們之間的四邊形因此是零面積
       const jj = j < n ? j : n - 1
       const x = ringX(slot, jj)
@@ -278,8 +333,8 @@ export function createWakes(slots: number = WAKE_SLOTS): Wakes {
       const sz = len > 1e-9 ? dx / len : 0
       // 【頭端的年齡是 0】它就是這一幀的位置
       const age = jj < count[slot]! ? nAge[slotOf(slot, jj)]! : 0
-      const w = wakeHalfWidth(age)
-      const al = j < n ? wakeAlpha(age) : 0
+      const w = wakeHalfWidth(age, style) * widthK[slot]!
+      const al = j < n ? wakeAlpha(age, style) : 0
       const y = heightAt(x, z, time) + WAKE_LIFT
       const o0 = (base + j * 2) * 3
       pos[o0] = x + sx * w
@@ -290,6 +345,13 @@ export function createWakes(slots: number = WAKE_SLOTS): Wakes {
       pos[o0 + 5] = z - sz * w
       alp[base + j * 2] = al
       alp[base + j * 2 + 1] = al
+      if (uvs !== null) {
+        const v = (jj < count[slot]! ? nOdo[slotOf(slot, jj)]! : odo[slot]!) / style.foamTile!
+        uvs[(base + j * 2) * 2] = 0
+        uvs[(base + j * 2) * 2 + 1] = v
+        uvs[(base + j * 2 + 1) * 2] = 1
+        uvs[(base + j * 2 + 1) * 2 + 1] = v
+      }
     }
   }
 
@@ -327,19 +389,25 @@ export function createWakes(slots: number = WAKE_SLOTS): Wakes {
       if (dist <= 0) return
       const start = carry[slot]!
       const travelled = start + dist
-      let n = wakeEmitCount(travelled)
+      const odo0 = odo[slot]!
+      odo[slot] = odo0 + dist
+      let n = wakeEmitCount(travelled, style)
       if (n >= WAKE_MAX_PER_FRAME) {
         // 【被夾住就把餘數丟掉】不丟的話 carry 逐幀累積、沒有上界
         n = WAKE_MAX_PER_FRAME
         carry[slot] = 0
       } else {
-        carry[slot] = travelled - n * WAKE_NODE_SPACING
+        carry[slot] = travelled - n * style.spacing
       }
       for (let k = 1; k <= n; k++) {
-        const d = k * WAKE_NODE_SPACING - start
+        const d = k * style.spacing - start
         const t = d <= 0 ? 0 : d >= dist ? 1 : d / dist
-        pushNode(slot, ox + dx * t, oz + dz * t)
+        pushNode(slot, ox + dx * t, oz + dz * t, odo0 + dist * t)
       }
+    },
+
+    widen(slot, k) {
+      if (slot >= 0 && slot < slots) widthK[slot] = k
     },
 
     step(dt, time, heightAt) {
@@ -352,7 +420,7 @@ export function createWakes(slots: number = WAKE_SLOTS): Wakes {
           for (let j = 0; j < n; j++) {
             const i = slotOf(slot, j)
             nAge[i] = nAge[i]! + dt
-            if (nAge[i]! < WAKE_LIFE) alive++
+            if (nAge[i]! < style.life) alive++
           }
           if (alive < n) count[slot] = alive
           liveNodes += alive
@@ -361,9 +429,11 @@ export function createWakes(slots: number = WAKE_SLOTS): Wakes {
       }
       position.needsUpdate = true
       alpha.needsUpdate = true
+      if (uvAttr !== null) uvAttr.needsUpdate = true
     },
 
     reset() {
+      odo.fill(0)
       nAge.fill(0)
       count.fill(0)
       head.fill(0)
