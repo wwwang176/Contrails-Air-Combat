@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   ASCH_HILLS, CRATE_FIELDS, createAsch, DUMPS, FIELD_BOUNDS, FIELD_CENTER, FIELD_LOBES, FIELD_PAD,
-  FIELD_TREE_CLEAR, FLAK_SITES, HUTS, inField, PARKED_ROWS, PAVED, PSP_STEEL, ROAD_WIDTH, RUNWAY, STAND_LANES, STAND_PADS,
+  FIELD_TREE_CLEAR, FLAK_SITES, HOLD_ROWS, HUTS, inField, PARKED_ROWS, PAVED, PSP_STEEL, ROAD_WIDTH, RUNWAY, STAND_LANES, STAND_PADS,
   TAKEOFF_LINE, TAXI_LOOP, taxiRoute, TREE_CLUMPS, VEHICLES, worldToField, type FieldRect,
 } from '../../src/world/asch'
 import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from '../../src/render/floraShapes'
@@ -162,6 +162,48 @@ describe('asch 的佈局', () => {
       )))
       expect(d, `${p.x},${p.z}`).toBeLessThanOrEqual(FIELD_TREE_CLEAR - 10)
       if (p.x < FIELD_PAD.x0) expect(Math.abs(p.z), `${p.x},${p.z}`).toBeGreaterThanOrEqual(ROAD_WIDTH / 2 + 10)
+    }
+  })
+
+  /**
+   * 【一個小隊已經在跑道頭】南段滑行帶的末端排成一列、機首朝跑道，滑幾十公尺就
+   * 上跑道 —— 玩家抵達前那一批已經升空
+   */
+  it('跑道頭 4 架 P-51 排在南段滑行帶的末端、機首朝跑道、彼此不重疊', () => {
+    const south = TAXI_LOOP[2]!
+    expect(HOLD_ROWS).toHaveLength(4)
+    for (const p of HOLD_ROWS) {
+      expect(inRect(p.x, p.z, south), `${p.x},${p.z}`).toBe(true)
+      expect(inRect(p.x, p.z, RUNWAY), `${p.x},${p.z}`).toBe(false)
+      // heading −π/2 = 機首朝 +X，也就是跑道那一側
+      expect(p.heading).toBe(-Math.PI / 2)
+    }
+    const xs = HOLD_ROWS.map((p) => local(p.x, p.z).x).sort((a, b) => b - a)
+    expect(RUNWAY.x0 - xs[0]!).toBeLessThanOrEqual(50)
+    for (let i = 1; i < xs.length; i++) expect(xs[i - 1]! - xs[i]!).toBeGreaterThanOrEqual(20)
+  })
+
+  it('跑道頭那 4 架的滑行路徑很短：終點是起飛點、每一點都在鋪面上、全長 200 m 內', () => {
+    const onPaving = (x: number, z: number): boolean =>
+      PAVED.some((r) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1)
+    const line = local(TAKEOFF_LINE.x, TAKEOFF_LINE.z)
+    for (const p of HOLD_ROWS) {
+      const path = taxiRoute(p.x, p.z, 0)
+      expect(path[0]).toEqual({ x: p.x, z: p.z })
+      const end = local(path.at(-1)!.x, path.at(-1)!.z)
+      expect(end).toEqual({ x: (RUNWAY.x0 + RUNWAY.x1) / 2, z: line.z })
+      let length = 0
+      for (let i = 1; i < path.length; i++) {
+        const a = local(path[i - 1]!.x, path[i - 1]!.z)
+        const b = local(path[i]!.x, path[i]!.z)
+        length += Math.hypot(b.x - a.x, b.z - a.z)
+        const n = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z))
+        for (let k = 0; k <= n; k++) {
+          const f = n === 0 ? 0 : k / n
+          expect(onPaving(a.x + (b.x - a.x) * f, a.z + (b.z - a.z) * f), `${p.x} 第 ${i} 段`).toBe(true)
+        }
+      }
+      expect(length).toBeLessThan(200)
     }
   })
 
