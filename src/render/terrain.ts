@@ -36,10 +36,11 @@ import {
   ROAD_WIDTH as POLTAVA_ROAD_WIDTH, ROADS as POLTAVA_ROADS, RUNWAY_CONCRETE,
 } from '../world/poltava'
 import {
-  createAsch, FIELD_CENTER as ASCH_CENTER, FIELD_PAD as ASCH_PAD, FIELD_TREE_CLEAR as ASCH_TREE_CLEAR,
-  PAD_GRASS as ASCH_GRASS, PAVED as ASCH_PAVED, PSP_STEEL,
+  createAsch, FIELD_CENTER as ASCH_CENTER, FIELD_LOBES as ASCH_LOBES, FIELD_PAD as ASCH_PAD,
+  FIELD_TREE_CLEAR as ASCH_TREE_CLEAR, PAD_GRASS as ASCH_GRASS, PAVED as ASCH_PAVED, PSP_STEEL,
   ROAD_WIDTH as ASCH_ROAD_WIDTH, ROADS as ASCH_ROADS,
 } from '../world/asch'
+import { buildAschScenery } from './aschScenery'
 import type { HeightFieldData } from '../world/heightfield'
 import type { Season } from './season'
 import type { SiteLayout } from './fields'
@@ -515,10 +516,11 @@ function createPoltavaTerrain(gfx?: TerrainGfx): Terrain {
   return createInlandTerrain(createPoltava(), 'summer', POLTAVA_SITE, buildAirfieldScenery, gfx)
 }
 
-/** Y-29 的墊面（草）、跑道／滑行帶／停機墊（鋼板網）、連外道路 */
+/** Y-29 的墊面（草，含作業區與營區）、跑道／滑行帶／停機墊（鋼板網）、連外道路 */
 export const ASCH_SITE: SiteLayout = {
   pivot: { x: ASCH_CENTER.x, z: ASCH_CENTER.z },
   pad: ASCH_PAD,
+  padLobes: ASCH_LOBES,
   padHex: ASCH_GRASS,
   treeClear: ASCH_TREE_CLEAR,
   roads: ASCH_ROADS,
@@ -526,9 +528,12 @@ export const ASCH_SITE: SiteLayout = {
   patches: ASCH_PAVED.map((r) => ({ ...r, hex: PSP_STEEL })),
 }
 
-/** Y-29：農地的算繪路徑、極緩的丘、深秋的枯色、沒有佈景 */
+/** Y-29：農地的算繪路徑、極緩的丘、深秋的枯色、營房與車場的佈景 */
 function createAschTerrain(gfx?: TerrainGfx): Terrain {
-  return createInlandTerrain(createAsch(), 'lateAutumn', ASCH_SITE, undefined, gfx)
+  const farm = createAsch()
+  return createInlandTerrain(
+    farm, 'lateAutumn', ASCH_SITE, () => buildAschScenery((x, z) => farm.field.sample(x, z)), gfx,
+  )
 }
 
 /**

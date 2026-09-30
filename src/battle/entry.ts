@@ -160,6 +160,22 @@ export const CARRIER_GUARD: EntryPlan = {
 }
 
 /**
+ * Y-29 從東邊橫切：藍隊在機場（`world/asch.ts` 的 `FIELD_CENTER`，−750, −2500）
+ * 正東 7.5 km、同一個 z，機首朝西（−X）。紅隊同 `HEAD_ON`，德 M3 開場沒有紅隊。
+ *
+ * 【係數是照預設尺標算的】`along` −0.25 × 10,000 = −2,500、`across`
+ * 4.5 × 1,500 = 6,750。探針覆寫尺標的話位置會跟著縮放，那時量的就不是這一關。
+ *
+ * 【小隊前後排開】`lane` 的橫向錯開固定沿 X，機首朝西時兩個小隊變成一前一後、
+ * 相距 `schwarmSpacing` —— 對地掃射本來就是一波接一波進場。
+ */
+export const ASCH_EAST: EntryPlan = {
+  id: 'aschEast',
+  blue: { ...NEUTRAL, along: -0.25, across: 4.5, heading: Math.PI / 2 },
+  red: HEAD_ON.red,
+}
+
+/**
  * 全部的擺法。**每一張任務卡指定一個鍵。**
  *
  * 加一種擺法：這裡多一個字面值，卡片改一個字串。`createBattle` 不用動。
@@ -169,6 +185,7 @@ export const ENTRY_PLANS = {
   pursuit: PURSUIT,
   bounce: BOUNCE,
   carrierGuard: CARRIER_GUARD,
+  aschEast: ASCH_EAST,
 } as const
 
 export type EntryPlanId = keyof typeof ENTRY_PLANS
