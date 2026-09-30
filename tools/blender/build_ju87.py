@@ -407,25 +407,49 @@ LOG['fus_stations'] = [[round(s['y'], 2), round(s['top'], 3), round(s['bot'], 3)
 
 # ── 座艙罩的凸塊 ────────────────────────────────────────────────
 # 由參考模型的機身＋玻璃＋罩框（FUSG）量：每站由 CANOPY_ZS 往上到罩頂，逐 12 mm 由外往內
-# 取半寬。前端 0.60、後端 −2.43 是罩頂降回本體頂線的地方（0.746／0.609 對 0.746／0.606）；
-# 兩端各多一站往內縮進本體，封口整片埋在本體裡。
+# 取半寬。前端 1.00（罩頂高出本體頂線 6 mm，0.80 是 14 mm、0.60 是 25 mm，整流由零慢慢長
+# 出來），後端 −2.41 是罩頂降回本體頂線的地方（0.608 對 0.607）；兩端各多一站往內縮進
+# 本體，封口整片埋在本體裡。
 # 底 CANOPY_ZS 0.44 在艙緣（0.45）之下：那裡罩子與本體側壁幾乎同寬，底圈縮成 0.85 倍
 # 保證在本體裡面。兩件接著用布林聯集併成一件，沒有藏在裡面的面（拉遠才不會閃）。
-CANOPY_Y = [0.60, 0.44, 0.30, 0.245, 0.225, 0.16, 0.08, 0.00, -0.08, -0.16, -0.26, -0.40,
+CANOPY_Y = [1.00, 0.80, 0.60, 0.44, 0.30, 0.245, 0.225, 0.16, 0.08, 0.00, -0.08, -0.16, -0.26, -0.40,
             -0.55, -0.70, -0.85, -1.00, -1.15, -1.30, -1.45, -1.60, -1.75, -1.90, -2.05,
             -2.20, -2.32, -2.41]
 CANOPY_ZS = 0.44
 CHALF = 8
-def canopy_station(y):
+# 【罩子只留真的凸出本體的那一段】風擋前的整流與罩子下緣，罩子與本體的側面是同一張量到
+# 的蒙皮，兩者只差 1…2 cm；聯集之後兩張面交錯出一條鋸齒帶，前端還多一片直立的階
+# （負責人 2026-10-01 圈的正是 y 0…0.6）。所以罩子比本體凸不到 SEAM_GAP 的地方一律
+# 收進本體裡 1.5 cm，中間線性過渡：接縫只剩罩子真正長出來的那一條線。
+SEAM_GAP, SEAM_IN = 0.04, 0.015
+BODY_PROFILE = {round(s['y'], 3): s for s in STA}
+def body_w(y, z):
+    s = BODY_PROFILE.get(round(y, 3))
+    if s is None or z >= s['top'] or z <= s['bot']: return 0.0
+    zs, ws = s['z'], s['w']
+    for i in range(len(zs) - 1):
+        if zs[i] <= z <= zs[i + 1]:
+            f = (z - zs[i]) / (zs[i + 1] - zs[i]) if zs[i + 1] > zs[i] else 0.0
+            return ws[i] + (ws[i + 1] - ws[i]) * f
+    return 0.0
+def seam_w(w, wb):
+    d = w - wb
+    if wb <= 0.0 or d >= SEAM_GAP: return w
+    lo = wb - SEAM_IN
+    if d <= 0.0: return min(w, lo)
+    return lo + (w - lo) * (d / SEAM_GAP)
+CZ_STEP = 0.012
+SIDE_TOP = 0.62          # 罩側直牆的頂：玻璃下緣（盒底 0.612）之上一點
+def canopy_raw(y):
+    """一站的半寬表：z 由 CANOPY_ZS 起每 CZ_STEP 一格（所有站共用同一組絕對高度，才能沿 y 平滑）。"""
     tops = [v for v in (zmax_at(FUSG, x, y) for x in (0.0, 0.04, -0.04)) if v is not None]
     if not tops: return None
-    crown = max(tops); zs0 = CANOPY_ZS
-    n = max(10, int((crown - zs0) / 0.012))
-    zs, ws = [], []
-    for i in range(n + 1):
-        z = zs0 + (crown - zs0) * i / n
+    crown = max(tops)
+    zs = [CANOPY_ZS + CZ_STEP * k for k in range(int((crown - CANOPY_ZS) / CZ_STEP) + 1)]
+    ws = []
+    for z in zs:
         h = hit(FUSG, (2.0, y, z), (-1, 0, 0), 3.0)
-        zs.append(z); ws.append(h.x if (h is not None and 0.0 < h.x <= W_CAP) else None)
+        ws.append(h.x if (h is not None and 0.0 < h.x <= W_CAP) else None)
     valid = [i for i, w in enumerate(ws) if w is not None]
     if not valid: return None
     fixed = []
@@ -435,10 +459,47 @@ def canopy_station(y):
         hi = min([j for j in valid if j > i], default=None)
         fixed.append(ws[hi] if lo is None else ws[lo] if hi is None else
                      ws[lo] + (ws[hi] - ws[lo]) * (zs[i] - zs[lo]) / (zs[hi] - zs[lo]))
+    # 【剖面只准往下變寬】參考的罩子下緣有一道滑軌槽：y −1.0 由艙緣往上 0.398（z 0.45）
+    # → 0.353（0.56）→ 0.385（0.57），先收再外擴。照抄的話罩子下緣是一道暗色的凹摺加
+    # 一圈唇。每一高度取「它以上最寬的那個值」，槽被填平。
+    for i in range(len(fixed) - 2, -1, -1):
+        fixed[i] = max(fixed[i], fixed[i + 1])
+    return {'y': y, 'crown': crown, 'z': zs, 'w': fixed}
+CRAW = [r for r in (canopy_raw(y) for y in CANOPY_Y) if r is not None]
+# 【罩側是一道直牆】參考的滑動罩（y −0.2…−0.9）比前面的風擋、後面的後座罩都寬 4…5 cm
+# （z 0.48：0.445 對 0.39），從外面疊上去，前後各是一道直立的階，罩框底下還有一條朝下的
+# 簷。所以 SIDE_TOP 以下一律改成直線：由本體在 CANOPY_ZS 的半寬拉到 SIDE_TOP 的罩寬。
+for r in CRAW:
+    k1 = min(range(len(r['z'])), key=lambda k: abs(r['z'][k] - SIDE_TOP))
+    w0 = body_w(r['y'], CANOPY_ZS) or r['w'][0]; w1 = r['w'][k1]
+    for k in range(k1):
+        t = (r['z'][k] - CANOPY_ZS) / (r['z'][k1] - CANOPY_ZS)
+        r['w'][k] = w0 + (w1 - w0) * t
+# 【沿 y 平滑】滑動罩的寬度要沿著機身慢慢長出來、慢慢收回去，不是一站跳 5 cm。同一個
+# 絕對高度的半寬沿 y 做不等距拉普拉斯（λ0.5 × 6）；首尾兩站不動（那裡罩子正要長出／收回）。
+for _ in range(6):
+    new = []
+    for i, r in enumerate(CRAW):
+        if i == 0 or i == len(CRAW) - 1: new.append(r['w'][:]); continue
+        a, b = CRAW[i - 1], CRAW[i + 1]
+        t = (r['y'] - a['y']) / (b['y'] - a['y'])
+        row = []
+        for k, w in enumerate(r['w']):
+            if k < len(a['w']) and k < len(b['w']):
+                wl = a['w'][k] + (b['w'][k] - a['w'][k]) * t
+                row.append(w + (wl - w) * 0.5)
+            else: row.append(w)
+        new.append(row)
+    for r, row in zip(CRAW, new): r['w'] = row
+def canopy_station(r):
+    y, crown = r['y'], r['crown']
+    zs = r['z'] + ([crown] if crown - r['z'][-1] > 1e-4 else [])
+    ws = r['w'] + ([0.0] if len(zs) > len(r['w']) else [])
+    fixed = [seam_w(w, body_w(y, z)) for w, z in zip(ws, zs)]
     fixed[0] *= 0.85; fixed[-1] = 0.0
     # 底中點：剖面由 (0, 底) 起
-    return {'y': y, 'top': crown, 'bot': zs0, 'z': [zs0] + zs, 'w': [0.0] + fixed}
-CST = [s for s in (canopy_station(y) for y in CANOPY_Y) if s is not None]
+    return {'y': y, 'top': crown, 'bot': CANOPY_ZS, 'z': [CANOPY_ZS] + zs, 'w': [0.0] + fixed}
+CST = [canopy_station(r) for r in CRAW]
 for s in CST: s['lv'] = arc_levels(s, CHALF)
 smooth_levels(CST)
 def shrunk(s, dy):
