@@ -111,9 +111,10 @@ describe('船的塗裝 UV', () => {
     ], 3))
     applyShipLiveryUv(g, 'body', L)
     const uv = g.getAttribute('uv')
-    // 兩塊的形狀相同、只差 z 20 m；擺法照零件錯開，所以 UV 差的不是 20 m 的平移
+    // 兩塊的形狀相同、只差 z 20 m；擺法照零件錯開：UV 既不重疊，也不是 20 m 的平移
     const du = (uv.getX(3) - uv.getX(0)) * SHIP_LIVERY_WIDTH
     const dv = (uv.getY(3) - uv.getY(0)) * SHIP_LIVERY_HEIGHT
+    expect(Math.hypot(du, dv)).toBeGreaterThan(5)
     expect(Math.abs(du - 20 * L.scale) + Math.abs(dv)).toBeGreaterThan(5)
   })
 
@@ -423,7 +424,25 @@ describe.each(SHIPS)('%s 套塗裝', (id, want) => {
         expect(m.color.getHex()).toBe(want)
         // 【細件照船身的投影讀髒污圖】少了 UV 的話整個細件讀同一個像素
         expect(m.map).toBe(grime)
-        expect(mesh.geometry.getAttribute('uv')?.count).toBe(mesh.geometry.getAttribute('position').count)
+        const pos = mesh.geometry.getAttribute('position')
+        const uv = mesh.geometry.getAttribute('uv')
+        expect(uv?.count).toBe(pos.count)
+        // 細件朝上的面讀頂面區（有髒污），不是甲板條（不蓋髒污）
+        const top = shipLiveryRects(def.layout).top
+        let ups = 0
+        for (let i = 0; i + 2 < pos.count; i += 3) {
+          const ux = pos.getX(i + 1) - pos.getX(i), uy = pos.getY(i + 1) - pos.getY(i), uz = pos.getZ(i + 1) - pos.getZ(i)
+          const vx = pos.getX(i + 2) - pos.getX(i), vy = pos.getY(i + 2) - pos.getY(i), vz = pos.getZ(i + 2) - pos.getZ(i)
+          const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
+          if (ny < 1.5 * Math.hypot(nx, nz)) continue
+          ups++
+          for (let k = 0; k < 3; k++) {
+            const x = uv.getX(i + k) * SHIP_LIVERY_WIDTH, y = uv.getY(i + k) * SHIP_LIVERY_HEIGHT
+            expect(x >= top.x - 1e-3 && x <= top.x + top.w + 1e-3 && y >= top.y - 1e-3 && y <= top.y + top.h + 1e-3,
+              `${mesh.name} 第 ${i / 3} 面`).toBe(true)
+          }
+        }
+        expect(ups, mesh.name).toBeGreaterThan(0)
       } else {
         expect(m.map).toBe(tex)
         expect(m.color.getHex()).toBe(0xffffff)

@@ -90,6 +90,17 @@ describe('髒污印子', () => {
     expect(g.globalAlpha).toBe(1)
   })
 
+  /** 【密度】負責人看過截圖後定的量：三種合計每平方公尺 0.63 個（原本 1.26 的一半） */
+  it('每一條的印子數是面積 × 0.63', () => {
+    const R = shipLiveryRects(L)
+    const stamps = grimeStamps(L, seq(9))
+    for (const r of [R.port, R.starboard, R.top]) {
+      const n = stamps.filter((s) => s.strip.x === r.x && s.strip.y === r.y).length
+      const area = (r.w / L.scale) * (r.h / L.scale)
+      expect(n / area).toBeCloseTo(0.63, 2)
+    }
+  })
+
   /** 【每次載入不同】遊戲傳 Math.random；同一個亂數序列則結果相同 */
   it('亂數不同位置不同，亂數相同結果相同', () => {
     const a = grimeStamps(L, seq(11))
