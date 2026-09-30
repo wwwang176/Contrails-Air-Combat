@@ -1,7 +1,10 @@
 import {
   CanvasTexture, Group, RepeatWrapping, Vector3, type Texture,
 } from 'three'
-import { createWakes, type WakeStyle, type Wakes } from './wake'
+import {
+  createSinkBoxes, createWakes, type OceanHeightUniforms, type SinkBoxes, type WakeStyle,
+  type Wakes,
+} from './wake'
 import type { Ship } from '../world/ships'
 
 /**
@@ -26,7 +29,7 @@ import type { Ship } from '../world/ships'
  */
 export const SHIP_STERN_WAKE: WakeStyle = {
   nodes: 128, spacing: 10, life: 70, halfFrom: 0.7, halfTo: 8.0, spread: 0.5, alpha: 0.7,
-  foamTile: 40,
+  foamTile: 40, columns: 9,
 }
 
 /**
@@ -37,7 +40,7 @@ export const SHIP_STERN_WAKE: WakeStyle = {
  */
 export const SHIP_BOW_WAKE: WakeStyle = {
   nodes: 48, spacing: 3, life: 7, halfFrom: 0.2, halfTo: 3.6, spread: 0.6, alpha: 1.0,
-  foamTile: 20,
+  foamTile: 20, columns: 4,
 }
 
 /**
@@ -110,32 +113,33 @@ export function shipWakePoint(
   return out.set(0, 0, z).applyQuaternion(ship.orientation).add(at)
 }
 
-/**
- * (x, z) 在不在某一艘船的船身範圍內（俯視，照船體盒的半長半寬）。`cos`／`sin` 是
- * 每艘船的艏向，呼叫端每幀算一次。
- */
-export function insideShips(
-  ships: readonly Ship[], cos: Float64Array, sin: Float64Array, x: number, z: number,
-): boolean {
-  for (let k = 0; k < ships.length; k++) {
+/** 把活著的船的船身（俯視，照船體盒的半長半寬）寫進 `out` */
+export function shipSinkBoxes(ships: readonly Ship[], out: SinkBoxes): void {
+  let n = 0
+  for (let k = 0; k < ships.length && n < out.x.length; k++) {
     const s = ships[k]!
     if (!s.alive) continue
     const { halfLength, halfBeam } = shipHalfSize(s)
-    const dx = x - s.position.x
-    const dz = z - s.position.z
-    // 轉回艦體座標：繞 +Y 轉 −艏向
-    const lx = dx * cos[k]! - dz * sin[k]!
-    const lz = dx * sin[k]! + dz * cos[k]!
-    if (Math.abs(lx) <= halfBeam && Math.abs(lz) <= halfLength) return true
+    const q = s.orientation
+    const yaw = 2 * Math.atan2(q.y, q.w)
+    out.x[n] = s.position.x
+    out.z[n] = s.position.z
+    out.cos[n] = Math.cos(yaw)
+    out.sin[n] = Math.sin(yaw)
+    out.halfLength[n] = halfLength
+    out.halfBeam[n] = halfBeam
+    n++
   }
-  return false
+  out.count = n
 }
 
 export interface ShipWakes {
   readonly object: Group
-  /** 渲染幀率呼叫。`heightAt` 是浪高場，帶子跟著浪起伏 */
+  /** 渲染幀率呼叫。`heightAt` 是浪高場，沒接海面時帶子照它起伏 */
   step(ships: readonly Ship[], dt: number, time: number,
     heightAt: (x: number, z: number, t: number) => number): void
+  /** 接上海面的浪高 uniform（`Terrain.oceanHeight`），浪高改在著色器裡算 */
+  bindOcean(ocean: OceanHeightUniforms | null): void
   dispose(): void
 }
 
@@ -144,8 +148,12 @@ export interface ShipWakes {
  */
 export function createShipWakes(ships: readonly Ship[], foam: Texture | null = null): ShipWakes {
   const slots = Math.max(1, ships.length)
-  const stern: Wakes = createWakes(slots, SHIP_STERN_WAKE, foam)
-  const bow: Wakes = createWakes(slots, SHIP_BOW_WAKE, foam)
+  // 【船身底下的帶子壓在水線】艦尾那一條從船身底下開始落；浪峰高的時候照浪抬起來
+  // 會比艦尾甲板還高，泡沫從甲板上冒出來。那一段本來就被船身蓋住，出了船身才跟著浪
+  // 起伏。每一艘都算 —— 縱隊裡後船會開過前船的航跡
+  const sink = createSinkBoxes(slots)
+  const stern: Wakes = createWakes(slots, SHIP_STERN_WAKE, { foam, sink })
+  const bow: Wakes = createWakes(slots, SHIP_BOW_WAKE, { foam, sink })
   for (let k = 0; k < ships.length; k++) {
     const { halfBeam } = shipHalfSize(ships[k]!)
     stern.widen(k, halfBeam)
@@ -175,29 +183,10 @@ export function createShipWakes(ships: readonly Ship[], foam: Texture | null = n
     bow.step(PREWARM_STEP, 0, flat)
   }
 
-  // 【船身底下的帶子壓在水線】艦尾那一條從船身底下開始落；浪峰高的時候照浪抬起來
-  // 會比艦尾甲板（Fletcher 只有 2.7 m）還高，泡沫從甲板上冒出來。船身範圍內一律不
-  // 高過水線 —— 那一段本來就被船身蓋住，出了船身才跟著浪起伏
-  const cos = new Float64Array(slots)
-  const sin = new Float64Array(slots)
-  let current: readonly Ship[] = ships
-  let base: (x: number, z: number, t: number) => number = flat
-  const clamped = (x: number, z: number, t: number): number => {
-    const h = base(x, z, t)
-    return h > 0 && insideShips(current, cos, sin, x, z) ? 0 : h
-  }
-
   return {
     object,
     step(list, dt, time, heightAt) {
-      current = list
-      base = heightAt
-      for (let k = 0; k < list.length && k < slots; k++) {
-        const q = list[k]!.orientation
-        const yaw = 2 * Math.atan2(q.y, q.w)
-        cos[k] = Math.cos(yaw)
-        sin[k] = Math.sin(yaw)
-      }
+      shipSinkBoxes(list, sink)
       for (let k = 0; k < list.length && k < slots; k++) {
         const s = list[k]!
         if (!s.alive || !(s.speed >= SHIP_WAKE_MIN_SPEED)) continue
@@ -206,8 +195,12 @@ export function createShipWakes(ships: readonly Ship[], foam: Texture | null = n
         shipWakePoint(s, -1, V)
         bow.emit(k, V.x, V.z, s.index)
       }
-      stern.step(dt, time, clamped)
-      bow.step(dt, time, clamped)
+      stern.step(dt, time, heightAt)
+      bow.step(dt, time, heightAt)
+    },
+    bindOcean(ocean) {
+      stern.bindOcean(ocean)
+      bow.bindOcean(ocean)
     },
     dispose() {
       stern.dispose()

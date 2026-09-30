@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { Vector3, type Mesh } from 'three'
 import {
-  SHIP_BOW_WAKE, SHIP_STERN_WAKE, STERN_WAKE_START, createShipWakes, insideShips, shipHalfSize,
-  shipWakePoint,
+  SHIP_BOW_WAKE, SHIP_STERN_WAKE, STERN_WAKE_START, createShipWakes, shipHalfSize,
+  shipSinkBoxes, shipWakePoint,
 } from '../../src/render/shipWakes'
 import { SHIP_CLASSES, createShip } from '../../src/world/ships'
-import { TORPEDO_WAKE, wakeHalfWidth } from '../../src/render/wake'
+import {
+  TORPEDO_WAKE, WAKE_LIFT, createSinkBoxes, insideSinkBox, wakeHalfWidth,
+} from '../../src/render/wake'
+import { WAVES } from '../../src/render/ocean'
 
 /**
  * # 船的航跡
@@ -100,13 +103,13 @@ describe('船的航跡', () => {
   it('船身範圍內的帶子壓在水線，船身外照浪高', () => {
     const ship = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, 0, Math.PI / 2, 8)
     const { halfLength, halfBeam } = shipHalfSize(ship)
-    const cos = new Float64Array([Math.cos(Math.PI / 2)])
-    const sin = new Float64Array([Math.sin(Math.PI / 2)])
+    const boxes = createSinkBoxes(1)
+    shipSinkBoxes([ship], boxes)
     // 艏向轉 90°：船身沿 x 軸
-    expect(insideShips([ship], cos, sin, halfLength - 1, 0)).toBe(true)
-    expect(insideShips([ship], cos, sin, 0, halfBeam - 0.5)).toBe(true)
-    expect(insideShips([ship], cos, sin, halfLength + 1, 0)).toBe(false)
-    expect(insideShips([ship], cos, sin, 0, halfBeam + 0.5)).toBe(false)
+    expect(insideSinkBox(boxes, 0, halfLength - 1, 0)).toBe(true)
+    expect(insideSinkBox(boxes, 0, 0, halfBeam - 0.5)).toBe(true)
+    expect(insideSinkBox(boxes, 0, halfLength + 1, 0)).toBe(false)
+    expect(insideSinkBox(boxes, 0, 0, halfBeam + 0.5)).toBe(false)
 
     const w = createShipWakes([ship])
     const waves = () => 3
@@ -114,13 +117,14 @@ describe('船的航跡', () => {
     const [stern] = w.object.children as [Mesh, Mesh]
     const p = stern.geometry.getAttribute('position')
     const a = stern.geometry.getAttribute('aAlpha')
-    // 高度照節點（左右兩個頂點的中點）算，同一對頂點同高
+    const sink = stern.geometry.getAttribute('aSink')
     let under = 0
-    for (let i = 0; i + 1 < p.count; i += 2) {
+    for (let i = 0; i < p.count; i++) {
       if (a.getX(i) <= 0) continue
-      const mx = (p.getX(i) + p.getX(i + 1)) / 2
-      const mz = (p.getZ(i) + p.getZ(i + 1)) / 2
-      if (insideShips([ship], cos, sin, mx, mz)) {
+      const inside = insideSinkBox(boxes, 0, p.getX(i), p.getZ(i))
+      // 著色器算浪高時讀的旗標與 CPU 自己壓的是同一個判斷
+      expect(sink.getX(i)).toBe(inside ? 1 : 0)
+      if (inside) {
         under++
         expect(p.getY(i)).toBeLessThan(1)
       } else {
@@ -128,6 +132,66 @@ describe('船的航跡', () => {
       }
     }
     expect(under).toBeGreaterThan(0)
+  })
+
+  /**
+   * 【接了海面，浪高交給著色器】CPU 只寫浮起的那 WAKE_LIFT；再加 CPU 的浪高就是算兩次，
+   * 帶子浮在浪上一倍高
+   */
+  it('接了海面之後頂點只帶 WAKE_LIFT，不再問浪高場', () => {
+    const ship = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, 0, 0, 8)
+    const w = createShipWakes([ship])
+    let asked = 0
+    const waves = () => { asked++; return 3 }
+    w.bindOcean({ uTime: { value: 0 } })
+    w.step([ship], 0.1, 0, waves)
+    expect(asked).toBe(0)
+    const [stern] = w.object.children as [Mesh, Mesh]
+    const p = stern.geometry.getAttribute('position')
+    const a = stern.geometry.getAttribute('aAlpha')
+    let seen = 0
+    for (let i = 0; i < p.count; i++) {
+      if (a.getX(i) <= 0) continue
+      seen++
+      expect(p.getY(i)).toBeCloseTo(WAKE_LIFT, 6)
+    }
+    expect(seen).toBeGreaterThan(0)
+    // 解開之後回到 CPU 問浪高
+    w.bindOcean(null)
+    w.step([ship], 0.1, 0.1, waves)
+    expect(asked).toBeGreaterThan(0)
+  })
+
+  /**
+   * 【寬的帶子橫向要切】浪高只在頂點上取樣、頂點之間是直線；一段寬過最短那道浪的
+   * 六分之一，浪峰處的弦低於海面超過 WAKE_LIFT 能蓋的量，中段被浪蓋掉
+   */
+  it('每一艘船的航跡散到最寬時，橫向每一段都短於最短浪長的六分之一', () => {
+    const shortest = Math.min(...WAVES.map((wv) => wv.wavelength))
+    for (const cls of Object.values(SHIP_CLASSES)) {
+      const ship = createShip(0, cls, 'red', 0, 0, 0, 8)
+      const { halfBeam } = shipHalfSize(ship)
+      for (const style of [SHIP_STERN_WAKE, SHIP_BOW_WAKE]) {
+        const segment = (2 * style.halfTo * halfBeam) / (style.columns ?? 1)
+        expect(segment, `${cls.name}`).toBeLessThanOrEqual(shortest / 6)
+      }
+    }
+    // 幾何上真的切了：同一個節點的相鄰頂點距離 = 帶寬 ÷ 段數
+    const { ship, w } = sail(8, 30)
+    const [stern] = w.object.children as [Mesh, Mesh]
+    const p = stern.geometry.getAttribute('position')
+    const a = stern.geometry.getAttribute('aAlpha')
+    const cols = SHIP_STERN_WAKE.columns! + 1
+    const { halfBeam } = shipHalfSize(ship)
+    const limit = (2 * SHIP_STERN_WAKE.halfTo * halfBeam) / SHIP_STERN_WAKE.columns!
+    let checked = 0
+    for (let i = 0; i + 1 < p.count; i++) {
+      if (i % cols === cols - 1 || a.getX(i) <= 0) continue
+      const d = Math.hypot(p.getX(i + 1) - p.getX(i), p.getZ(i + 1) - p.getZ(i))
+      expect(d).toBeLessThanOrEqual(limit + 1e-3)
+      checked++
+    }
+    expect(checked).toBeGreaterThan(SHIP_STERN_WAKE.columns!)
   })
 
   /** 【扇形】前段就張開：壽命走到四分之一時，寬度已經走完一半 */
@@ -152,11 +216,14 @@ describe('船的航跡', () => {
     const a = stern.geometry.getAttribute('aAlpha')
     const ratios: number[] = []
     let narrow = Infinity, wide = 0
-    for (let i = 0; i + 1 < p.count; i += 2) {
+    // 左緣到右緣：每個節點一排 cols 個頂點
+    const cols = SHIP_STERN_WAKE.columns! + 1
+    for (let i = 0; i + cols - 1 < p.count; i += cols) {
+      const r = i + cols - 1
       if (a.getX(i) <= 0) continue
-      const width = Math.hypot(p.getX(i + 1) - p.getX(i), p.getZ(i + 1) - p.getZ(i))
+      const width = Math.hypot(p.getX(r) - p.getX(i), p.getZ(r) - p.getZ(i))
       if (width < 1e-3) continue
-      const du = Math.abs(uv.getX(i + 1) - uv.getX(i))
+      const du = Math.abs(uv.getX(r) - uv.getX(i))
       ratios.push(du / width)
       narrow = Math.min(narrow, width); wide = Math.max(wide, width)
     }

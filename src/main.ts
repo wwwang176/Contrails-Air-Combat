@@ -3081,8 +3081,11 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
       wakes.emit(i, t.x[i]!, t.z[i]!, t.serial[i]!)
     }
   }
-  // 【高度交給它自己每幀問】帶子要跟著看得見的浪起伏，否則會被浪蓋掉
+  // 【浪高與海面同一組 uniform】帶子要跟著看得見的浪起伏，否則會被浪蓋掉。地形每場
+  // 重建，所以每幀接一次（沒換就只是比對參考）
+  wakes.bindOcean(terrain.oceanHeight)
   wakes.step(worldSeconds, elapsed, terrain.heightAt)
+  shipWakes?.bindOcean(terrain.oceanHeight)
   shipWakes?.step(world.ships, worldSeconds, elapsed, terrain.heightAt)
   vortex.step(worldSeconds)
   spray.step(worldSeconds)
