@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { ShaderLib, type MeshBasicMaterial } from 'three'
+import { ShaderLib, Texture, type MeshBasicMaterial } from 'three'
+import { OCEAN_HEIGHT_GLSL } from '../../src/render/ocean'
 import {
   WAKE_ALPHA, WAKE_HALF_FROM, WAKE_HALF_TO, WAKE_LIFE, WAKE_LIFT, WAKE_NODES,
-  WAKE_NODE_SPACING, WAKE_REAL_NODES, createWakes, ribbonIndices, wakeAlpha,
+  TORPEDO_WAKE, WAKE_NODE_SPACING, WAKE_REAL_NODES, createWakes, ribbonIndices, wakeAlpha,
   wakeEmitCount, wakeHalfWidth,
 } from '../../src/render/wake'
 
@@ -318,6 +319,53 @@ describe('貼著浪面', () => {
     w.step(0, 0, () => 3.5)
     expect(vertex(w, 0, 0, 0)[1]).toBeCloseTo(WAKE_LIFT, 6)
     w.dispose()
+  })
+
+  /**
+   * 【沒海那一支編譯時也要裝上浪高 uniform】three.js 切回已快取的程式時不再呼叫
+   * `onBeforeCompile`，沿用最後一次編譯留下的 uniform 表。有海 → 沒海 → 有海（打完
+   * 洛伊納回到海上）之後，那張表若是沒海那一支的，浪高 uniform 不再上傳
+   */
+  it('沒接海面時編出來的 uniform 表，接上之後照樣讀得到每一個浪高 uniform', () => {
+    const w = createWakes(2)
+    const mat = w.object.material as MeshBasicMaterial
+    const shader = {
+      vertexShader: ShaderLib.basic.vertexShader,
+      fragmentShader: ShaderLib.basic.fragmentShader,
+      uniforms: {} as Record<string, { value: unknown }>,
+    }
+    mat.onBeforeCompile(shader as never, undefined as never)
+    const names = [...OCEAN_HEIGHT_GLSL.matchAll(/uniform\s+\w+\s+(\w+)/g)].map((m) => m[1]!)
+    expect(names.length).toBeGreaterThan(10)
+    const ocean: Record<string, { value: unknown }> = {}
+    names.forEach((n, i) => { ocean[n] = { value: i + 100 } })
+    w.bindOcean(ocean)
+    for (const [i, n] of names.entries()) expect(shader.uniforms[n]?.value, n).toBe(i + 100)
+    w.dispose()
+  })
+
+  /** 【泡沫著色器要有紋理】沒有 `map` 時 three.js 不宣告 `map`／`vMapUv`，著色器編不過 */
+  it('有泡沫樣式但沒給紋理：不注入泡沫取樣，快取鍵與有紋理的不同', () => {
+    const style = { ...TORPEDO_WAKE, foamTile: 20 }
+    const compile = (w: ReturnType<typeof createWakes>) => {
+      const mat = w.object.material as MeshBasicMaterial
+      const shader = {
+        vertexShader: ShaderLib.basic.vertexShader,
+        fragmentShader: ShaderLib.basic.fragmentShader,
+        uniforms: {} as Record<string, { value: unknown }>,
+      }
+      mat.onBeforeCompile(shader as never, undefined as never)
+      return { frag: shader.fragmentShader, key: mat.customProgramCacheKey() }
+    }
+    const bare = createWakes(1, style)
+    const textured = createWakes(1, style, { foam: new Texture() })
+    const a = compile(bare)
+    const b = compile(textured)
+    expect(a.frag).not.toContain('vMapUv')
+    expect(b.frag).toContain('vMapUv')
+    expect(a.key).not.toBe(b.key)
+    bare.dispose()
+    textured.dispose()
   })
 
   it('橫向垂直於航向 —— 往 −Z 走時左右緣分在 ±X', () => {
