@@ -9,6 +9,7 @@ import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
 import { HE111, HE111_HISTORICAL } from '../../src/specs/he111'
 import { B17G, B17G_HISTORICAL } from '../../src/specs/b17g'
+import { JU87 } from '../../src/specs/ju87'
 import type { AircraftSpec, HistoricalReference } from '../../src/specs/types'
 
 const DT = 1 / 240
@@ -135,7 +136,7 @@ describe('轟炸機另一組手感輪廓', () => {
    * 所以極速不該動。若日後有人只調其中一項，這裡會先紅。
    */
   it('power 與 cd0 同乘 ⇒ 海平面極速不動（1% 之內）', () => {
-    for (const spec of [HE111, B17G]) {
+    for (const spec of [HE111, B17G, JU87]) {
       const a = maxLevelSpeed(applyFeel(spec, GAME_FEEL), 0)
       const b = maxLevelSpeed(applyFeel(spec, BOMBER_FEEL), 0)
       expect(Math.abs(b - a) / a).toBeLessThan(0.01)
@@ -145,6 +146,10 @@ describe('轟炸機另一組手感輪廓', () => {
   /**
    * 裁定的內容本身：轟炸機的出貨爬升率對史實的倍數，要落在戰鬥機那個
    * 1.89× 附近。不另訂輪廓時是 2.71×／2.94×，會直接超出上界。
+   *
+   * 【Ju 87 不在這裡】它的史實爬升是二手「12 分到 3,700 m」的平均換算、載重
+   * 不明（`historical.test.ts` 的 PENDING），拿來當分母得 1.69×；對模型自己的
+   * 原始爬升則是 2.01×，與 He 111 的 1.98× 同一級。
    */
   it('出貨爬升倍數落在 [1.7, 2.1]（戰鬥機是 1.89×）', () => {
     const cases: [AircraftSpec, HistoricalReference][] = [

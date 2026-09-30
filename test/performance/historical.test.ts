@@ -11,6 +11,7 @@ import { F4F4, F4F4_HISTORICAL } from '../../src/specs/f4f4'
 import { KI84, KI84_HISTORICAL } from '../../src/specs/ki84'
 import { A6M5, A6M5_HISTORICAL } from '../../src/specs/a6m5'
 import { G4M, G4M_HISTORICAL } from '../../src/specs/g4m'
+import { JU87, JU87_HISTORICAL } from '../../src/specs/ju87'
 import type { AircraftSpec, HistoricalReference } from '../../src/specs/types'
 
 const TOLERANCE = 0.05
@@ -160,6 +161,24 @@ const PENDING: readonly { id: string; check: Check; reason: string }[] = [
      */
     reason: '−6.1%。275 mph 是 Grumman 的估算，與量到的 319 mph @ 19,400 ft 在等出力下差 6%',
   },
+  /**
+   * 【Ju 87 的四項都不是「量錯」，是那四個數字不屬於模型的載重或狀態】手冊
+   * （Betriebsanleitung Ju 87 B-2，1940）沒有極速與爬升，那一張 Rechlin 的表沒有
+   * 公開。模型的載重是手冊的起飛重量 4,390 kg（帶 500 kg 彈），二手數字大多沒
+   * 標載重。同一組係數換到不帶彈的 3,705 kg 時各項會怎麼動，寫在
+   * `specs/ju87.ts` 的 `JU87_HISTORICAL`。
+   */
+  { id: 'ju87', check: 'vmaxCritical', reason: '−3.9%。380 km/h 是二手、多半是不帶彈；3,705 kg 時 −1.3%' },
+  { id: 'ju87', check: 'vmaxSeaLevel', reason: '−6.2%。340 km/h 是二手的「乾淨」構型，模型帶著 500 kg 彈' },
+  { id: 'ju87', check: 'climb', reason: '史實值是「12 分到 3,700 m」的平均換算、載重不明；模型帶彈 13.1 分、不帶彈 9.3 分' },
+  { id: 'ju87', check: 'stall', reason: '手冊的 130 km/h 是**全油門**失速，模型算的是無動力（143.7，高 10.5%，方向對）' },
+  /**
+   * 【峰值不在 4,100 m 是手冊自己的引擎數字決定的】Wertangaben 頁：高空檔
+   * 「950 PS、額定高度 5,400 m」。模型的極速因此在 5,500 m 到頂（389.8 km/h，
+   * 正好是沒標高度、最常被引用的「390 km/h」），4,100 m 是 363.4。二手的
+   * 「380 km/h @ 4,100 m」與手冊的額定高度互相矛盾，採手冊。
+   */
+  { id: 'ju87', check: 'peak', reason: '模型峰值在 5,500 m（389.8 km/h），照手冊高空檔額定高度 5,400 m；二手的 4,100 m 與它矛盾' },
 ]
 
 const CASES: {
@@ -222,6 +241,11 @@ const CASES: {
     hist: G4M_HISTORICAL,
     checks: ['vmaxCritical', 'vmaxSeaLevel', 'climb', 'ceiling', 'peak'],
   },
+  /**
+   * 【這張表只守升限，另有一段守手冊的錨點】手冊只有升限屬於這個型別的
+   * 欄位；它另外給的巡航點與不帶彈升限在下面的 `Ju 87 B-2 手冊錨點` 那一段。
+   */
+  { spec: JU87, hist: JU87_HISTORICAL, checks: ['ceiling'] },
 ]
 
 describe('L2 史實性能（極速／失速／升限／爬升率 ±5%，並另有比值斷言）', () => {
@@ -295,5 +319,44 @@ describe('L2 史實性能（極速／失速／升限／爬升率 ±5%，並另�
     const modelRatio = maxClimbRate(BF109K4, 0).rate / maxClimbRate(P51D, 0).rate
     // 實測：模型 1.3463、史實 1.3397、+0.49%
     expectWithin(modelRatio, histRatio, 'K-4 ÷ P-51D 海平面爬升比')
+  })
+})
+
+/**
+ * Ju 87 B-2 手冊（Betriebsanleitung, 1940）裡另外兩件量，不在
+ * `HistoricalReference` 的欄位上，但比那張表上的二手數字可靠得多。
+ *
+ * 【巡航點：功率與速度同一份文件】持續出力（1.10 ata、2,100 rpm）的三個點是
+ * 手冊的：地面 800 PS、地面檔額定 900、高空檔額定 800；真空速海平面 300、
+ * 5 km 350 km/h。`cd0` 就是由它定的。
+ *
+ * 【不帶彈升限：阻力極線的第二個證人】手冊的 9,300 m 是「不帶彈、平均重量」，
+ * 4,390 − 500 彈 − 半油 185 = 3,705 kg。它沒有參與校準 —— 同一條極線在兩個
+ * 載重下都對上，才證明那不是一個重量配一個阻力湊出來的。
+ */
+describe('Ju 87 B-2 手冊錨點', () => {
+  const PS = 735.5
+  const [bl, hl] = JU87.engine.gears
+  const cruise: AircraftSpec = {
+    ...JU87,
+    engine: {
+      ...JU87.engine,
+      gears: [
+        { ...bl!, powerSeaLevel: 800 * PS, powerCritical: 900 * PS },
+        { ...hl!, powerSeaLevel: hl!.powerSeaLevel * 800 / 950, powerCritical: 800 * PS },
+      ],
+    },
+  }
+
+  it('持續出力巡航：海平面 300 km/h（真空速）', () => {
+    expectWithin(maxLevelSpeed(cruise, 0) * KMH, 300, '海平面巡航 (km/h)')
+  })
+
+  it('持續出力巡航：5 km 350 km/h（真空速）', () => {
+    expectWithin(maxLevelSpeed(cruise, 5000) * KMH, 350, '5 km 巡航 (km/h)')
+  })
+
+  it('不帶彈、平均重量 3,705 kg 的實用升限 9,300 m', () => {
+    expectWithin(serviceCeiling({ ...JU87, mass: 3705 }), 9300, '不帶彈升限 (m)')
   })
 })

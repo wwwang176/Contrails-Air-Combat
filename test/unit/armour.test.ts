@@ -9,6 +9,7 @@ import { KI84 } from '../../src/specs/ki84'
 import { F4F4 } from '../../src/specs/f4f4'
 import { F6F5 } from '../../src/specs/f6f5'
 import { G4M } from '../../src/specs/g4m'
+import { JU87 } from '../../src/specs/ju87'
 import { B17G } from '../../src/specs/b17g'
 import { HE111 } from '../../src/specs/he111'
 
@@ -45,7 +46,7 @@ describe('penetrationDamage', () => {
 })
 
 describe('口徑資料', () => {
-  const specs = [A6M5, P51D, BF109K4, KI84, F4F4, F6F5, G4M, B17G, HE111]
+  const specs = [A6M5, P51D, BF109K4, KI84, F4F4, F6F5, G4M, B17G, HE111, JU87]
 
   /** 【每一挺都要有】漏填的那一挺會被當成 0，對任何裝甲都打不穿 */
   it('每一款飛機的槍都填了正的口徑', () => {

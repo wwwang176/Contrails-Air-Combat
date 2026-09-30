@@ -3,6 +3,7 @@ import { Vector3 } from 'three'
 import { HE111 } from '../../src/specs/he111'
 import { B17G } from '../../src/specs/b17g'
 import { G4M } from '../../src/specs/g4m'
+import { JU87 } from '../../src/specs/ju87'
 import { segmentBox, NO_HIT } from '../../src/world/hit'
 import { TURRET_MOUNT_REACH } from '../../src/weapons/turret'
 import type { AircraftSpec } from '../../src/specs/types'
@@ -12,7 +13,10 @@ import type { AircraftSpec } from '../../src/specs/types'
  * **外形**斷言（頂點數、命中盒幾何）就會開始跑兩台轟炸機，違反
  * 「不為飛機外形寫測試」的既有裁決。這裡只跑砲塔的跨模組一致性。
  */
-const TURRET_CASES: readonly AircraftSpec[] = [HE111, B17G, G4M]
+/** 沒有駕駛員扣的前射武器：可以轉向的全是砲塔 */
+const NO_FORWARD_GUNS: readonly AircraftSpec[] = [HE111, B17G, G4M]
+/** Ju 87 有兩挺翼內 MG 17 由駕駛員扣發，所以不在上面那一份 */
+const TURRET_CASES: readonly AircraftSpec[] = [...NO_FORWARD_GUNS, JU87]
 
 describe('砲塔的位置與射界', () => {
   for (const spec of TURRET_CASES) {
@@ -92,7 +96,7 @@ describe('兩台轟炸機沒有固定前射武器', () => {
    * 可以轉向的都交給 AI，玩家不控火砲。
    */
   it('mounts 是空的', () => {
-    for (const s of TURRET_CASES) {
+    for (const s of NO_FORWARD_GUNS) {
       expect(s.battery.mounts, `${s.id} 的掛架該是空的`).toHaveLength(0)
     }
   })

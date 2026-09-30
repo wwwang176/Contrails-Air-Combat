@@ -16,6 +16,7 @@ import { B17G } from '../../src/specs/b17g'
 import { KI84 } from '../../src/specs/ki84'
 import { A6M5 } from '../../src/specs/a6m5'
 import { G4M } from '../../src/specs/g4m'
+import { JU87 } from '../../src/specs/ju87'
 import { P51D } from '../../src/specs/p51d'
 import { F6F5 } from '../../src/specs/f6f5'
 import { HE111 } from '../../src/specs/he111'
@@ -333,7 +334,7 @@ describe('MAX_MOUNTS —— 槍焰的容量上界（M7 spec §5.2）', () => {
     //
     // 【由兩台改成掃全部】原本只點名 P-51D 與 K-4，而新機種
     // 正是最可能踩到上界的那一種。改成走機體資料，加一台就自動納入。
-    for (const spec of [P51D, BF109K4, F6F5, KI84, A6M5, HE111, B17G, G4M]) {
+    for (const spec of [P51D, BF109K4, F6F5, KI84, A6M5, HE111, B17G, G4M, JU87]) {
       expect(spec.battery.mounts.length, `${spec.id} 超過 MAX_MOUNTS`)
         .toBeLessThanOrEqual(MAX_MOUNTS)
     }
