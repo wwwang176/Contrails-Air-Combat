@@ -3,7 +3,7 @@ import { createHeightField, type HeightFieldData } from './heightfield'
 import { bakeRelief, makeLobes, WOBBLE_MAX, type IslandDesc } from './archipelago'
 import { FARM_CELL, FARM_SIZE, HILL_PEAK_MAX } from './farmland'
 import { drawHillLobes } from './leuna'
-import type { TakeoffLine, TaxiPoint } from '../control/takeoffRoll'
+import { TAKEOFF_ROLL_GAP, TAXI_SPEED, type TakeoffLine, type TaxiPoint } from '../control/takeoffRoll'
 import type { CrateField, ParkedVehicle } from './depot'
 import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from '../render/floraShapes'
 
@@ -116,6 +116,22 @@ export const PARKED_ROWS: readonly { x: number; z: number; heading: number }[] =
   /* @__PURE__ */ STAND_ZS.map((dz) => ({ ...at(STAND_X, dz), heading: -Math.PI / 2 }))
 
 /**
+ * 前後兩架的間隔，m：滑一個間隔的時間要比滾行間隔長。短了的話後一架滑到起飛點時
+ * 前一架還沒滾行出去，兩架停在同一點
+ */
+const HOLD_GAP = TAKEOFF_ROLL_GAP * TAXI_SPEED + 2
+
+/**
+ * 已經滑到跑道頭的一個小隊：4 架排在南段滑行帶的中線上，機首朝跑道（+X），
+ * 最前面那架離跑道中線 30 m、前後間隔 `HOLD_GAP`。開場第一批就是它們，滑一兩百
+ * 公尺上跑道就滾行 —— 玩家約 37 秒到場時已經升空。
+ */
+export const HOLD_ROWS: readonly { x: number; z: number; heading: number }[] =
+  /* @__PURE__ */ [0, 1, 2, 3].map((i) => ({
+    ...at(-30 - HOLD_GAP * i, (TAXI_LOOP[2]!.z0 + TAXI_LOOP[2]!.z1) / 2), heading: -Math.PI / 2,
+  }))
+
+/**
  * 起飛點在跑道中線上的局部 z：滑行帶南段接口（647.5）北邊一點點。
  *
  * 【滑上跑道就起飛】**四架共用這一點**，不各自再往北排隊 —— 排隊要多滑一百
@@ -142,14 +158,21 @@ export const TAKEOFF_LINE: TakeoffLine = /* @__PURE__ */ { ...at(0, LINE_Z), hea
  *
  * 【停機墊一定在西段外側、窄巷與它同一個 z】`STANDS` 就是這樣排的。每一段都
  * 走在鋪面的中線上，護欄在 `asch.test.ts` 逐公尺檢查。
+ *
+ * 【已經在南段上的直接往東】跑道頭那一個小隊（`HOLD_ROWS`）停在南段中線上，
+ * 只走最後兩段。
  */
 export function taxiRoute(x: number, z: number, _slot: number): readonly TaxiPoint[] {
+  const lx = x - FIELD_CENTER.x
   const lz = z - FIELD_CENTER.z
   const leg = TAXI_LOOP[1]!
   const south = TAXI_LOOP[2]!
   const legX = (leg.x0 + leg.x1) / 2
   const southZ = (south.z0 + south.z1) / 2
   const runX = (RUNWAY.x0 + RUNWAY.x1) / 2
+  if (lx >= south.x0 && lx <= south.x1 && lz >= south.z0 && lz <= south.z1) {
+    return [{ x, z }, at(runX, southZ), at(runX, LINE_Z)]
+  }
   return [
     { x, z },
     at(legX, lz),

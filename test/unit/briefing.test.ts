@@ -84,7 +84,7 @@ describe('briefingOf —— 打擊（德 M3）', () => {
   it('空域與時期', () => {
     expect(fact(b, 'place')).toBe(t('mission.germany-m3.place'))
     expect(fact(b, 'period')).toBe(formatMonth(1945, 1))
-    expect(b.mine).toEqual([{ id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 8 }])
+    expect(b.mine).toEqual([{ id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 10 }])
   })
 })
 
