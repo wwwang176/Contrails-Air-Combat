@@ -131,6 +131,7 @@ import { BOMB_PROFILE } from './ai/bombRun'
 import { TORPEDO_PROFILE } from './ai/torpedoRun'
 import { WAKE_SPRAY_COUNT } from './render/spray'
 import { createWakes } from './render/wake'
+import { createShipWakes, shipFoamTexture, type ShipWakes } from './render/shipWakes'
 import {
   createGodCameraState, enterGodCamera, godCameraTarget, stepGodCamera,
   type GodCameraInput,
@@ -344,6 +345,8 @@ ctx.scene.add(tracers.object)
  * 【生命週期比照地形】每一場重建（`startWorld`），因為艦隊是設定的一部分。
  */
 let shipModels: ShipModels | null = null
+/** 船的航跡（艦尾與艦首的白浪）。有船的場次才有 */
+let shipWakes: ShipWakes | null = null
 let groundModels: GroundModels | null = null
 let balloonModels: BalloonModels | null = null
 /** 探照燈的光束。與 `groundModels` 同一個生命週期：每一場重建 */
@@ -1706,9 +1709,17 @@ function startWorld(cfg: BattleConfig): void {
     shipModels.dispose()
     shipModels = null
   }
+  // 航跡跟著船走：同一個時機建、同一個時機收
+  if (shipWakes !== null) {
+    ctx.scene.remove(shipWakes.object)
+    shipWakes.dispose()
+    shipWakes = null
+  }
   if (world.ships.length > 0) {
     shipModels = createShipModels(world.ships)
     ctx.scene.add(shipModels.object)
+    shipWakes = createShipWakes(world.ships, shipFoamTexture())
+    ctx.scene.add(shipWakes.object)
   }
   // 地面目標與船同一個做法：每一場重建
   if (groundModels !== null) {
@@ -3072,6 +3083,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   }
   // 【高度交給它自己每幀問】帶子要跟著看得見的浪起伏，否則會被浪蓋掉
   wakes.step(worldSeconds, elapsed, terrain.heightAt)
+  shipWakes?.step(world.ships, worldSeconds, elapsed, terrain.heightAt)
   vortex.step(worldSeconds)
   spray.step(worldSeconds)
 
