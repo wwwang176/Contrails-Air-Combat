@@ -4,22 +4,24 @@ import { bakeRelief, makeLobes, WOBBLE_MAX, type IslandDesc } from './archipelag
 import { FARM_CELL, FARM_SIZE, HILL_PEAK_MAX } from './farmland'
 import { drawHillLobes } from './leuna'
 import type { TakeoffLine, TaxiPoint } from '../control/takeoffRoll'
+import type { CrateField, ParkedVehicle } from './depot'
 
 /**
  * # Y-29（比利時 Asch）：德 M3 專用的地形
  *
  * Kempen 高原的荒地：平、遠處幾顆極緩的丘。Y-29 是前進降落場（ALG），不是
  * 水泥機場 —— 一條鋼板網（PSP）跑道鋪在草地上，跑道一側一圈環狀滑行帶，
- * 滑行帶外側是一架一格的分散停機墊。**整張圖的佈局都在這個檔案**，卡片與
- * 佈景引用這裡的常數。
+ * 滑行帶外側是一架一格的分散停機墊。跑道東側是作業區（營房、補給堆、車場），
+ * 南端是營區。**整張圖的佈局都在這個檔案**，卡片與佈景引用這裡的常數。
  *
- * 【跑道南北向、不轉】藍隊開局 z ≈ +5,000 朝 −Z 飛，沿著跑道進場就是一趟
- * 掃射航線。機場局部座標是世界座標減去 `FIELD_CENTER`，沒有旋轉。
+ * 【跑道南北向、不轉】藍隊從東邊朝西進場（`battle/entry.ts` 的 `ASCH_EAST`），
+ * 橫切跑道與停機線：一趟只掃得到一兩架，要轉回來再打。機場局部座標是世界
+ * 座標減去 `FIELD_CENTER`，沒有旋轉。
  */
 
 /**
- * 機場中心。藍隊的橫向槽位在 x ≈ −750 附近，跑道中線放在那一條線上；
- * 7.5 km 的進場在 200 m/s 下約 37 秒。
+ * 機場中心。`ASCH_EAST` 把藍隊放在它正東 7.5 km、同一個 z；7.5 km 的進場在
+ * 200 m/s 下約 37 秒。**搬動它要一起改 `ASCH_EAST`**，否則玩家會從機場旁邊飛過
  */
 export const FIELD_CENTER = /* @__PURE__ */ new Vector3(-750, 0, -2500)
 
@@ -39,14 +41,25 @@ export interface FieldRect { readonly x0: number; readonly z0: number; readonly 
 
 /** 墊面：草地，內部高度保證 0。一塊就包得住跑道、滑行帶與停機墊 */
 export const FIELD_PAD: FieldRect = { x0: -340, z0: -760, x1: 70, z1: 760 }
-/** 附加的墊面。這座機場沒有 */
-export const FIELD_LOBES: readonly FieldRect[] = []
-/** 墊面的外接矩形。護欄、佈景用 */
-export const FIELD_BOUNDS: FieldRect = FIELD_PAD
+/**
+ * 附加的墊面：跑道東側的作業區、南端的營區。**都與主墊面相接**。營房與車
+ * 要落在墊面裡 —— 墊面外底下是田，而且會長樹
+ */
+export const FIELD_LOBES: readonly FieldRect[] = [
+  { x0: 70, z0: -760, x1: 400, z1: 760 },
+  { x0: -340, z0: 760, x1: 70, z1: 1020 },
+]
+/** 主墊面與附加墊面的外接矩形。護欄、佈景用 */
+export const FIELD_BOUNDS: FieldRect = /* @__PURE__ */ [FIELD_PAD, ...FIELD_LOBES].reduce((b, r) => ({
+  x0: Math.min(b.x0, r.x0), z0: Math.min(b.z0, r.z0), x1: Math.max(b.x1, r.x1), z1: Math.max(b.z1, r.z1),
+}))
 
-/** 這一點在墊面的矩形裡；不含裙邊 */
+/** 這一點在墊面（主體或任何一塊附加）的矩形裡；不含裙邊 */
 export function inField(dx: number, dz: number): boolean {
-  return dx >= FIELD_PAD.x0 && dx <= FIELD_PAD.x1 && dz >= FIELD_PAD.z0 && dz <= FIELD_PAD.z1
+  for (const r of [FIELD_PAD, ...FIELD_LOBES]) {
+    if (dx >= r.x0 && dx <= r.x1 && dz >= r.z0 && dz <= r.z1) return true
+  }
+  return false
 }
 /** 墊面外一圈不長樹 */
 export const FIELD_TREE_CLEAR = 300
@@ -145,14 +158,86 @@ export const DUMPS: readonly { kind: 'fuelDump'; x: number; z: number; heading: 
   { kind: 'fuelDump', ...at(-110, 300), heading: 0 },
 ]
 
-/** 輕型防空砲 6 座：環內一座，其餘散在墊面外。**座數由試玩裁定** */
-export const LIGHT_FLAK_SITES: readonly { x: number; z: number; heading: number }[] =
+/**
+ * 防空砲 12 座，美軍的 M16 半履帶車（四聯 .50）：滑行帶環內三座、停機線外側
+ * 三座、東側作業區三座、跑道兩端外各一座、營區外一座。**座數由試玩裁定**
+ */
+export const FLAK_SITES: readonly { x: number; z: number; heading: number }[] =
   /* @__PURE__ */ ([
-    { dx: -110, dz: 0 },
-    { dx: -450, dz: -600 }, { dx: -450, dz: 600 },
-    { dx: 220, dz: -400 }, { dx: 220, dz: 400 },
-    { dx: 0, dz: -1000 },
+    { dx: -110, dz: -500 }, { dx: -110, dz: 0 }, { dx: -110, dz: 500 },
+    { dx: -450, dz: -600 }, { dx: -450, dz: 0 }, { dx: -450, dz: 600 },
+    { dx: 200, dz: 0 }, { dx: 380, dz: -650 }, { dx: 380, dz: 650 },
+    { dx: 0, dz: -1000 }, { dx: 100, dz: 1080 }, { dx: -460, dz: 900 },
   ] as const).map((s) => ({ ...at(s.dx, s.dz), heading: Math.atan2(s.dx, -s.dz) }))
+
+// ── 營區與作業區的佈景：營房、補給堆、停著的車 ──────────────────
+
+/**
+ * 一棟木造營房，世界座標。形狀是村裡那一種建築（`render/floraShapes.ts`），
+ * `length` 是屋脊方向的長度、`width` 是山牆那一邊，m。`heading` 0 = 屋脊沿 z、
+ * π/2 = 屋脊沿 x
+ */
+export interface Hut {
+  readonly x: number; readonly z: number; readonly heading: number
+  readonly length: number; readonly width: number
+}
+
+/**
+ * 營房：南端營區 5 排 × 8 棟，屋脊東西向；跑道東側作業區兩排各 8 棟，屋脊
+ * 順著跑道。
+ */
+export const HUTS: readonly Hut[] = /* @__PURE__ */ (() => {
+  const out: Hut[] = []
+  for (let row = 0; row < 5; row++) {
+    for (let i = 0; i < 8; i++) {
+      out.push({ ...at(-300 + 30 * i, 820 + 30 * row), heading: Math.PI / 2, length: 20, width: 7 })
+    }
+  }
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < 8; i++) {
+      out.push({ ...at(140, side * (340 + 40 * i)), heading: 0, length: 24, width: 8 })
+    }
+  }
+  return out
+})()
+
+/**
+ * 補給堆（`world/depot.ts`）：東側作業區四堆、營區一堆。**不是目標**，油桶堆
+ * （`DUMPS`）才是
+ */
+export const CRATE_FIELDS: readonly CrateField[] = /* @__PURE__ */ ([
+  { dx: 290, dz: -450, width: 36, depth: 30 },
+  { dx: 290, dz: -200, width: 40, depth: 28 },
+  { dx: 290, dz: 200, width: 40, depth: 28 },
+  { dx: 290, dz: 450, width: 36, depth: 30 },
+  { dx: 10, dz: 900, width: 30, depth: 40 },
+] as const).map((d, i) => ({ ...at(d.dx, d.dz), heading: 0, width: d.width, depth: d.depth, lane: 0, seed: 2901 + i }))
+
+/**
+ * 停著的車，**佈景、打不掉**：
+ *
+ * - 東側車場：三排、每排九台，車頭朝西，第一排夾著 M16
+ * - 東側每一堆補給兩旁各一台卡車
+ * - 營區南緣一排卡車
+ * - 停機線外側每隔一格一台油罐車，車頭朝北
+ */
+export const VEHICLES: readonly ParkedVehicle[] = /* @__PURE__ */ (() => {
+  const out: ParkedVehicle[] = []
+  const west = Math.PI / 2
+  for (const [x, row] of [
+    [270, ['usFlakTrack', 'usTruck', 'usTruck', 'usFlakTrack', 'usTruck', 'usFlakTrack', 'usTruck', 'usTruck', 'usFlakTrack']],
+    [290, Array<'usTruck'>(9).fill('usTruck')],
+    [310, Array<'usTruck'>(9).fill('usTruck')],
+  ] as const) {
+    row.forEach((unit, i) => out.push({ unit, ...at(x, -36 + 9 * i), heading: west }))
+  }
+  for (const d of CRATE_FIELDS.slice(0, 4)) {
+    for (const side of [-1, 1]) out.push({ unit: 'usTruck', x: d.x + side * 30, z: d.z, heading: 0 })
+  }
+  for (let i = 0; i < 10; i++) out.push({ unit: 'usTruck', ...at(-290 + 20 * i, 985), heading: west })
+  for (let i = 0; i < STAND_ZS.length; i += 2) out.push({ unit: 'usTruck', ...at(-318, STAND_ZS[i]!), heading: 0 })
+  return out
+})()
 
 /**
  * 手擺的丘陵：極緩，全在 4 km 外。`outerRadius` 由生成器算 `radius × WOBBLE_MAX`

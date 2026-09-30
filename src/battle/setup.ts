@@ -833,6 +833,15 @@ function settle(c: Combatant, pos: Vector3, q: Quaternion, tas: number): void {
 }
 
 /**
+ * 把這一席放回開局的位置、姿態與速度。`Aircraft.reset` 之後呼叫 —— reset 一律
+ * 朝 −Z，藍隊不朝 −Z 出生的關卡（德 M3）少了這一步，玩家開場就被轉去朝北。
+ * 玩家重生（`main.ts` 的 `respawnPlayer`）走這一支
+ */
+export function settleAtSpawn(b: Battle, c: Combatant): void {
+  settle(c, c.spawnPosition, b.spawnOrientations[c.index]!, c.spawnTas)
+}
+
+/**
  * 造一場 N vs N。
  *
  * 【玩家固定在藍隊中央】開局視野裡兩側都是友機、敵機在正前方 —— 與 M2

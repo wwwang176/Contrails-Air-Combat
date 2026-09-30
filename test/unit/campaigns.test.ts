@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { MISSIONS, CAMPAIGNS, convoyGround, missionConfigFrom } from '../../src/battle/missions'
 import { EVACUATE_Z, LEYTE_ROAD } from '../../src/world/leyte'
+import { FIELD_CENTER, RUNWAY } from '../../src/world/asch'
 import { ALL_SPECS, MAX_SIDE } from '../../src/battle/skirmish'
 import { createBattle, stepBattle } from '../../src/battle/setup'
 import type { MissionCard, ReadyMissionCard } from '../../src/battle/missions'
@@ -224,6 +225,17 @@ describe('德 M3 底板行動', () => {
     expect(missionConfigFrom(card).tuning.priorityGroundUnit).toBe('parkedP51')
   })
 
+  it('玩家在機場東邊約 7.5 km、朝西飛，橫切跑道', () => {
+    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
+    const s = b.player.aircraft.state
+    const east = s.position.x - FIELD_CENTER.x
+    expect(east).toBeGreaterThan(6000)
+    expect(east).toBeLessThan(9000)
+    expect(Math.abs(s.position.z - FIELD_CENTER.z)).toBeLessThan(RUNWAY.z1)
+    expect(s.velocity.x).toBeLessThan(0)
+    expect(Math.abs(s.velocity.z)).toBeLessThan(Math.abs(s.velocity.x) * 0.05)
+  })
+
   it('地面優先權只在需要它的卡上：德 M3 打停放的 P-51、日 M2 打卡車', () => {
     const want: Record<string, string> = { 'germany-m3': 'parkedP51', 'japan-m2': 'usTruck' }
     for (const campaign of CAMPAIGNS) {
@@ -287,13 +299,13 @@ describe('德 M3 底板行動', () => {
     expect(b.mission.outcome).toBe('victory')
   })
 
-  it('12 架停放的 P-51、2 堆油桶、6 座輕砲，全部是敵方的', () => {
+  it('12 架停放的 P-51、2 堆油桶、12 輛美軍的 M16 防空車，全部是敵方的', () => {
     const units = card.battle.ground!.map((e) => e.unit)
     const count = (id: string) => units.filter((u) => u === id).length
     expect(count('parkedP51')).toBe(12)
     expect(count('fuelDump')).toBe(2)
-    expect(count('flakLight')).toBe(6)
-    expect(units).toHaveLength(20)
+    expect(count('usFlakTrack')).toBe(12)
+    expect(units).toHaveLength(26)
     expect(card.battle.ground!.every((e) => e.team === 'red')).toBe(true)
   })
 
@@ -316,7 +328,7 @@ describe('德 M3 底板行動', () => {
     for (const c of b.world.combatants) expect(c.aircraft.state.position.y, `${c.index}`).toBeGreaterThan(100)
     for (let i = 0; i < 240; i++) stepBattle(b, 1 / 240)
     expect(b.mission.outcome).toBe('fighting')
-    expect(b.world.groundTargets.filter((t) => t.guns.length > 0)).toHaveLength(6)
+    expect(b.world.groundTargets.filter((t) => t.guns.length > 0)).toHaveLength(12)
   })
 })
 

@@ -4,15 +4,15 @@ import { B17G } from '../../specs/b17g'
 import { HE111 } from '../../specs/he111'
 import { FLARE_DROPS, PARKED_ROWS as POLTAVA_PARKED } from '../../world/poltava'
 import {
-  DUMPS as ASCH_DUMPS, LIGHT_FLAK_SITES as ASCH_FLAK, PARKED_ROWS as ASCH_PARKED, TAKEOFF_LINE,
+  DUMPS as ASCH_DUMPS, FLAK_SITES as ASCH_FLAK, PARKED_ROWS as ASCH_PARKED, TAKEOFF_LINE,
 } from '../../world/asch'
 import { GROUND_FLAK_SPEC } from '../../world/shipGuns'
 import { POLTAVA_GROUND } from './shared'
 import type { GroundEntry, MissionCard } from './types'
 
 /**
- * Y-29 的地面目標：12 架停放的 P-51、兩堆油桶、6 座輕高砲，全部是紅方的。
- * 佈局在 `world/asch.ts`。
+ * Y-29 的地面目標：12 架停放的 P-51、兩堆油桶、12 輛 M16 防空半履帶車，全部
+ * 是紅方的。佈局在 `world/asch.ts`；營房、補給堆與其餘的車是佈景，不在這裡。
  */
 const ASCH_GROUND: readonly GroundEntry[] = [
   ...ASCH_PARKED.map((p): GroundEntry => ({
@@ -22,7 +22,7 @@ const ASCH_GROUND: readonly GroundEntry[] = [
     unit: d.kind, team: 'red', x: d.x, z: d.z, heading: d.heading,
   })),
   ...ASCH_FLAK.map((s): GroundEntry => ({
-    unit: 'flakLight', team: 'red', x: s.x, z: s.z, heading: s.heading,
+    unit: 'usFlakTrack', team: 'red', x: s.x, z: s.z, heading: s.heading,
   })),
 ]
 
@@ -121,7 +121,9 @@ export const GERMANY: readonly MissionCard[] = [
       blueCount: 8, redCount: 0,
       convoyCount: 0, convoyPriority: 1,
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
-      entry: 'headOn',
+      // 【從東邊橫切】史實上 JG 11 從德國那一側來。橫切跑道與停機線，一趟只
+      // 掃得到一兩架
+      entry: 'aschEast',
       terrain: 'asch',
       timeOfDay: 'dawn',
       /**
@@ -135,7 +137,7 @@ export const GERMANY: readonly MissionCard[] = [
       priorityGroundUnit: 'parkedP51',
       // 【停機線上的 P-51 全部擊毀】地上打掉的、起飛後被擊落的都算（每一架只算
       // 一次，見 `setup.ts` 的 `destroyedInPool`），所以這就是「所有野馬」。
-      // 油桶堆與輕砲打得掉但不算
+      // 油桶堆與防空車打得掉但不算
       destroyCount: ASCH_PARKED.length, destroyUnit: 'parkedP51',
       /**
        * 【停機線上的每一架最後都起得來】三批各一個小隊、席位合計 12，等於停機線。

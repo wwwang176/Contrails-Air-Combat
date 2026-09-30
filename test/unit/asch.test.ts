@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  ASCH_HILLS, createAsch, DUMPS, FIELD_BOUNDS, FIELD_CENTER, FIELD_PAD, inField, LIGHT_FLAK_SITES,
-  PARKED_ROWS, PAVED, PSP_STEEL, RUNWAY, STAND_LANES, STAND_PADS, TAKEOFF_LINE, TAXI_LOOP,
-  taxiRoute, worldToField, type FieldRect,
+  ASCH_HILLS, CRATE_FIELDS, createAsch, DUMPS, FIELD_BOUNDS, FIELD_CENTER, FIELD_LOBES, FIELD_PAD,
+  FLAK_SITES, HUTS, inField, PARKED_ROWS, PAVED, PSP_STEEL, RUNWAY, STAND_LANES, STAND_PADS,
+  TAKEOFF_LINE, TAXI_LOOP, taxiRoute, VEHICLES, worldToField, type FieldRect,
 } from '../../src/world/asch'
 import { RUNWAY_CONCRETE } from '../../src/world/poltava'
 import { PAD_CLEARANCE } from '../../src/world/leuna'
@@ -138,13 +138,13 @@ describe('asch 的佈局', () => {
     }
   })
 
-  it('油桶堆與輕高砲在墊面附近、離鋪面 20 m 以上、離停放的 P-51 40 m 以上', () => {
+  it('油桶堆與防空砲在墊面附近、離鋪面 20 m 以上、離停放的 P-51 40 m 以上', () => {
     expect(DUMPS.length).toBeGreaterThan(0)
-    expect(LIGHT_FLAK_SITES.length).toBeGreaterThan(0)
+    expect(FLAK_SITES.length).toBeGreaterThan(0)
     for (const d of DUMPS) {
       expect(inRect(d.x, d.z, FIELD_PAD), `${d.x},${d.z}`).toBe(true)
     }
-    for (const s of [...DUMPS, ...LIGHT_FLAK_SITES]) {
+    for (const s of [...DUMPS, ...FLAK_SITES]) {
       expect(clearOfPaving(s.x, s.z, 20), `${s.x},${s.z}`).toBe(true)
       for (const p of PARKED_ROWS) {
         expect(Math.hypot(s.x - p.x, s.z - p.z), `${s.x},${s.z}`).toBeGreaterThanOrEqual(40)
@@ -210,5 +210,59 @@ describe('asch 的佈局', () => {
     // heading 0 = 機首朝 −Z：起點要在 +Z 那一端
     expect(TAKEOFF_LINE.heading).toBe(0)
     expect(p.z).toBeGreaterThan((RUNWAY.z0 + RUNWAY.z1) / 2)
+  })
+})
+
+/**
+ * 營房、補給堆、停著的車是佈景：沒有命中盒，但壓在鋪面上的話 P-51 會從車裡
+ * 滑出去；落在墊面外的話底下是田、旁邊會長樹。
+ */
+describe('asch 的營區', () => {
+  interface Item { tag: string; x: number; z: number; r: number }
+  const items: Item[] = [
+    ...HUTS.map((h) => ({ tag: `營房 ${h.x.toFixed(0)},${h.z.toFixed(0)}`, x: h.x, z: h.z, r: Math.hypot(h.length, h.width) / 2 })),
+    ...CRATE_FIELDS.map((d) => ({ tag: `補給堆 ${d.x.toFixed(0)},${d.z.toFixed(0)}`, x: d.x, z: d.z, r: Math.hypot(d.width, d.depth) / 2 })),
+    ...VEHICLES.map((v) => ({ tag: `${v.unit} ${v.x.toFixed(0)},${v.z.toFixed(0)}`, x: v.x, z: v.z, r: 4 })),
+  ]
+
+  it('附加的墊面都與主墊面相接', () => {
+    for (const r of FIELD_LOBES) expect(touches(r, FIELD_PAD), `${r.x0},${r.z0}`).toBe(true)
+  })
+
+  it('每一件連同外接圓都在墊面裡', () => {
+    for (const e of items) {
+      const p = local(e.x, e.z)
+      for (const [dx, dz] of [[-e.r, 0], [e.r, 0], [0, -e.r], [0, e.r]] as const) {
+        expect(inField(p.x + dx, p.z + dz), e.tag).toBe(true)
+      }
+    }
+  })
+
+  it('離鋪面 10 m 以上', () => {
+    for (const e of items) expect(clearOfPaving(e.x, e.z, e.r + 10), e.tag).toBe(true)
+  })
+
+  it('不壓防空砲、油桶堆與停放的 P-51', () => {
+    const solid = [
+      ...FLAK_SITES.map((s) => ({ x: s.x, z: s.z, r: 5 })),
+      ...DUMPS.map((d) => ({ x: d.x, z: d.z, r: 15 })),
+      ...PARKED_ROWS.map((p) => ({ x: p.x, z: p.z, r: 8 })),
+    ]
+    for (const e of items) {
+      for (const s of solid) {
+        expect(Math.hypot(e.x - s.x, e.z - s.z), `${e.tag} 對 ${s.x.toFixed(0)},${s.z.toFixed(0)}`)
+          .toBeGreaterThanOrEqual(e.r + s.r + 5)
+      }
+    }
+  })
+
+  it('彼此不重疊', () => {
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const a = items[i]!
+        const b = items[j]!
+        expect(Math.hypot(a.x - b.x, a.z - b.z), `${a.tag} 對 ${b.tag}`).toBeGreaterThanOrEqual(a.r + b.r)
+      }
+    }
   })
 })
