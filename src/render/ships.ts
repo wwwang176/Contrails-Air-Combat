@@ -5,7 +5,7 @@ import {
 } from 'three'
 import { createGltfLoader } from './geometry/gltfLoader'
 import { applyShipLiveryUv, partTones } from './shipLivery'
-import { SHIP_LIVERIES, type ShipLiveryDef } from './shipLiveries'
+import { SHIP_LIVERIES, liveryVariant, type ShipLiveryDef } from './shipLiveries'
 import { SHIP_CLASSES, type Ship, type ShipClassId } from '../world/ships'
 import { MAX_SHIP_GUNS } from '../world/shipGuns'
 import { TURRET_FLASH_SECONDS } from '../world/turrets'
@@ -24,7 +24,32 @@ import { assetUrl } from '../core/asset'
  * 【船不隨浪起伏、沒有航跡浪】spec §12 明列不做。
  */
 
-const templates = new Map<ShipClassId, Object3D>()
+/** 每個艦級的樣板，一種圖案一份（見 `ShipLiveryDef.variants`）；沒有塗裝的只有一份 */
+const templates = new Map<ShipClassId, readonly Object3D[]>()
+
+/**
+ * 同一份樣板換另一張貼圖。幾何共用；吃 `from` 那張貼圖的材質換成吃 `to` 的一份
+ * （同一個材質換成同一份），其他材質照舊共用。
+ */
+export function liveryVariantOf(base: Object3D, from: Texture, to: Texture): Object3D {
+  const out = base.clone(true)
+  const swapped = new Map<Material, Material>()
+  out.traverse((o) => {
+    const mesh = o as Mesh
+    if (!mesh.isMesh) return
+    const src = mesh.material as MeshStandardMaterial
+    if (src.map !== from) return
+    let dst = swapped.get(src)
+    if (dst === undefined) {
+      const m = src.clone()
+      m.map = to
+      dst = m
+      swapped.set(src, dst)
+    }
+    mesh.material = dst
+  })
+  return out
+}
 
 /**
  * 把塗裝套到剛載入的樣板上：船身與甲板的網格展開成無索引、算 UV，材質換成吃
@@ -176,15 +201,19 @@ export async function preloadShipModels(
   await Promise.all([...new Set(ids)].map(async (id) => {
     if (!templates.has(id)) {
       const livery = SHIP_LIVERIES[id]
-      const [gltf, texture] = await Promise.all([
+      const urls = livery === undefined ? [] : [livery.layout.url, ...(livery.variants ?? [])]
+      const [gltf, ...textures] = await Promise.all([
         loader.loadAsync(assetUrl(SHIP_CLASSES[id].url)),
-        livery === undefined ? null : loadShipLivery(livery.layout.url),
+        ...urls.map(loadShipLivery),
       ])
-      if (livery !== undefined) applyShipLivery(gltf.scene, livery, texture)
+      if (livery !== undefined) applyShipLivery(gltf.scene, livery, textures[0]!)
       // 【量一次就好】包圍盒與船在哪無關，而 `setFromObject` 要走遍整棵樹
       gltf.scene.updateMatrixWorld(true)
       modelTops.set(id, BOX.setFromObject(gltf.scene).max.y)
-      templates.set(id, gltf.scene)
+      templates.set(id, [
+        gltf.scene,
+        ...textures.slice(1).map((t) => liveryVariantOf(gltf.scene, textures[0]!, t)),
+      ])
     }
     onLoaded()
   }))
@@ -234,11 +263,11 @@ export function createShipModels(ships: readonly Ship[]): ShipModels {
   const hulls: Object3D[] = []
 
   for (const s of ships) {
-    const t = templates.get(s.cls.id)
-    if (t === undefined) {
+    const ts = templates.get(s.cls.id)
+    if (ts === undefined) {
       throw new Error(`艦級 ${s.cls.id} 的 GLB 還沒載入 —— 少了 preloadShipModels()`)
     }
-    const g = t.clone(true)
+    const g = ts[liveryVariant(s.index, ts.length)]!.clone(true)
     object.add(g)
     hulls.push(g)
   }

@@ -34,6 +34,21 @@ export interface ShipLiveryDef {
    * 那一種會把兩者都吃掉。
    */
   readonly parts: Readonly<Record<string, readonly ShipPartKind[]>>
+  /**
+   * 同一種版面的其他圖案（貼圖路徑）。**省略 = 只有 `layout.url` 那一種。**
+   * 每一艘照 `liveryVariant` 選一種；UV 與零件深淺不變，只換貼圖。
+   */
+  readonly variants?: readonly string[]
+}
+
+/**
+ * 第 `index` 艘船用第幾種圖案（0 = `layout.url`，1 起是 `variants`）。
+ *
+ * 【輪流而不是亂數】編號相鄰的船在場上多半擺在一起（灘頭的 LST 兩三艘一組），
+ * 輪流保證相鄰的兩艘不同；亂數會讓兩艘並排的船偶爾一模一樣。
+ */
+export function liveryVariant(index: number, count: number): number {
+  return count <= 1 ? 0 : ((index % count) + count) % count
 }
 
 // ── Fletcher ────────────────────────────────────────────
@@ -293,6 +308,9 @@ const LST: ShipLiveryDef = {
   },
   kinds: { LST_Body: 'body', LST_Deck: 'deck', LST_Steel: 'accent' },
   accentColor: 0x3d4b3e,
+  // 【三種圖案輪流】灘頭十艘兩三艘一組並排，同一種的話看起來是複製的。另兩種不是
+  // 史實的設計，照同一套手法排（見 `ship_lst.py`）
+  variants: ['/textures/ship_lst_b.png', '/textures/ship_lst_c.png'],
   parts: {
     LST_Body_merged: LST_BODY_PARTS,
     // 四座 40 mm（砲架、兩根砲管）與四座 20 mm（柱、砲管、護盾）

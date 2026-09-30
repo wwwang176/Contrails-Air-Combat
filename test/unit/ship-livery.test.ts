@@ -10,8 +10,8 @@ import {
   shipPartKind, shipParts,
   type ShipLiveryLayout, type ShipPartKind, type ShipRect, type ShipStrip,
 } from '../../src/render/shipLivery'
-import { applyShipLivery } from '../../src/render/ships'
-import { SHIP_LIVERIES } from '../../src/render/shipLiveries'
+import { applyShipLivery, liveryVariantOf } from '../../src/render/ships'
+import { SHIP_LIVERIES, liveryVariant } from '../../src/render/shipLiveries'
 import { SHIP_CLASSES, type ShipClassId } from '../../src/world/ships'
 
 /**
@@ -190,6 +190,54 @@ describe('零件的深淺', () => {
   /** 【認不出來就丟】漏了一種的話那一塊會靜靜地維持原色，看起來像是忘了塗 */
   it('有零件落不進任何一種時丟錯', () => {
     expect(() => partTones(parts(), KINDS.slice(0, 1), 'test')).toThrow()
+  })
+})
+
+describe('同一艦級的幾種圖案', () => {
+  /** 【相鄰不同】灘頭的 LST 兩三艘一組並排，編號相鄰的兩艘同一種圖案的話看起來是複製的 */
+  it('編號相鄰的兩艘選到不同的圖案；只有一種時都是 0', () => {
+    for (let i = 0; i < 20; i++) {
+      const v = liveryVariant(i, 3)
+      expect(v).toBeGreaterThanOrEqual(0)
+      expect(v).toBeLessThan(3)
+      expect(liveryVariant(i + 1, 3)).not.toBe(v)
+      expect(liveryVariant(i, 1)).toBe(0)
+    }
+  })
+
+  it('LST 有三種圖案', () => {
+    expect(SHIP_LIVERIES.lst!.variants?.length).toBe(2)
+  })
+
+  /** 【只換貼圖】幾何與沒吃貼圖的材質共用；原本那一份不能被改到 */
+  it('換圖案的樣板只換吃貼圖的材質', async () => {
+    const def = SHIP_LIVERIES.lst!
+    const base = await loadShip('lst')
+    const a = new Texture()
+    const b = new Texture()
+    applyShipLivery(base, def, a)
+    const v = liveryVariantOf(base, a, b)
+    const meshes = (root: Object3D) => {
+      const out: Mesh[] = []
+      root.traverse((o) => { if ((o as Mesh).isMesh) out.push(o as Mesh) })
+      return out
+    }
+    const [bs, vs] = [meshes(base), meshes(v)]
+    expect(vs.length).toBe(bs.length)
+    let textured = 0
+    for (let i = 0; i < bs.length; i++) {
+      const bm = bs[i]!.material as MeshStandardMaterial
+      const vm = vs[i]!.material as MeshStandardMaterial
+      expect(vs[i]!.geometry).toBe(bs[i]!.geometry)
+      if (bm.map === a) {
+        textured++
+        expect(vm.map).toBe(b)
+        expect(vm).not.toBe(bm)
+      } else {
+        expect(vm).toBe(bm)
+      }
+    }
+    expect(textured).toBeGreaterThan(0)
   })
 })
 
