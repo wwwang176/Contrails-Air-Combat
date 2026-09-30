@@ -25,7 +25,8 @@ import type { Ship } from '../world/ships'
  * 節點數要蓋得住「航速 × 壽命 ÷ 間隔」：15 m/s × 70 s ÷ 10 m = 105。
  */
 export const SHIP_STERN_WAKE: WakeStyle = {
-  nodes: 128, spacing: 10, life: 70, halfFrom: 0.7, halfTo: 4.0, alpha: 0.7, foamTile: 40,
+  nodes: 128, spacing: 10, life: 70, halfFrom: 0.7, halfTo: 8.0, spread: 0.5, alpha: 0.7,
+  foamTile: 40,
 }
 
 /**
@@ -35,7 +36,8 @@ export const SHIP_STERN_WAKE: WakeStyle = {
  * 節點數：15 m/s × 7 s ÷ 3 m = 35。
  */
 export const SHIP_BOW_WAKE: WakeStyle = {
-  nodes: 48, spacing: 3, life: 7, halfFrom: 0.2, halfTo: 2.8, alpha: 1.0, foamTile: 20,
+  nodes: 48, spacing: 3, life: 7, halfFrom: 0.2, halfTo: 3.6, spread: 0.6, alpha: 1.0,
+  foamTile: 20,
 }
 
 /**

@@ -92,6 +92,11 @@ export interface WakeStyle {
   /** 剛翻起來與散開之後的半寬，m（再乘上每格的寬度倍率） */
   readonly halfFrom: number
   readonly halfTo: number
+  /**
+   * 散開的快慢：寬度照「年齡比例的這個次方」內插。**省略 = 1，均勻變寬。** 小於 1 的
+   * 話前段就張開、後段趨緩 —— 船後面一出來就是扇形
+   */
+  readonly spread?: number
   /** 出生時的不透明度 */
   readonly alpha: number
   /**
@@ -123,7 +128,8 @@ export function wakeAlpha(age: number, style: WakeStyle = TORPEDO_WAKE): number 
 /** 節點的半寬，m。泡沫會散開 */
 export function wakeHalfWidth(age: number, style: WakeStyle = TORPEDO_WAKE): number {
   const k = age <= 0 ? 0 : age >= style.life ? 1 : age / style.life
-  return style.halfFrom + (style.halfTo - style.halfFrom) * k
+  const s = style.spread === undefined ? k : Math.pow(k, style.spread)
+  return style.halfFrom + (style.halfTo - style.halfFrom) * s
 }
 
 /** 走了 `travelled` 公尺該落幾個節點 */

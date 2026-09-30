@@ -5,6 +5,7 @@ import {
   shipWakePoint,
 } from '../../src/render/shipWakes'
 import { SHIP_CLASSES, createShip } from '../../src/world/ships'
+import { TORPEDO_WAKE, wakeHalfWidth } from '../../src/render/wake'
 
 /**
  * # 船的航跡
@@ -113,11 +114,13 @@ describe('船的航跡', () => {
     const [stern] = w.object.children as [Mesh, Mesh]
     const p = stern.geometry.getAttribute('position')
     const a = stern.geometry.getAttribute('aAlpha')
+    // 高度照節點（左右兩個頂點的中點）算，同一對頂點同高
     let under = 0
-    for (let i = 0; i < p.count; i++) {
+    for (let i = 0; i + 1 < p.count; i += 2) {
       if (a.getX(i) <= 0) continue
-      const inside = insideShips([ship], cos, sin, p.getX(i), p.getZ(i))
-      if (inside) {
+      const mx = (p.getX(i) + p.getX(i + 1)) / 2
+      const mz = (p.getZ(i) + p.getZ(i + 1)) / 2
+      if (insideShips([ship], cos, sin, mx, mz)) {
         under++
         expect(p.getY(i)).toBeLessThan(1)
       } else {
@@ -125,6 +128,16 @@ describe('船的航跡', () => {
       }
     }
     expect(under).toBeGreaterThan(0)
+  })
+
+  /** 【扇形】前段就張開：壽命走到四分之一時，寬度已經走完一半 */
+  it('艦尾的帶子前段就張開成扇形', () => {
+    const quarter = wakeHalfWidth(SHIP_STERN_WAKE.life / 4, SHIP_STERN_WAKE)
+    const mid = (SHIP_STERN_WAKE.halfFrom + SHIP_STERN_WAKE.halfTo) / 2
+    expect(quarter).toBeGreaterThanOrEqual(mid - 1e-9)
+    // 魚雷的維持均勻變寬
+    expect(wakeHalfWidth(TORPEDO_WAKE.life / 4)).toBeCloseTo(
+      TORPEDO_WAKE.halfFrom + (TORPEDO_WAKE.halfTo - TORPEDO_WAKE.halfFrom) / 4, 9)
   })
 
   /** 【沉了就不再落】已經落的照常淡掉 */
