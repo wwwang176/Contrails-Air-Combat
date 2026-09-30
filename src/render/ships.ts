@@ -1,10 +1,10 @@
 import {
-  AdditiveBlending, Box3, DoubleSide, DynamicDrawUsage, Group, InstancedMesh,
+  AdditiveBlending, Box3, BufferAttribute, DoubleSide, DynamicDrawUsage, Group, InstancedMesh,
   Matrix4, MeshBasicMaterial, MeshStandardMaterial, Object3D, PlaneGeometry, Quaternion,
   SRGBColorSpace, TextureLoader, Vector3, type Material, type Mesh, type Texture,
 } from 'three'
 import { createGltfLoader } from './geometry/gltfLoader'
-import { applyShipLiveryUv, type ShipLiveryLayout } from './shipLivery'
+import { applyShipLiveryUv, partTones, type ShipLiveryLayout } from './shipLivery'
 import { SHIP_CLASSES, type Ship, type ShipClassId } from '../world/ships'
 import { MAX_SHIP_GUNS } from '../world/shipGuns'
 import { TURRET_FLASH_SECONDS } from '../world/turrets'
@@ -34,6 +34,11 @@ export interface ShipLiveryDef {
   readonly kinds: Readonly<Record<string, ShipMaterialKind>>
   /** 細部的顏色（sRGB） */
   readonly accentColor: number
+  /**
+   * 船身與細部每一塊零件的明暗幅度（0.12 = ±12%）。船殼是最大的那一塊，維持原色。
+   * 見 `shipLivery.ts` 的 `partTones`
+   */
+  readonly partTone: number
 }
 
 /**
@@ -52,6 +57,8 @@ export const SHIP_LIVERIES: Partial<Record<ShipClassId, ShipLiveryDef>> = {
     },
     kinds: { FLETCHER_Body: 'body', FLETCHER_Deck: 'deck', FLETCHER_Accent: 'accent' },
     accentColor: 0x465167,
+    // 【起始值】由截圖裁定
+    partTone: 0.25,
   },
 }
 
@@ -72,21 +79,28 @@ export function applyShipLivery(root: Object3D, def: ShipLiveryDef, texture: Tex
     const src = mesh.material as Material
     const kind = def.kinds[src.name]
     if (kind === undefined) return
+    if (mesh.geometry.index !== null) {
+      const flat = mesh.geometry.toNonIndexed()
+      mesh.geometry.dispose()
+      mesh.geometry = flat
+    }
     if (kind === 'body' || kind === 'deck') {
-      if (mesh.geometry.index !== null) {
-        const flat = mesh.geometry.toNonIndexed()
-        mesh.geometry.dispose()
-        mesh.geometry = flat
-      }
       // 【UV 用艦體座標算】節點可能帶變換；算在烘過的副本上，只把 UV 搬回來
       const baked = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld)
       applyShipLiveryUv(baked, kind, def.layout)
       mesh.geometry.setAttribute('uv', baked.getAttribute('uv'))
       baked.dispose()
     }
+    // 【同一個材質的網格都要有頂點色】船殼與上層結構共用船身材質；缺了這一格的
+    // 那一個網格讀到的是 0，整塊變黑
+    const toned = kind !== 'deck'
+    if (toned) {
+      mesh.geometry.setAttribute('color', new BufferAttribute(partTones(mesh.geometry, def.partTone), 3))
+    }
     let dst = swapped.get(src)
     if (dst === undefined) {
       const m = (src as MeshStandardMaterial).clone()
+      m.vertexColors = toned
       if (kind === 'accent') m.color.set(def.accentColor)
       else if (texture !== null) {
         m.map = texture
@@ -102,6 +116,9 @@ export function applyShipLivery(root: Object3D, def: ShipLiveryDef, texture: Tex
 /**
  * 塗裝貼圖，依路徑快取。**flipY = false**：UV 的原點在圖的左上角（`shipLivery.ts`）；
  * `TextureLoader` 預設會把圖上下翻。
+ *
+ * 【失敗就從快取拿掉】留著的話那一個被拒絕的 Promise 會一直被重用，網路恢復之後
+ * 同一頁也再抓不到。
  */
 const liveryTextures = new Map<string, Promise<Texture>>()
 
@@ -115,6 +132,7 @@ function loadShipLivery(url: string): Promise<Texture> {
       tex.anisotropy = 8
       return tex
     })
+    t.catch(() => liveryTextures.delete(url))
     liveryTextures.set(url, t)
   }
   return t
@@ -123,11 +141,20 @@ function loadShipLivery(url: string): Promise<Texture> {
 /**
  * 把塗裝套到一份自己載的 GLB 上。給不走 `preloadShipModels` 的地方（機庫）用；
  * 沒有塗裝的艦級什麼都不做。
+ *
+ * 【貼圖載不到就維持單色】機庫是檢視工具，少一張貼圖不該讓整艘船不見。
+ * 遊戲走 `preloadShipModels`，那一條載不到照樣丟錯。
  */
 export async function dressShipModel(id: string, root: Object3D): Promise<void> {
   const livery = SHIP_LIVERIES[id as ShipClassId]
   if (livery === undefined) return
-  applyShipLivery(root, livery, await loadShipLivery(livery.layout.url))
+  let texture: Texture | null = null
+  try {
+    texture = await loadShipLivery(livery.layout.url)
+  } catch (e) {
+    console.warn(`艦級 ${id} 的塗裝貼圖載不到，維持單色`, e)
+  }
+  applyShipLivery(root, livery, texture)
 }
 
 /**

@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { BufferGeometry, Float32BufferAttribute, type Group, type Material, type Mesh, type Object3D } from 'three'
+import {
+  Box3, BufferGeometry, Color, Float32BufferAttribute, Texture,
+  type Group, type Material, type Mesh, type MeshStandardMaterial, type Object3D,
+} from 'three'
 import { createGltfLoader } from '../../src/render/geometry/gltfLoader'
 import {
-  SHIP_LIVERY_HEIGHT, SHIP_LIVERY_WIDTH, applyShipLiveryUv, shipLiveryRects,
-  type ShipLiveryLayout, type ShipStrip,
+  SHIP_LIVERY_HEIGHT, SHIP_LIVERY_WIDTH, applyShipLiveryUv, partTones, shipLiveryRects,
+  type ShipLiveryLayout, type ShipRect, type ShipStrip,
 } from '../../src/render/shipLivery'
-import { SHIP_LIVERIES } from '../../src/render/ships'
+import { SHIP_LIVERIES, applyShipLivery } from '../../src/render/ships'
 
 /**
  * # 船的塗裝 UV
@@ -132,36 +135,164 @@ describe('船的塗裝 UV', () => {
   })
 })
 
-describe('Fletcher 的版面', () => {
-  /** 讀真的 GLB：每一個船身與甲板面都落在自己那一條之內，沒有面伸出去讀到隔壁 */
-  it('每一個 Body／Deck 面的 UV 都在自己那一條裡', async () => {
+describe('零件的深淺', () => {
+  /** 三個不相連的零件：一大塊（兩個三角形共邊）、兩個小的 */
+  function parts(): BufferGeometry {
+    const g = new BufferGeometry()
+    g.setAttribute('position', new Float32BufferAttribute([
+      // 大塊：兩個三角形，共用 (1,0,0)–(0,1,0) 那條邊
+      0, 0, 0, 1, 0, 0, 0, 1, 0,
+      1, 0, 0, 1, 1, 0, 0, 1, 0,
+      // 小塊一
+      10, 0, 0, 11, 0, 0, 10, 1, 0,
+      // 小塊二
+      -10, 3, 5, -9, 3, 5, -10, 4, 5,
+    ], 3))
+    return g
+  }
+
+  it('同一塊零件的頂點同一個倍率；最大的那一塊是 1；都在幅度之內', () => {
+    const t = partTones(parts(), 0.2)
+    expect(t.length).toBe(12 * 3)
+    for (let i = 0; i < 6 * 3; i++) expect(t[i]).toBe(1)
+    const a = t[6 * 3]!, b = t[9 * 3]!
+    for (let i = 6 * 3; i < 9 * 3; i++) expect(t[i]).toBe(a)
+    for (let i = 9 * 3; i < 12 * 3; i++) expect(t[i]).toBe(b)
+    for (const v of [a, b]) {
+      expect(v).toBeGreaterThanOrEqual(0.8)
+      expect(v).toBeLessThanOrEqual(1.2)
+    }
+    expect(a).not.toBe(b)
+  })
+
+  it('幅度 0 時全部是 1', () => {
+    for (const v of partTones(parts(), 0)) expect(v).toBe(1)
+  })
+
+  /** 【每次載入都一樣】倍率由零件位置算，不是亂數 —— 否則每一場同一艘船的深淺都不同 */
+  it('同一份幾何算兩次結果相同', () => {
+    expect([...partTones(parts(), 0.2)]).toEqual([...partTones(parts(), 0.2)])
+  })
+})
+
+async function loadFletcher(): Promise<Group> {
+  const buf = readFileSync('public/models/fletcher.glb')
+  const bytes = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
+  const scene = await new Promise<Group>((res, rej) => {
+    createGltfLoader().parse(bytes, '', (g) => res(g.scene), rej)
+  })
+  scene.updateMatrixWorld(true)
+  return scene
+}
+
+/** 像素點落在哪一區；都不在回 null */
+function stripOf(x: number, y: number, rects: Record<ShipStrip, ShipRect>): ShipStrip | null {
+  for (const k of ['port', 'starboard', 'deck', 'flat'] as const) {
+    const r = rects[k]
+    if (x >= r.x - 1e-3 && x <= r.x + r.w + 1e-3 && y >= r.y - 1e-3 && y <= r.y + r.h + 1e-3) return k
+  }
+  return null
+}
+
+describe('Fletcher 套塗裝', () => {
+  /**
+   * 走真的 `applyShipLivery`：UV 是從套完的網格讀回來的，區是照像素位置自己判的，
+   * 朝向是自己算法線 —— 不借用分類函式回報的任何東西
+   */
+  it('每一個船身／甲板面整面落在一區，而且那一區與它的朝向相符', async () => {
     const def = SHIP_LIVERIES.fletcher!
-    const buf = readFileSync('public/models/fletcher.glb')
-    const bytes = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
-    const scene = await new Promise<Group>((res, rej) => {
-      createGltfLoader().parse(bytes, '', (g) => res(g.scene), rej)
-    })
-    scene.updateMatrixWorld(true)
+    const scene = await loadFletcher()
+    applyShipLivery(scene, def, new Texture())
     const rects = shipLiveryRects(def.layout)
+    // 朝上的判定是 35.5°（1 : 1.4）；兩邊各留 0.5° 給浮點
+    const UP = 36 * Math.PI / 180
+    const SIDE = 35 * Math.PI / 180
     const counts: Record<string, number> = {}
     scene.traverse((o: Object3D) => {
       const mesh = o as Mesh
       if (!mesh.isMesh) return
       const kind = def.kinds[(mesh.material as Material).name]
       if (kind !== 'body' && kind !== 'deck') return
-      let geo = mesh.geometry.clone()
-      geo.applyMatrix4(mesh.matrixWorld)
-      geo = geo.toNonIndexed()
-      applyShipLiveryUv(geo, kind, def.layout, (strip, pts) => {
+      const pos = mesh.geometry.getAttribute('position')
+      const uv = mesh.geometry.getAttribute('uv')
+      expect(uv, mesh.name).toBeDefined()
+      expect(uv.count).toBe(pos.count)
+      for (let i = 0; i + 2 < pos.count; i += 3) {
+        const s = [0, 1, 2].map((k) => stripOf(
+          uv.getX(i + k) * SHIP_LIVERY_WIDTH, uv.getY(i + k) * SHIP_LIVERY_HEIGHT, rects))
+        expect(s[0], `${mesh.name} 第 ${i / 3} 面`).not.toBeNull()
+        expect(s[1]).toBe(s[0])
+        expect(s[2]).toBe(s[0])
+        const strip = s[0]!
         counts[strip] = (counts[strip] ?? 0) + 1
-        const r = rects[strip]
-        for (let k = 0; k < 3; k++) {
-          const x = pts[k * 2]!, y = pts[k * 2 + 1]!
-          expect(x >= r.x - 1e-3 && x <= r.x + r.w + 1e-3 && y >= r.y - 1e-3 && y <= r.y + r.h + 1e-3,
-            `${strip} (${x.toFixed(1)}, ${y.toFixed(1)})`).toBe(true)
+        const ux = pos.getX(i + 1) - pos.getX(i), uy = pos.getY(i + 1) - pos.getY(i), uz = pos.getZ(i + 1) - pos.getZ(i)
+        const vx = pos.getX(i + 2) - pos.getX(i), vy = pos.getY(i + 2) - pos.getY(i), vz = pos.getZ(i + 2) - pos.getZ(i)
+        const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
+        const tilt = Math.acos(ny / Math.hypot(nx, ny, nz))
+        if (kind === 'deck') expect(strip).toBe('deck')
+        else if (strip === 'flat') expect(tilt, `${mesh.name} 第 ${i / 3} 面`).toBeLessThanOrEqual(UP)
+        else {
+          expect(tilt, `${mesh.name} 第 ${i / 3} 面`).toBeGreaterThanOrEqual(SIDE)
+          // 明顯朝左右的面進自己那一舷
+          const side = nx / Math.hypot(nx, ny, nz)
+          if (side > 0.5) expect(strip).toBe('starboard')
+          if (side < -0.5) expect(strip).toBe('port')
         }
-      })
+      }
     })
     for (const s of ['port', 'starboard', 'deck', 'flat']) expect(counts[s], s).toBeGreaterThan(0)
+  })
+
+  it('船身與甲板吃貼圖、顏色歸白；細部換成塗裝的顏色；頂點不動', async () => {
+    const def = SHIP_LIVERIES.fletcher!
+    const scene = await loadFletcher()
+    const before = new Box3().setFromObject(scene)
+    const tex = new Texture()
+    applyShipLivery(scene, def, tex)
+    const after = new Box3().setFromObject(scene)
+    expect(after.min.toArray()).toEqual(before.min.toArray())
+    expect(after.max.toArray()).toEqual(before.max.toArray())
+    const want = new Color(def.accentColor).getHex()
+    const seen = new Set<string>()
+    scene.traverse((o: Object3D) => {
+      const mesh = o as Mesh
+      if (!mesh.isMesh) return
+      const m = mesh.material as MeshStandardMaterial
+      const kind = def.kinds[m.name]
+      if (kind === undefined) return
+      seen.add(kind)
+      if (kind === 'accent') {
+        expect(m.color.getHex()).toBe(want)
+      } else {
+        expect(m.map).toBe(tex)
+        expect(m.color.getHex()).toBe(0xffffff)
+      }
+    })
+    expect([...seen].sort()).toEqual(['accent', 'body', 'deck'])
+  })
+
+  /** 【上方元件深淺不一】砲械與上層結構一塊一個色階；船殼是最大的那一塊，維持原色 */
+  it('細部與上層結構的零件各有深淺，船殼維持 1', async () => {
+    const def = SHIP_LIVERIES.fletcher!
+    expect(def.partTone).toBeGreaterThan(0)
+    const scene = await loadFletcher()
+    applyShipLivery(scene, def, new Texture())
+    const tones: Record<string, Set<number>> = {}
+    scene.traverse((o: Object3D) => {
+      const mesh = o as Mesh
+      if (!mesh.isMesh) return
+      const m = mesh.material as MeshStandardMaterial
+      const kind = def.kinds[m.name]
+      if (kind !== 'accent' && kind !== 'body') return
+      expect(m.vertexColors, mesh.name).toBe(true)
+      const c = mesh.geometry.getAttribute('color')
+      expect(c.count).toBe(mesh.geometry.getAttribute('position').count)
+      const s = new Set<number>()
+      for (let i = 0; i < c.count; i++) s.add(c.getX(i))
+      tones[mesh.name] = s
+    })
+    expect([...tones['FLETCHER_Hull_1']!]).toEqual([1])
+    expect(tones['FLETCHER_Super']!.size).toBeGreaterThan(5)
+    expect(tones['FLETCHER_Guns']!.size).toBeGreaterThan(5)
   })
 })
