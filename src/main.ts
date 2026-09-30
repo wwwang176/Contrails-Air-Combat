@@ -4192,6 +4192,19 @@ const GFX_HIDDEN_LAYER = 31
     z: +t.position.z.toFixed(1),
   }))
 
+/**
+ * **量測出口**：場上每一艘船的艦級、位置與艏向（度，0 = 艦首朝 −Z）。
+ * 截圖要把上帝視角擺到某一艘旁邊，艦隊會走，只能讀當下的座標。
+ */
+;(window as unknown as Record<string, unknown>)['__ships'] = () =>
+  world.ships.map((s) => ({
+    cls: s.cls.id,
+    alive: s.alive,
+    x: +s.position.x.toFixed(1),
+    z: +s.position.z.toFixed(1),
+    heading: +(2 * Math.atan2(s.orientation.y, s.orientation.w) * 180 / Math.PI).toFixed(1),
+  }))
+
 /** 音訊錶當下的讀數。**除錯與探針用** —— 與錶上畫的是同一組數字 */
 ;(window as unknown as Record<string, unknown>)['__audioRead'] = () => {
   audio.meter(METER_SAMPLE)

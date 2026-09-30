@@ -7,6 +7,7 @@ import {
   PMREMGenerator, Scene, Vector3, WebGLRenderer,
 } from 'three'
 import { createGltfLoader } from '../render/geometry/gltfLoader'
+import { dressShipModel } from '../render/ships'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { DEG } from '../core/math'
@@ -541,7 +542,9 @@ function rebuildShip(id: string): void {
     `20 mm     ${n['mg'] ?? 0} 門 → 近距曳光
 ` +
     `射界是起始值，由試飛裁定`
-  createGltfLoader().load(assetUrl(cfg.url), (gltf) => {
+  createGltfLoader().load(assetUrl(cfg.url), async (gltf) => {
+    // 【塗裝與遊戲同一支】自己載的 GLB 不經過 `preloadShipModels`
+    await dressShipModel(id, gltf.scene)
     if (shipId !== id) return          // 載入期間又切走了
     g.add(gltf.scene)
     const box = new Box3().setFromObject(gltf.scene)

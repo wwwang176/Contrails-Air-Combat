@@ -1,8 +1,10 @@
 import {
   AdditiveBlending, Box3, DoubleSide, DynamicDrawUsage, Group, InstancedMesh,
-  Matrix4, MeshBasicMaterial, Object3D, PlaneGeometry, Quaternion, Vector3,
+  Matrix4, MeshBasicMaterial, MeshStandardMaterial, Object3D, PlaneGeometry, Quaternion,
+  SRGBColorSpace, TextureLoader, Vector3, type Material, type Mesh, type Texture,
 } from 'three'
 import { createGltfLoader } from './geometry/gltfLoader'
+import { applyShipLiveryUv, type ShipLiveryLayout } from './shipLivery'
 import { SHIP_CLASSES, type Ship, type ShipClassId } from '../world/ships'
 import { MAX_SHIP_GUNS } from '../world/shipGuns'
 import { TURRET_FLASH_SECONDS } from '../world/turrets'
@@ -22,6 +24,111 @@ import { assetUrl } from '../core/asset'
  */
 
 const templates = new Map<ShipClassId, Object3D>()
+
+/** GLB 材質在塗裝裡的角色：船身與甲板吃貼圖，細部換成單色 */
+export type ShipMaterialKind = 'body' | 'deck' | 'accent'
+
+export interface ShipLiveryDef {
+  readonly layout: ShipLiveryLayout
+  /** GLB 材質名 → 角色。沒列到的材質照 GLB 原樣 */
+  readonly kinds: Readonly<Record<string, ShipMaterialKind>>
+  /** 細部的顏色（sRGB） */
+  readonly accentColor: number
+}
+
+/**
+ * 有塗裝貼圖的艦級。**沒列到的照 GLB 的單色材質。**
+ *
+ * Fletcher：Measure 21（立面一律 5-N 海軍藍、水平面 20-B 甲板藍）。細部是立面，
+ * 所以也是 5-N：規範的孟塞爾 5PB 3.4/3 換成 sRGB 是 (70, 81, 103)。
+ * 範圍包住整個船身與甲板：船殼 z −57.0 … 56.9、y −4.0 … 6.4，上層結構頂到 14.8，
+ * 甲板半寬 6.0。17 px/m 是約 6 cm 一格。
+ */
+export const SHIP_LIVERIES: Partial<Record<ShipClassId, ShipLiveryDef>> = {
+  fletcher: {
+    layout: {
+      url: '/textures/ship_fletcher.png', scale: 17,
+      zMin: -57.5, zMax: 57.5, yMin: -4.2, yMax: 15, halfBeam: 6.2,
+    },
+    kinds: { FLETCHER_Body: 'body', FLETCHER_Deck: 'deck', FLETCHER_Accent: 'accent' },
+    accentColor: 0x465167,
+  },
+}
+
+/**
+ * 把塗裝套到剛載入的樣板上：船身與甲板的網格展開成無索引、算 UV，材質換成吃
+ * 貼圖的那一份；細部換色。**同一個 GLB 材質換成同一份**，同艦級仍共用材質。
+ *
+ * `texture` 為 null（node 測試沒有圖可載）時 UV 照算、材質維持單色。
+ *
+ * 頂點不動 —— 包圍盒、砲位、碰撞都與 GLB 相同。
+ */
+export function applyShipLivery(root: Object3D, def: ShipLiveryDef, texture: Texture | null): void {
+  root.updateMatrixWorld(true)
+  const swapped = new Map<Material, Material>()
+  root.traverse((o) => {
+    const mesh = o as Mesh
+    if (!mesh.isMesh) return
+    const src = mesh.material as Material
+    const kind = def.kinds[src.name]
+    if (kind === undefined) return
+    if (kind === 'body' || kind === 'deck') {
+      if (mesh.geometry.index !== null) {
+        const flat = mesh.geometry.toNonIndexed()
+        mesh.geometry.dispose()
+        mesh.geometry = flat
+      }
+      // 【UV 用艦體座標算】節點可能帶變換；算在烘過的副本上，只把 UV 搬回來
+      const baked = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld)
+      applyShipLiveryUv(baked, kind, def.layout)
+      mesh.geometry.setAttribute('uv', baked.getAttribute('uv'))
+      baked.dispose()
+    }
+    let dst = swapped.get(src)
+    if (dst === undefined) {
+      const m = (src as MeshStandardMaterial).clone()
+      if (kind === 'accent') m.color.set(def.accentColor)
+      else if (texture !== null) {
+        m.map = texture
+        m.color.set(0xffffff)
+      }
+      dst = m
+      swapped.set(src, dst)
+    }
+    mesh.material = dst
+  })
+}
+
+/**
+ * 塗裝貼圖，依路徑快取。**flipY = false**：UV 的原點在圖的左上角（`shipLivery.ts`）；
+ * `TextureLoader` 預設會把圖上下翻。
+ */
+const liveryTextures = new Map<string, Promise<Texture>>()
+
+function loadShipLivery(url: string): Promise<Texture> {
+  let t = liveryTextures.get(url)
+  if (t === undefined) {
+    t = new TextureLoader().loadAsync(assetUrl(url)).then((tex) => {
+      tex.flipY = false
+      tex.colorSpace = SRGBColorSpace
+      // 舷側多半是斜著看的，沒有異向過濾的話遠一點就糊成一團
+      tex.anisotropy = 8
+      return tex
+    })
+    liveryTextures.set(url, t)
+  }
+  return t
+}
+
+/**
+ * 把塗裝套到一份自己載的 GLB 上。給不走 `preloadShipModels` 的地方（機庫）用；
+ * 沒有塗裝的艦級什麼都不做。
+ */
+export async function dressShipModel(id: string, root: Object3D): Promise<void> {
+  const livery = SHIP_LIVERIES[id as ShipClassId]
+  if (livery === undefined) return
+  applyShipLivery(root, livery, await loadShipLivery(livery.layout.url))
+}
 
 /**
  * 每個艦級的模型最高點，m（艦體座標，水線為 0）。**HUD 的標記高度用它。**
@@ -72,7 +179,12 @@ export async function preloadShipModels(
   const loader = createGltfLoader()
   await Promise.all([...new Set(ids)].map(async (id) => {
     if (!templates.has(id)) {
-      const gltf = await loader.loadAsync(assetUrl(SHIP_CLASSES[id].url))
+      const livery = SHIP_LIVERIES[id]
+      const [gltf, texture] = await Promise.all([
+        loader.loadAsync(assetUrl(SHIP_CLASSES[id].url)),
+        livery === undefined ? null : loadShipLivery(livery.layout.url),
+      ])
+      if (livery !== undefined) applyShipLivery(gltf.scene, livery, texture)
       // 【量一次就好】包圍盒與船在哪無關，而 `setFromObject` 要走遍整棵樹
       gltf.scene.updateMatrixWorld(true)
       modelTops.set(id, BOX.setFromObject(gltf.scene).max.y)
