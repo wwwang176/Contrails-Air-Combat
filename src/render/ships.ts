@@ -1,10 +1,15 @@
 import {
-  AdditiveBlending, Box3, BufferAttribute, DoubleSide, DynamicDrawUsage, Group, InstancedMesh,
-  Matrix4, MeshBasicMaterial, MeshStandardMaterial, Object3D, PlaneGeometry, Quaternion,
-  SRGBColorSpace, TextureLoader, Vector3, type Material, type Mesh, type Texture,
+  AdditiveBlending, Box3, BufferAttribute, CanvasTexture, DoubleSide, DynamicDrawUsage, Group,
+  InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, PlaneGeometry,
+  Quaternion, SRGBColorSpace, TextureLoader, Vector3,
+  type BufferGeometry, type Material, type Texture,
 } from 'three'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { createGltfLoader } from './geometry/gltfLoader'
 import { applyShipLiveryUv, partTones } from './shipLivery'
+import {
+  buildNumberDecal, numberBox, numberCanvas, shipNumber, type ShipNumbersDef,
+} from './shipNumbers'
 import { SHIP_LIVERIES, liveryVariant, type ShipLiveryDef } from './shipLiveries'
 import { SHIP_CLASSES, type Ship, type ShipClassId } from '../world/ships'
 import { MAX_SHIP_GUNS } from '../world/shipGuns'
@@ -26,6 +31,38 @@ import { assetUrl } from '../core/asset'
 
 /** 每個艦級的樣板，一種圖案一份（見 `ShipLiveryDef.variants`）；沒有塗裝的只有一份 */
 const templates = new Map<ShipClassId, readonly Object3D[]>()
+
+/** 每個艦級的號碼貼花幾何（所有號碼位置併成一份）。號碼字數一樣，所以同艦級共用 */
+const numberDecals = new Map<ShipClassId, BufferGeometry>()
+
+/**
+ * 建某個艦級的號碼貼花幾何。`root` 是套過塗裝的樣板。
+ *
+ * 【挑不到面就丟】那個號碼整個不見而且不報錯 —— 位置寫錯（例如落在船殼外）只有
+ * 這裡看得出來。
+ */
+export function buildShipNumberDecals(root: Object3D, def: ShipNumbersDef): BufferGeometry {
+  const len = def.values[0]!.length
+  if (def.values.some((v) => v.length !== len)) {
+    throw new Error(`號碼的字數要一樣：${def.values.join('、')}`)
+  }
+  root.updateMatrixWorld(true)
+  let src: Mesh | undefined
+  root.traverse((o) => { if ((o as Mesh).isMesh && o.name === def.mesh) src = o as Mesh })
+  if (src === undefined) throw new Error(`找不到號碼要貼的網格 ${def.mesh}`)
+  let geo = src.geometry.clone().applyMatrix4(src.matrixWorld)
+  if (geo.index !== null) geo = geo.toNonIndexed()
+  const pieces = def.marks.map((mark) => {
+    const g = buildNumberDecal(geo, mark, numberBox(def.values[0]!, mark), def.largestPartOnly)
+    if (g === null) throw new Error(`${def.mesh} 在 ${mark.view} z ${mark.z} 挑不到面`)
+    return g
+  })
+  geo.dispose()
+  const out = mergeGeometries(pieces)
+  for (const p of pieces) p.dispose()
+  if (out === null) throw new Error(`${def.mesh} 的號碼貼花併不起來`)
+  return out
+}
 
 /**
  * 同一份樣板換另一張貼圖。幾何共用；吃 `from` 那張貼圖的材質換成吃 `to` 的一份
@@ -210,6 +247,9 @@ export async function preloadShipModels(
       // 【量一次就好】包圍盒與船在哪無關，而 `setFromObject` 要走遍整棵樹
       gltf.scene.updateMatrixWorld(true)
       modelTops.set(id, BOX.setFromObject(gltf.scene).max.y)
+      if (livery?.numbers !== undefined) {
+        numberDecals.set(id, buildShipNumberDecals(gltf.scene, livery.numbers))
+      }
       templates.set(id, [
         gltf.scene,
         ...textures.slice(1).map((t) => liveryVariantOf(gltf.scene, textures[0]!, t)),
@@ -261,6 +301,8 @@ const SCALE = /* @__PURE__ */ new Vector3()
 export function createShipModels(ships: readonly Ship[]): ShipModels {
   const object = new Group()
   const hulls: Object3D[] = []
+  /** 這一批船自己建的號碼字圖與材質（樣板的東西不在這裡，別的場還要用） */
+  const owned: { dispose(): void }[] = []
 
   for (const s of ships) {
     const ts = templates.get(s.cls.id)
@@ -268,6 +310,21 @@ export function createShipModels(ships: readonly Ship[]): ShipModels {
       throw new Error(`艦級 ${s.cls.id} 的 GLB 還沒載入 —— 少了 preloadShipModels()`)
     }
     const g = ts[liveryVariant(s.index, ts.length)]!.clone(true)
+    // 【號碼一艘一張字圖】幾何同艦級共用，字圖跟著這一艘建、跟著它釋放
+    const numbers = SHIP_LIVERIES[s.cls.id]?.numbers
+    const decal = numberDecals.get(s.cls.id)
+    if (numbers !== undefined && decal !== undefined) {
+      const tex = new CanvasTexture(numberCanvas(shipNumber(numbers.values, s.index), numbers))
+      tex.colorSpace = SRGBColorSpace
+      tex.anisotropy = 8
+      const mat = new MeshStandardMaterial({
+        map: tex, roughness: 0.8, alphaTest: 0.5,
+        // 與底下的船殼差 3 cm：遠處深度精度不夠，再往前推一點免得互閃
+        polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+      })
+      g.add(new Mesh(decal, mat))
+      owned.push(tex, mat)
+    }
     object.add(g)
     hulls.push(g)
   }
@@ -341,6 +398,7 @@ export function createShipModels(ships: readonly Ship[]): ShipModels {
     dispose() {
       flashes.geometry.dispose()
       ;(flashes.material as MeshBasicMaterial).dispose()
+      for (const o of owned) o.dispose()
     },
   }
 }

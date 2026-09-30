@@ -1,5 +1,6 @@
 import type { ShipClassId } from '../world/ships'
 import type { ShipLiveryLayout, ShipPartKind } from './shipLivery'
+import type { ShipNumbersDef } from './shipNumbers'
 
 /**
  * # 各艦級的塗裝
@@ -39,6 +40,8 @@ export interface ShipLiveryDef {
    * 每一艘照 `liveryVariant` 選一種；UV 與零件深淺不變，只換貼圖。
    */
   readonly variants?: readonly string[]
+  /** 舷號或甲板號碼（貼花，見 `shipNumbers.ts`）。**省略 = 不畫** */
+  readonly numbers?: ShipNumbersDef
 }
 
 /**
@@ -107,6 +110,20 @@ const FLETCHER: ShipLiveryDef = {
   kinds: { FLETCHER_Body: 'body', FLETCHER_Deck: 'deck', FLETCHER_Accent: 'accent' },
   accentColor: 0x465167,
   parts: { FLETCHER_Super: FLETCHER_SUPER_PARTS, FLETCHER_Guns: FLETCHER_GUN_PARTS },
+  /**
+   * 艦首兩舷的白色舷號（1943 年 Measure 21 的照片：深色船身上的白字）。號碼是
+   * Fletcher 級的頭六艘 DD-445…450 —— 1942–43 年都在所羅門群島。位置與字高是
+   * **起始值**：艦首往後 11 m、甲板緣下
+   */
+  numbers: {
+    values: ['445', '446', '447', '448', '449', '450'],
+    mesh: 'FLETCHER_Hull_1',
+    marks: [
+      { view: 'starboard', z: -46, y: 4.5, height: 1.8 },
+      { view: 'port', z: -46, y: 4.5, height: 1.8 },
+    ],
+    color: 0xecece8,
+  },
 }
 
 // ── Wichita ─────────────────────────────────────────────
@@ -246,6 +263,18 @@ const ESSEX: ShipLiveryDef = {
     ESSEX_Gallery: [{ name: 'gallery', tone: 1.1, boxes: [{}] }],
     ESSEX_Sponsons: [{ name: 'sponson', tone: 1.2, boxes: [{}] }],
   },
+  /**
+   * 飛行甲板艦首端的「9」：深色字、淺色細邊，字頂朝艦首（從艦尾進場讀得正）——
+   * 照 1945-05-20 的兩張空拍。飛行甲板艦首端在 z −131.5，字心往艦尾 24 m；字高
+   * 是**起始值**
+   */
+  numbers: {
+    values: ['9'],
+    mesh: 'ESSEX_Deck',
+    marks: [{ view: 'deck', z: -107.5, x: 0, height: 22 }],
+    color: 0x262a32,
+    outline: 0x969ba2,
+  },
 }
 
 // ── LST ─────────────────────────────────────────────────
@@ -311,6 +340,22 @@ const LST: ShipLiveryDef = {
   // 【三種圖案輪流】灘頭十艘兩三艘一組並排，同一種的話看起來是複製的。另兩種不是
   // 史實的設計，照同一套手法排（見 `ship_lst.py`）
   variants: ['/textures/ship_lst_b.png', '/textures/ship_lst_c.png'],
+  /**
+   * 艦首與艦尾兩舷的白色舷號（LST-942 1944 年的照片：艦尾那一段、船殼半高）。
+   * **號碼是示意的**，不是雷伊泰灘頭那十艘的真實編號。位置與字高是起始值
+   */
+  numbers: {
+    values: ['458', '470', '552', '618', '664', '688', '704', '737', '741', '942'],
+    mesh: 'LST_Body_merged',
+    largestPartOnly: true,
+    marks: [
+      { view: 'starboard', z: -41, y: 5.0, height: 1.6 },
+      { view: 'port', z: -41, y: 5.0, height: 1.6 },
+      { view: 'starboard', z: 38, y: 5.0, height: 1.6 },
+      { view: 'port', z: 38, y: 5.0, height: 1.6 },
+    ],
+    color: 0xecece8,
+  },
   parts: {
     LST_Body_merged: LST_BODY_PARTS,
     // 四座 40 mm（砲架、兩根砲管）與四座 20 mm（柱、砲管、護盾）
