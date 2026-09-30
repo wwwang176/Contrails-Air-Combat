@@ -162,11 +162,12 @@ class ShipLivery:
         self.im.paste(region, box[:2])
 
     # ── 輸出 ────────────────────────────────────────────────────
-    def save(self, outline=None):
-        """縮回原尺寸，寫原圖與遊戲用圖。`outline` 給一個路徑的話另外存一張疊了面框的檢查圖"""
+    def save(self, outline=None, suffix=''):
+        """縮回原尺寸，寫原圖與遊戲用圖（`ship_<id><suffix>.png`）。`outline` 給一個
+        路徑的話另外存一張疊了面框的檢查圖"""
         im = self.im.resize((self.W, self.H), Image.LANCZOS)
-        src = os.path.join(ROOT, 'textures-src', f'ship_{self.id}.png')
-        out = os.path.join(ROOT, 'public', 'textures', f'ship_{self.id}.png')
+        src = os.path.join(ROOT, 'textures-src', f'ship_{self.id}{suffix}.png')
+        out = os.path.join(ROOT, 'public', 'textures', f'ship_{self.id}{suffix}.png')
         for p in (src, out):
             os.makedirs(os.path.dirname(p), exist_ok=True)
             im.save(p, optimize=True)
