@@ -100,9 +100,12 @@ export interface WakeStyle {
   /** 出生時的不透明度 */
   readonly alpha: number
   /**
-   * 泡沫紋理沿航向幾公尺重複一次。**省略 = 沒有紋理**（魚雷）。有的話帶子多一組
-   * UV：u 橫跨帶寬（0 左、1 右），v 是節點落下時的里程 —— 紋理釘在水面上，不跟著
-   * 船滑
+   * 泡沫紋理幾公尺重複一次（橫向與縱向同一個比例）。**省略 = 沒有紋理**（魚雷）。
+   * 有的話帶子多一組 UV：u 是離中線幾公尺、v 是節點落下時的里程，都除以它 ——
+   * 紋理釘在水面上、不跟著船滑。
+   *
+   * 【u 用公尺不用 0…1】照帶寬算的話，帶子散開幾倍、泡沫就被橫向拉長幾倍，變成扁的
+   * 橫條。照公尺算，帶子變寬時是多鋪幾格。兩邊的軟邊另外由 `aAcross` 算
    */
   readonly foamTile?: number
 }
@@ -244,6 +247,12 @@ export function createWakes(
   geometry.setIndex(new BufferAttribute(ribbonIndices(slots, NODES), 1))
   const foamed = style.foamTile !== undefined
   const uvAttr = foamed ? new BufferAttribute(new Float32Array(vertexCount * 2), 2) : null
+  // 橫向位置：左緣 −1、右緣 +1。建一次就不動 —— 每一對頂點都是一左一右
+  if (foamed) {
+    const across = new Float32Array(vertexCount)
+    for (let v = 0; v < vertexCount; v++) across[v] = v % 2 === 0 ? -1 : 1
+    geometry.setAttribute('aAcross', new BufferAttribute(across, 1))
+  }
   if (uvAttr !== null) {
     uvAttr.setUsage(DynamicDrawUsage)
     geometry.setAttribute('uv', uvAttr)
@@ -261,17 +270,22 @@ export function createWakes(
   const foamTime = { value: 0 }
   if (foamed) {
     // 【泡沫會翻動】同一張泡沫圖用兩個尺寸、兩個方向的偏移各讀一次再合起來，偏移隨
-    // 時間走 —— 兩層交疊的地方一直變，看起來是在翻滾，不是靜止的條紋。u 不動，兩邊
-    // 的軟邊因此維持在帶子邊上
+    // 時間走 —— 兩層交疊的地方一直變，看起來是在翻滾，不是靜止的條紋。兩層是同一個
+    // 等比縮放，泡沫團不會被拉扁。
+    // 【兩邊的軟邊】照離中線多遠（`aAcross`，−1…1）淡掉，與帶寬無關
     material.onBeforeCompile = (shader) => {
       injectVertexAlpha(shader)
       shader.uniforms['uFoamTime'] = foamTime
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute float aAcross;\nvarying float vAcross;')
+        .replace('#include <uv_vertex>', '#include <uv_vertex>\nvAcross = aAcross;')
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nuniform float uFoamTime;')
+        .replace('#include <common>', '#include <common>\nuniform float uFoamTime;\nvarying float vAcross;')
         .replace('#include <map_fragment>', /* glsl */`
           vec4 foamA = texture2D( map, vMapUv + vec2( 0.0, uFoamTime * 0.05 ) );
-          vec4 foamB = texture2D( map, vec2( vMapUv.x, vMapUv.y * 1.7 - uFoamTime * 0.08 + 0.37 ) );
-          diffuseColor.a *= clamp( ( foamA.a + foamB.a ) * 0.75 - 0.15, 0.0, 1.0 );`)
+          vec4 foamB = texture2D( map, vMapUv * 1.7 + vec2( 0.53, 0.37 - uFoamTime * 0.08 ) );
+          float edge = 1.0 - smoothstep( 0.45, 1.0, abs( vAcross ) );
+          diffuseColor.a *= clamp( ( foamA.a + foamB.a ) * 0.75 - 0.15, 0.0, 1.0 ) * edge;`)
     }
     material.customProgramCacheKey = () => 'wake-foam'
   } else {
@@ -371,10 +385,12 @@ export function createWakes(
       alp[base + j * 2] = al
       alp[base + j * 2 + 1] = al
       if (uvs !== null) {
-        const v = (jj < count[slot]! ? nOdo[slotOf(slot, jj)]! : odo[slot]!) / style.foamTile!
-        uvs[(base + j * 2) * 2] = 0
+        // u 照公尺：離中線 ±w，帶子變寬時多鋪幾格而不是把同一格拉寬
+        const tile = style.foamTile!
+        const v = (jj < count[slot]! ? nOdo[slotOf(slot, jj)]! : odo[slot]!) / tile
+        uvs[(base + j * 2) * 2] = -w / tile
         uvs[(base + j * 2) * 2 + 1] = v
-        uvs[(base + j * 2 + 1) * 2] = 1
+        uvs[(base + j * 2 + 1) * 2] = w / tile
         uvs[(base + j * 2 + 1) * 2 + 1] = v
       }
     }

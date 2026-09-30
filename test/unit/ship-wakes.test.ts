@@ -140,6 +140,30 @@ describe('船的航跡', () => {
       TORPEDO_WAKE.halfFrom + (TORPEDO_WAKE.halfTo - TORPEDO_WAKE.halfFrom) / 4, 9)
   })
 
+  /**
+   * 【紋理照公尺、不照帶寬】u 若是 0…1 橫跨帶寬，帶子散開幾倍泡沫就被橫向拉長幾倍、
+   * 變成扁的橫條。照公尺算的話，每一對頂點的 u 差 = 帶寬 ÷ 紋理尺寸
+   */
+  it('泡沫 UV 的橫向照公尺：u 差與帶寬成正比，不固定是 1', () => {
+    const { w } = sail(8, 30)
+    const [stern] = w.object.children as [Mesh, Mesh]
+    const p = stern.geometry.getAttribute('position')
+    const uv = stern.geometry.getAttribute('uv')
+    const a = stern.geometry.getAttribute('aAlpha')
+    const ratios: number[] = []
+    let narrow = Infinity, wide = 0
+    for (let i = 0; i + 1 < p.count; i += 2) {
+      if (a.getX(i) <= 0) continue
+      const width = Math.hypot(p.getX(i + 1) - p.getX(i), p.getZ(i + 1) - p.getZ(i))
+      if (width < 1e-3) continue
+      const du = Math.abs(uv.getX(i + 1) - uv.getX(i))
+      ratios.push(du / width)
+      narrow = Math.min(narrow, width); wide = Math.max(wide, width)
+    }
+    expect(wide).toBeGreaterThan(narrow * 3)
+    for (const r of ratios) expect(r).toBeCloseTo(1 / SHIP_STERN_WAKE.foamTile!, 6)
+  })
+
   /** 【沉了就不再落】已經落的照常淡掉 */
   it('沉了的船不再落新節點', () => {
     const { ship, w } = sail(8, 5)
