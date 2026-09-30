@@ -1,9 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
 import type { ReadyMissionCard } from '../../src/battle/missions'
-import { createBattle, stepBattle } from '../../src/battle/setup'
+import { createBattle } from '../../src/battle/setup'
+import { Aircraft } from '../../src/aircraft/Aircraft'
 import { AiController } from '../../src/ai/AiController'
-import { TORPEDO_PROFILE } from '../../src/ai/torpedoRun'
+import { createTargetBoard } from '../../src/ai/target'
+import { createCommand } from '../../src/control/Controller'
+import { A6M5 } from '../../src/specs/a6m5'
+import { F4F4 } from '../../src/specs/f4f4'
+import type { AircraftSpec } from '../../src/specs/types'
+import { createBombBay, type BombBay } from '../../src/weapons/bomb'
+import { A6M5_BOMB_LOADOUT } from '../../src/weapons/stores'
+import { SHIP_CLASSES, createShip, type Ship } from '../../src/world/ships'
+import { createShipGuns } from '../../src/world/shipGuns'
 
 /**
  * # 任務的目標優先
@@ -13,6 +22,26 @@ import { TORPEDO_PROFILE } from '../../src/ai/torpedoRun'
  */
 
 const DT = 1 / 240
+
+/** 擺在 (x, y, z)、朝 −Z 以 200 m/s 平飛 */
+function craft(spec: AircraftSpec, x: number, y: number, z: number): Aircraft {
+  const a = new Aircraft(spec, y, 200)
+  a.state.position.set(x, y, z)
+  a.state.velocity.set(0, 0, -200)
+  a.state.orientation.identity()
+  a.prevPosition.copy(a.state.position)
+  a.prevOrientation.identity()
+  return a
+}
+
+/** 紅隊的驅逐艦，停在 (x, z) */
+function destroyer(x: number, z: number): Ship {
+  const s = createShip(0, SHIP_CLASSES.fletcher, 'red', x, z, 0, 0)
+  s.guns = createShipGuns(SHIP_CLASSES.fletcher)
+  s.gunCooldowns = new Float32Array(SHIP_CLASSES.fletcher.zones.length)
+  return s
+}
+
 const card = MISSIONS.japan.find((m) => m.id === 'japan-m1') as ReadyMissionCard
 
 describe('日 M1 的目標優先', () => {
@@ -35,33 +64,29 @@ describe('日 M1 的目標優先', () => {
 
   /**
    * 【沒掛彈的戰鬥機不插隊打船】對艦分支排在空戰之前，只給掛了彈的那幾架。
-   * 戰鬥機進了那一支的話，整隊零戰會丟下 F4F 去掃射巡洋艦
+   * 戰鬥機進了那一支的話，整隊零戰會丟下 F4F 去掃射巡洋艦。
+   * 掛了彈的那一架是對照組：同一個情境下它要進對艦分支
    */
-  it('有空中目標的零戰不進對艦分支', () => {
-    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
-    const w = b.world
-    // 【照 main.ts 的 wireTerrain 接線】無頭建場不接船與彈艙
-    for (const c of w.combatants) {
-      const ai = c.controller
-      if (!(ai instanceof AiController)) continue
-      ai.ships = w.ships
-      ai.groundTargets = w.groundTargets
-      ai.bombBay = c.bombBay
-      ai.bombDrag = w.bombDrag
-      ai.strikeProfile = TORPEDO_PROFILE
+  it('有 F4F 也有敵艦時，沒掛彈的零戰鎖 F4F、掛了彈的去打船', () => {
+    const pick = (bay: BombBay) => {
+      const self = craft(A6M5, 0, 500, 0)
+      const enemy = craft(F4F4, 900, 500, -1200)
+      const ai = new AiController()
+      ai.board = createTargetBoard([
+        { index: 0, aircraft: self, team: 'blue', alive: true },
+        { index: 1, aircraft: enemy, team: 'red', alive: true },
+      ])
+      ai.selfIndex = 0
+      ai.ships = [destroyer(0, -1500)]
+      ai.bombBay = bay
+      ai.update(self, DT, createCommand())
+      return { ship: ai.shipAim.ship, target: ai.target, enemy }
     }
-    while (w.time < 20) stepBattle(b, DT)
-    let engaged = 0
-    for (const c of w.combatants) {
-      const ai = c.controller
-      if (!(ai instanceof AiController) || !c.alive) continue
-      if (c.team !== 'blue' || c.aircraft.spec.role !== 'fighter') continue
-      if (ai.target === null) continue
-      engaged++
-      expect(ai.shipAim.ship, `第 ${c.index} 架`).toBe(-1)
-    }
-    expect(engaged).toBeGreaterThan(0)
-  }, 120_000)
+    const empty = pick(createBombBay(null))
+    expect(empty.ship).toBe(-1)
+    expect(empty.target).toBe(empty.enemy)
+    expect(pick(createBombBay(A6M5_BOMB_LOADOUT)).ship).toBe(0)
+  })
 })
 
 describe('盟 M3 的零戰先打船', () => {
