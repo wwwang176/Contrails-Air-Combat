@@ -15,7 +15,7 @@
 每一條的漆往外延伸半個空白，mipmap 縮小時讀不到隔壁那一條的顏色。
 """
 import json, os, random
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -84,7 +84,12 @@ class ShipLivery:
         self.d.rectangle(self.box(strip), fill=color)
 
     def poly(self, strip, pts, fill):
-        self.d.polygon([self.px(strip, a, b) for a, b in pts], fill=fill)
+        """填一個多邊形，**裁在這一條往外半個空白之內** —— 伸出去的部分會蓋到隔壁那一條"""
+        mask = Image.new('L', self.im.size, 0)
+        ImageDraw.Draw(mask).polygon([self.px(strip, a, b) for a, b in pts], fill=255)
+        clip = Image.new('L', self.im.size, 0)
+        ImageDraw.Draw(clip).rectangle(self.box(strip), fill=255)
+        self.im.paste(fill, (0, 0, self.im.width, self.im.height), ImageChops.multiply(mask, clip))
 
     def rect(self, strip, a0, b0, a1, b1, fill):
         self.poly(strip, [(a0, b0), (a1, b0), (a1, b1), (a0, b1)], fill)
