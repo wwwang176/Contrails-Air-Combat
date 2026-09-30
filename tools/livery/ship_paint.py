@@ -46,6 +46,9 @@ class ShipLivery:
             u, v = r['x'] + (L['zMax'] - a) * s, r['y'] + (L['yMax'] - b) * s
         elif strip == 'deck':
             u, v = r['x'] + (a - L['zMin']) * s, r['y'] + (L['halfBeam'] - b) * s
+        elif strip == 'top':
+            # 頂面區沒有固定的艦體座標（每塊零件各自擺），(a, b) 是離區左上角幾公尺
+            u, v = r['x'] + a * s, r['y'] + b * s
         else:
             raise ValueError(strip)
         return (u * SS, v * SS)
@@ -160,6 +163,14 @@ class ShipLivery:
                     r, g, b = px[x, y]
                     px[x, y] = (max(0, min(255, r + k)), max(0, min(255, g + k)), max(0, min(255, b + k)))
         self.im.paste(region, box[:2])
+
+    def top(self, color, seam, seed, da=5.0, db=1.8, amount=5):
+        """頂面區：水平面的漆、鋼板深淺與接縫。上層結構、砲座、走廊的頂都讀這一區"""
+        r = self.R['top']
+        w, h = r['w'] / self.s, r['h'] / self.s
+        self.fill('top', color)
+        self.plates('top', -1, w + 1, -1, h + 1, da, db, amount, seed)
+        self.seams('top', 0, w, 0, h, da, db, seam)
 
     # ── 輸出 ────────────────────────────────────────────────────
     def save(self, outline=None, suffix=''):

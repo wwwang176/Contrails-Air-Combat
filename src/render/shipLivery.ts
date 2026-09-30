@@ -3,16 +3,17 @@ import { BufferAttribute, type BufferGeometry } from 'three'
 /**
  * # 船的塗裝版面
  *
- * 一張 2048 × 1024 的貼圖，由上而下三條，右下角一塊單色區：
+ * 一張 2048 × 1024 的貼圖，由上而下三條，剩下的空位（甲板條下方的橫帶或右側的
+ * 直欄，取大的那一個）是頂面區：
  *
  * ```
- *   ┌──────────────────────────────┐
- *   │ 左舷條  站在左舷看：艦首在左 │
- *   │ 右舷條  站在右舷看：艦首在右 │
- *   │ 甲板條  俯視：艦首在左、右舷在上 │
- *   │                        ┌────┤
- *   │                        │單色│
- *   └────────────────────────┴────┘
+ *   ┌─────────────────────────┬────┐
+ *   │ 左舷條  站在左舷看：艦首在左 │    │
+ *   │ 右舷條  站在右舷看：艦首在右 │頂面│ ← 船短（Essex、LST）時在右側
+ *   │ 甲板條  俯視：艦首在左、右舷在上│    │
+ *   ├─────────────────────────┴────┤
+ *   │ 頂面                          │ ← 船長（Fletcher、Wichita）時在下方
+ *   └──────────────────────────────┘
  * ```
  *
  * 座標是艦體座標：X 橫向（+X 右舷）、Y 上（水線為 0）、−Z 艦首。三條同一個比例。
@@ -22,7 +23,8 @@ import { BufferAttribute, type BufferGeometry } from 'three'
  *
  * 每個面依材質與法線歸到一條：
  * - 甲板材質 → 甲板條（俯視投影）
- * - 船身材質、朝上的面 → 單色區（水平面一律漆甲板藍，迷彩只在立面）
+ * - 船身材質、朝上的面 → 頂面區（水平面的漆、鋼板與髒污；迷彩只在立面）。每塊零件
+ *   俯視投影、各自錯開位置，比頂面區大的等比縮小放進去
  * - 船身材質、其他的面 → 左舷條或右舷條（側視投影）
  *
  * 【UV 在載入時算、不存在 GLB 裡】與飛機塗裝（`geometry/livery.ts`）同一個做法。
@@ -48,7 +50,7 @@ export interface ShipLiveryLayout {
   readonly halfBeam: number
 }
 
-export type ShipStrip = 'port' | 'starboard' | 'deck' | 'flat'
+export type ShipStrip = 'port' | 'starboard' | 'deck' | 'top'
 export type ShipFaceKind = 'body' | 'deck'
 
 export interface ShipRect {
@@ -65,10 +67,9 @@ export interface ShipRect {
 export const SHIP_LIVERY_GUTTER = 16
 
 /**
- * 單色區的邊長，px。它的面三個 UV 指向同一點（導數為零），平常讀的是第 0 級；
- * 周圍的空白也塗同一個色（畫圖腳本的約定），任何一級都讀得到它。
+ * 頂面區至少要多大，px。小於它就丟錯 —— 頂面的零件會縮到看不出鋼板與髒污。
  */
-export const SHIP_LIVERY_FLAT = 64
+export const SHIP_LIVERY_TOP_MIN = 48
 
 /**
  * 朝上的判定：法線的垂直分量比水平分量 `hypot(nx, nz)` 的這個倍數還大（約 35° 以內）。
@@ -98,11 +99,6 @@ export function shipLiveryRects(L: ShipLiveryLayout): Record<ShipStrip, ShipRect
   const port = { x: g, y: g, w, h: sideH }
   const starboard = { x: g, y: port.y + sideH + g, w, h: sideH }
   const deck = { x: g, y: starboard.y + sideH + g, w, h: deckH }
-  const flat = {
-    x: SHIP_LIVERY_WIDTH - g - SHIP_LIVERY_FLAT,
-    y: SHIP_LIVERY_HEIGHT - g - SHIP_LIVERY_FLAT,
-    w: SHIP_LIVERY_FLAT, h: SHIP_LIVERY_FLAT,
-  }
   if (!(w > 0 && sideH > 0 && deckH > 0)) throw new Error('船的塗裝版面：範圍要是正的')
   if (g + w + g > SHIP_LIVERY_WIDTH) {
     throw new Error(`船的塗裝版面：寬 ${w.toFixed(0)} px 放不進 ${SHIP_LIVERY_WIDTH}`)
@@ -110,11 +106,53 @@ export function shipLiveryRects(L: ShipLiveryLayout): Record<ShipStrip, ShipRect
   if (deck.y + deckH + g > SHIP_LIVERY_HEIGHT) {
     throw new Error(`船的塗裝版面：三條共 ${(deck.y + deckH + g).toFixed(0)} px 高，放不進 ${SHIP_LIVERY_HEIGHT}`)
   }
-  // 單色區在甲板條右邊或下面都可以，不能與它重疊
-  if (deck.y + deckH + g > flat.y && g + w + g > flat.x) {
-    throw new Error('船的塗裝版面：單色區與甲板條重疊')
+  // 頂面區：甲板條下方的橫帶或右側的直欄，取面積大的
+  const band = { x: g, y: deck.y + deckH + g, w: SHIP_LIVERY_WIDTH - 2 * g, h: 0 }
+  band.h = SHIP_LIVERY_HEIGHT - g - band.y
+  const column = { x: g + w + g, y: g, w: 0, h: SHIP_LIVERY_HEIGHT - 2 * g }
+  column.w = SHIP_LIVERY_WIDTH - g - column.x
+  const area = (r: ShipRect) => Math.max(0, r.w) * Math.max(0, r.h)
+  const top = area(band) >= area(column) ? band : column
+  if (top.w < SHIP_LIVERY_TOP_MIN || top.h < SHIP_LIVERY_TOP_MIN) {
+    throw new Error(`船的塗裝版面：頂面區只剩 ${top.w.toFixed(0)} × ${top.h.toFixed(0)} px`)
   }
-  return { port, starboard, deck, flat }
+  return { port, starboard, deck, top }
+}
+
+/**
+ * 一塊零件的頂面在頂面區裡擺在哪：零件俯視外框的左上角（z 最小、x 最大）對到
+ * (`u0`, `v0`)，縮放 `f`（1 = 與側條同一個比例）。
+ */
+export interface TopPlacement {
+  readonly zMin: number
+  readonly xMax: number
+  readonly u0: number
+  readonly v0: number
+  readonly f: number
+}
+
+/**
+ * 零件 `p` 的頂面擺法：比頂面區大就等比縮小放進去；位置由零件編號算，不同零件讀到
+ * 頂面區的不同地方，同一個模型每次載入都一樣。
+ */
+export function topPlacement(
+  parts: ShipParts, p: number, L: ShipLiveryLayout, top: ShipRect,
+): TopPlacement {
+  const s = L.scale
+  const dz = parts.extent[p * 3 + 2]! * s
+  const dx = parts.extent[p * 3]! * s
+  const f = Math.min(1, top.w / Math.max(dz, 1e-6), top.h / Math.max(dx, 1e-6))
+  const hash = (k: number) => {
+    const h = Math.sin(p * 12.9898 + k * 78.233) * 43758.5453
+    return h - Math.floor(h)
+  }
+  return {
+    zMin: parts.origin[p * 3 + 2]!,
+    xMax: parts.origin[p * 3]! + parts.extent[p * 3]!,
+    u0: top.x + hash(1) * Math.max(0, top.w - dz * f),
+    v0: top.y + hash(2) * Math.max(0, top.h - dx * f),
+    f,
+  }
 }
 
 /**
@@ -125,16 +163,19 @@ export function shipFaceStrip(
 ): ShipStrip {
   if (kind === 'deck') return 'deck'
   const h = Math.hypot(nx, nz)
-  if (ny >= h * UP_BIAS) return 'flat'
+  if (ny >= h * UP_BIAS) return 'top'
   const len = Math.hypot(nx, ny, nz)
   const side = Math.abs(nx) >= SIDE_NX * len ? nx : cx
   return side >= 0 ? 'starboard' : 'port'
 }
 
-/** 艦體座標的一點 → 該區的像素座標，寫進 `out` */
+/**
+ * 艦體座標的一點 → 該區的像素座標，寫進 `out`。頂面區要給那塊零件的擺法 `place`
+ * （俯視：艦首在左、右舷在上，與甲板條同一個方向）。
+ */
 export function shipLiveryPixel(
   out: number[], strip: ShipStrip, x: number, y: number, z: number,
-  L: ShipLiveryLayout, R: Record<ShipStrip, ShipRect>,
+  L: ShipLiveryLayout, R: Record<ShipStrip, ShipRect>, place?: TopPlacement,
 ): void {
   const s = L.scale
   switch (strip) {
@@ -150,9 +191,10 @@ export function shipLiveryPixel(
       out[0] = R.deck.x + (z - L.zMin) * s
       out[1] = R.deck.y + (L.halfBeam - x) * s
       break
-    case 'flat':
-      out[0] = R.flat.x + R.flat.w / 2
-      out[1] = R.flat.y + R.flat.h / 2
+    case 'top':
+      if (place === undefined) throw new Error('頂面區要給零件的擺法')
+      out[0] = place.u0 + (z - place.zMin) * s * place.f
+      out[1] = place.v0 + (place.xMax - x) * s * place.f
       break
   }
 }
@@ -208,6 +250,8 @@ export interface ShipParts {
   readonly centroid: Float64Array
   /** 每一塊外框的長寬高，xyz 連排 */
   readonly extent: Float64Array
+  /** 每一塊外框的最小角，xyz 連排 */
+  readonly origin: Float64Array
 }
 
 /**
@@ -269,13 +313,14 @@ export function shipParts(geo: BufferGeometry): ShipParts {
   }
   const centroid = new Float64Array(slot.size * 3)
   const extent = new Float64Array(slot.size * 3)
+  const origin = new Float64Array(lo)
   for (let p = 0; p < slot.size; p++) {
     for (let a = 0; a < 3; a++) {
       centroid[p * 3 + a] = sums[p * 3 + a]! / verts[p]!
       extent[p * 3 + a] = hi[p * 3 + a]! - lo[p * 3 + a]!
     }
   }
-  return { count: slot.size, of, centroid, extent }
+  return { count: slot.size, of, centroid, extent, origin }
 }
 
 /**
@@ -331,6 +376,19 @@ export function applyShipLiveryUv(
   const uv = new Float32Array(n * 2)
   const p = [0, 0]
   const px = [0, 0, 0, 0, 0, 0]
+  // 頂面的擺法照零件算；只有真的有朝上的面才拆零件
+  let parts: ShipParts | null = null
+  const places = new Map<number, TopPlacement>()
+  const placeOf = (tri: number): TopPlacement => {
+    parts ??= shipParts(geo)
+    const q = parts.of[tri]!
+    let pl = places.get(q)
+    if (pl === undefined) {
+      pl = topPlacement(parts, q, L, R.top)
+      places.set(q, pl)
+    }
+    return pl
+  }
   for (let i = 0; i + 2 < n; i += 3) {
     const ax = pos.getX(i), ay = pos.getY(i), az = pos.getZ(i)
     const bx = pos.getX(i + 1), by = pos.getY(i + 1), bz = pos.getZ(i + 1)
@@ -340,9 +398,10 @@ export function applyShipLiveryUv(
     const vx = cx - ax, vy = cy - ay, vz = cz - az
     const strip = shipFaceStrip(
       kind, uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx, (ax + bx + cx) / 3)
+    const place = strip === 'top' ? placeOf(i / 3) : undefined
     for (let k = 0; k < 3; k++) {
       const j = i + k
-      shipLiveryPixel(p, strip, pos.getX(j), pos.getY(j), pos.getZ(j), L, R)
+      shipLiveryPixel(p, strip, pos.getX(j), pos.getY(j), pos.getZ(j), L, R, place)
       uv[j * 2] = p[0]! / SHIP_LIVERY_WIDTH
       uv[j * 2 + 1] = p[1]! / SHIP_LIVERY_HEIGHT
       px[k * 2] = p[0]!

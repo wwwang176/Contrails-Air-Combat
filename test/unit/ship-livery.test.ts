@@ -71,10 +71,58 @@ describe('船的塗裝 UV', () => {
     expect(sTop[1]).toBeLessThan(sBow[1]!)
   })
 
-  /** 【水平面漆甲板藍】迷彩只在立面；俯視時走廊頂與砲座頂會投到同一塊，給單色就不會打架 */
-  it('朝上的船身面 → 單色區', () => {
+  /** 【頂面有鋼板與髒污】朝上的面俯視投影到頂面區，方向與甲板條相同：艦首在左、右舷在上 */
+  it('朝上的船身面 → 頂面區，艦首在左、右舷在上', () => {
     const g = UP.clone(); applyShipLiveryUv(g, 'body', L)
-    for (const q of px(g)) expect(inside(q, 'flat')).toBe(true)
+    const [c, stbdAft, stbdBow] = px(g) as [number[], number[], number[]]
+    for (const q of [c, stbdAft, stbdBow]) expect(inside(q, 'top')).toBe(true)
+    expect(stbdBow[0]).toBeLessThan(stbdAft[0]!)
+    expect(stbdBow[1]).toBeLessThan(c[1]!)
+    // 比例與側條相同：1 m 是 scale px
+    expect(stbdAft[0]! - stbdBow[0]!).toBeCloseTo(2 * L.scale, 6)
+  })
+
+  /** 【比頂面區大就縮】放不下的話會伸到頂面區外、讀到別的漆 */
+  it('比頂面區大的零件等比縮小，整塊都在頂面區內', () => {
+    const big = new BufferGeometry()
+    big.setAttribute('position', new Float32BufferAttribute([
+      -5, 6, -150, -5, 6, 150, 5, 6, 150,
+      -5, 6, -150, 5, 6, 150, 5, 6, -150,
+    ], 3))
+    applyShipLiveryUv(big, 'body', L)
+    const uv = big.getAttribute('uv')
+    const r = shipLiveryRects(L).top
+    let u0 = Infinity, u1 = -Infinity
+    for (let i = 0; i < uv.count; i++) {
+      const x = uv.getX(i) * SHIP_LIVERY_WIDTH, y = uv.getY(i) * SHIP_LIVERY_HEIGHT
+      expect(inside([x, y], 'top')).toBe(true)
+      u0 = Math.min(u0, x); u1 = Math.max(u1, x)
+    }
+    // 300 m 在 10 px/m 是 3000 px，縮到頂面區的寬
+    expect(u1 - u0).toBeCloseTo(r.w, 3)
+  })
+
+  /** 【每塊零件錯開】並排的兩塊頂面讀到頂面區的不同地方，看起來才不會一模一樣 */
+  it('兩塊不相連的頂面擺在頂面區的不同位置', () => {
+    const g = new BufferGeometry()
+    g.setAttribute('position', new Float32BufferAttribute([
+      0, 6, 0, 1, 6, 1, 1, 6, -1,
+      0, 6, 20, 1, 6, 21, 1, 6, 19,
+    ], 3))
+    applyShipLiveryUv(g, 'body', L)
+    const uv = g.getAttribute('uv')
+    // 兩塊的形狀相同、只差 z 20 m；擺法照零件錯開，所以 UV 差的不是 20 m 的平移
+    const du = (uv.getX(3) - uv.getX(0)) * SHIP_LIVERY_WIDTH
+    const dv = (uv.getY(3) - uv.getY(0)) * SHIP_LIVERY_HEIGHT
+    expect(Math.abs(du - 20 * L.scale) + Math.abs(dv)).toBeGreaterThan(5)
+  })
+
+  /** 【取大的空位】船短的時候右側空出一整欄，比甲板條下方的橫帶大 */
+  it('船短時頂面區在右側直欄，船長時在下方橫帶', () => {
+    const long = shipLiveryRects(L)
+    expect(long.top.y).toBeGreaterThan(long.deck.y + long.deck.h)
+    const short = shipLiveryRects({ ...L, zMin: -30, zMax: 30 })
+    expect(short.top.x).toBeGreaterThan(short.deck.x + short.deck.w)
   })
 
   /** 【俯視不是鏡像】地圖上往西開的船，右舷朝北。左舷在上的話是從船底往上看 */
@@ -89,10 +137,10 @@ describe('船的塗裝 UV', () => {
   })
 
   /** 【前後壁不算朝上】法線 (0, 0, 1) 的水平分量在 z；只比 nx 的話它會被漆成甲板藍 */
-  it('朝前後的立面不進單色區', () => {
+  it('朝前後的立面不進頂面區', () => {
     const g = tri([1, 0, 20], [3, 0, 20], [2, 3, 20])
     applyShipLiveryUv(g, 'body', L)
-    for (const q of px(g)) expect(inside(q, 'flat')).toBe(false)
+    for (const q of px(g)) expect(inside(q, 'top')).toBe(false)
   })
 
   /**
@@ -104,9 +152,9 @@ describe('船的塗裝 UV', () => {
     const r = shipLiveryRects(L)
     expect(r.starboard.y - (r.port.y + r.port.h)).toBeGreaterThanOrEqual(MIN)
     expect(r.deck.y - (r.starboard.y + r.starboard.h)).toBeGreaterThanOrEqual(MIN)
-    const apart = r.flat.y - (r.deck.y + r.deck.h) >= MIN || r.flat.x - (r.deck.x + r.deck.w) >= MIN
+    const apart = r.top.y - (r.deck.y + r.deck.h) >= MIN || r.top.x - (r.deck.x + r.deck.w) >= MIN
     expect(apart).toBe(true)
-    for (const k of ['port', 'starboard', 'deck', 'flat'] as const) {
+    for (const k of ['port', 'starboard', 'deck', 'top'] as const) {
       expect(r[k].x).toBeGreaterThanOrEqual(MIN)
       expect(r[k].y).toBeGreaterThanOrEqual(MIN)
       expect(SHIP_LIVERY_WIDTH - (r[k].x + r[k].w)).toBeGreaterThanOrEqual(MIN)
@@ -253,7 +301,7 @@ async function loadShip(id: ShipClassId): Promise<Group> {
 
 /** 像素點落在哪一區；都不在回 null */
 function stripOf(x: number, y: number, rects: Record<ShipStrip, ShipRect>): ShipStrip | null {
-  for (const k of ['port', 'starboard', 'deck', 'flat'] as const) {
+  for (const k of ['port', 'starboard', 'deck', 'top'] as const) {
     const r = rects[k]
     if (x >= r.x - 1e-3 && x <= r.x + r.w + 1e-3 && y >= r.y - 1e-3 && y <= r.y + r.h + 1e-3) return k
   }
@@ -339,7 +387,7 @@ describe.each(SHIPS)('%s 套塗裝', (id, want) => {
         const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
         const tilt = Math.acos(ny / Math.hypot(nx, ny, nz))
         if (kind === 'deck') expect(strip).toBe('deck')
-        else if (strip === 'flat') expect(tilt, `${mesh.name} 第 ${i / 3} 面`).toBeLessThanOrEqual(UP)
+        else if (strip === 'top') expect(tilt, `${mesh.name} 第 ${i / 3} 面`).toBeLessThanOrEqual(UP)
         else {
           expect(tilt, `${mesh.name} 第 ${i / 3} 面`).toBeGreaterThanOrEqual(SIDE)
           // 明顯朝左右的面進自己那一舷
@@ -349,7 +397,7 @@ describe.each(SHIPS)('%s 套塗裝', (id, want) => {
         }
       }
     })
-    for (const s of ['port', 'starboard', 'deck', 'flat']) expect(counts[s], s).toBeGreaterThan(0)
+    for (const s of ['port', 'starboard', 'deck', 'top']) expect(counts[s], s).toBeGreaterThan(0)
   })
 
   it('船身與甲板吃貼圖、顏色歸白；細部換成塗裝的顏色、吃髒污圖；頂點不動', async () => {

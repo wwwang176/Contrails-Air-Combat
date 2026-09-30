@@ -152,6 +152,7 @@ def main(faces, variant, outline=None):
         L.poly('deck', [(z_of(u), x) for u, x in pts], color)
     L.plates('deck', z0 - 1, z1 + 1, -hb - 1, hb + 1, 6.0, 1.5, 5, seed=131)
     L.seams('deck', z0, z1, -hb, hb, 6.0, 1.5, SEAM)
+    L.top(NAVY_GREEN, SEAM, seed=161)
     L.save(outline, suffix='' if variant == 'a' else '_' + variant)
 
 

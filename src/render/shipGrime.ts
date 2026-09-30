@@ -16,7 +16,7 @@ import {
  * 【為什麼在載入時蓋、不在著色器裡疊】遊戲中每一幀的成本是 0 —— 讀的仍是那一張圖。
  * 代價是髒污的解析度跟著塗裝貼圖（一格 6–17 cm），近看不如即時疊加細。
  *
- * 只蓋左右舷條：甲板條與單色區（水平面）不髒。
+ * 蓋左右舷條與頂面區（上層結構、砲座的頂）；甲板條不蓋，飛行甲板與標線維持乾淨。
  */
 
 export type GrimeKind = 'blotch' | 'streak' | 'speck'
@@ -41,9 +41,9 @@ export interface GrimeStamp {
  * 每平方公尺舷側的印子數與尺寸（公尺）。**起始值，由截圖裁定。**
  */
 const GRIME = {
-  blotch: { perM2: 0.15, r: [0.6, 3.5], alpha: [0.06, 0.16] },
-  streak: { perM2: 0.36, w: [0.08, 0.35], len: [0.6, 4.5], alpha: [0.12, 0.28] },
-  speck: { perM2: 0.75, r: [0.03, 0.12], alpha: [0.14, 0.34] },
+  blotch: { perM2: 0.075, r: [0.6, 3.5], alpha: [0.06, 0.16] },
+  streak: { perM2: 0.18, w: [0.08, 0.35], len: [0.6, 4.5], alpha: [0.12, 0.28] },
+  speck: { perM2: 0.375, r: [0.03, 0.12], alpha: [0.14, 0.34] },
 } as const
 
 /**
@@ -55,7 +55,7 @@ export function grimeStamps(L: ShipLiveryLayout, rand: () => number): GrimeStamp
   const s = L.scale
   const between = (r: readonly [number, number]) => r[0] + (r[1] - r[0]) * rand()
   const out: GrimeStamp[] = []
-  for (const strip of [R.port, R.starboard]) {
+  for (const strip of [R.port, R.starboard, R.top]) {
     const area = (strip.w / s) * (strip.h / s)
     const at = () => ({ x: strip.x + rand() * strip.w, y: strip.y + rand() * strip.h })
     for (let i = Math.round(area * GRIME.blotch.perM2); i > 0; i--) {
