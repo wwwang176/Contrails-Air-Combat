@@ -7,6 +7,7 @@ import {
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { createGltfLoader } from './geometry/gltfLoader'
 import { applyShipLiveryUv, partTones } from './shipLivery'
+import { fittingGrime, grimedLivery, grimeStamps } from './shipGrime'
 import {
   buildNumberDecal, numberBox, numberCanvas, numberMaterial, shipNumber, type ShipNumbersDef,
 } from './shipNumbers'
@@ -92,11 +93,14 @@ export function liveryVariantOf(base: Object3D, from: Texture, to: Texture): Obj
  * 把塗裝套到剛載入的樣板上：船身與甲板的網格展開成無索引、算 UV，材質換成吃
  * 貼圖的那一份；細部換色。**同一個 GLB 材質換成同一份**，同艦級仍共用材質。
  *
- * `texture` 為 null（node 測試沒有圖可載）時 UV 照算、材質維持單色。
+ * `texture` 為 null（node 測試沒有圖可載）時 UV 照算、材質維持單色。`grime` 是細件的
+ * 髒污圖（`shipGrime.ts` 的 `fittingGrime`）；細件照船身那套側視投影算 UV 讀它。
  *
  * 頂點不動 —— 包圍盒、砲位、碰撞都與 GLB 相同。
  */
-export function applyShipLivery(root: Object3D, def: ShipLiveryDef, texture: Texture | null): void {
+export function applyShipLivery(
+  root: Object3D, def: ShipLiveryDef, texture: Texture | null, grime: Texture | null = null,
+): void {
   root.updateMatrixWorld(true)
   const swapped = new Map<Material, Material>()
   root.traverse((o) => {
@@ -110,10 +114,12 @@ export function applyShipLivery(root: Object3D, def: ShipLiveryDef, texture: Tex
       mesh.geometry.dispose()
       mesh.geometry = flat
     }
-    if (kind === 'body' || kind === 'deck') {
-      // 【UV 用艦體座標算】節點可能帶變換；算在烘過的副本上，只把 UV 搬回來
+    // 【UV 用艦體座標算】節點可能帶變換；算在烘過的副本上，只把 UV 搬回來。
+    // 細件照船身那套投影：髒污圖與塗裝圖同一個版面，朝上的面落在單色區（白，不髒）。
+    // 伸出側條頂的桅杆讀到空白處或另一舷條，都是白或髒污，不會讀到塗裝
+    {
       const baked = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld)
-      applyShipLiveryUv(baked, kind, def.layout)
+      applyShipLiveryUv(baked, kind === 'deck' ? 'deck' : 'body', def.layout)
       mesh.geometry.setAttribute('uv', baked.getAttribute('uv'))
       baked.dispose()
     }
@@ -132,8 +138,10 @@ export function applyShipLivery(root: Object3D, def: ShipLiveryDef, texture: Tex
     if (dst === undefined) {
       const m = (src as MeshStandardMaterial).clone()
       m.vertexColors = toned
-      if (kind === 'accent') m.color.set(def.accentColor)
-      else if (texture !== null) {
+      if (kind === 'accent') {
+        m.color.set(def.accentColor)
+        m.map = grime
+      } else if (texture !== null) {
         m.map = texture
         m.color.set(0xffffff)
       }
@@ -180,12 +188,15 @@ export async function dressShipModel(id: string, root: Object3D): Promise<void> 
   const livery = SHIP_LIVERIES[id as ShipClassId]
   if (livery === undefined) return
   let texture: Texture | null = null
+  let grime: Texture | null = null
   try {
-    texture = await loadShipLivery(livery.layout.url)
+    const stamps = grimeStamps(livery.layout, Math.random)
+    texture = grimedLivery(await loadShipLivery(livery.layout.url), stamps)
+    grime = fittingGrime(stamps)
   } catch (e) {
     console.warn(`艦級 ${id} 的塗裝貼圖載不到，維持單色`, e)
   }
-  applyShipLivery(root, livery, texture)
+  applyShipLivery(root, livery, texture, grime)
 }
 
 /**
@@ -239,11 +250,17 @@ export async function preloadShipModels(
     if (!templates.has(id)) {
       const livery = SHIP_LIVERIES[id]
       const urls = livery === undefined ? [] : [livery.layout.url, ...(livery.variants ?? [])]
-      const [gltf, ...textures] = await Promise.all([
+      const [gltf, ...originals] = await Promise.all([
         loader.loadAsync(assetUrl(SHIP_CLASSES[id].url)),
         ...urls.map(loadShipLivery),
       ])
-      if (livery !== undefined) applyShipLivery(gltf.scene, livery, textures[0]!)
+      // 【髒污在載入時蓋】同艦級共用一組印子，幾種圖案蓋同一組；每次載入位置不同。
+      // 原圖（快取裡那一份）不動，遊戲讀的是蓋過的那一張
+      const stamps = livery === undefined ? [] : grimeStamps(livery.layout, Math.random)
+      const textures = originals.map((t) => grimedLivery(t, stamps))
+      if (livery !== undefined) {
+        applyShipLivery(gltf.scene, livery, textures[0]!, fittingGrime(stamps))
+      }
       // 【量一次就好】包圍盒與船在哪無關，而 `setFromObject` 要走遍整棵樹
       gltf.scene.updateMatrixWorld(true)
       modelTops.set(id, BOX.setFromObject(gltf.scene).max.y)

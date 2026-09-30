@@ -352,12 +352,13 @@ describe.each(SHIPS)('%s 套塗裝', (id, want) => {
     for (const s of ['port', 'starboard', 'deck', 'flat']) expect(counts[s], s).toBeGreaterThan(0)
   })
 
-  it('船身與甲板吃貼圖、顏色歸白；細部換成塗裝的顏色；頂點不動', async () => {
+  it('船身與甲板吃貼圖、顏色歸白；細部換成塗裝的顏色、吃髒污圖；頂點不動', async () => {
     const def = SHIP_LIVERIES[id]!
     const scene = await loadShip(id)
     const before = new Box3().setFromObject(scene)
     const tex = new Texture()
-    applyShipLivery(scene, def, tex)
+    const grime = new Texture()
+    applyShipLivery(scene, def, tex, grime)
     const after = new Box3().setFromObject(scene)
     expect(after.min.toArray()).toEqual(before.min.toArray())
     expect(after.max.toArray()).toEqual(before.max.toArray())
@@ -372,6 +373,9 @@ describe.each(SHIPS)('%s 套塗裝', (id, want) => {
       seen.add(kind)
       if (kind === 'accent') {
         expect(m.color.getHex()).toBe(want)
+        // 【細件照船身的投影讀髒污圖】少了 UV 的話整個細件讀同一個像素
+        expect(m.map).toBe(grime)
+        expect(mesh.geometry.getAttribute('uv')?.count).toBe(mesh.geometry.getAttribute('position').count)
       } else {
         expect(m.map).toBe(tex)
         expect(m.color.getHex()).toBe(0xffffff)
