@@ -158,6 +158,71 @@ export function shipLiveryPixel(
 }
 
 /**
+ * 每一塊相連零件的明暗倍率，逐頂點、rgb 同值，給頂點色用。**幾何要是沒有索引的。**
+ *
+ * 零件 = 共用頂點（位置相同）連在一起的三角形。最大的那一塊（船殼）固定 1，
+ * 其餘在 1 ± `amount` 之間，由零件重心算 —— 同一個模型每次載入都一樣。
+ *
+ * 【為什麼要深淺】Measure 21 整艘同一個色，低多邊形的方塊零件疊在一起就糊成一團；
+ * 一塊一個色階，甲板室、砲座、射控才分得開。實船各塊褪色與補漆的程度本來就不一。
+ *
+ * 載入期跑一次，不在熱路徑上。
+ */
+export function partTones(geo: BufferGeometry, amount: number): Float32Array {
+  if (geo.index !== null) throw new Error('零件深淺要沒有索引的幾何')
+  const pos = geo.getAttribute('position')
+  const n = pos.count
+  // 位置相同的頂點合成一個節點，再用併查集把三角形連起來
+  const ids = new Map<string, number>()
+  const node = new Int32Array(n)
+  for (let i = 0; i < n; i++) {
+    const k = `${pos.getX(i).toFixed(4)},${pos.getY(i).toFixed(4)},${pos.getZ(i).toFixed(4)}`
+    let id = ids.get(k)
+    if (id === undefined) { id = ids.size; ids.set(k, id) }
+    node[i] = id
+  }
+  const parent = new Int32Array(ids.size)
+  for (let i = 0; i < parent.length; i++) parent[i] = i
+  const find = (a: number): number => {
+    while (parent[a] !== a) { parent[a] = parent[parent[a]!]!; a = parent[a]! }
+    return a
+  }
+  for (let i = 0; i + 2 < n; i += 3) {
+    const a = find(node[i]!)
+    parent[find(node[i + 1]!)] = a
+    parent[find(node[i + 2]!)] = a
+  }
+  // 每一塊的三角形數與重心
+  const tris = new Map<number, number>()
+  const sum = new Map<number, [number, number, number]>()
+  for (let i = 0; i + 2 < n; i += 3) {
+    const r = find(node[i]!)
+    tris.set(r, (tris.get(r) ?? 0) + 1)
+    const s = sum.get(r) ?? [0, 0, 0]
+    for (let k = 0; k < 3; k++) {
+      s[0] += pos.getX(i + k); s[1] += pos.getY(i + k); s[2] += pos.getZ(i + k)
+    }
+    sum.set(r, s)
+  }
+  let biggest = -1
+  let most = -1
+  for (const [r, t] of tris) if (t > most) { most = t; biggest = r }
+  const tone = new Map<number, number>()
+  for (const [r, s] of sum) {
+    if (r === biggest) { tone.set(r, 1); continue }
+    const c = 3 * tris.get(r)!
+    const h = Math.sin(s[0] / c * 12.9898 + s[1] / c * 78.233 + s[2] / c * 37.719) * 43758.5453
+    tone.set(r, 1 + amount * (2 * (h - Math.floor(h)) - 1))
+  }
+  const out = new Float32Array(n * 3)
+  for (let i = 0; i < n; i++) {
+    const t = tone.get(find(node[i]!))!
+    out[i * 3] = t; out[i * 3 + 1] = t; out[i * 3 + 2] = t
+  }
+  return out
+}
+
+/**
  * 逐三角形算 UV，寫進 `uv`。**幾何要是沒有索引的**：相鄰兩個面可能歸到不同區，
  * 共用頂點就只能有一組 UV。頂點要先烘進艦體座標。
  *
