@@ -50,7 +50,7 @@ import type { Controller } from '../control/Controller'
 import type { AircraftSpec } from '../specs/types'
 import { SHIP_CLASSES, createShip, resetShip, type Ship } from '../world/ships'
 import {
-  createGroundBattery, createShipGuns, GROUND_LIGHT_FLAK_SPEC, GROUND_MG_SPEC, resetShipGuns,
+  createGroundBattery, createShipGuns, GROUND_LIGHT_FLAK_SPEC, GROUND_M16_SPEC, GROUND_MG_SPEC, resetShipGuns,
   type ShipGunSpec,
 } from '../world/shipGuns'
 import { createGroundTarget, resetGroundTarget, type GroundTarget } from '../world/groundTargets'
@@ -1269,9 +1269,11 @@ function placeGround(
     // `stepGunPlatform`。其餘的地面單位（戰車、卡車、火車、廠房）不掛
     if (e.unit === 'flakHeavy') t.guns = createGroundBattery(flakSpec)
     // 【輕型砲也還手】走直射彈那一層，曳光看得見。規格不逐關複寫 —— 試玩改
-    // `GROUND_LIGHT_FLAK_SPEC` 本身。M16 半履帶車與輕砲同一個火力（日 M2）
-    else if (e.unit === 'flakLight' || e.unit === 'usFlakTrack') {
+    // 規格本身。M16 半履帶車與輕砲同一個火力，射界壓得比較低（`GROUND_M16_SPEC`）
+    else if (e.unit === 'flakLight') {
       t.guns = createGroundBattery(GROUND_LIGHT_FLAK_SPEC, 'autocannon', GROUND_LIGHT_FLAK_SPEC.caliber)
+    } else if (e.unit === 'usFlakTrack') {
+      t.guns = createGroundBattery(GROUND_M16_SPEC, 'autocannon', GROUND_M16_SPEC.caliber)
     }
     // 【車頂的機槍由條目指定】同一種卡車在別的關可以只是靶
     else if (e.guns === 'mg') {
