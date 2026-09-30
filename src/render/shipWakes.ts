@@ -1,5 +1,5 @@
 import {
-  CanvasTexture, ClampToEdgeWrapping, Group, RepeatWrapping, Vector3, type Texture,
+  CanvasTexture, Group, RepeatWrapping, Vector3, type Texture,
 } from 'three'
 import { createWakes, type WakeStyle, type Wakes } from './wake'
 import type { Ship } from '../world/ships'
@@ -41,18 +41,19 @@ export const SHIP_BOW_WAKE: WakeStyle = {
 }
 
 /**
- * 泡沫紋理：白色，alpha 是泡沫的濃淡。橫向（u）兩邊淡出、中間濃；縱向（v，沿航向）
- * 是一條條斷斷續續的泡沫紋，縱向重複。**只在瀏覽器裡跑。**
+ * 泡沫紋理：白色，alpha 是泡沫的濃淡。正方形、**四邊都接得起來**，橫向與縱向同一個
+ * 比例（`WakeStyle.foamTile` 公尺一張）。兩邊的軟邊不在圖上，由著色器照離中線多遠
+ * 算。**只在瀏覽器裡跑。**
  *
  * 【為什麼要紋理】沒有紋理的帶子是一條濃淡均勻、邊緣很硬的平帶，看起來像一條路。
  */
 export function shipFoamTexture(): CanvasTexture {
-  const W = 64, H = 256
+  const W = 128, H = 128
   const c = document.createElement('canvas')
   c.width = W
   c.height = H
   const g = c.getContext('2d')!
-  // 一團團軟邊的泡沫：大小、濃淡隨機，沿航向略拉長；上下各畫一份，縱向接得起來
+  // 一團團軟邊的泡沫：大小、濃淡隨機，沿航向略拉長；上下左右各畫一份，四邊接得起來
   const blob = (x: number, y: number, r: number, a: number) => {
     const grad = g.createRadialGradient(x, y, 0, x, y, r)
     grad.addColorStop(0, `rgba(255,255,255,${a.toFixed(3)})`)
@@ -62,25 +63,15 @@ export function shipFoamTexture(): CanvasTexture {
     g.ellipse(x, y, r * 0.8, r * 1.4, 0, 0, Math.PI * 2)
     g.fill()
   }
-  for (let i = 0; i < 420; i++) {
+  for (let i = 0; i < 520; i++) {
     const x = Math.random() * W
     const y = Math.random() * H
-    const r = 2 + Math.random() * Math.random() * 12
+    const r = 2 + Math.random() * Math.random() * 10
     const a = 0.2 + Math.random() * 0.55
-    for (const oy of [0, -H, H]) blob(x, y + oy, r, a)
+    for (const ox of [0, -W, W]) for (const oy of [0, -H, H]) blob(x + ox, y + oy, r, a)
   }
-  // 橫向的軟邊：中間濃、兩邊淡到 0
-  g.globalCompositeOperation = 'destination-in'
-  const edge = g.createLinearGradient(0, 0, W, 0)
-  edge.addColorStop(0, 'rgba(0,0,0,0)')
-  edge.addColorStop(0.3, 'rgba(0,0,0,0.9)')
-  edge.addColorStop(0.5, 'rgba(0,0,0,1)')
-  edge.addColorStop(0.7, 'rgba(0,0,0,0.9)')
-  edge.addColorStop(1, 'rgba(0,0,0,0)')
-  g.fillStyle = edge
-  g.fillRect(0, 0, W, H)
   const t = new CanvasTexture(c)
-  t.wrapS = ClampToEdgeWrapping
+  t.wrapS = RepeatWrapping
   t.wrapT = RepeatWrapping
   return t
 }
