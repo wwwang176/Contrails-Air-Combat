@@ -246,6 +246,13 @@ const SHIPS: readonly (readonly [ShipClassId, Readonly<Record<string, number>>])
     bridge: 4, funnel: 1, mast: 1, radar: 1, director: 1, gallery: 39, sponson: 11,
     gun: 20, aa: 90,
   }],
+  // 船殼 4（船殼、兩扇艏門、防浪牆）、砲桶 8、艦橋 2（艦橋、指揮塔）、
+  // 甲板室 3（前後甲板室、艙口）、桅 6（主桅三件、探照燈塔三件）、小艇 2、
+  // 細件 46（欄杆 1、立柱 22、蘑菇通風口 12、通風管 3、艇架 8）；
+  // 砲 24（四座 40 mm 各三件、四座 20 mm 各三件）
+  ['lst', {
+    hull: 4, tub: 8, bridge: 2, house: 3, mast: 6, boat: 2, fitting: 46, aa: 24,
+  }],
 ]
 
 describe.each(SHIPS)('%s 套塗裝', (id, want) => {

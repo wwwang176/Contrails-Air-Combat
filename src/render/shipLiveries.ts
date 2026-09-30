@@ -233,9 +233,77 @@ const ESSEX: ShipLiveryDef = {
   },
 }
 
+// ── LST ─────────────────────────────────────────────────
+
+/**
+ * 船身材質併了整艘船的船體凸出與甲板上的東西（建模腳本 `build_lst.py` 的 M_HULL）。
+ * 細件（立柱、蘑菇通風口、艇架）散在各處，認尺寸。
+ */
+const LST_BODY_PARTS: readonly ShipPartKind[] = [
+  // 船殼、兩扇艏門、艏樓防浪牆
+  { name: 'hull', tone: 1.0, boxes: [
+    { dz: [90, 110] },
+    { x: [4, 8], y: [4, 6], z: [-51, -44] },
+    { dy: [2.5, 3.5], dz: [15, 17] },
+  ] },
+  // 艏頂蓋、兩舷 40 mm、兩舷 20 mm、艏樓 20 mm、艉 40 mm 的砲桶
+  { name: 'tub', tone: 1.25, boxes: [
+    { x: [0, 0.5], y: [9.5, 11], z: [-48, -45.5] },
+    { x: [2.5, 3.5], y: [8.5, 9.6], z: [-44, -42.5] },
+    { x: [4.5, 5.6], y: [9, 9.8], z: [-39.5, -35.5] },
+    { x: [5.5, 6.2], y: [7, 7.6], z: [-27, -26] },
+    { x: [0, 0.5], y: [8.5, 9.3], z: [46.5, 48] },
+  ] },
+  // 艦橋與指揮塔
+  { name: 'bridge', tone: 1.3, boxes: [{ x: [0, 0.5], y: [9.5, 13.5], z: [23, 27] }] },
+  // 前後兩段甲板室、升降機艙口。限長度：繞甲板一圈的欄杆重心也落在這裡
+  { name: 'house', tone: 1.15, boxes: [{ x: [0, 0.5], y: [6.5, 8], z: [10, 32], dz: [3, 17] }] },
+  // 主桅（桅杆、橫桁、瞭望台）、艉的探照燈塔（柱、平台、燈筒）
+  { name: 'mast', tone: 0.65, boxes: [
+    { x: [0, 0.5], y: [18, 24], z: [31, 33] },
+    { x: [0, 0.5], y: [9, 13.5], z: [41, 43] },
+  ] },
+  { name: 'boat', tone: 1.4, boxes: [{ x: [6, 7], y: [8.5, 9.5], z: [29, 31] }] },
+  // 欄杆一圈、立柱、蘑菇通風口（柱與帽）、甲板室前緣的通風管、艇架
+  { name: 'fitting', tone: 0.7, boxes: [
+    { dz: [80, 90] },
+    { dx: [0, 0.2], dy: [0.9, 1.1], dz: [0, 0.2] },
+    { x: [4.5, 6], y: [7, 8.3], z: [-29, -19] },
+    { x: [0, 2.5], y: [8, 8.6], z: [17.5, 18.7] },
+    { x: [5, 6.5], y: [10, 13], z: [27.5, 33.5] },
+  ] },
+]
+
+/**
+ * LST：Measure 31 綠色迷彩。海軍 1944-06 替 LST-1 級出過 Design 18L；LST-942 在
+ * 1944 年底的彩色照片（Design 8L 或 18L）看得到右舷的圖案。
+ *
+ * 漆色照規範的孟塞爾值換成 sRGB：5-HG 霧綠 5GY 6/2 (143, 151, 124)、5-OG 海綠
+ * 5GY 5/2 (118, 125, 101)、5-NG 海軍綠 10GY 3/2 (61, 75, 62)。圖案在貼圖上（見
+ * `tools/livery/ship_lst.py`）。細部（砲）取海軍綠。兩棲艦的迷彩連甲板一起做，甲板
+ * 與水平面是海軍綠底加海綠斑塊。
+ *
+ * 範圍：船身 z −50.7 … 50.4、y −1.5 … 26.7（桅頂），甲板與跳板 z −53.5 … 50.3，
+ * 半寬 7.6。13 px/m 是約 8 cm 一格。
+ */
+const LST: ShipLiveryDef = {
+  layout: {
+    url: '/textures/ship_lst.png', scale: 13,
+    zMin: -54, zMax: 51, yMin: -1.7, yMax: 27, halfBeam: 7.7,
+  },
+  kinds: { LST_Body: 'body', LST_Deck: 'deck', LST_Steel: 'accent' },
+  accentColor: 0x3d4b3e,
+  parts: {
+    LST_Body_merged: LST_BODY_PARTS,
+    // 四座 40 mm（砲架、兩根砲管）與四座 20 mm（柱、砲管、護盾）
+    LST_Steel_merged: [{ name: 'aa', tone: 0.8, boxes: [{}] }],
+  },
+}
+
 /** 有塗裝貼圖的艦級。**沒列到的照 GLB 的單色材質。** */
 export const SHIP_LIVERIES: Partial<Record<ShipClassId, ShipLiveryDef>> = {
   fletcher: FLETCHER,
   wichita: WICHITA,
   essex: ESSEX,
+  lst: LST,
 }
