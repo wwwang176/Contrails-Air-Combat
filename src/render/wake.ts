@@ -3,6 +3,7 @@ import {
   type Texture,
 } from 'three'
 import { injectVertexAlpha } from './vortex'
+import { OCEAN_HEIGHT_GLSL } from './ocean'
 import { TORPEDOES_CAPACITY } from '../world/torpedo'
 
 /**
@@ -17,8 +18,8 @@ import { TORPEDOES_CAPACITY } from '../world/torpedo'
  *
  * 【高度每幀重算】`terrain.waterAt` 給的是**時間 0** 的浪高（那一支刻意
  * 不吃 time），拿它當節點高度的話，帶子會被真正在動的浪蓋掉一段一段的
- * ——那正是試飛看到的。所以節點只存 x/z，y 由 `step` 每幀用當下的時間問
- * 一次浪高場。
+ * ——那正是試飛看到的。所以節點只存 x/z，y 每幀照當下的時間重算：接了海面
+ * （`bindOcean`）時在著色器裡算，沒接時 `step` 問浪高場。
  *
  * 【頭端】正式節點每 6 m 才落一個，所以最新的節點永遠落後魚雷最多 6 m。
  * 少了頭端，帶子看起來是「一段一段長出來」的 —— `vortex.ts` 為同一個回報
@@ -108,6 +109,13 @@ export interface WakeStyle {
    * 橫條。照公尺算，帶子變寬時是多鋪幾格。兩邊的軟邊另外由 `aAcross` 算
    */
   readonly foamTile?: number
+  /**
+   * 橫向切幾段。**省略 = 1**（只有左右兩緣，魚雷）。
+   *
+   * 【寬的帶子要切】浪高只在頂點上取樣，頂點之間是直線。帶子寬過幾十公尺時，兩緣
+   * 之間那條直線在浪峰處低於海面，中段被浪蓋掉。每段要比最短的浪（165 m）的六分之一短
+   */
+  readonly columns?: number
 }
 
 export const TORPEDO_WAKE: WakeStyle = {
@@ -143,29 +151,67 @@ export function wakeEmitCount(travelled: number, style: WakeStyle = TORPEDO_WAKE
 /**
  * 一條帶子的索引緩衝。**建一次就不動。**
  *
- * 每一格擁有 `nodes × 2` 個**連續**頂點（左緣、右緣）；相鄰兩個節點之間
- * 兩個三角形。
+ * 每一格擁有 `nodes × cols` 個**連續**頂點（每個節點一排，從左緣到右緣）；相鄰兩個
+ * 節點之間每一段兩個三角形。
  *
  * 【三角形一律落在同一格之內】跨過去的話會出現一條橫跨兩枚魚雷的白帶。
  */
-export function ribbonIndices(slots: number, nodes: number): Uint32Array {
-  const quads = slots * (nodes - 1)
+export function ribbonIndices(slots: number, nodes: number, cols = 2): Uint32Array {
+  const quads = slots * (nodes - 1) * (cols - 1)
   const idx = new Uint32Array(quads * 6)
   let k = 0
   for (let t = 0; t < slots; t++) {
-    const base = t * nodes * 2
+    const base = t * nodes * cols
     for (let i = 0; i < nodes - 1; i++) {
-      const a = base + i * 2
-      const b = a + 2
-      idx[k++] = a
-      idx[k++] = b
-      idx[k++] = b + 1
-      idx[k++] = a
-      idx[k++] = b + 1
-      idx[k++] = a + 1
+      for (let c = 0; c < cols - 1; c++) {
+        const a = base + i * cols + c
+        const b = a + cols
+        idx[k++] = a
+        idx[k++] = b
+        idx[k++] = b + 1
+        idx[k++] = a
+        idx[k++] = b + 1
+        idx[k++] = a + 1
+      }
     }
   }
   return idx
+}
+
+/** 海面浪高的 uniform（`Ocean.heightUniforms`） */
+export type OceanHeightUniforms = Readonly<Record<string, { value: unknown }>>
+
+/**
+ * 要把帶子壓在水線的俯視矩形（船身）。呼叫端每幀填，`count` 之後的不讀。
+ * 艏向 cos/sin 是繞 +Y 的角度；半長沿艦體 z、半寬沿艦體 x。
+ */
+export interface SinkBoxes {
+  count: number
+  readonly x: Float64Array
+  readonly z: Float64Array
+  readonly cos: Float64Array
+  readonly sin: Float64Array
+  readonly halfLength: Float64Array
+  readonly halfBeam: Float64Array
+}
+
+export function createSinkBoxes(capacity: number): SinkBoxes {
+  return {
+    count: 0,
+    x: new Float64Array(capacity), z: new Float64Array(capacity),
+    cos: new Float64Array(capacity), sin: new Float64Array(capacity),
+    halfLength: new Float64Array(capacity), halfBeam: new Float64Array(capacity),
+  }
+}
+
+/** (x, z) 落在第 k 個矩形裡 */
+export function insideSinkBox(b: SinkBoxes, k: number, x: number, z: number): boolean {
+  const dx = x - b.x[k]!
+  const dz = z - b.z[k]!
+  // 轉回艦體座標：繞 +Y 轉 −艏向
+  const lx = dx * b.cos[k]! - dz * b.sin[k]!
+  const lz = dx * b.sin[k]! + dz * b.cos[k]!
+  return Math.abs(lx) <= b.halfBeam[k]! && Math.abs(lz) <= b.halfLength[k]!
 }
 
 export interface Wakes {
@@ -185,22 +231,39 @@ export interface Wakes {
   /**
    * 老化一幀並重寫頂點。**在渲染幀率呼叫，不在物理步。**
    *
-   * @param heightAt 浪高場。**每個節點每幀問一次** —— 帶子要跟著浪起伏，
-   *                 否則會被浪蓋掉
+   * @param heightAt 浪高場。沒接海面（`bindOcean`）時**每個頂點每幀問一次** ——
+   *                 帶子要跟著浪起伏，否則會被浪蓋掉。接了海面就不問它
    */
   step(dt: number, time: number, heightAt: (x: number, z: number, t: number) => number): void
+  /**
+   * 接上海面的浪高 uniform：之後浪高在著色器裡算，與海面同一支公式、同一組 uniform、
+   * 逐頂點一致，CPU 不再問浪高。null = 回到 CPU 問 `heightAt`。
+   *
+   * **換地形就要重接** —— 接著舊的那一組的話，帶子跟著一片已經不在畫面上的海起伏
+   */
+  bindOcean(ocean: OceanHeightUniforms | null): void
   /** 全部歸零，**含餘數與上一個位置**。換一場戰鬥時呼叫 */
   reset(): void
   dispose(): void
 }
 
-/**
- * @param foam 泡沫紋理（白、alpha 是泡沫的濃淡）。`style.foamTile` 有值才用得到；
- *   node 測試傳 null，UV 照算
- */
+export interface WakeOptions {
+  /** 泡沫紋理（白、alpha 是泡沫的濃淡）。`style.foamTile` 有值才用得到；node 測試不給 */
+  readonly foam?: Texture | null
+  /**
+   * 落在這些矩形裡的頂點，浪高不高過水線。船身底下的那一段用 —— 浪峰高的時候照浪
+   * 抬起來會比艦尾甲板（Fletcher 只有 2.7 m）還高，泡沫從甲板上冒出來
+   */
+  readonly sink?: SinkBoxes
+}
+
 export function createWakes(
-  slots: number = WAKE_SLOTS, style: WakeStyle = TORPEDO_WAKE, foam: Texture | null = null,
+  slots: number = WAKE_SLOTS, style: WakeStyle = TORPEDO_WAKE, options: WakeOptions = {},
 ): Wakes {
+  const foam = options.foam ?? null
+  const sink = options.sink ?? null
+  /** 橫向幾個頂點（段數 + 1） */
+  const COLS = (style.columns ?? 1) + 1
   const NODES = style.nodes
   const REAL_NODES = NODES - 1
   const total = slots * NODES
@@ -236,7 +299,7 @@ export function createWakes(
 
   let liveNodes = 0
 
-  const vertexCount = total * 2
+  const vertexCount = total * COLS
   const position = new BufferAttribute(new Float32Array(vertexCount * 3), 3)
   const alpha = new BufferAttribute(new Float32Array(vertexCount), 1)
   position.setUsage(DynamicDrawUsage)
@@ -244,14 +307,22 @@ export function createWakes(
   const geometry = new BufferGeometry()
   geometry.setAttribute('position', position)
   geometry.setAttribute('aAlpha', alpha)
-  geometry.setIndex(new BufferAttribute(ribbonIndices(slots, NODES), 1))
+  geometry.setIndex(new BufferAttribute(ribbonIndices(slots, NODES, COLS), 1))
   const foamed = style.foamTile !== undefined
   const uvAttr = foamed ? new BufferAttribute(new Float32Array(vertexCount * 2), 2) : null
-  // 橫向位置：左緣 −1、右緣 +1。建一次就不動 —— 每一對頂點都是一左一右
+  /** 第 c 個頂點的橫向位置：左緣 −1、右緣 +1 */
+  const acrossOf = (c: number) => -1 + (2 * c) / (COLS - 1)
+  // 建一次就不動 —— 每個節點都是同一排橫向頂點
   if (foamed) {
     const across = new Float32Array(vertexCount)
-    for (let v = 0; v < vertexCount; v++) across[v] = v % 2 === 0 ? -1 : 1
+    for (let v = 0; v < vertexCount; v++) across[v] = acrossOf(v % COLS)
     geometry.setAttribute('aAcross', new BufferAttribute(across, 1))
+  }
+  // 船身底下要壓在水線的頂點（1 = 壓）。著色器算浪高時讀它
+  const sinkAttr = sink !== null ? new BufferAttribute(new Float32Array(vertexCount), 1) : null
+  if (sinkAttr !== null) {
+    sinkAttr.setUsage(DynamicDrawUsage)
+    geometry.setAttribute('aSink', sinkAttr)
   }
   if (uvAttr !== null) {
     uvAttr.setUsage(DynamicDrawUsage)
@@ -274,37 +345,60 @@ export function createWakes(
   })
   /** 泡沫翻動的時鐘，秒。`step` 每幀寫 */
   const foamTime = { value: 0 }
-  if (foamed) {
+  /** 接上的海面浪高 uniform；null = CPU 問浪高 */
+  let ocean: OceanHeightUniforms | null = null
+  /**
+   * 著色器拿到的浪高 uniform：每一個都轉讀目前接上的那一組，所以換一片海只換參考、
+   * 不必重編譯
+   */
+  const oceanProxy: Record<string, { readonly value: unknown }> = {}
+  const proxyOf = (key: string) => ({ get value() { return ocean?.[key]?.value } })
+
+  material.onBeforeCompile = (shader) => {
+    injectVertexAlpha(shader)
+    if (ocean !== null) {
+      for (const key of Object.keys(ocean)) shader.uniforms[key] = oceanProxy[key] ??= proxyOf(key)
+      // 【與海面同一支浪高】海面頂點算的是 oceanWaveHeight(未位移座標, 離海面中心的
+      // 距離推得的格距)；這裡用同一個值，淡掉的短波也一起淡掉。帶子的 x/z 是世界座標
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>',
+          `#include <common>\n${OCEAN_HEIGHT_GLSL}\n${sink !== null ? 'attribute float aSink;' : ''}`)
+        .replace('#include <begin_vertex>', /* glsl */`#include <begin_vertex>
+          {
+            float waveH = oceanWaveHeight( transformed.xz, oceanVCell( transformed.xz - uOrigin ) );
+            ${sink !== null ? 'if ( aSink > 0.5 ) waveH = min( waveH, 0.0 );' : ''}
+            transformed.y += waveH;
+          }`)
+    }
+    if (!foamed) return
     // 【泡沫會翻動】同一張泡沫圖用兩個尺寸、兩個方向的偏移各讀一次再合起來，偏移隨
     // 時間走 —— 兩層交疊的地方一直變，看起來是在翻滾，不是靜止的條紋。兩層是同一個
     // 等比縮放，泡沫團不會被拉扁。
     // 【橫向分布像射流】剛翻出來的一段（年齡小）整片濃；往後中間淡下去、只剩兩條外緣
     // 亮 —— 船尾的湍流先是一團，散開之後泡沫堆在兩側的浪脊上。`aAcross` 是離中線多遠
     // （−1…1），`aAge` 是年齡比例；兩者都與帶寬無關
-    material.onBeforeCompile = (shader) => {
-      injectVertexAlpha(shader)
-      shader.uniforms['uFoamTime'] = foamTime
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>',
-          '#include <common>\nattribute float aAcross;\nattribute float aAge;\nvarying float vAcross;\nvarying float vAge;')
-        .replace('#include <uv_vertex>', '#include <uv_vertex>\nvAcross = aAcross;\nvAge = aAge;')
-      shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>',
-          '#include <common>\nuniform float uFoamTime;\nvarying float vAcross;\nvarying float vAge;')
-        .replace('#include <map_fragment>', /* glsl */`
-          vec4 foamA = texture2D( map, vMapUv + vec2( 0.0, uFoamTime * 0.05 ) );
-          vec4 foamB = texture2D( map, vMapUv * 1.7 + vec2( 0.53, 0.37 - uFoamTime * 0.08 ) );
-          float across = abs( vAcross );
-          float soft = 1.0 - smoothstep( 0.8, 1.0, across );
-          float ridge = smoothstep( 0.35, 0.8, across ) * soft;
-          float k = smoothstep( 0.02, 0.3, vAge );
-          float profile = mix( soft, max( ridge, 0.2 * soft ), k );
-          diffuseColor.a *= clamp( ( foamA.a + foamB.a ) * 0.8 - 0.1, 0.0, 1.0 ) * profile;`)
-    }
-    material.customProgramCacheKey = () => 'wake-foam'
-  } else {
-    material.onBeforeCompile = injectVertexAlpha
+    shader.uniforms['uFoamTime'] = foamTime
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>',
+        '#include <common>\nattribute float aAcross;\nattribute float aAge;\nvarying float vAcross;\nvarying float vAge;')
+      .replace('#include <uv_vertex>', '#include <uv_vertex>\nvAcross = aAcross;\nvAge = aAge;')
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>',
+        '#include <common>\nuniform float uFoamTime;\nvarying float vAcross;\nvarying float vAge;')
+      .replace('#include <map_fragment>', /* glsl */`
+        vec4 foamA = texture2D( map, vMapUv + vec2( 0.0, uFoamTime * 0.05 ) );
+        vec4 foamB = texture2D( map, vMapUv * 1.7 + vec2( 0.53, 0.37 - uFoamTime * 0.08 ) );
+        float across = abs( vAcross );
+        float soft = 1.0 - smoothstep( 0.8, 1.0, across );
+        float ridge = smoothstep( 0.35, 0.8, across ) * soft;
+        float k = smoothstep( 0.02, 0.3, vAge );
+        float profile = mix( soft, max( ridge, 0.2 * soft ), k );
+        diffuseColor.a *= clamp( ( foamA.a + foamB.a ) * 0.8 - 0.1, 0.0, 1.0 ) * profile;`)
   }
+  // 【鍵要涵蓋每一種變體】魚雷與船共用這支 onBeforeCompile；鍵相同的兩個材質共用同一個
+  // 程式，缺了哪一項就有一邊拿到錯的著色器
+  material.customProgramCacheKey = () =>
+    `wake-${foamed ? 'foam' : 'plain'}-${ocean !== null ? 'gpu' : 'cpu'}-${sink !== null ? 'sink' : ''}`
 
   const object = new Mesh(geometry, material)
   // 包圍球是建立時算的（全部在原點）—— 開著視錐剔除，相機一離開原點附近
@@ -315,6 +409,7 @@ export function createWakes(
   const alp = alpha.array as Float32Array
   const uvs = uvAttr === null ? null : uvAttr.array as Float32Array
   const ages = ageAttr === null ? null : ageAttr.array as Float32Array
+  const sinkArr = sinkAttr === null ? null : sinkAttr.array as Float32Array
 
   /** 第 `j` 舊的正式節點在資料陣列裡的索引 */
   const slotOf = (slot: number, j: number): number =>
@@ -359,10 +454,10 @@ export function createWakes(
     slot: number, time: number,
     heightAt: (x: number, z: number, t: number) => number,
   ): void => {
-    const base = slot * NODES * 2
+    const base = slot * NODES * COLS
     const n = count[slot]! + (hasHead[slot] === 1 ? 1 : 0)
     if (n < 2) {
-      for (let v = 0; v < NODES * 2; v++) {
+      for (let v = 0; v < NODES * COLS; v++) {
         const o = (base + v) * 3
         pos[o] = 0
         pos[o + 1] = 0
@@ -371,6 +466,7 @@ export function createWakes(
       }
       return
     }
+    const gpuHeight = ocean !== null
     for (let j = 0; j < NODES; j++) {
       // 【超出節點數的那幾格塌到最後一個上】它們之間的四邊形因此是零面積
       const jj = j < n ? j : n - 1
@@ -389,29 +485,47 @@ export function createWakes(
       const age = jj < count[slot]! ? nAge[slotOf(slot, jj)]! : 0
       const w = wakeHalfWidth(age, style) * widthK[slot]!
       const al = j < n ? wakeAlpha(age, style) : 0
-      const y = heightAt(x, z, time) + WAKE_LIFT
-      const o0 = (base + j * 2) * 3
-      pos[o0] = x + sx * w
-      pos[o0 + 1] = y
-      pos[o0 + 2] = z + sz * w
-      pos[o0 + 3] = x - sx * w
-      pos[o0 + 4] = y
-      pos[o0 + 5] = z - sz * w
-      alp[base + j * 2] = al
-      alp[base + j * 2 + 1] = al
-      if (ages !== null) {
-        const f = Math.min(1, age / style.life)
-        ages[base + j * 2] = f
-        ages[base + j * 2 + 1] = f
+      const f = Math.min(1, age / style.life)
+      const tile = style.foamTile ?? 1
+      const v = (jj < count[slot]! ? nOdo[slotOf(slot, jj)]! : odo[slot]!) / tile
+      // 【先用外接圓篩】整條帶子只有船身附近那幾個節點會碰到矩形，逐頂點逐艘測的話
+      // 一幀是幾十萬次
+      let near = false
+      if (sink !== null) {
+        for (let k = 0; k < sink.count; k++) {
+          const r = Math.hypot(sink.halfLength[k]!, sink.halfBeam[k]!) + w
+          const ex = x - sink.x[k]!
+          const ez = z - sink.z[k]!
+          if (ex * ex + ez * ez <= r * r) { near = true; break }
+        }
       }
-      if (uvs !== null) {
-        // u 照公尺：離中線 ±w，帶子變寬時多鋪幾格而不是把同一格拉寬
-        const tile = style.foamTile!
-        const v = (jj < count[slot]! ? nOdo[slotOf(slot, jj)]! : odo[slot]!) / tile
-        uvs[(base + j * 2) * 2] = -w / tile
-        uvs[(base + j * 2) * 2 + 1] = v
-        uvs[(base + j * 2 + 1) * 2] = w / tile
-        uvs[(base + j * 2 + 1) * 2 + 1] = v
+      for (let c = 0; c < COLS; c++) {
+        const vi = base + j * COLS + c
+        // 左緣（across = −1）在 +s 那一側
+        const across = acrossOf(c)
+        const vx = x - sx * w * across
+        const vz = z - sz * w * across
+        let sunk = false
+        if (near) {
+          for (let k = 0; k < sink!.count && !sunk; k++) sunk = insideSinkBox(sink!, k, vx, vz)
+        }
+        let y = WAKE_LIFT
+        if (!gpuHeight) {
+          const h = heightAt(vx, vz, time)
+          y += sunk && h > 0 ? 0 : h
+        }
+        const o = vi * 3
+        pos[o] = vx
+        pos[o + 1] = y
+        pos[o + 2] = vz
+        alp[vi] = al
+        if (sinkArr !== null) sinkArr[vi] = sunk ? 1 : 0
+        if (ages !== null) ages[vi] = f
+        if (uvs !== null) {
+          // u 照公尺：離中線幾公尺，帶子變寬時多鋪幾格而不是把同一格拉寬
+          uvs[vi * 2] = (across * w) / tile
+          uvs[vi * 2 + 1] = v
+        }
       }
     }
   }
@@ -492,7 +606,14 @@ export function createWakes(
       alpha.needsUpdate = true
       if (uvAttr !== null) uvAttr.needsUpdate = true
       if (ageAttr !== null) ageAttr.needsUpdate = true
+      if (sinkAttr !== null) sinkAttr.needsUpdate = true
       foamTime.value = time
+    },
+
+    bindOcean(next) {
+      // 有海與沒海是兩支不同的著色器；只換一片海的話代理 uniform 自己轉讀新的那一組
+      if ((next === null) !== (ocean === null)) material.needsUpdate = true
+      ocean = next
     },
 
     reset() {

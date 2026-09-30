@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { ShaderLib, type MeshBasicMaterial } from 'three'
 import {
   WAKE_ALPHA, WAKE_HALF_FROM, WAKE_HALF_TO, WAKE_LIFE, WAKE_LIFT, WAKE_NODES,
   WAKE_NODE_SPACING, WAKE_REAL_NODES, createWakes, ribbonIndices, wakeAlpha,
@@ -264,14 +265,58 @@ describe('貼著浪面', () => {
     w.dispose()
   })
 
-  it('帶子是平的 —— 同一個節點的左右緣等高', () => {
+  /**
+   * 【每個頂點照自己的位置問】左右緣共用中線的浪高的話，浪面橫著斜的時候帶子的一緣
+   * 沉到浪底下 —— 帶子越寬越明顯
+   */
+  it('左右緣各自照自己位置的浪高', () => {
     const w = createWakes(2)
     w.emit(0, 0, 0, 1)
     w.emit(0, 0, -WAKE_NODE_SPACING * 2, 1)
-    w.step(0, 0, (x, z) => x * 0.1 + z * 0.1)
+    const field = (x: number, z: number) => x * 0.1 + z * 0.1
+    w.step(0, 0, field)
     for (let j = 0; j < 3; j++) {
-      expect(vertex(w, 0, j, 0)[1]).toBeCloseTo(vertex(w, 0, j, 1)[1], 9)
+      for (const side of [0, 1] as const) {
+        const [x, y, z] = vertex(w, 0, j, side)
+        expect(y).toBeCloseTo(field(x, z) + WAKE_LIFT, 5)
+      }
     }
+    w.dispose()
+  })
+
+  /**
+   * 【接了海面就換一支著色器】浪高改在頂點著色器裡算；兩種變體的程式快取鍵要不同，
+   * 否則先編好的那一支會被另一邊拿去用，帶子不是浮在浪上一倍高就是貼在 0 m
+   */
+  it('接上海面：著色器多算浪高、快取鍵換掉，CPU 只寫 WAKE_LIFT', () => {
+    const w = createWakes(2)
+    const mat = w.object.material as MeshBasicMaterial
+    const compile = () => {
+      const shader = {
+        vertexShader: ShaderLib.basic.vertexShader,
+        fragmentShader: ShaderLib.basic.fragmentShader,
+        uniforms: {} as Record<string, { value: unknown }>,
+      }
+      mat.onBeforeCompile(shader as never, undefined as never)
+      return shader
+    }
+    const cpuKey = mat.customProgramCacheKey()
+    expect(compile().vertexShader).not.toContain('oceanWaveHeight(')
+    const uTime = { value: 7 }
+    w.bindOcean({ uTime })
+    expect(mat.customProgramCacheKey()).not.toBe(cpuKey)
+    const gpu = compile()
+    expect(gpu.vertexShader).toContain('transformed.y += waveH')
+    // uniform 轉讀接上的那一組：之後換值、換一片海都跟得上
+    uTime.value = 9
+    expect(gpu.uniforms['uTime']!.value).toBe(9)
+    w.bindOcean({ uTime: { value: 11 } })
+    expect(gpu.uniforms['uTime']!.value).toBe(11)
+
+    w.emit(0, 0, 0, 1)
+    w.emit(0, 0, -WAKE_NODE_SPACING * 2, 1)
+    w.step(0, 0, () => 3.5)
+    expect(vertex(w, 0, 0, 0)[1]).toBeCloseTo(WAKE_LIFT, 6)
     w.dispose()
   })
 

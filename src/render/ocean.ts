@@ -953,63 +953,27 @@ const LONGEST_WAVE = WAVES.reduce((a, w) => (w.wavelength > a ? w.wavelength : a
  * 算面重心的高度（白點的浪峰偏置吃那一個）。兩份會漂開，而漂開的症狀是
  * 「白點跑到浪谷去」—— 沒有任何測試守得住。
  */
-const SPARKLE_COMMON = /* glsl */ `
+/**
+ * 浪高：頂點位移用的那一支 `oceanWaveHeight` 與它要的 uniform 與函數。**海面與貼著
+ * 海面的東西（船的航跡）共用這一段** —— 兩份會漂開，漂開的症狀是航跡被浪蓋掉或浮起來。
+ * uniform 的物件由 `Ocean.heightUniforms` 給，同一組、同一個 uTime。
+ */
+export const OCEAN_HEIGHT_GLSL = /* glsl */ `
   uniform float uTime;
   uniform vec2 uOrigin;
   uniform vec2 uWaveDir[${WAVES.length}];
   uniform float uWaveAmp[${WAVES.length}];
   uniform float uWaveLen[${WAVES.length}];
   uniform float uWaveSpd[${WAVES.length}];
-  uniform vec3 uSunDirection;
-  uniform float uCrestBias;   // 見 SPARKLE_CREST_BIAS
-  uniform float uCrestRef;
-  uniform float uSigmaBase;
-  uniform float uSigmaTail;
-  uniform float uTailWeight;
-  uniform float uDimLo;
-  uniform float uDimHi;
-  uniform float uDimFloor;
-  uniform float uDensity;
-  uniform float uTwinkle;
-  uniform float uSparkleStrength;
-  uniform float uEnvelopePow;
-  uniform float uFaceTint;
-  uniform float uFaceLift;
-  uniform sampler2D uShoreMap;
-  uniform float uShoreExtent;   // size × cell，見 FACE_FRAGMENT 的 uv 推導
-  uniform float uShoreCell;
-  uniform float uShoreDensity;
-  uniform float uPMax;
-  uniform vec3 uSkyHorizon;
-  uniform vec3 uSkyZenith;
-  uniform float uSkyPower;
-  uniform float uReflectF0;
-  uniform float uReflectStrength;
   uniform vec3 uWarp;   // x: 振幅 m, y: 波數 A, z: 波數 B
   uniform float uWarpSpd;
   uniform vec3 uWarp2;  // x: 振幅 m, y: 波數 A, z: 波數 B
   uniform vec3 uEnv;    // x: 展幅, y: 波數 A, z: 波數 B
   uniform float uEnvLo;
   uniform float uBaseCell;
-  uniform float uHalfSeg;
-  uniform float uMaxLevel;
-  uniform float uMorphStart;
-  uniform float uSnap;
-  uniform vec2 uCenter;   // 相機的水平位置，不吸附
   uniform float uInvHalfSeg;
   uniform float uVertFadeLo;
   uniform float uVertFadeHi;
-  uniform float uShadeGain;
-  uniform float uAttenNear;
-  uniform float uAttenFar;
-  uniform float uFarDim;
-  uniform float uFadeStart;
-  uniform float uFadeEnd;
-  uniform float uAerialHi;
-  uniform float uAerialLo;
-  uniform float uAerialStrength;
-  uniform vec3 uHorizonColor;
-  varying vec3 vOceanWorld;
 
   // 座標扭曲。**與 ocean.ts 的 waveWarp 必須逐字相同** —— 那是 CPU 的
   // 那一份，水柱與殘骸入水讀它。設計理由見 WAVE_WARP_AMP 與 WAVE_WARP2_AMP。
@@ -1044,23 +1008,6 @@ const SPARKLE_COMMON = /* glsl */ `
   }
 
   /**
-   * 格距 cell 那一層在世界座標 world 處要往外一層過渡多少：0 = 自己，1 = 完全
-   * 是外一層。見 OCEAN_MORPH_START。
-   *
-   * 【量的是離相機的距離，不是離吸附中心】吸附中心每 OCEAN_SNAP 跳一次，以它
-   * 為準的話過渡量會跟著跳。以相機為準是連續的；終點再往內留半個吸附距離，
-   * 所以不論中心跳到哪裡，走到這一層的外緣時都已經拉滿。
-   *
-   * 【最外一層不過渡】外面是平的遠海，沒有更粗的一層
-   */
-  float oceanMorph(float cell, vec2 world) {
-    if (cell > uBaseCell * exp2(uMaxLevel) * 0.75) return 0.0;
-    float ringHalf = cell * uHalfSeg;
-    vec2 d = abs(world - uCenter);
-    return smoothstep(uMorphStart * ringHalf, ringHalf - 0.5 * uSnap, max(d.x, d.y));
-  }
-
-  /**
    * 未位移座標 rawXZ 處的浪高。vCell 決定哪幾道波在這裡還表現得出來。
    *
    * 【網格表現不出來的波，從幾何裡拿掉】見 OCEAN_VERT_FADE_LO。上界 0.5 是
@@ -1082,6 +1029,68 @@ const SPARKLE_COMMON = /* glsl */ `
         * sin(k * dot(uWaveDir[i], p) - uWaveSpd[i] * k * uTime);
     }
     return h;
+  }
+`
+
+const SPARKLE_COMMON = /* glsl */ `
+${OCEAN_HEIGHT_GLSL}
+  uniform vec3 uSunDirection;
+  uniform float uCrestBias;   // 見 SPARKLE_CREST_BIAS
+  uniform float uCrestRef;
+  uniform float uSigmaBase;
+  uniform float uSigmaTail;
+  uniform float uTailWeight;
+  uniform float uDimLo;
+  uniform float uDimHi;
+  uniform float uDimFloor;
+  uniform float uDensity;
+  uniform float uTwinkle;
+  uniform float uSparkleStrength;
+  uniform float uEnvelopePow;
+  uniform float uFaceTint;
+  uniform float uFaceLift;
+  uniform sampler2D uShoreMap;
+  uniform float uShoreExtent;   // size × cell，見 FACE_FRAGMENT 的 uv 推導
+  uniform float uShoreCell;
+  uniform float uShoreDensity;
+  uniform float uPMax;
+  uniform vec3 uSkyHorizon;
+  uniform vec3 uSkyZenith;
+  uniform float uSkyPower;
+  uniform float uReflectF0;
+  uniform float uReflectStrength;
+  uniform float uHalfSeg;
+  uniform float uMaxLevel;
+  uniform float uMorphStart;
+  uniform float uSnap;
+  uniform vec2 uCenter;   // 相機的水平位置，不吸附
+  uniform float uShadeGain;
+  uniform float uAttenNear;
+  uniform float uAttenFar;
+  uniform float uFarDim;
+  uniform float uFadeStart;
+  uniform float uFadeEnd;
+  uniform float uAerialHi;
+  uniform float uAerialLo;
+  uniform float uAerialStrength;
+  uniform vec3 uHorizonColor;
+  varying vec3 vOceanWorld;
+
+  /**
+   * 格距 cell 那一層在世界座標 world 處要往外一層過渡多少：0 = 自己，1 = 完全
+   * 是外一層。見 OCEAN_MORPH_START。
+   *
+   * 【量的是離相機的距離，不是離吸附中心】吸附中心每 OCEAN_SNAP 跳一次，以它
+   * 為準的話過渡量會跟著跳。以相機為準是連續的；終點再往內留半個吸附距離，
+   * 所以不論中心跳到哪裡，走到這一層的外緣時都已經拉滿。
+   *
+   * 【最外一層不過渡】外面是平的遠海，沒有更粗的一層
+   */
+  float oceanMorph(float cell, vec2 world) {
+    if (cell > uBaseCell * exp2(uMaxLevel) * 0.75) return 0.0;
+    float ringHalf = cell * uHalfSeg;
+    vec2 d = abs(world - uCenter);
+    return smoothstep(uMorphStart * ringHalf, ringHalf - 0.5 * uSnap, max(d.x, d.y));
   }
 
   /**
@@ -1575,6 +1584,11 @@ export interface Ocean {
    */
   readonly origin: Vector2
   /**
+   * `OCEAN_HEIGHT_GLSL` 要的 uniform，**與海面材質是同一組物件**（同一個 uTime、同一個
+   * 吸附原點）。貼著海面的東西在自己的著色器裡用它算浪高，與海面逐頂點一致。
+   */
+  readonly heightUniforms: Readonly<Record<string, { value: unknown }>>
+  /**
    * `setPalette` 會寫的那六個著色器 uniform。
    *
    * 【為什麼要出現在介面上】與 `origin` 同一個理由 —— `onBeforeCompile` 在
@@ -2040,6 +2054,15 @@ ${SPARKLE_COMMON}${displace ? '\n  attribute float oceanCell;' : ''}`,
     mesh,
     farMesh,
     origin: uOrigin.value,
+    heightUniforms: {
+      uTime, uOrigin,
+      uWaveDir: sparkle.uWaveDir, uWaveAmp: sparkle.uWaveAmp,
+      uWaveLen: sparkle.uWaveLen, uWaveSpd: sparkle.uWaveSpd,
+      uWarp: sparkle.uWarp, uWarpSpd: sparkle.uWarpSpd, uWarp2: sparkle.uWarp2,
+      uEnv: sparkle.uEnv, uEnvLo: sparkle.uEnvLo,
+      uBaseCell: sparkle.uBaseCell, uInvHalfSeg: sparkle.uInvHalfSeg,
+      uVertFadeLo: sparkle.uVertFadeLo, uVertFadeHi: sparkle.uVertFadeHi,
+    },
     paletteUniforms: sparkle,
     setPalette(p) {
       material.color.setHex(p.seaColor)
