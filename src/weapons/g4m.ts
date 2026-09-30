@@ -106,16 +106,22 @@ export const G4M_BATTERY: Battery = {
  *
  * ── 位置的來源，逐項標明 ───────────────────────────────────
  *
- * 全部由 `ID=g4m npx vite-node test/tools/japan-hit.measure.ts` 的零件包圍盒
- * 讀出來 —— 這台的 GLB 節點分得很乾淨，四個銃座的位置**都是量到的**，
- * 不像 He 111 的腰窗要靠推算。
+ * 全部由出貨 GLB 的玻璃零件讀出來。旋轉點 = 蒙皮點 − `BARREL_PROTRUDE` × axis
+ * （`turretPivot`），表裡的蒙皮點照「旋轉點該在哪」反推：蒙皮點 = 旋轉點 + 0.45 × axis。
  *
  * ```
- *   nose     `G4M_NoseGlass`  Z −6.100…−4.070   機首尖端 −6.10，槍口取 −6.05
- *   dorsal   `G4M_Turret`     Y 1.043…1.463、Z 2.350…3.350   罩頂 1.46、中段 2.85
- *   beamL/R  `G4M_BlisterL/R` X ±0.969…1.219、Z 4.550…5.950   腰部玻璃球
- *   tail     `G4M_TailGlass`  Z 13.050…13.650   尾端 13.65，槍口取 13.60
+ *   nose     `G4M_NoseGlass`  Y −0.82…0.62、Z −6.10…−5.34    旋轉點在玻璃鼻錐的中心
+ *                              (0, −0.10, −5.72)
+ *   dorsal   `G4M_Turret`     半橢球，底貼機背：Y 1.04…1.46、Z 2.35…3.35
+ *                              旋轉點在球心 = 底面中心 (0, 1.04, 2.85)
+ *   beamL/R  `G4M_BlisterL/R` 半橢球，底貼機身側面：X ±0.97…1.22、Y −0.43…0.13、
+ *                              Z 4.55…5.95，旋轉點在球心 = 底面中心 (±0.97, −0.15, 5.25)
+ *   tail     `G4M_TailGlass`  Y −0.70…0.50、Z 13.05…13.65   旋轉點在玻璃尾錐的中心
+ *                              (0, −0.10, 13.35)
  * ```
+ *
+ * 玻璃泡的形狀見 `tools/blender/build_g4m.py` 的 `dome`／`side_dome`：底面在機身上、
+ * 往外凸一個半橢球，所以球心就是底面中心。
  *
  * 【半角與旋轉速率是設計值不是量測值】理由與 `weapons/he111.ts`、
  * `weapons/b17g.ts` 完全相同 —— 射界不規則而照片讀不出邊界，一個中心方向
@@ -128,7 +134,7 @@ export const G4M_TURRETS: readonly Turret[] = [
   {
     id: 'nose',
     weapon: TYPE92,
-    position: muzzleAt(new Vector3(0, 0.10, -6.05), new Vector3(0, 0, -1)),
+    position: muzzleAt(new Vector3(0, -0.10, -6.17), new Vector3(0, 0, -1)),
     axis: new Vector3(0, 0, -1),
     halfAngle: 45 * DEG, // 電動 360° 迴轉鼻錐，射界比 He 111 的球窩座好
     rotationRate: 90 * DEG,
@@ -137,7 +143,7 @@ export const G4M_TURRETS: readonly Turret[] = [
   {
     id: 'dorsal',
     weapon: TYPE99_1,
-    position: muzzleAt(new Vector3(0, 1.46, 2.85), new Vector3(0, 0.64, 0.77).normalize()),
+    position: muzzleAt(new Vector3(0, 1.328, 3.196), new Vector3(0, 0.64, 0.77).normalize()),
     axis: new Vector3(0, 0.64, 0.77).normalize(),
     halfAngle: 70 * DEG,
     rotationRate: 110 * DEG, // 唯一一座動力銃塔
@@ -146,7 +152,7 @@ export const G4M_TURRETS: readonly Turret[] = [
   {
     id: 'beamR',
     weapon: TYPE92,
-    position: muzzleAt(new Vector3(1.22, -0.15, 5.25), new Vector3(1, 0, 0)),
+    position: muzzleAt(new Vector3(1.42, -0.15, 5.25), new Vector3(1, 0, 0)),
     axis: new Vector3(1, 0, 0),
     halfAngle: 45 * DEG,
     rotationRate: 90 * DEG,
@@ -155,7 +161,7 @@ export const G4M_TURRETS: readonly Turret[] = [
   {
     id: 'beamL',
     weapon: TYPE92,
-    position: muzzleAt(new Vector3(-1.22, -0.15, 5.25), new Vector3(-1, 0, 0)),
+    position: muzzleAt(new Vector3(-1.42, -0.15, 5.25), new Vector3(-1, 0, 0)),
     axis: new Vector3(-1, 0, 0),
     halfAngle: 45 * DEG,
     rotationRate: 90 * DEG,
@@ -164,7 +170,7 @@ export const G4M_TURRETS: readonly Turret[] = [
   {
     id: 'tail',
     weapon: TYPE99_1,
-    position: muzzleAt(new Vector3(0, -0.10, 13.60), new Vector3(0, 0, 1)),
+    position: muzzleAt(new Vector3(0, -0.10, 13.80), new Vector3(0, 0, 1)),
     axis: new Vector3(0, 0, 1),
     halfAngle: 50 * DEG,
     rotationRate: 90 * DEG, // 滑軌座、手動
