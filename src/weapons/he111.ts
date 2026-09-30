@@ -79,14 +79,10 @@ export const HE111_BATTERY: Battery = {
  *   ventral  量測  吊艙後窗機體 z 4.51…5.51（BOLA_PARTS 的實測表），艙底
  *                   在 z 4.911 是 −1.077（BOLA 截面 centerY −0.732 −
  *                   halfHeight 0.345）；槍口取艙尾 5.30、y −0.85
- *   beam     推算  z 2.80 取自史實站位（腰窗與吊艙前段同一段機身）；
- *                   x 由 he111.hull.ts 在該站量到的半寬 0.91 外推一段槍管
+ *   beam     量測  出貨 GLB（`he111.glb`）兩側側窗的玻璃：x ±0.70…0.82、
+ *                   y 0.33…0.69、z 3.01…4.21，蒙皮點取窗的中心 —— 槍管從玻璃
+ *                   中間伸出去
  * ```
- *
- * 【三座量測、兩座推算】側窗那兩挺量不出來 —— 參考模型的側窗是機身蒙皮上
- * 的一塊玻璃，玻璃本身量得到、**槍座量不到**（那是艙內的東西，射線先打到
- * 玻璃就停了）。與 B-17G 的頰槍、腰槍同一個處境，處理方式也相同：放在已經
- * 逐站量過的機身剖面上，z 取真機站位，護欄擋粗錯、試飛裁細節。
  *
  * 【半角與旋轉速率是設計值】理由與 `weapons/b17g.ts` 的 `B17G_TURRETS`
  * 完全相同 —— 射界不規則而照片讀不出邊界，一個中心方向 + 一個半角才是
@@ -109,11 +105,11 @@ export const HE111_TURRETS: readonly Turret[] = [
       new Vector3(0, -0.64, 0.77).normalize()),
     axis: new Vector3(0, -0.64, 0.77).normalize(),
     halfAngle: 60 * DEG, rotationRate: 90 * DEG, guns: 2 },
-  { id: 'beamR', weapon: MG15, position: muzzleAt(new Vector3(1.05, 0.20, 2.80),
+  { id: 'beamR', weapon: MG15, position: muzzleAt(new Vector3(0.78, 0.51, 3.61),
       new Vector3(1, 0, 0)),
     axis: new Vector3(1, 0, 0),
     halfAngle: 45 * DEG, rotationRate: 90 * DEG, guns: 1 },
-  { id: 'beamL', weapon: MG15, position: muzzleAt(new Vector3(-1.05, 0.20, 2.80),
+  { id: 'beamL', weapon: MG15, position: muzzleAt(new Vector3(-0.78, 0.51, 3.61),
       new Vector3(-1, 0, 0)),
     axis: new Vector3(-1, 0, 0),
     halfAngle: 45 * DEG, rotationRate: 90 * DEG, guns: 1 },
