@@ -160,6 +160,11 @@ export interface Terrain {
    */
   readonly fieldClip: FieldClipmap | null
   /**
+   * 海面的浪高 uniform（`Ocean.heightUniforms`）。**沒有海的地形是 null。** 貼著海面的
+   * 東西（航跡）在自己的著色器裡配 `OCEAN_HEIGHT_GLSL` 用它
+   */
+  readonly oceanHeight: Readonly<Record<string, { value: unknown }>> | null
+  /**
    * 換時段。**海的那一半**（陸地與植被的顏色這一期不跟著換，見
    * `timeOfDay.ts`）。
    */
@@ -296,6 +301,7 @@ function createLeyteTerrain(): Terrain {
     islands: hills,
     land: { field, ceiling: LEYTE_PEAK_MAX, landAbove: 0 },
     fieldClip: null,
+    oceanHeight: ocean.heightUniforms,
     setPalette(p) {
       ocean.setPalette(p)
       flora.setPointLight(p.foliage)
@@ -341,6 +347,7 @@ function createSeaTerrain(): Terrain {
     islands: [],
     land: null,
     fieldClip: null,
+    oceanHeight: ocean.heightUniforms,
     setPalette(p) { ocean.setPalette(p) },
     update(time, centerX, centerZ) { ocean.update(time, centerX, centerZ) },
     cull(camera) { ocean.cull(camera) },
@@ -403,6 +410,7 @@ function createArchipelagoTerrain(): Terrain {
     land: { field, ceiling: PEAK_MAX, landAbove: 0 },
     // 【群島的地色是頂點色】沒有田色算式可以烘
     fieldClip: null,
+    oceanHeight: ocean.heightUniforms,
     setPalette(p) {
       ocean.setPalette(p)
       flora.setPointLight(p.foliage)
@@ -702,6 +710,7 @@ function createInlandTerrain(
     islands: farm.hills,
     land: { field: solid, ceiling: HILL_PEAK_MAX, landAbove: -Infinity },
     fieldClip: clipmap,
+    oceanHeight: null,
     // 【遠景環與地面是固定的】植被跟著鏡頭補格，田色貼圖跟著鏡頭挪窗
     update(_time, centerX, centerZ) {
       centre.x = centerX
