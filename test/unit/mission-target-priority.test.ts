@@ -6,9 +6,10 @@ import { AiController } from '../../src/ai/AiController'
 import { TORPEDO_PROFILE } from '../../src/ai/torpedoRun'
 
 /**
- * # 日 M1 的目標優先
+ * # 任務的目標優先
  *
- * F4F 先打陸攻、零戰先打 F4F。只驗接線與分支有沒有生效；打起來合不合理是試玩的事。
+ * 日 M1：F4F 先打陸攻、零戰先打 F4F。盟 M3：掛彈的零戰仍然先打船。
+ * 只驗接線與分支有沒有生效；打起來合不合理是試玩的事。
  */
 
 const DT = 1 / 240
@@ -61,4 +62,18 @@ describe('日 M1 的目標優先', () => {
     }
     expect(engaged).toBeGreaterThan(0)
   }, 120_000)
+})
+
+describe('盟 M3 的零戰先打船', () => {
+  /**
+   * 【對艦插隊看的是彈艙容量】盟 M3 的零戰靠卡片的爆戦掛載才有容量；掛載被拿掉的話
+   * 它們會改成先纏 F6F，艦隊沒人去打，而且不報錯
+   */
+  it('紅隊零戰開場的彈艙容量大於 0', () => {
+    const m3 = MISSIONS.allies.find((m) => m.id === 'allies-m3') as ReadyMissionCard
+    const b = createBattle({ update() {} }, missionConfigFrom(m3), 1)
+    const zeros = b.world.combatants.filter((c) => c.team === 'red' && c.aircraft.spec.id === 'a6m5')
+    expect(zeros.length).toBeGreaterThan(0)
+    for (const c of zeros) expect(c.bombBay.capacity, `第 ${c.index} 架`).toBeGreaterThan(0)
+  })
 })
