@@ -38,14 +38,18 @@ def main(faces):
     L.panels(PLAN + SIDE, 1.2, 1.0, 4)
 
     L.poly('top', [(-0.55, -6.3), (0.55, -6.3), (0.55, -3.4), (0.0, -3.1), (-0.55, -3.4)], OLIVE)
+    # 內側發動機艙頂整片（艙寬 x 2.27…3.83）：只蓋內側半邊的話，是一條停在艙體中段的窄帶。
+    # 只塗發動機艙本身 —— 照矩形塗的話，範圍裡的機翼上表面也一起塗到
     for side in (-1, 1):
-        L.rect('top', side * 2.3, -3.3, side * 2.95, -0.6, OLIVE)
+        L.rect_on('top', ['B17_NacIL', 'B17_NacIR'], side * 2.2, -3.3, side * 3.9, -0.6, OLIVE)
     L.edge_strip(PLAN, edges, 3.95, 5.7, 0.3, BOOT)
     L.edge_strip(PLAN, edges, 7.45, 15.3, 0.3, BOOT)
     L.edge_strip(PLAN, tail, 1.2, 6.2, 0.25, BOOT)
 
     for v in SIDE:
-        L.us_star(v, 9.4, 1.05, 0.52)
+        # 右側後窗（z 9.37…9.68）之後，前端的白條才不會壓到窗；上緣要留在側視投影的範圍裡，
+        # 再高就被上視那一塊蓋掉
+        L.us_star(v, 10.75, 0.8, 0.46)
         triangle(L, v, 13.95, 4.35, 1.5, 'L')
         L.text(v, 13.75, 3.2, '338412', 0.34, BLACK)
     zc = sum(edges(11.0)) / 2
