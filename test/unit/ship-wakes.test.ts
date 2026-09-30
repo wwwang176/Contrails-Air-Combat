@@ -231,17 +231,30 @@ describe('船的航跡', () => {
     for (const r of ratios) expect(r).toBeCloseTo(1 / SHIP_STERN_WAKE.foamTile!, 6)
   })
 
-  /** 【沉了就不再落】已經落的照常淡掉 */
-  it('沉了的船不再落新節點', () => {
+  /**
+   * 【看航速不看死活】被擊沉的船照慣性往前滑，航跡在那一刻斷掉的話，看起來是船還在
+   * 走、水面卻平了。停下來（航速降到門檻以下）才不再落
+   */
+  it('沉了但還在滑行的船照樣落節點；停下來才停', () => {
     const { ship, w } = sail(8, 5)
     ship.alive = false
     const [stern] = w.object.children as [Mesh, Mesh]
-    const before = visible(stern).length
     const fwd = new Vector3(0, 0, -1)
+    const farthestAhead = () => Math.min(...visible(stern).map((v) => v.z))
+    const before = farthestAhead()
     for (let t = 0; t < 5; t += 0.1) {
       ship.position.addScaledVector(fwd, 0.8)
       w.step([ship], 0.1, t, flat)
     }
-    expect(visible(stern).length).toBeLessThanOrEqual(before)
+    // 帶子的前端跟著船往前（−Z）長
+    expect(farthestAhead()).toBeLessThan(before - 30)
+
+    ship.speed = 0
+    const stopped = farthestAhead()
+    for (let t = 5; t < 10; t += 0.1) {
+      ship.position.addScaledVector(fwd, 0.8)
+      w.step([ship], 0.1, t, flat)
+    }
+    expect(farthestAhead()).toBeGreaterThanOrEqual(stopped - 1e-3)
   })
 })

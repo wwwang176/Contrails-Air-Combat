@@ -17,7 +17,8 @@ import type { Ship } from '../world/ships'
  *   兩舷露出來，就是船頭切開水面翻起的白浪
  *
  * 寬度照艦寬（每格的寬度倍率 = 半艦寬）。停著的船（灘頭擱淺的 LST）不落節點，
- * 所以沒有航跡；沉了的船不再落，已經落的照常淡掉。
+ * 所以沒有航跡。看的是航速不是死活：被擊沉的船照慣性滑行、航速慢慢降到 0，滑行的
+ * 那一段照樣落，停下來才停；已經落的照常淡掉。
  *
  * 全部船的艦尾共用一個網格、艦首共用一個網格：多兩次繪製。
  */
@@ -28,19 +29,19 @@ import type { Ship } from '../world/ships'
  * 節點數要蓋得住「航速 × 壽命 ÷ 間隔」：15 m/s × 70 s ÷ 10 m = 105。
  */
 export const SHIP_STERN_WAKE: WakeStyle = {
-  nodes: 128, spacing: 10, life: 70, halfFrom: 0.7, halfTo: 8.0, spread: 0.5, alpha: 0.7,
-  foamTile: 40, columns: 9,
+  nodes: 128, spacing: 10, life: 70, halfFrom: 0.7, halfTo: 8.0, spread: 0.5, alpha: 1.0,
+  foamTile: 160, columns: 9,
 }
 
 /**
  * 艦首的白浪。半寬是半艦寬的倍數：出生時比船頭還窄（艦首是尖的，太寬的話船頭前面
  * 會露出一片白），幾秒內散到將近兩倍寬、從兩舷露出來。**起始值，由截圖裁定。**
  *
- * 節點數：15 m/s × 7 s ÷ 3 m = 35。
+ * 節點數：15 m/s × 14 s ÷ 3 m = 70。
  */
 export const SHIP_BOW_WAKE: WakeStyle = {
-  nodes: 48, spacing: 3, life: 7, halfFrom: 0.2, halfTo: 3.6, spread: 0.6, alpha: 1.0,
-  foamTile: 20, columns: 4,
+  nodes: 80, spacing: 3, life: 14, halfFrom: 0.2, halfTo: 3.6, spread: 0.6, alpha: 1.0,
+  foamTile: 80, columns: 4,
 }
 
 /**
@@ -51,7 +52,9 @@ export const SHIP_BOW_WAKE: WakeStyle = {
  * 【為什麼要紋理】沒有紋理的帶子是一條濃淡均勻、邊緣很硬的平帶，看起來像一條路。
  */
 export function shipFoamTexture(): CanvasTexture {
-  const W = 128, H = 128
+  // 【一張蓋 40 m、不是 20 m】近看時一眼認得出每 20 m 重複一次；泡沫團的公尺大小不變，
+  // 圖放大、泡沫團數量照面積加倍
+  const W = 256, H = 256
   const c = document.createElement('canvas')
   c.width = W
   c.height = H
@@ -66,12 +69,16 @@ export function shipFoamTexture(): CanvasTexture {
     g.ellipse(x, y, r * 0.8, r * 1.4, 0, 0, Math.PI * 2)
     g.fill()
   }
-  for (let i = 0; i < 520; i++) {
+  for (let i = 0; i < 2080; i++) {
     const x = Math.random() * W
     const y = Math.random() * H
     const r = 2 + Math.random() * Math.random() * 10
     const a = 0.2 + Math.random() * 0.55
-    for (const ox of [0, -W, W]) for (const oy of [0, -H, H]) blob(x + ox, y + oy, r, a)
+    // 只有碰到邊的才補畫另一邊那一份（橢圓長軸 1.4 r）
+    const e = r * 1.4
+    const oxs = x < e ? [0, W] : x > W - e ? [0, -W] : [0]
+    const oys = y < e ? [0, H] : y > H - e ? [0, -H] : [0]
+    for (const ox of oxs) for (const oy of oys) blob(x + ox, y + oy, r, a)
   }
   const t = new CanvasTexture(c)
   t.wrapS = RepeatWrapping
@@ -113,12 +120,17 @@ export function shipWakePoint(
   return out.set(0, 0, z).applyQuaternion(ship.orientation).add(at)
 }
 
-/** 把活著的船的船身（俯視，照船體盒的半長半寬）寫進 `out` */
+/** 這艘船現在會不會拖出航跡：只看航速，沉了但還在滑行的也算 */
+export function shipMakesWake(ship: Ship): boolean {
+  return ship.speed >= SHIP_WAKE_MIN_SPEED
+}
+
+/** 把活著或還在滑行的船的船身（俯視，照船體盒的半長半寬）寫進 `out` */
 export function shipSinkBoxes(ships: readonly Ship[], out: SinkBoxes): void {
   let n = 0
   for (let k = 0; k < ships.length && n < out.x.length; k++) {
     const s = ships[k]!
-    if (!s.alive) continue
+    if (!s.alive && !shipMakesWake(s)) continue
     const { halfLength, halfBeam } = shipHalfSize(s)
     const q = s.orientation
     const yaw = 2 * Math.atan2(q.y, q.w)
@@ -171,7 +183,7 @@ export function createShipWakes(ships: readonly Ship[], foam: Texture | null = n
   for (let back = SHIP_STERN_WAKE.life; back >= 0; back -= PREWARM_STEP) {
     for (let k = 0; k < ships.length; k++) {
       const s = ships[k]!
-      if (!s.alive || !(s.speed >= SHIP_WAKE_MIN_SPEED)) continue
+      if (!s.alive || !shipMakesWake(s)) continue
       fwd.set(0, 0, -1).applyQuaternion(s.orientation)
       past.copy(s.position).addScaledVector(fwd, -s.speed * back)
       shipWakePoint(s, 1, V, past)
@@ -189,7 +201,7 @@ export function createShipWakes(ships: readonly Ship[], foam: Texture | null = n
       shipSinkBoxes(list, sink)
       for (let k = 0; k < list.length && k < slots; k++) {
         const s = list[k]!
-        if (!s.alive || !(s.speed >= SHIP_WAKE_MIN_SPEED)) continue
+        if (!shipMakesWake(s)) continue
         shipWakePoint(s, 1, V)
         stern.emit(k, V.x, V.z, s.index)
         shipWakePoint(s, -1, V)
