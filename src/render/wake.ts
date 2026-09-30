@@ -257,6 +257,12 @@ export function createWakes(
     uvAttr.setUsage(DynamicDrawUsage)
     geometry.setAttribute('uv', uvAttr)
   }
+  // 節點的年齡比例（0 新、1 到壽命），給泡沫的橫向分布用
+  const ageAttr = foamed ? new BufferAttribute(new Float32Array(vertexCount), 1) : null
+  if (ageAttr !== null) {
+    ageAttr.setUsage(DynamicDrawUsage)
+    geometry.setAttribute('aAge', ageAttr)
+  }
 
   const material = new MeshBasicMaterial({
     map: foamed ? foam : null,
@@ -272,20 +278,28 @@ export function createWakes(
     // 【泡沫會翻動】同一張泡沫圖用兩個尺寸、兩個方向的偏移各讀一次再合起來，偏移隨
     // 時間走 —— 兩層交疊的地方一直變，看起來是在翻滾，不是靜止的條紋。兩層是同一個
     // 等比縮放，泡沫團不會被拉扁。
-    // 【兩邊的軟邊】照離中線多遠（`aAcross`，−1…1）淡掉，與帶寬無關
+    // 【橫向分布像射流】剛翻出來的一段（年齡小）整片濃；往後中間淡下去、只剩兩條外緣
+    // 亮 —— 船尾的湍流先是一團，散開之後泡沫堆在兩側的浪脊上。`aAcross` 是離中線多遠
+    // （−1…1），`aAge` 是年齡比例；兩者都與帶寬無關
     material.onBeforeCompile = (shader) => {
       injectVertexAlpha(shader)
       shader.uniforms['uFoamTime'] = foamTime
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nattribute float aAcross;\nvarying float vAcross;')
-        .replace('#include <uv_vertex>', '#include <uv_vertex>\nvAcross = aAcross;')
+        .replace('#include <common>',
+          '#include <common>\nattribute float aAcross;\nattribute float aAge;\nvarying float vAcross;\nvarying float vAge;')
+        .replace('#include <uv_vertex>', '#include <uv_vertex>\nvAcross = aAcross;\nvAge = aAge;')
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nuniform float uFoamTime;\nvarying float vAcross;')
+        .replace('#include <common>',
+          '#include <common>\nuniform float uFoamTime;\nvarying float vAcross;\nvarying float vAge;')
         .replace('#include <map_fragment>', /* glsl */`
           vec4 foamA = texture2D( map, vMapUv + vec2( 0.0, uFoamTime * 0.05 ) );
           vec4 foamB = texture2D( map, vMapUv * 1.7 + vec2( 0.53, 0.37 - uFoamTime * 0.08 ) );
-          float edge = 1.0 - smoothstep( 0.45, 1.0, abs( vAcross ) );
-          diffuseColor.a *= clamp( ( foamA.a + foamB.a ) * 0.75 - 0.15, 0.0, 1.0 ) * edge;`)
+          float across = abs( vAcross );
+          float soft = 1.0 - smoothstep( 0.8, 1.0, across );
+          float ridge = smoothstep( 0.35, 0.8, across ) * soft;
+          float k = smoothstep( 0.02, 0.3, vAge );
+          float profile = mix( soft, max( ridge, 0.2 * soft ), k );
+          diffuseColor.a *= clamp( ( foamA.a + foamB.a ) * 0.8 - 0.1, 0.0, 1.0 ) * profile;`)
     }
     material.customProgramCacheKey = () => 'wake-foam'
   } else {
@@ -300,6 +314,7 @@ export function createWakes(
   const pos = position.array as Float32Array
   const alp = alpha.array as Float32Array
   const uvs = uvAttr === null ? null : uvAttr.array as Float32Array
+  const ages = ageAttr === null ? null : ageAttr.array as Float32Array
 
   /** 第 `j` 舊的正式節點在資料陣列裡的索引 */
   const slotOf = (slot: number, j: number): number =>
@@ -384,6 +399,11 @@ export function createWakes(
       pos[o0 + 5] = z - sz * w
       alp[base + j * 2] = al
       alp[base + j * 2 + 1] = al
+      if (ages !== null) {
+        const f = Math.min(1, age / style.life)
+        ages[base + j * 2] = f
+        ages[base + j * 2 + 1] = f
+      }
       if (uvs !== null) {
         // u 照公尺：離中線 ±w，帶子變寬時多鋪幾格而不是把同一格拉寬
         const tile = style.foamTile!
@@ -471,6 +491,7 @@ export function createWakes(
       position.needsUpdate = true
       alpha.needsUpdate = true
       if (uvAttr !== null) uvAttr.needsUpdate = true
+      if (ageAttr !== null) ageAttr.needsUpdate = true
       foamTime.value = time
     },
 
