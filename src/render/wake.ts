@@ -181,6 +181,10 @@ export function ribbonIndices(slots: number, nodes: number, cols = 2): Uint32Arr
 /** 海面浪高的 uniform（`Ocean.heightUniforms`） */
 export type OceanHeightUniforms = Readonly<Record<string, { value: unknown }>>
 
+/** `OCEAN_HEIGHT_GLSL` 宣告的 uniform 名。從著色器原文取，與它不會漂開 */
+const OCEAN_UNIFORM_NAMES = [...OCEAN_HEIGHT_GLSL.matchAll(/uniform\s+\w+\s+(\w+)/g)]
+  .map((m) => m[1]!)
+
 /**
  * 要把帶子壓在水線的俯視矩形（船身）。呼叫端每幀填，`count` 之後的不讀。
  * 艏向 cos/sin 是繞 +Y 的角度；半長沿艦體 z、半寬沿艦體 x。
@@ -349,15 +353,24 @@ export function createWakes(
   let ocean: OceanHeightUniforms | null = null
   /**
    * 著色器拿到的浪高 uniform：每一個都轉讀目前接上的那一組，所以換一片海只換參考、
-   * 不必重編譯
+   * 不必重編譯。
+   *
+   * 【每一種變體編譯時都要裝上】three.js 切回已快取的程式時不再呼叫
+   * `onBeforeCompile`，沿用的是最後一次編譯（可能是沒海那一支）留下的 uniform 表。
+   * 只在有海時才裝的話，有海 → 沒海 → 有海之後浪高 uniform 不再上傳，帶子停在
+   * 舊的浪上。沒海那一支沒宣告它們，多裝的不會上傳
    */
   const oceanProxy: Record<string, { readonly value: unknown }> = {}
-  const proxyOf = (key: string) => ({ get value() { return ocean?.[key]?.value } })
+  for (const key of OCEAN_UNIFORM_NAMES) {
+    oceanProxy[key] = { get value() { return ocean?.[key]?.value } }
+  }
+  /** 有紋理才走泡沫著色器 —— 沒有 `map` 時 three.js 不宣告 `map`／`vMapUv`，編不過 */
+  const foamShader = foamed && foam !== null
 
   material.onBeforeCompile = (shader) => {
     injectVertexAlpha(shader)
+    Object.assign(shader.uniforms, oceanProxy)
     if (ocean !== null) {
-      for (const key of Object.keys(ocean)) shader.uniforms[key] = oceanProxy[key] ??= proxyOf(key)
       // 【與海面同一支浪高】海面頂點算的是 oceanWaveHeight(未位移座標, 離海面中心的
       // 距離推得的格距)；這裡用同一個值，淡掉的短波也一起淡掉。帶子的 x/z 是世界座標
       shader.vertexShader = shader.vertexShader
@@ -370,7 +383,7 @@ export function createWakes(
             transformed.y += waveH;
           }`)
     }
-    if (!foamed) return
+    if (!foamShader) return
     // 【泡沫原地翻動】同一張泡沫圖用兩個尺寸各讀一次，兩層都釘在水面上；翻動是兩層的
     // 濃淡此消彼長，交替的時間差由第三次（放大、模糊）的讀值決定，所以每一塊各自起伏。
     // 不能用偏移捲動 —— 捲動的速度照紋理比例算，一張蓋 160 m 時每秒走 8 m，跟船速
@@ -402,7 +415,7 @@ export function createWakes(
   // 【鍵要涵蓋每一種變體】魚雷與船共用這支 onBeforeCompile；鍵相同的兩個材質共用同一個
   // 程式，缺了哪一項就有一邊拿到錯的著色器
   material.customProgramCacheKey = () =>
-    `wake-${foamed ? 'foam' : 'plain'}-${ocean !== null ? 'gpu' : 'cpu'}-${sink !== null ? 'sink' : ''}`
+    `wake-${foamShader ? 'foam' : 'plain'}-${ocean !== null ? 'gpu' : 'cpu'}-${sink !== null ? 'sink' : ''}`
 
   const object = new Mesh(geometry, material)
   // 包圍球是建立時算的（全部在原點）—— 開著視錐剔除，相機一離開原點附近
