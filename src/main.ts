@@ -41,7 +41,8 @@ import { createFireChunks } from './render/chunks'
 import { createFirePuff } from './render/firePuff'
 import { JET_RISE, createWaterJets } from './render/waterJets'
 import {
-  AIR_BLAST, BLAST_PACE, BOMB_BLAST_SIZE, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST, blastFireRadius,
+  AIR_BLAST, BLAST_PACE, BOMB_BLAST_SIZE, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST,
+  WRECK_WATER_BLAST, blastFireRadius,
   createBlastSmoke, createDust, createEmberSmoke, createFireGlow, createWaterMist,
   emitBlast, emitEmber, emitFlakBlasts, emitMist, resetFlakBlastSeed, scaleBlast,
   type BlastParams, type BlastPools,
@@ -131,6 +132,7 @@ import { BOMB_PROFILE } from './ai/bombRun'
 import { TORPEDO_PROFILE } from './ai/torpedoRun'
 import { WAKE_SPRAY_COUNT } from './render/spray'
 import { createWakes } from './render/wake'
+import { createShipWakes, shipFoamTexture, type ShipWakes } from './render/shipWakes'
 import {
   createGodCameraState, enterGodCamera, godCameraTarget, stepGodCamera,
   type GodCameraInput,
@@ -344,6 +346,8 @@ ctx.scene.add(tracers.object)
  * 【生命週期比照地形】每一場重建（`startWorld`），因為艦隊是設定的一部分。
  */
 let shipModels: ShipModels | null = null
+/** 船的航跡（艦尾與艦首的白浪）。有船的場次才有 */
+let shipWakes: ShipWakes | null = null
 let groundModels: GroundModels | null = null
 let balloonModels: BalloonModels | null = null
 /** 探照燈的光束。與 `groundModels` 同一個生命週期：每一場重建 */
@@ -1706,9 +1710,17 @@ function startWorld(cfg: BattleConfig): void {
     shipModels.dispose()
     shipModels = null
   }
+  // 航跡跟著船走：同一個時機建、同一個時機收
+  if (shipWakes !== null) {
+    ctx.scene.remove(shipWakes.object)
+    shipWakes.dispose()
+    shipWakes = null
+  }
   if (world.ships.length > 0) {
     shipModels = createShipModels(world.ships)
     ctx.scene.add(shipModels.object)
+    shipWakes = createShipWakes(world.ships, shipFoamTexture())
+    ctx.scene.add(shipWakes.object)
   }
   // 地面目標與船同一個做法：每一場重建
   if (groundModels !== null) {
@@ -3010,6 +3022,15 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   }
   emitSmoke(smoke, debris.smokeEvents, DEBRIS_SMOKE_SIZE)
   emitSpray(spray, wrecks.sprayEvents, WRECK_SPRAY_COUNT)
+  // 【殘骸落水掀一個水冠】粗水柱塌下留水霧、柱腳噴水花 —— 與魚雷、炸彈落水同一套池
+  {
+    const d = wrecks.sprayEvents.data
+    for (let e = 0; e < wrecks.sprayEvents.count; e++) {
+      const o = e * IMPACT_STRIDE
+      emitBlast(BLAST_POOLS, WRECK_WATER_BLAST, d[o]!, d[o + 1]!, d[o + 2]!,
+        (e * 173 + Math.round(world.time * 60)) | 0)
+    }
+  }
   emitSpray(spray, debris.sprayEvents, DEBRIS_SPRAY_COUNT)
   // 殘骸入水的那一圈水柱沿用 M7 的池子 —— 用數量換規模，splash.ts 不用改
   splashes.emit(wrecks.splashEvents, terrain.heightAt, elapsed)
@@ -3070,8 +3091,12 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
       wakes.emit(i, t.x[i]!, t.z[i]!, t.serial[i]!)
     }
   }
-  // 【高度交給它自己每幀問】帶子要跟著看得見的浪起伏，否則會被浪蓋掉
+  // 【浪高與海面同一組 uniform】帶子要跟著看得見的浪起伏，否則會被浪蓋掉。地形每場
+  // 重建，所以每幀接一次（沒換就只是比對參考）
+  wakes.bindOcean(terrain.oceanHeight)
   wakes.step(worldSeconds, elapsed, terrain.heightAt)
+  shipWakes?.bindOcean(terrain.oceanHeight)
+  shipWakes?.step(world.ships, worldSeconds, elapsed, terrain.heightAt)
   vortex.step(worldSeconds)
   spray.step(worldSeconds)
 
