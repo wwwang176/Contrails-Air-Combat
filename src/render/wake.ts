@@ -371,9 +371,10 @@ export function createWakes(
           }`)
     }
     if (!foamed) return
-    // 【泡沫會翻動】同一張泡沫圖用兩個尺寸、兩個方向的偏移各讀一次再合起來，偏移隨
-    // 時間走 —— 兩層交疊的地方一直變，看起來是在翻滾，不是靜止的條紋。兩層是同一個
-    // 等比縮放，泡沫團不會被拉扁。
+    // 【泡沫原地翻動】同一張泡沫圖用兩個尺寸各讀一次，兩層都釘在水面上；翻動是兩層的
+    // 濃淡此消彼長，交替的時間差由第三次（放大、模糊）的讀值決定，所以每一塊各自起伏。
+    // 不能用偏移捲動 —— 捲動的速度照紋理比例算，一張蓋 160 m 時每秒走 8 m，跟船速
+    // 差不多，看起來整層泡沫被船拖著走。兩層是同一個等比縮放，泡沫團不會被拉扁。
     // 【橫向分布像射流】剛翻出來的一段（年齡小）整片濃；往後中間淡下去、只剩兩條外緣
     // 亮 —— 船尾的湍流先是一團，散開之後泡沫堆在兩側的浪脊上。`aAcross` 是離中線多遠
     // （−1…1），`aAge` 是年齡比例；兩者都與帶寬無關
@@ -386,14 +387,17 @@ export function createWakes(
       .replace('#include <common>',
         '#include <common>\nuniform float uFoamTime;\nvarying float vAcross;\nvarying float vAge;')
       .replace('#include <map_fragment>', /* glsl */`
-        vec4 foamA = texture2D( map, vMapUv + vec2( 0.0, uFoamTime * 0.05 ) );
-        vec4 foamB = texture2D( map, vMapUv * 1.7 + vec2( 0.53, 0.37 - uFoamTime * 0.08 ) );
+        vec4 foamA = texture2D( map, vMapUv );
+        vec4 foamB = texture2D( map, vMapUv * 1.7 + vec2( 0.53, 0.37 ) );
+        float phase = texture2D( map, vMapUv * 0.37 + vec2( 0.21, 0.66 ), 2.0 ).a;
+        float swap = 0.5 + 0.5 * sin( uFoamTime * 0.9 + phase * 12.0 );
+        float churn = foamA.a * ( 1.3 - swap ) + foamB.a * ( 0.3 + swap );
         float across = abs( vAcross );
         float soft = 1.0 - smoothstep( 0.8, 1.0, across );
         float ridge = smoothstep( 0.35, 0.8, across ) * soft;
         float k = smoothstep( 0.02, 0.3, vAge );
-        float profile = mix( soft, max( ridge, 0.2 * soft ), k );
-        diffuseColor.a *= clamp( ( foamA.a + foamB.a ) * 0.8 - 0.1, 0.0, 1.0 ) * profile;`)
+        float profile = mix( soft, max( ridge, 0.04 * soft ), k );
+        diffuseColor.a *= clamp( churn * 2.2 - 0.05, 0.0, 1.0 ) * profile;`)
   }
   // 【鍵要涵蓋每一種變體】魚雷與船共用這支 onBeforeCompile；鍵相同的兩個材質共用同一個
   // 程式，缺了哪一項就有一邊拿到錯的著色器
