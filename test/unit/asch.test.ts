@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   ASCH_HILLS, CRATE_FIELDS, createAsch, DUMPS, FIELD_BOUNDS, FIELD_CENTER, FIELD_LOBES, FIELD_PAD,
-  FLAK_SITES, HUTS, inField, PARKED_ROWS, PAVED, PSP_STEEL, RUNWAY, STAND_LANES, STAND_PADS,
+  FLAK_SITES, HUTS, inField, PARKED_ROWS, PAVED, PSP_STEEL, ROAD_WIDTH, RUNWAY, STAND_LANES, STAND_PADS,
   TAKEOFF_LINE, TAXI_LOOP, taxiRoute, VEHICLES, worldToField, type FieldRect,
 } from '../../src/world/asch'
 import { RUNWAY_CONCRETE } from '../../src/world/poltava'
@@ -238,8 +238,9 @@ describe('asch 的營區', () => {
     }
   })
 
-  it('離鋪面 10 m 以上', () => {
-    for (const e of items) expect(clearOfPaving(e.x, e.z, e.r + 10), e.tag).toBe(true)
+  /** 【3 m】整備區貼著停機墊擺；滑行的 P-51 只走鋪面，留一點縫就不會穿過車子 */
+  it('離鋪面 3 m 以上', () => {
+    for (const e of items) expect(clearOfPaving(e.x, e.z, e.r + 3), e.tag).toBe(true)
   })
 
   it('不壓防空砲、油桶堆與停放的 P-51', () => {
@@ -253,6 +254,40 @@ describe('asch 的營區', () => {
         expect(Math.hypot(e.x - s.x, e.z - s.z), `${e.tag} 對 ${s.x.toFixed(0)},${s.z.toFixed(0)}`)
           .toBeGreaterThanOrEqual(e.r + s.r + 5)
       }
+    }
+  })
+
+  it('箱子堆是停機位的整備區：每一格至少一堆，都在 P-51 旁 50 m 內，大小不一', () => {
+    const nearest = (x: number, z: number): number =>
+      Math.min(...PARKED_ROWS.map((p) => Math.hypot(x - p.x, z - p.z)))
+    for (const d of CRATE_FIELDS) expect(nearest(d.x, d.z), `${d.x.toFixed(0)},${d.z.toFixed(0)}`).toBeLessThanOrEqual(50)
+    for (const p of PARKED_ROWS) {
+      expect(CRATE_FIELDS.some((d) => Math.hypot(d.x - p.x, d.z - p.z) <= 50), `${p.x},${p.z}`).toBe(true)
+    }
+    const widths = CRATE_FIELDS.map((d) => d.width)
+    expect(Math.max(...widths) - Math.min(...widths)).toBeGreaterThan(4)
+  })
+
+  it('卡車停在停機位、營房或箱子堆旁邊；佈景裡沒有 M16（會開火的才是 M16）', () => {
+    expect(VEHICLES.length).toBeGreaterThanOrEqual(20)
+    const anchors = [
+      ...HUTS.map((h) => ({ x: h.x, z: h.z, r: Math.hypot(h.length, h.width) / 2 })),
+      ...CRATE_FIELDS.map((d) => ({ x: d.x, z: d.z, r: Math.hypot(d.width, d.depth) / 2 })),
+      ...PARKED_ROWS.map((p) => ({ x: p.x, z: p.z, r: 25 })),
+    ]
+    for (const v of VEHICLES) {
+      expect(v.unit, `${v.x.toFixed(0)},${v.z.toFixed(0)}`).toBe('usTruck')
+      const gap = Math.min(...anchors.map((a) => Math.hypot(v.x - a.x, v.z - a.z) - a.r))
+      expect(gap, `${v.x.toFixed(0)},${v.z.toFixed(0)}`).toBeLessThanOrEqual(25)
+    }
+  })
+
+  it('不壓連外道路', () => {
+    const half = ROAD_WIDTH / 2
+    for (const e of items) {
+      const p = local(e.x, e.z)
+      if (p.x - e.r > FIELD_PAD.x0) continue
+      expect(Math.abs(p.z), e.tag).toBeGreaterThanOrEqual(e.r + half)
     }
   })
 

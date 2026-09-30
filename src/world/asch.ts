@@ -11,8 +11,9 @@ import type { CrateField, ParkedVehicle } from './depot'
  *
  * Kempen 高原的荒地：平、遠處幾顆極緩的丘。Y-29 是前進降落場（ALG），不是
  * 水泥機場 —— 一條鋼板網（PSP）跑道鋪在草地上，跑道一側一圈環狀滑行帶，
- * 滑行帶外側是一架一格的分散停機墊。跑道東側是作業區（營房、補給堆、車場），
- * 南端是營區。**整張圖的佈局都在這個檔案**，卡片與佈景引用這裡的常數。
+ * 滑行帶外側是一架一格的分散停機墊，每一格旁邊是整備區（補給堆、卡車）。跑道
+ * 東側是作業區、南端是營區，營房旁邊隨意停著卡車。**整張圖的佈局都在這個檔案**，
+ * 卡片與佈景引用這裡的常數。
  *
  * 【跑道南北向、不轉】藍隊從東邊朝西進場（`battle/entry.ts` 的 `ASCH_EAST`），
  * 橫切跑道與停機線：一趟只掃得到一兩架，要轉回來再打。機場局部座標是世界
@@ -42,8 +43,8 @@ export interface FieldRect { readonly x0: number; readonly z0: number; readonly 
 /** 墊面：草地，內部高度保證 0。一塊就包得住跑道、滑行帶與停機墊 */
 export const FIELD_PAD: FieldRect = { x0: -340, z0: -760, x1: 70, z1: 760 }
 /**
- * 附加的墊面：跑道東側的作業區、南端的營區。**都與主墊面相接**。營房與車
- * 要落在墊面裡 —— 墊面外底下是田，而且會長樹
+ * 附加的墊面：跑道東側的作業區、南端的營區。**都與主墊面相接**。營房、箱子與
+ * 車要落在墊面裡 —— 墊面外底下是田，而且會長樹
  */
 export const FIELD_LOBES: readonly FieldRect[] = [
   { x0: 70, z0: -760, x1: 400, z1: 760 },
@@ -170,7 +171,13 @@ export const FLAK_SITES: readonly { x: number; z: number; heading: number }[] =
     { dx: 0, dz: -1000 }, { dx: 100, dz: 1080 }, { dx: -460, dz: 900 },
   ] as const).map((s) => ({ ...at(s.dx, s.dz), heading: Math.atan2(s.dx, -s.dz) }))
 
-// ── 營區與作業區的佈景：營房、補給堆、停著的車 ──────────────────
+/** 連外道路從主墊面西緣的中線往西出圖 */
+export const ROAD_WIDTH = 8
+export const ROADS: readonly (readonly { x: number; z: number }[])[] = [
+  [at(FIELD_PAD.x0, 0), { x: -14500, z: FIELD_CENTER.z }],
+]
+
+// ── 營區、作業區與停機線旁的佈景：營房、補給堆、停著的車 ──────────
 
 /**
  * 一棟木造營房，世界座標。形狀是村裡那一種建築（`render/floraShapes.ts`），
@@ -201,41 +208,125 @@ export const HUTS: readonly Hut[] = /* @__PURE__ */ (() => {
   return out
 })()
 
-/**
- * 補給堆（`world/depot.ts`）：東側作業區四堆、營區一堆。**不是目標**，油桶堆
- * （`DUMPS`）才是
- */
-export const CRATE_FIELDS: readonly CrateField[] = /* @__PURE__ */ ([
-  { dx: 290, dz: -450, width: 36, depth: 30 },
-  { dx: 290, dz: -200, width: 40, depth: 28 },
-  { dx: 290, dz: 200, width: 40, depth: 28 },
-  { dx: 290, dz: 450, width: 36, depth: 30 },
-  { dx: 10, dz: 900, width: 30, depth: 40 },
-] as const).map((d, i) => ({ ...at(d.dx, d.dz), heading: 0, width: d.width, depth: d.depth, lane: 0, seed: 2901 + i }))
+/** 種子進、序列出。**不得 `Math.random`** —— 同一張地圖每次都要長一樣 */
+function makeRand(seed: number): () => number {
+  let s = seed >>> 0
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0
+    return s / 4294967296
+  }
+}
+
+/** 一塊佔掉的地，機場局部座標與外接半徑 */
+interface Footprint { readonly x: number; readonly z: number; readonly r: number }
+
+const local = (p: { x: number; z: number }, r: number): Footprint =>
+  ({ x: p.x - FIELD_CENTER.x, z: p.z - FIELD_CENTER.z, r })
+
+/** 擺佈景時要避開的地面目標：防空砲、油桶堆、停放的 P-51 */
+const SOLID: readonly Footprint[] = /* @__PURE__ */ [
+  ...FLAK_SITES.map((s) => local(s, 5 + 5)),
+  ...DUMPS.map((d) => local(d, 15 + 5)),
+  ...PARKED_ROWS.map((p) => local(p, 8 + 5)),
+]
 
 /**
- * 停著的車，**佈景、打不掉**：
- *
- * - 東側車場：三排、每排九台，車頭朝西，第一排夾著 M16
- * - 東側每一堆補給兩旁各一台卡車
- * - 營區南緣一排卡車
- * - 停機線外側每隔一格一台油罐車，車頭朝北
+ * 半徑 r 的一塊地（機場局部座標）放得下嗎：整塊在墊面裡、離鋪面 3 m 以上、
+ * 不壓連外道路與地面目標，也不壓 `taken` 裡已經擺下的東西。`asch.test.ts` 用
+ * 同樣的條件另外驗一次
+ */
+function fits(x: number, z: number, r: number, taken: readonly Footprint[]): boolean {
+  if (!inField(x - r, z) || !inField(x + r, z) || !inField(x, z - r) || !inField(x, z + r)) return false
+  const m = r + 3
+  for (const p of PAVED) {
+    if (x >= p.x0 - m && x <= p.x1 + m && z >= p.z0 - m && z <= p.z1 + m) return false
+  }
+  if (x - r <= FIELD_PAD.x0 && Math.abs(z) < r + ROAD_WIDTH / 2 + 2) return false
+  for (const s of SOLID) if (Math.hypot(x - s.x, z - s.z) < r + s.r) return false
+  for (const t of taken) if (Math.hypot(x - t.x, z - t.z) < r + t.r + 2) return false
+  return true
+}
+
+/** 卡車的外接半徑，m */
+const TRUCK_R = 4
+/** 整備區離 P-51 多遠，m：停機墊半邊 15 加上縫，到外緣 45 */
+const SERVICE_RING = [20, 45] as const
+
+/**
+ * 在 (cx, cz) 周圍 `ring` 那一圈裡抽一個放得下半徑 r 的點（機場局部座標），
+ * 抽 `tries` 次都放不下就回 null
+ */
+function around(
+  rand: () => number, cx: number, cz: number, ring: readonly [number, number], r: number,
+  taken: readonly Footprint[], tries: number,
+): { x: number; z: number } | null {
+  for (let k = 0; k < tries; k++) {
+    const ang = 2 * Math.PI * rand()
+    const d = ring[0] + (ring[1] - ring[0]) * rand()
+    const x = cx + Math.sin(ang) * d
+    const z = cz + Math.cos(ang) * d
+    if (fits(x, z, r, taken)) return { x, z }
+  }
+  return null
+}
+
+/**
+ * 停機位的整備區：每一架 P-51 旁邊 1～3 堆補給、1～2 台卡車，都在
+ * `SERVICE_RING` 那一圈裡的草地上。大小、朝向、位置都由種子抽。
+ */
+const SERVICE: { readonly crates: readonly CrateField[]; readonly trucks: readonly ParkedVehicle[] } =
+  /* @__PURE__ */ (() => {
+    const rand = makeRand(1945_01_01)
+    const taken: Footprint[] = HUTS.map((h) => local(h, Math.hypot(h.length, h.width) / 2))
+    const crates: CrateField[] = []
+    const trucks: ParkedVehicle[] = []
+    for (const p of PARKED_ROWS) {
+      const c = local(p, 0)
+      const piles = 1 + Math.floor(3 * rand())
+      for (let n = 0; n < piles; n++) {
+        const width = 3 + 9 * rand()
+        const depth = 3 + 6 * rand()
+        const heading = Math.PI * rand()
+        const r = Math.hypot(width, depth) / 2
+        const at0 = around(rand, c.x, c.z, SERVICE_RING, r, taken, 40)
+        if (at0 === null) continue
+        taken.push({ ...at0, r })
+        crates.push({ ...at(at0.x, at0.z), heading, width, depth, lane: 0, seed: 2901 + crates.length })
+      }
+      const count = rand() < 0.4 ? 2 : 1
+      for (let n = 0; n < count; n++) {
+        const at0 = around(rand, c.x, c.z, SERVICE_RING, TRUCK_R, taken, 40)
+        if (at0 === null) continue
+        taken.push({ ...at0, r: TRUCK_R })
+        trucks.push({ unit: 'usTruck', ...at(at0.x, at0.z), heading: 2 * Math.PI * rand() })
+      }
+    }
+    return { crates, trucks }
+  })()
+
+/** 補給堆（`world/depot.ts`），全在停機位的整備區。**不是目標**，油桶堆（`DUMPS`）才是 */
+export const CRATE_FIELDS: readonly CrateField[] = SERVICE.crates
+
+/**
+ * 停著的卡車，**佈景、打不掉**：停機位整備區的那幾台，加上營房旁邊隨意停的，
+ * 方向都隨意。佈景裡不放 M16 —— 場上的 M16 都是會開火的那 12 輛
  */
 export const VEHICLES: readonly ParkedVehicle[] = /* @__PURE__ */ (() => {
-  const out: ParkedVehicle[] = []
-  const west = Math.PI / 2
-  for (const [x, row] of [
-    [270, ['usFlakTrack', 'usTruck', 'usTruck', 'usFlakTrack', 'usTruck', 'usFlakTrack', 'usTruck', 'usTruck', 'usFlakTrack']],
-    [290, Array<'usTruck'>(9).fill('usTruck')],
-    [310, Array<'usTruck'>(9).fill('usTruck')],
-  ] as const) {
-    row.forEach((unit, i) => out.push({ unit, ...at(x, -36 + 9 * i), heading: west }))
+  const rand = makeRand(1945_01_02)
+  const huts = HUTS.map((h) => local(h, Math.hypot(h.length, h.width) / 2))
+  const taken: Footprint[] = [
+    ...huts,
+    ...CRATE_FIELDS.map((d) => local(d, Math.hypot(d.width, d.depth) / 2)),
+    ...SERVICE.trucks.map((v) => local(v, TRUCK_R)),
+  ]
+  const out: ParkedVehicle[] = [...SERVICE.trucks]
+  for (const h of huts) {
+    if (rand() > 0.4) continue
+    const at0 = around(rand, h.x, h.z, [h.r + TRUCK_R + 2, h.r + TRUCK_R + 12], TRUCK_R, taken, 12)
+    if (at0 === null) continue
+    taken.push({ ...at0, r: TRUCK_R })
+    out.push({ unit: 'usTruck', ...at(at0.x, at0.z), heading: 2 * Math.PI * rand() })
   }
-  for (const d of CRATE_FIELDS.slice(0, 4)) {
-    for (const side of [-1, 1]) out.push({ unit: 'usTruck', x: d.x + side * 30, z: d.z, heading: 0 })
-  }
-  for (let i = 0; i < 10; i++) out.push({ unit: 'usTruck', ...at(-290 + 20 * i, 985), heading: west })
-  for (let i = 0; i < STAND_ZS.length; i += 2) out.push({ unit: 'usTruck', ...at(-318, STAND_ZS[i]!), heading: 0 })
   return out
 })()
 
@@ -249,12 +340,6 @@ export const ASCH_HILLS = [
   { cx: -8000, cz: 3500, radius: 800, peak: 25, pa: 3.0, pb: 1.2, seed: 303 },
   { cx: 6000, cz: 4000, radius: 900, peak: 30, pa: 1.4, pb: 5.3, seed: 304 },
 ] as const
-
-/** 連外道路往西出圖 */
-export const ROAD_WIDTH = 8
-export const ROADS: readonly (readonly { x: number; z: number }[])[] = [
-  [at(FIELD_PAD.x0, 0), { x: -14500, z: FIELD_CENTER.z }],
-]
 
 export function createAsch(): { field: HeightFieldData; hills: IslandDesc[] } {
   const field = createHeightField(FARM_SIZE, FARM_CELL)
