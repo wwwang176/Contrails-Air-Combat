@@ -187,16 +187,34 @@ function loadShipLivery(url: string): Promise<Texture> {
 export async function dressShipModel(id: string, root: Object3D): Promise<void> {
   const livery = SHIP_LIVERIES[id as ShipClassId]
   if (livery === undefined) return
-  let texture: Texture | null = null
-  let grime: Texture | null = null
+  let textures: { texture: Texture, grime: Texture } | null = null
   try {
-    const stamps = grimeStamps(livery.layout, Math.random)
-    texture = grimedLivery(await loadShipLivery(livery.layout.url), stamps)
-    grime = fittingGrime(stamps)
+    textures = await dressedTextures(id, livery)
   } catch (e) {
     console.warn(`艦級 ${id} 的塗裝貼圖載不到，維持單色`, e)
   }
-  applyShipLivery(root, livery, texture, grime)
+  applyShipLivery(root, livery, textures?.texture ?? null, textures?.grime ?? null)
+}
+
+/**
+ * 機庫用的蓋過髒污的貼圖，**每個艦級一份**。
+ *
+ * 【為什麼要快取】機庫每切一次船就套一次塗裝，而切走時只釋放幾何與材質、不釋放貼圖；
+ * 每次都新蓋的話每切一次就多兩張 GPU 貼圖。載入失敗就從快取拿掉，下次重試。
+ */
+const dressed = new Map<string, Promise<{ texture: Texture, grime: Texture }>>()
+
+function dressedTextures(id: string, livery: ShipLiveryDef): Promise<{ texture: Texture, grime: Texture }> {
+  let p = dressed.get(id)
+  if (p === undefined) {
+    p = loadShipLivery(livery.layout.url).then((base) => {
+      const stamps = grimeStamps(livery.layout, Math.random)
+      return { texture: grimedLivery(base, stamps), grime: fittingGrime(stamps) }
+    })
+    p.catch(() => dressed.delete(id))
+    dressed.set(id, p)
+  }
+  return p
 }
 
 /**
