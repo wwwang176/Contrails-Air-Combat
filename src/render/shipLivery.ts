@@ -159,12 +159,17 @@ export function shipLiveryPixel(
 
 /**
  * 零件的一種：它的色階，與認它的框。框量的是零件重心（艦體座標，m）；`x` 比的是
- * |x|，兩舷對稱的零件寫一個框就好。省略的軸不限。
+ * |x|，兩舷對稱的零件寫一個框就好。`dx`／`dy`／`dz` 量的是零件外框的長寬高 ——
+ * 同一種零件散在船上各處、位置不規則時（航艦走廊上的機砲），認尺寸比認位置穩。
+ * 省略的條件不限。
  */
 export interface ShipPartBox {
   readonly x?: readonly [number, number]
   readonly y?: readonly [number, number]
   readonly z?: readonly [number, number]
+  readonly dx?: readonly [number, number]
+  readonly dy?: readonly [number, number]
+  readonly dz?: readonly [number, number]
 }
 
 export interface ShipPartKind {
@@ -174,16 +179,21 @@ export interface ShipPartKind {
   readonly boxes: readonly ShipPartBox[]
 }
 
-/** 重心落在哪一種的框裡；依表的順序取第一個，都不在回 null */
+/** 第 `p` 塊零件落在哪一種的框裡；依表的順序取第一個，都不在回 null */
 export function shipPartKind(
-  kinds: readonly ShipPartKind[], cx: number, cy: number, cz: number,
+  kinds: readonly ShipPartKind[], parts: ShipParts, p: number,
 ): ShipPartKind | null {
-  const ax = Math.abs(cx)
+  const c = parts.centroid
+  const e = parts.extent
+  const ax = Math.abs(c[p * 3]!)
   const inRange = (v: number, r: readonly [number, number] | undefined) =>
     r === undefined || (v >= r[0] && v <= r[1])
   for (const k of kinds) {
     for (const b of k.boxes) {
-      if (inRange(ax, b.x) && inRange(cy, b.y) && inRange(cz, b.z)) return k
+      if (inRange(ax, b.x) && inRange(c[p * 3 + 1]!, b.y) && inRange(c[p * 3 + 2]!, b.z)
+        && inRange(e[p * 3]!, b.dx) && inRange(e[p * 3 + 1]!, b.dy) && inRange(e[p * 3 + 2]!, b.dz)) {
+        return k
+      }
     }
   }
   return null
@@ -196,6 +206,8 @@ export interface ShipParts {
   readonly of: Int32Array
   /** 每一塊的重心，xyz 連排 */
   readonly centroid: Float64Array
+  /** 每一塊外框的長寬高，xyz 連排 */
+  readonly extent: Float64Array
 }
 
 /**
@@ -226,11 +238,13 @@ export function shipParts(geo: BufferGeometry): ShipParts {
     parent[find(node[i + 1]!)] = a
     parent[find(node[i + 2]!)] = a
   }
-  // 併查集的根 → 塊的編號；每一塊的頂點數與座標和
+  // 併查集的根 → 塊的編號；每一塊的頂點數、座標和與外框
   const slot = new Map<number, number>()
   const of = new Int32Array(Math.floor(n / 3))
   const sums: number[] = []
   const verts: number[] = []
+  const lo: number[] = []
+  const hi: number[] = []
   for (let i = 0; i + 2 < n; i += 3) {
     const r = find(node[i]!)
     let p = slot.get(r)
@@ -239,20 +253,29 @@ export function shipParts(geo: BufferGeometry): ShipParts {
       slot.set(r, p)
       sums.push(0, 0, 0)
       verts.push(0)
+      lo.push(Infinity, Infinity, Infinity)
+      hi.push(-Infinity, -Infinity, -Infinity)
     }
     of[i / 3] = p
     for (let k = 0; k < 3; k++) {
-      sums[p * 3]! += pos.getX(i + k)
-      sums[p * 3 + 1]! += pos.getY(i + k)
-      sums[p * 3 + 2]! += pos.getZ(i + k)
+      const v = [pos.getX(i + k), pos.getY(i + k), pos.getZ(i + k)]
+      for (let a = 0; a < 3; a++) {
+        sums[p * 3 + a]! += v[a]!
+        if (v[a]! < lo[p * 3 + a]!) lo[p * 3 + a] = v[a]!
+        if (v[a]! > hi[p * 3 + a]!) hi[p * 3 + a] = v[a]!
+      }
     }
     verts[p]! += 3
   }
   const centroid = new Float64Array(slot.size * 3)
+  const extent = new Float64Array(slot.size * 3)
   for (let p = 0; p < slot.size; p++) {
-    for (let a = 0; a < 3; a++) centroid[p * 3 + a] = sums[p * 3 + a]! / verts[p]!
+    for (let a = 0; a < 3; a++) {
+      centroid[p * 3 + a] = sums[p * 3 + a]! / verts[p]!
+      extent[p * 3 + a] = hi[p * 3 + a]! - lo[p * 3 + a]!
+    }
   }
-  return { count: slot.size, of, centroid }
+  return { count: slot.size, of, centroid, extent }
 }
 
 /**
@@ -275,10 +298,10 @@ export function partTones(
   const parts = shipParts(geo)
   const tone = new Float32Array(parts.count)
   for (let p = 0; p < parts.count; p++) {
-    const cx = parts.centroid[p * 3]!, cy = parts.centroid[p * 3 + 1]!, cz = parts.centroid[p * 3 + 2]!
-    const k = shipPartKind(kinds, cx, cy, cz)
+    const k = shipPartKind(kinds, parts, p)
     if (k === null) {
-      throw new Error(`${label} 的第 ${p} 塊零件（重心 ${cx.toFixed(1)}, ${cy.toFixed(1)}, ${cz.toFixed(1)}）認不出種類`)
+      const f = (a: Float64Array) => [0, 1, 2].map((i) => a[p * 3 + i]!.toFixed(1)).join(', ')
+      throw new Error(`${label} 的第 ${p} 塊零件（重心 ${f(parts.centroid)}、長寬高 ${f(parts.extent)}）認不出種類`)
     }
     tone[p] = Math.pow(k.tone, 2.2)
   }

@@ -169,6 +169,24 @@ describe('零件的深淺', () => {
     for (let i = 6 * 3; i < 12 * 3; i++) expect(t[i]).toBeCloseTo(Math.pow(0.6, 2.2), 5)
   })
 
+  /** 【認尺寸】同一個位置附近的長砲管與方砲座，靠外框的長寬高分開 */
+  it('框可以用零件外框的長寬高認', () => {
+    const g = new BufferGeometry()
+    g.setAttribute('position', new Float32BufferAttribute([
+      // 長條：沿 z 4 m
+      0, 0, 0, 0.3, 0, 0, 0, 0.3, 4,
+      // 方塊：1 × 1 × 1
+      0, 0, 10, 1, 0, 10, 0, 1, 11,
+    ], 3))
+    const kinds: readonly ShipPartKind[] = [
+      { name: 'barrel', tone: 0.6, boxes: [{ dz: [3, 5] }] },
+      { name: 'mount', tone: 1.2, boxes: [{ dx: [0.5, 1.5], dy: [0.5, 1.5], dz: [0.5, 1.5] }] },
+    ]
+    const t = partTones(g, kinds, 'test')
+    expect(t[0]).toBeCloseTo(Math.pow(0.6, 2.2), 5)
+    expect(t[3 * 3]).toBeCloseTo(Math.pow(1.2, 2.2), 5)
+  })
+
   /** 【認不出來就丟】漏了一種的話那一塊會靜靜地維持原色，看起來像是忘了塗 */
   it('有零件落不進任何一種時丟錯', () => {
     expect(() => partTones(parts(), KINDS.slice(0, 1), 'test')).toThrow()
@@ -220,6 +238,13 @@ const SHIPS: readonly (readonly [ShipClassId, Readonly<Record<string, number>>])
   ['wichita', {
     tub: 12, boat: 4, funnel: 2, barbette: 4, bridge: 5, house: 12,
     turret: 12, secondary: 16, aa: 26, mast: 5, director: 1, catapult: 2, crane: 3,
+  }],
+  // 艦島 8（四層、煙囪、主桅、雷達板、方位儀）、走廊 39 段、舷台 11；
+  // 5 吋 20（四座雙聯裝各一塔兩管、四座單裝各一塔一管）、
+  // 機砲 90（40 mm 砲座與砲管、20 mm 砲身與砲管）
+  ['essex', {
+    bridge: 4, funnel: 1, mast: 1, radar: 1, director: 1, gallery: 39, sponson: 11,
+    gun: 20, aa: 90,
   }],
 ]
 
@@ -322,8 +347,7 @@ describe.each(SHIPS)('%s 套塗裝', (id, want) => {
         return
       }
       const parts = shipParts(mesh.geometry)
-      const kindOf = (p: number) => shipPartKind(
-        kinds, parts.centroid[p * 3]!, parts.centroid[p * 3 + 1]!, parts.centroid[p * 3 + 2]!)
+      const kindOf = (p: number) => shipPartKind(kinds, parts, p)
       for (let p = 0; p < parts.count; p++) {
         const k = kindOf(p)
         expect(k, `${mesh.name} 第 ${p} 塊`).not.toBeNull()

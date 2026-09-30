@@ -172,8 +172,70 @@ const WICHITA: ShipLiveryDef = {
   parts: { WICHITA_Super: WICHITA_SUPER_PARTS, WICHITA_Guns: WICHITA_GUN_PARTS },
 }
 
+// ── Essex ───────────────────────────────────────────────
+
+/**
+ * 艦島的八個方塊：主體、艦橋層、上艦橋、羅經艦橋（四層）、煙囪、主桅、SK 雷達板、
+ * 前方位儀。煙囪、主桅、雷達板的重心都在 36…40 m 高，靠高度（外框的 dy）分開。
+ */
+const ESSEX_ISLAND_PARTS: readonly ShipPartKind[] = [
+  { name: 'funnel', tone: 0.75, boxes: [{ dy: [11, 12] }] },
+  { name: 'mast', tone: 0.65, boxes: [{ dy: [10.4, 10.9] }] },
+  { name: 'radar', tone: 0.7, boxes: [{ y: [38, 41], dy: [2.3, 2.9] }] },
+  { name: 'director', tone: 1.0, boxes: [{ y: [34, 37], dy: [1.5, 2.1] }] },
+  { name: 'bridge', tone: 1.3, boxes: [{ y: [20, 33] }] },
+]
+
+/**
+ * 砲械散在兩舷走廊與舷台上，位置不規則；五種零件的外框尺寸各不相同，所以認尺寸：
+ *
+ *   5 吋雙聯裝砲塔  4.4 × 3.3 × 4.4     5 吋單裝砲塔  2.8 × 2.6 × 2.8
+ *   5 吋砲管        長 4.7              40 mm 砲座     2.7 × 1.35 × 2.7
+ *   40 mm 砲管      長 4.0…4.1          20 mm 砲身     0.84 × 1.75 × 0.84
+ *   20 mm 砲管      往舷外 1.45、往上 0.47、往前 0.4
+ */
+const ESSEX_GUN_PARTS: readonly ShipPartKind[] = [
+  { name: 'gun', tone: 0.85, boxes: [
+    { dx: [2.5, 4.6], dy: [2.4, 3.5] },
+    { dx: [0, 1], dy: [0, 1], dz: [4.5, 5] },
+  ] },
+  { name: 'aa', tone: 0.6, boxes: [
+    { dx: [2.5, 3], dy: [1.2, 1.7] },
+    { dx: [0, 1], dy: [0, 1], dz: [3.8, 4.4] },
+    { dx: [0.7, 1.1], dy: [1.4, 2], dz: [0.7, 1.1] },
+    { dx: [1.2, 1.8], dy: [0.4, 0.8], dz: [0.3, 0.6] },
+  ] },
+]
+
+/**
+ * Essex：Measure 21。1944 年漆的是 Measure 32/6-10D 迷彩，1945 年 3 月之前改漆成
+ * Measure 21（NavSource 的照片說明）；太平洋艦隊 1945-01-01 起只准 12、21、22。
+ * 立面 5-N 海軍藍、水平面與木飛行甲板 20-B 甲板藍（飛行甲板用的 Flight Deck Stain 21
+ * 與 20-B 同色）。細部是立面，所以是 5-N。
+ *
+ * 範圍：船殼 z −132.0 … 131.5、y −9.4 … 17.9，艦島頂到 45.2；甲板條要包住左舷的
+ * 舷側升降機（伸到 x −25.0）。5.9 px/m 是約 17 cm 一格 —— 艦島把側條撐到 55 m 高，
+ * 三條要擠進 1024。
+ */
+const ESSEX: ShipLiveryDef = {
+  layout: {
+    url: '/textures/ship_essex.png', scale: 5.9,
+    zMin: -132.5, zMax: 132, yMin: -9.6, yMax: 45.4, halfBeam: 25.3,
+  },
+  kinds: { ESSEX_Body: 'body', ESSEX_Deck: 'deck', ESSEX_Accent: 'accent' },
+  accentColor: 0x465167,
+  parts: {
+    ESSEX_Island: ESSEX_ISLAND_PARTS,
+    ESSEX_Guns: ESSEX_GUN_PARTS,
+    // 走廊是一段段矩形平台、舷台是掛在舷側的砲座平台，各自一種
+    ESSEX_Gallery: [{ name: 'gallery', tone: 1.1, boxes: [{}] }],
+    ESSEX_Sponsons: [{ name: 'sponson', tone: 1.2, boxes: [{}] }],
+  },
+}
+
 /** 有塗裝貼圖的艦級。**沒列到的照 GLB 的單色材質。** */
 export const SHIP_LIVERIES: Partial<Record<ShipClassId, ShipLiveryDef>> = {
   fletcher: FLETCHER,
   wichita: WICHITA,
+  essex: ESSEX,
 }
