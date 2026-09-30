@@ -5,6 +5,7 @@ import { FARM_CELL, FARM_SIZE, HILL_PEAK_MAX } from './farmland'
 import { drawHillLobes } from './leuna'
 import type { TakeoffLine, TaxiPoint } from '../control/takeoffRoll'
 import type { CrateField, ParkedVehicle } from './depot'
+import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from '../render/floraShapes'
 
 /**
  * # Y-29（比利時 Asch）：德 M3 專用的地形
@@ -62,8 +63,13 @@ export function inField(dx: number, dz: number): boolean {
   }
   return false
 }
-/** 墊面外一圈不長樹 */
-export const FIELD_TREE_CLEAR = 300
+/**
+ * 墊面外一圈不長樹，m。Kempen 高原的松林貼著機場長；防空砲位要落在這一圈裡，
+ * 不然會站在林子中間
+ */
+export const FIELD_TREE_CLEAR = 100
+/** 墊面外一圈不蓋村莊，m */
+export const FIELD_BUILDING_CLEAR = 300
 
 /** 冬天的荒地草色 */
 export const PAD_GRASS = 0x5a5c42
@@ -161,14 +167,15 @@ export const DUMPS: readonly { kind: 'fuelDump'; x: number; z: number; heading: 
 
 /**
  * 防空砲 12 座，美軍的 M16 半履帶車（四聯 .50）：滑行帶環內三座、停機線外側
- * 三座、東側作業區三座、跑道兩端外各一座、營區外一座。**座數由試玩裁定**
+ * 三座、東側作業區三座、跑道兩端外各一座、營區外一座。都在墊面外不長樹的那一圈
+ * （`FIELD_TREE_CLEAR`）之內。**座數由試玩裁定**
  */
 export const FLAK_SITES: readonly { x: number; z: number; heading: number }[] =
   /* @__PURE__ */ ([
     { dx: -110, dz: -500 }, { dx: -110, dz: 0 }, { dx: -110, dz: 500 },
-    { dx: -450, dz: -600 }, { dx: -450, dz: 0 }, { dx: -450, dz: 600 },
+    { dx: -400, dz: -600 }, { dx: -400, dz: 60 }, { dx: -400, dz: 600 },
     { dx: 200, dz: 0 }, { dx: 380, dz: -650 }, { dx: 380, dz: 650 },
-    { dx: 0, dz: -1000 }, { dx: 100, dz: 1080 }, { dx: -460, dz: 900 },
+    { dx: 0, dz: -840 }, { dx: 100, dz: 1080 }, { dx: -400, dz: 900 },
   ] as const).map((s) => ({ ...at(s.dx, s.dz), heading: Math.atan2(s.dx, -s.dz) }))
 
 /** 連外道路從主墊面西緣的中線往西出圖 */
@@ -326,6 +333,116 @@ export const VEHICLES: readonly ParkedVehicle[] = /* @__PURE__ */ (() => {
     if (at0 === null) continue
     taken.push({ ...at0, r: TRUCK_R })
     out.push({ unit: 'usTruck', ...at(at0.x, at0.z), heading: 2 * Math.PI * rand() })
+  }
+  return out
+})()
+
+/** 樹叢裡的一株，世界座標。`scale`、`rot`、`tint` 照植被的約定（`render/flora.ts`） */
+export interface ClumpPlant {
+  readonly x: number; readonly z: number
+  readonly kind: 'broad' | 'cone' | 'bush'
+  readonly scale: number; readonly rot: number; readonly tint: number
+}
+/** 一叢，(x, z) 是叢心 */
+export interface TreeClump { readonly x: number; readonly z: number; readonly plants: readonly ClumpPlant[] }
+
+const CLUMP_COUNT = 16
+/** 叢的半徑，m：樹落在叢心這麼遠之內 */
+const CLUMP_R = [18, 45] as const
+/** 一棵樹、一叢灌木各佔叢面積多少，m²：株數跟著叢的面積走 */
+const CLUMP_AREA_PER_TREE = 150
+const CLUMP_AREA_PER_BUSH = 75
+/** 灌木散到叢半徑的幾倍，越外面越稀 */
+const CLUMP_BUSH_SPREAD = 2.2
+/** 一株放不下時重抽幾次，抽不到就不放 */
+const CLUMP_PLANT_TRIES = 4
+/** 樹的縮放比野地的小一號：15～24 m 的樹、3～6 m 的灌木 */
+const CLUMP_TREE_SCALE = [0.5, 0.8] as const
+const CLUMP_BUSH_SCALE = [0.5, 1.0] as const
+/** 樹冠外緣離跑道，m：起降的航線兩側不長樹；灌木矮，只要不蓋到 */
+const RUNWAY_TREE_GAP = 80
+const RUNWAY_BUSH_GAP = 15
+/** 樹冠外緣離其他鋪面（滑行帶、窄巷、停機墊），m。滑行的翼尖都在鋪面上 */
+const PAVING_PLANT_GAP = 3
+
+/** 樹冠不能蓋到的東西，機場局部座標：營房、箱子、車、防空砲、油桶堆、停放的 P-51 */
+const PLANT_OBSTACLES: readonly Footprint[] = /* @__PURE__ */ [
+  ...HUTS.map((h) => local(h, Math.hypot(h.length, h.width) / 2)),
+  ...CRATE_FIELDS.map((d) => local(d, Math.hypot(d.width, d.depth) / 2)),
+  ...VEHICLES.map((v) => local(v, TRUCK_R)),
+  ...FLAK_SITES.map((s) => local(s, 5)),
+  ...DUMPS.map((d) => local(d, 15)),
+  ...PARKED_ROWS.map((p) => local(p, 8)),
+]
+
+/** 點到矩形的距離，m；在矩形裡是 0 */
+function rectGap(x: number, z: number, r: FieldRect): number {
+  return Math.hypot(Math.max(0, r.x0 - x, x - r.x1), Math.max(0, r.z0 - z, z - r.z1))
+}
+
+/**
+ * 樹冠半徑 r 的一株能不能長在 (x, z)（機場局部座標）：根在墊面裡、樹冠外緣離跑道
+ * `runwayGap`、離其他鋪面 `PAVING_PLANT_GAP`、不蓋到連外道路與 `PLANT_OBSTACLES`
+ */
+function plantFits(x: number, z: number, r: number, runwayGap: number): boolean {
+  if (!inField(x, z)) return false
+  if (rectGap(x, z, RUNWAY) - r < runwayGap) return false
+  const m = r + PAVING_PLANT_GAP
+  for (const p of PAVED) {
+    if (x >= p.x0 - m && x <= p.x1 + m && z >= p.z0 - m && z <= p.z1 + m) return false
+  }
+  if (x - r <= FIELD_PAD.x0 && Math.abs(z) < r + ROAD_WIDTH / 2 + 2) return false
+  for (const o of PLANT_OBSTACLES) if (Math.hypot(x - o.x, z - o.z) < r + o.r + 1) return false
+  return true
+}
+
+/**
+ * 機場裡一片一片的樹叢：樹聚在叢心，灌木往外散開、越外面越稀。**逐株檢查**
+ * （`plantFits`）：跑道周圍不長樹，營房、箱子、車與停機位旁邊可以長，只是樹冠不能
+ * 蓋到；放不下就重抽，抽不到就不放。叢與叢之間不疊。位置、大小、樹種都由種子抽。
+ */
+export const TREE_CLUMPS: readonly TreeClump[] = /* @__PURE__ */ (() => {
+  const rand = makeRand(1945_01_03)
+  const crownOf = { broad: BROAD_CROWN_R, cone: CONE_CROWN_R, bush: BUSH_R } as const
+  const b = FIELD_BOUNDS
+  const out: TreeClump[] = []
+  const clumps: Footprint[] = []
+  /** 在叢心 (x, z) 周圍 `reach` 內找一個放得下的位置，種一株 */
+  const sow = (
+    plants: ClumpPlant[], x: number, z: number, reach: number, kind: ClumpPlant['kind'],
+    radial: (u: number) => number,
+  ): void => {
+    const range = kind === 'bush' ? CLUMP_BUSH_SCALE : CLUMP_TREE_SCALE
+    const scale = range[0] + (range[1] - range[0]) * rand()
+    const r = crownOf[kind] * scale
+    const gap = kind === 'bush' ? RUNWAY_BUSH_GAP : RUNWAY_TREE_GAP
+    for (let t = 0; t < CLUMP_PLANT_TRIES; t++) {
+      const ang = 2 * Math.PI * rand()
+      const d = reach * radial(rand())
+      const px = x + Math.sin(ang) * d
+      const pz = z + Math.cos(ang) * d
+      if (!plantFits(px, pz, r, gap)) continue
+      plants.push({ ...at(px, pz), kind, scale, rot: 2 * Math.PI * rand(), tint: rand() })
+      return
+    }
+  }
+  for (let tries = 0; tries < 3000 && out.length < CLUMP_COUNT; tries++) {
+    const radius = CLUMP_R[0] + (CLUMP_R[1] - CLUMP_R[0]) * rand()
+    const x = b.x0 + (b.x1 - b.x0) * rand()
+    const z = b.z0 + (b.z1 - b.z0) * rand()
+    // 叢心本身要長得出樹；叢與叢不疊
+    if (!plantFits(x, z, 0, RUNWAY_TREE_GAP)) continue
+    if (clumps.some((c) => Math.hypot(x - c.x, z - c.z) < radius + c.r)) continue
+    const area = Math.PI * radius * radius
+    const plants: ClumpPlant[] = []
+    const trees = Math.round(area / CLUMP_AREA_PER_TREE)
+    for (let k = 0; k < trees; k++) sow(plants, x, z, radius, rand() < 0.75 ? 'broad' : 'cone', Math.sqrt)
+    // 【灌木徑向均勻取樣】面積密度隨半徑遞減，外圈自然稀疏
+    const bushes = Math.round(area / CLUMP_AREA_PER_BUSH)
+    for (let k = 0; k < bushes; k++) sow(plants, x, z, radius * CLUMP_BUSH_SPREAD, 'bush', (u) => u)
+    if (plants.length === 0) continue
+    clumps.push({ x, z, r: radius })
+    out.push({ ...at(x, z), plants })
   }
   return out
 })()

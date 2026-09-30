@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   ASCH_HILLS, CRATE_FIELDS, createAsch, DUMPS, FIELD_BOUNDS, FIELD_CENTER, FIELD_LOBES, FIELD_PAD,
-  FLAK_SITES, HUTS, inField, PARKED_ROWS, PAVED, PSP_STEEL, ROAD_WIDTH, RUNWAY, STAND_LANES, STAND_PADS,
-  TAKEOFF_LINE, TAXI_LOOP, taxiRoute, VEHICLES, worldToField, type FieldRect,
+  FIELD_TREE_CLEAR, FLAK_SITES, HUTS, inField, PARKED_ROWS, PAVED, PSP_STEEL, ROAD_WIDTH, RUNWAY, STAND_LANES, STAND_PADS,
+  TAKEOFF_LINE, TAXI_LOOP, taxiRoute, TREE_CLUMPS, VEHICLES, worldToField, type FieldRect,
 } from '../../src/world/asch'
+import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from '../../src/render/floraShapes'
 import { RUNWAY_CONCRETE } from '../../src/world/poltava'
 import { PAD_CLEARANCE } from '../../src/world/leuna'
 import { FARM_CELL, HILL_GAP, HILL_LIMIT } from '../../src/world/farmland'
@@ -152,6 +153,18 @@ describe('asch 的佈局', () => {
     }
   })
 
+  /** 【防空車不站在林子裡】墊面外只清 `FIELD_TREE_CLEAR`；也不擋在連外道路上 */
+  it('防空砲都在不長樹的那一圈裡、不壓連外道路', () => {
+    for (const s of FLAK_SITES) {
+      const p = local(s.x, s.z)
+      const d = Math.min(...[FIELD_PAD, ...FIELD_LOBES].map((r) => Math.hypot(
+        Math.max(0, r.x0 - p.x, p.x - r.x1), Math.max(0, r.z0 - p.z, p.z - r.z1),
+      )))
+      expect(d, `${p.x},${p.z}`).toBeLessThanOrEqual(FIELD_TREE_CLEAR - 10)
+      if (p.x < FIELD_PAD.x0) expect(Math.abs(p.z), `${p.x},${p.z}`).toBeGreaterThanOrEqual(ROAD_WIDTH / 2 + 10)
+    }
+  })
+
   it('起飛點在跑道上', () => {
     expect(inRect(TAKEOFF_LINE.x, TAKEOFF_LINE.z, RUNWAY)).toBe(true)
   })
@@ -289,6 +302,47 @@ describe('asch 的營區', () => {
       if (p.x - e.r > FIELD_PAD.x0) continue
       expect(Math.abs(p.z), e.tag).toBeGreaterThanOrEqual(e.r + half)
     }
+  })
+
+  /**
+   * 【一叢一叢的樹】跑道周圍不長樹：樹冠外緣離跑道 80 m，灌木 15 m。其餘鋪面
+   * （滑行帶、窄巷、停機墊）只留 3 m —— 滑行的翼尖都在鋪面上。營房、箱子、車、
+   * 防空砲、油桶堆與停放的 P-51 旁邊可以長，只是樹冠不能蓋到
+   */
+  const crown = { broad: BROAD_CROWN_R, cone: CONE_CROWN_R, bush: BUSH_R } as const
+  const plants = TREE_CLUMPS.flatMap((c) => c.plants)
+  const rectGap = (p: { x: number; z: number }, r: FieldRect): number =>
+    Math.hypot(Math.max(0, r.x0 - p.x, p.x - r.x1), Math.max(0, r.z0 - p.z, p.z - r.z1))
+
+  it('樹叢在墊面的草地上，跑道周圍沒有樹，樹冠不蓋到鋪面與任何一件東西', () => {
+    expect(TREE_CLUMPS.length).toBeGreaterThanOrEqual(10)
+    const solid = [
+      ...items,
+      ...FLAK_SITES.map((s) => ({ tag: 'flak', x: s.x, z: s.z, r: 5 })),
+      ...DUMPS.map((d) => ({ tag: 'dump', x: d.x, z: d.z, r: 15 })),
+      ...PARKED_ROWS.map((p) => ({ tag: 'P-51', x: p.x, z: p.z, r: 8 })),
+    ]
+    for (const t of plants) {
+      const r = crown[t.kind] * t.scale
+      const tag = `${t.kind} ${t.x.toFixed(0)},${t.z.toFixed(0)}`
+      const p = local(t.x, t.z)
+      expect(inField(p.x, p.z), tag).toBe(true)
+      expect(rectGap(p, RUNWAY) - r, `${tag} 對跑道`).toBeGreaterThanOrEqual(t.kind === 'bush' ? 15 : 80)
+      expect(clearOfPaving(t.x, t.z, r + 3), tag).toBe(true)
+      for (const s of solid) {
+        expect(Math.hypot(t.x - s.x, t.z - s.z), `${tag} 對 ${s.tag}`).toBeGreaterThanOrEqual(r + s.r)
+      }
+    }
+    expect(plants.length).toBeGreaterThanOrEqual(3 * TREE_CLUMPS.length)
+  })
+
+  it('營房與停機位旁邊長得出樹', () => {
+    const trees = plants.filter((t) => t.kind !== 'bush')
+    const nearHut = trees.filter((t) => HUTS.some((h) =>
+      Math.hypot(t.x - h.x, t.z - h.z) - Math.hypot(h.length, h.width) / 2 - crown[t.kind] * t.scale < 10))
+    const nearStand = trees.filter((t) => PARKED_ROWS.some((p) => Math.hypot(t.x - p.x, t.z - p.z) < 50))
+    expect(nearHut.length).toBeGreaterThan(0)
+    expect(nearStand.length).toBeGreaterThan(0)
   })
 
   it('彼此不重疊', () => {
