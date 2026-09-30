@@ -57,6 +57,25 @@ class ShipLivery:
         return (round((r['x'] - g) * SS), round((r['y'] - g) * SS),
                 round((r['x'] + r['w'] + g) * SS), round((r['y'] + r['h'] + g) * SS))
 
+    # ── 量測 ────────────────────────────────────────────────────
+    def hull_top(self, node, step=0.5):
+        """某個網格（船殼）每一段 z 的最高點：回傳 z → y 的函式"""
+        top = {}
+        for f in self.faces:
+            if not f['node'].startswith(node):
+                continue
+            for x, y, z in f['pos']:
+                k = round(z / step)
+                if y > top.get(k, -1e9):
+                    top[k] = y
+        ks = sorted(top)
+
+        def at(z):
+            k = min(ks, key=lambda q: abs(q - z / step))
+            return top[k]
+        at.lowest = min(top.values())
+        return at
+
     # ── 基本圖形 ────────────────────────────────────────────────
     def fill_all(self, color):
         self.d.rectangle((0, 0, self.W * SS, self.H * SS), fill=color)
