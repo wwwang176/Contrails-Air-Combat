@@ -41,7 +41,8 @@ import { createFireChunks } from './render/chunks'
 import { createFirePuff } from './render/firePuff'
 import { JET_RISE, createWaterJets } from './render/waterJets'
 import {
-  AIR_BLAST, BLAST_PACE, BOMB_BLAST_SIZE, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST, blastFireRadius,
+  AIR_BLAST, BLAST_PACE, BOMB_BLAST_SIZE, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST,
+  WRECK_WATER_BLAST, blastFireRadius,
   createBlastSmoke, createDust, createEmberSmoke, createFireGlow, createWaterMist,
   emitBlast, emitEmber, emitFlakBlasts, emitMist, resetFlakBlastSeed, scaleBlast,
   type BlastParams, type BlastPools,
@@ -3021,6 +3022,15 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   }
   emitSmoke(smoke, debris.smokeEvents, DEBRIS_SMOKE_SIZE)
   emitSpray(spray, wrecks.sprayEvents, WRECK_SPRAY_COUNT)
+  // 【殘骸落水掀一個水冠】粗水柱塌下留水霧、柱腳噴水花 —— 與魚雷、炸彈落水同一套池
+  {
+    const d = wrecks.sprayEvents.data
+    for (let e = 0; e < wrecks.sprayEvents.count; e++) {
+      const o = e * IMPACT_STRIDE
+      emitBlast(BLAST_POOLS, WRECK_WATER_BLAST, d[o]!, d[o + 1]!, d[o + 2]!,
+        (e * 173 + Math.round(world.time * 60)) | 0)
+    }
+  }
   emitSpray(spray, debris.sprayEvents, DEBRIS_SPRAY_COUNT)
   // 殘骸入水的那一圈水柱沿用 M7 的池子 —— 用數量換規模，splash.ts 不用改
   splashes.emit(wrecks.splashEvents, terrain.heightAt, elapsed)

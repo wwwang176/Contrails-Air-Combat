@@ -3,6 +3,7 @@ import { Color } from 'three'
 import { createImpacts, IMPACT_STRIDE } from '../../src/world/events'
 import {
   EMBER_PER_CHUNK, FIRE_BLAST, FLAK_BLAST, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST,
+  WRECK_WATER_BLAST,
   blastScale, blastSmokeColor, dustColor,
   emitBlast, emitEmber, emitFlakBlasts, fireGlowColor, resetFlakBlastSeed, scaleBlast,
   type BlastParams, type BlastPools,
@@ -72,6 +73,20 @@ describe('emitBlast：兩種爆炸的分野', () => {
     emitBlast(p, LAND_BLAST, 0, 0, 0, 0)
     expect(p.splashEvents.count).toBe(0)
     expect(p.shots.spray!.length).toBe(0)
+  })
+
+  /** 【殘骸落水只有水】火在空中就放過了；水冠要比 500 lb 落水小 */
+  it('殘骸落水：水柱與水花，沒有火煙塵光，水冠比炸彈落水矮', () => {
+    const p = pools()
+    emitBlast(p, WRECK_WATER_BLAST, 0, 0, 0, 0)
+    expect(p.shots.fireball!.length).toBe(0)
+    expect(p.shots.smoke!.length).toBe(0)
+    expect(p.shots.dust!.length).toBe(0)
+    expect(WRECK_WATER_BLAST.glowSize).toBe(0)
+    expect(p.splashEvents.count).toBe(WRECK_WATER_BLAST.jetCount)
+    expect(p.shots.spray!.length).toBe(WRECK_WATER_BLAST.jetCount * WRECK_WATER_BLAST.sprayCount)
+    expect(p.shots.spray!.length).toBeGreaterThan(0)
+    expect(WRECK_WATER_BLAST.jetHeight).toBeLessThan(WATER_BLAST.jetHeight)
   })
 
   it('落水不揚塵', () => {
