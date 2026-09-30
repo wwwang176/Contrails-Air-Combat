@@ -31,30 +31,12 @@ SEAM = (40, 52, 76)
 BOOT_TOP_Y = 0.45
 
 
-def hull_top(L, node='FLETCHER_Hull', step=0.5):
-    """船殼（不含上層結構）每一段 z 的最高點：回傳 z → y"""
-    top = {}
-    for f in L.faces:
-        if not f['node'].startswith(node):
-            continue
-        for x, y, z in f['pos']:
-            k = round(z / step)
-            if y > top.get(k, -1e9):
-                top[k] = y
-    ks = sorted(top)
-
-    def at(z):
-        k = min(ks, key=lambda q: abs(q - z / step))
-        return top[k]
-    return at
-
-
 def main(faces, outline=None):
     L = ShipLivery(faces)
     z0, z1 = L.L['zMin'], L.L['zMax']
     y0, y1 = L.L['yMin'], L.L['yMax']
     hb = L.L['halfBeam']
-    top = hull_top(L)
+    top = L.hull_top('FLETCHER_Hull')
 
     L.fill_all(DECK_BLUE)
     for s in SIDES:

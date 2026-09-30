@@ -9,7 +9,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import type { Group, Material, Mesh, Object3D } from 'three'
 import { createGltfLoader } from '../../src/render/geometry/gltfLoader'
-import { SHIP_LIVERIES } from '../../src/render/ships'
+import { SHIP_LIVERIES } from '../../src/render/shipLiveries'
 import {
   SHIP_LIVERY_HEIGHT, SHIP_LIVERY_WIDTH, applyShipLiveryUv, shipLiveryRects,
 } from '../../src/render/shipLivery'

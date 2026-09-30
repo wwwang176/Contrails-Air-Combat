@@ -10,7 +10,9 @@ import {
   shipPartKind, shipParts,
   type ShipLiveryLayout, type ShipPartKind, type ShipRect, type ShipStrip,
 } from '../../src/render/shipLivery'
-import { SHIP_LIVERIES, applyShipLivery } from '../../src/render/ships'
+import { applyShipLivery } from '../../src/render/ships'
+import { SHIP_LIVERIES } from '../../src/render/shipLiveries'
+import { SHIP_CLASSES, type ShipClassId } from '../../src/world/ships'
 
 /**
  * # 船的塗裝 UV
@@ -173,8 +175,8 @@ describe('零件的深淺', () => {
   })
 })
 
-async function loadFletcher(): Promise<Group> {
-  const buf = readFileSync('public/models/fletcher.glb')
+async function loadShip(id: ShipClassId): Promise<Group> {
+  const buf = readFileSync(`public${SHIP_CLASSES[id].url}`)
   const bytes = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
   const scene = await new Promise<Group>((res, rej) => {
     createGltfLoader().parse(bytes, '', (g) => res(g.scene), rej)
@@ -192,14 +194,43 @@ function stripOf(x: number, y: number, rects: Record<ShipStrip, ShipRect>): Ship
   return null
 }
 
-describe('Fletcher 套塗裝', () => {
+/**
+ * 每一艘有塗裝的船，與它每一種零件該有幾塊。
+ *
+ * 【依種類分深淺】建模腳本（`tools/blender/build_<艦級>.py`）的零件逐一數得出來。
+ * 每一塊都要認得出種類，而且每一種的塊數要對 —— 框畫錯的話某一塊會跑到隔壁那一種，
+ * 只看「都有認到」抓不到。
+ */
+const SHIPS: readonly (readonly [ShipClassId, Readonly<Record<string, number>>])[] = [
+  // 艦橋 3（艦橋、駕駛室、翼台）、甲板室 7（五段甲板室、前甲板室、艦橋前平台）、
+  // 砲桶 6（四座 20 mm 環、40 mm 的桶身與環）、小艇 2、煙囪 2；
+  // 5 吋砲 10（五座砲塔、五根砲管）、射控 2（射控台、雷達板）、魚雷管 2、
+  // 機砲 11（四座 20 mm 各有砲身與砲管、40 mm 砲架與兩根砲管）、桅 2（桅杆、桁）、
+  // 深水炸彈軌 2
+  ['fletcher', {
+    bridge: 3, house: 7, tub: 6, boat: 2, funnel: 2,
+    gun: 10, director: 2, torpedo: 2, aa: 11, mast: 2, rack: 2,
+  }],
+  // 砲桶 12（艏樓 20 mm 2、翼台 40 mm 2、舯部 20 mm 8）、小艇 4、煙囪 2、
+  // 砲座 4（三座主砲、吊車座）、艦橋 5（艦橋兩層、翼台、艦尾射控塔、後塔）、
+  // 甲板室 12；
+  // 主砲 12（三座砲塔各三根砲管）、副砲 16（八座 5 吋的砲身與砲管）、
+  // 機砲 26（40 mm 兩座各一架兩管、20 mm 十座各一身一管）、桅 5（前桅三件、主桅兩件）、
+  // 射控 1、彈射器 2、吊車 3
+  ['wichita', {
+    tub: 12, boat: 4, funnel: 2, barbette: 4, bridge: 5, house: 12,
+    turret: 12, secondary: 16, aa: 26, mast: 5, director: 1, catapult: 2, crane: 3,
+  }],
+]
+
+describe.each(SHIPS)('%s 套塗裝', (id, want) => {
   /**
    * 走真的 `applyShipLivery`：UV 是從套完的網格讀回來的，區是照像素位置自己判的，
    * 朝向是自己算法線 —— 不借用分類函式回報的任何東西
    */
   it('每一個船身／甲板面整面落在一區，而且那一區與它的朝向相符', async () => {
-    const def = SHIP_LIVERIES.fletcher!
-    const scene = await loadFletcher()
+    const def = SHIP_LIVERIES[id]!
+    const scene = await loadShip(id)
     applyShipLivery(scene, def, new Texture())
     const rects = shipLiveryRects(def.layout)
     // 朝上的判定是 35.5°（1 : 1.4）；兩邊各留 0.5° 給浮點
@@ -242,8 +273,8 @@ describe('Fletcher 套塗裝', () => {
   })
 
   it('船身與甲板吃貼圖、顏色歸白；細部換成塗裝的顏色；頂點不動', async () => {
-    const def = SHIP_LIVERIES.fletcher!
-    const scene = await loadFletcher()
+    const def = SHIP_LIVERIES[id]!
+    const scene = await loadShip(id)
     const before = new Box3().setFromObject(scene)
     const tex = new Texture()
     applyShipLivery(scene, def, tex)
@@ -269,25 +300,10 @@ describe('Fletcher 套塗裝', () => {
     expect([...seen].sort()).toEqual(['accent', 'body', 'deck'])
   })
 
-  /**
-   * 【依種類分深淺】建模腳本（`tools/blender/build_fletcher.py`）的零件逐一數得出來：
-   * 砲械 29 塊、上層結構 20 塊。每一塊都要認得出種類，而且每一種的塊數要對 ——
-   * 框畫錯的話某一塊會跑到隔壁那一種，只看「都有認到」抓不到。
-   *
-   * 艦橋 3（艦橋、駕駛室、翼台）、甲板室 7（五段甲板室、前甲板室、艦橋前平台）、
-   * 砲桶 6（四座 20 mm 環、40 mm 的桶身與環）、小艇 2、煙囪 2；
-   * 5 吋砲 10（五座砲塔、五根砲管）、射控 2（射控台、雷達板）、魚雷管 2、
-   * 機砲 11（四座 20 mm 各有砲身與砲管、40 mm 砲架與兩根砲管）、桅 2（桅杆、桁）、
-   * 深水炸彈軌 2
-   */
-  it('Fletcher 的每一塊零件都認得出種類，塊數與建模腳本相符', async () => {
-    const def = SHIP_LIVERIES.fletcher!
-    const scene = await loadFletcher()
+  it('每一塊零件都認得出種類，塊數與建模腳本相符', async () => {
+    const def = SHIP_LIVERIES[id]!
+    const scene = await loadShip(id)
     applyShipLivery(scene, def, new Texture())
-    const want: Record<string, number> = {
-      bridge: 3, house: 7, tub: 6, boat: 2, funnel: 2,
-      gun: 10, director: 2, torpedo: 2, aa: 11, mast: 2, rack: 2,
-    }
     const got: Record<string, number> = {}
     scene.traverse((o: Object3D) => {
       const mesh = o as Mesh
