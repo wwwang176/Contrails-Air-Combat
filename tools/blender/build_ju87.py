@@ -33,7 +33,7 @@ _here = globals().get('__file__')
 REPO = (os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_here)))) if _here
         else os.getcwd())
 
-# 參考模型的 mesh → 量尺分組。雜件（炸彈、機槍、天線、翼下彈架）只留著看，不量。
+# 參考模型的 mesh → 量尺分組。雜件（炸彈、機槍、天線、翼下彈架）與襟副翼只留著看，不量、不建。
 GROUPS = {
     'Ref_Fus': ['Fuselage.005_0'],
     'Ref_CanopyFrame': ['Canopy.000_0', 'Canopy.001_0', 'Canopy.003_0',
@@ -178,7 +178,6 @@ def bvh_of(names):
 FUS = bvh_of(['Ref_Fus'])
 FUSG = bvh_of(['Ref_Fus', 'Ref_Glass', 'Ref_CanopyFrame'])   # 罩子一起 loft 進去，之後盒切
 WING = bvh_of(['Ref_Wing'])
-FLAP = bvh_of(['Ref_Flap'])
 TAILP = bvh_of(['Ref_Tailplane'])
 FIN = bvh_of(['Ref_Fin'])
 SPIN = bvh_of(['Ref_Spinner'])
@@ -251,28 +250,75 @@ RAD_BAND = (1.10, 2.08)
 ROOT_BAND = (-2.45, 1.12)
 ROOT_Z = -0.05
 
+# ── 機身本體是一顆水滴，座艙罩是另外凸出來的一塊 ────────────────────────
+#
+# 本體的頂線不跟著罩子走，是一條設計的線：
+#
+#   機首  y ≥ 2.40   照量到的罩唇圓角（2.88 的 0.407 → 2.40 的 0.528）
+#   引擎罩          一條直線：y 2.40…0.60 量到 0.528…0.746，逐站偏離 < 12 mm
+#   罩後到機尾      一條直線：y −2.50…−4.50 量到 0.603…0.511，逐站偏離 < 6 mm，
+#                  一路延伸到尾端（−6.97 是 0.397）
+#   兩條直線交在 y 0.60（0.746），夾角 9.5°；前後各 0.6 m 用二次 Bézier 圓過去
+#
+# 參考模型的機身 mesh 在 y −4.6 以後還量得到一道一路長進垂尾的背鰭（x 0 的頂由 0.52
+# 升到 0.675），那是垂尾的根部整流，歸到垂尾（第 8 節），本體照直線收到機尾。
+TOP_FRONT = ((2.40, 0.528), (0.60, 0.746))
+TOP_REAR = ((-2.50, 0.603), (-4.50, 0.511))
+TOP_BLEND = 0.60
+def _line(p, q, y): return p[1] + (q[1] - p[1]) * (y - p[0]) / (q[0] - p[0])
+def _nose_top(y):
+    tops = [v for v in (zmax_at(FUS, x, y) for x in (0.0, 0.04, 0.07)) if v is not None]
+    return max(tops)
+_sf = (TOP_FRONT[1][1] - TOP_FRONT[0][1]) / (TOP_FRONT[1][0] - TOP_FRONT[0][0])
+_sr = (TOP_REAR[1][1] - TOP_REAR[0][1]) / (TOP_REAR[1][0] - TOP_REAR[0][0])
+# 兩條直線的交點
+Y_CROSS = ((TOP_FRONT[0][1] - _sf * TOP_FRONT[0][0]) - (TOP_REAR[0][1] - _sr * TOP_REAR[0][0])) / (_sr - _sf)
+def body_top(y):
+    if y >= TOP_FRONT[0][0]: return _nose_top(y)
+    y0, y1 = Y_CROSS + TOP_BLEND, Y_CROSS - TOP_BLEND
+    if y >= y0: return _line(*TOP_FRONT, y)
+    if y <= y1: return _line(*TOP_REAR, y)
+    # 二次 Bézier：P0 在前線、P2 在後線、控制點在兩線交點；由 y 反解參數 t（y 對 t 是線性的）
+    p0 = (y0, _line(*TOP_FRONT, y0)); p1 = (Y_CROSS, _line(*TOP_FRONT, Y_CROSS)); p2 = (y1, _line(*TOP_REAR, y1))
+    t = (y0 - y) / (y0 - y1)
+    return (1 - t) ** 2 * p0[1] + 2 * (1 - t) * t * p1[1] + t ** 2 * p2[1]
+
+# 座艙段（罩子底下）本體的側壁只量得到艙緣 0.45 附近，再往上是敞開的座艙：射線穿進
+# 艙內打到的是座椅、儀表板。那一段由最後一個連續量到的點用四分之一橢圓收到頂線。
+COCKPIT_BAND = (-2.45, 0.30)
+COCKPIT_Z = 0.40
+
 def station(y):
-    T = FUSG
-    # 頂：中線與 x 0.04／0.07。**不能只取中線**：尾段的機身在中線有一道給垂尾插的縫，
-    # 中線射線會穿過縫打到腹線。
-    tops = [v for v in (zmax_at(T, x, y) for x in (0.0, 0.04, -0.04, 0.07, -0.07)) if v is not None]
+    # 腹線：中線與 x 0.04／0.07 的最低點
     bots = [v for v in (zmin_at(FUS, x, y) for x in (0.0, 0.04, -0.04, 0.07, -0.07)) if v is not None]
-    if not tops or not bots: return None
-    top, bot = max(tops), min(bots)
+    if not bots: return None
+    bot = min(bots)
+    top = body_top(y)
     if RAD_BAND[0] <= y <= RAD_BAND[1]:
         (y0, z0), (y1, z1) = (2.10, -0.586), (1.08, -0.590)
         bot = z0 + (z1 - z0) * (y - y0) / (y1 - y0)
     n = max(14, int((top - bot) / 0.012))
     zs, ws = [], []
     in_root = ROOT_BAND[0] <= y <= ROOT_BAND[1]
+    in_pit = COCKPIT_BAND[0] <= y <= COCKPIT_BAND[1]
+    stop = False
     for i in range(n + 1):
         z = bot + (top - bot) * i / n
-        h = hit(T, (2.0, y, z), (-1, 0, 0), 3.0)
+        h = hit(FUS, (2.0, y, z), (-1, 0, 0), 3.0)
         w = h.x if (h is not None and 0.0 < h.x <= W_CAP) else None
         if in_root and z < ROOT_Z: w = None
+        if in_pit and z >= COCKPIT_Z and (w is None or w < 0.30): stop = True
+        if stop: w = None
         zs.append(z); ws.append(w)
     valid = [i for i, w in enumerate(ws) if w is not None]
     if not valid: return None
+    if in_pit:
+        iv = max(i for i in valid if not (in_root and zs[i] < ROOT_Z))
+        zv, wv = zs[iv], ws[iv]
+        for i in range(iv + 1, len(zs)):
+            u = min(1.0, (zs[i] - zv) / (top - zv))
+            ws[i] = wv * math.sqrt(max(0.0, 1.0 - u * u))
+        valid = [i for i, w in enumerate(ws) if w is not None]
     if in_root:
         # 平底圓角箱：w(z) = W0 · (1 − t⁴)^¼，t 由 ROOT_Z（0）到腹線（1）
         i0 = min(i for i in valid if zs[i] >= ROOT_Z)
@@ -296,9 +342,8 @@ def station(y):
 def arc_levels(s, L=HALF):
     """半剖面 (0,bot) → (w,z)… → (0,top) 依弧長等分成 L 級。
 
-    級數照弧長放，不照 z 放：座艙那一段剖面由 −0.6 一路長到罩頂 1.18，照 z 的比例放
-    會把級線擠在上下兩端、肩部與罩子側面只分到兩三級（F4F 那一輪「平板夾硬稜」的
-    成因）。弧長等分讓每一條邊差不多長，也就是技能坑 56 的邊長上限。"""
+    級數照弧長放，不照 z 放：照 z 的比例放會把級線擠在上下兩端、肩部只分到兩三級
+    （F4F 那一輪「平板夾硬稜」的成因）。弧長等分讓環上每一條邊差不多長（技能坑 56）。"""
     pts = [(w, z) for w, z in zip(s['w'], s['z'])]
     cum = [0.0]
     for (w0, z0), (w1, z1) in zip(pts, pts[1:]):
@@ -360,6 +405,67 @@ fus = new_object('JU87_Fuselage', bm, [M_BODY, M_ACC])
 LOG['fus_stations'] = [[round(s['y'], 2), round(s['top'], 3), round(s['bot'], 3),
                         round(max(w for w, z in s['lv']), 3)] for s in STA]
 
+# ── 座艙罩的凸塊 ────────────────────────────────────────────────
+# 由參考模型的機身＋玻璃＋罩框（FUSG）量：每站由 CANOPY_ZS 往上到罩頂，逐 12 mm 由外往內
+# 取半寬。前端 0.60、後端 −2.43 是罩頂降回本體頂線的地方（0.746／0.609 對 0.746／0.606）；
+# 兩端各多一站往內縮進本體，封口整片埋在本體裡。
+# 底 CANOPY_ZS 0.44 在艙緣（0.45）之下：那裡罩子與本體側壁幾乎同寬，底圈縮成 0.85 倍
+# 保證在本體裡面。兩件接著用布林聯集併成一件，沒有藏在裡面的面（拉遠才不會閃）。
+CANOPY_Y = [0.60, 0.44, 0.30, 0.245, 0.225, 0.16, 0.08, 0.00, -0.08, -0.16, -0.26, -0.40,
+            -0.55, -0.70, -0.85, -1.00, -1.15, -1.30, -1.45, -1.60, -1.75, -1.90, -2.05,
+            -2.20, -2.32, -2.41]
+CANOPY_ZS = 0.44
+CHALF = 8
+def canopy_station(y):
+    tops = [v for v in (zmax_at(FUSG, x, y) for x in (0.0, 0.04, -0.04)) if v is not None]
+    if not tops: return None
+    crown = max(tops); zs0 = CANOPY_ZS
+    n = max(10, int((crown - zs0) / 0.012))
+    zs, ws = [], []
+    for i in range(n + 1):
+        z = zs0 + (crown - zs0) * i / n
+        h = hit(FUSG, (2.0, y, z), (-1, 0, 0), 3.0)
+        zs.append(z); ws.append(h.x if (h is not None and 0.0 < h.x <= W_CAP) else None)
+    valid = [i for i, w in enumerate(ws) if w is not None]
+    if not valid: return None
+    fixed = []
+    for i, w in enumerate(ws):
+        if w is not None: fixed.append(w); continue
+        lo = max([j for j in valid if j < i], default=None)
+        hi = min([j for j in valid if j > i], default=None)
+        fixed.append(ws[hi] if lo is None else ws[lo] if hi is None else
+                     ws[lo] + (ws[hi] - ws[lo]) * (zs[i] - zs[lo]) / (zs[hi] - zs[lo]))
+    fixed[0] *= 0.85; fixed[-1] = 0.0
+    # 底中點：剖面由 (0, 底) 起
+    return {'y': y, 'top': crown, 'bot': zs0, 'z': [zs0] + zs, 'w': [0.0] + fixed}
+CST = [s for s in (canopy_station(y) for y in CANOPY_Y) if s is not None]
+for s in CST: s['lv'] = arc_levels(s, CHALF)
+smooth_levels(CST)
+def shrunk(s, dy):
+    """端點外再一站：整圈往剖面中心縮一半、頂壓到本體頂線下 3 cm，封口埋進本體。"""
+    y = s['y'] + dy; t = body_top(y) - 0.03
+    zc = 0.5 * (s['bot'] + t)
+    lv = [(0.5 * w, zc + (z - zc) * 0.5) for w, z in s['lv']]
+    return {'y': y, 'top': min(t, zc + (s['top'] - zc) * 0.5), 'bot': zc - (zc - s['bot']) * 0.5, 'lv': lv}
+CST = [shrunk(CST[0], +0.04)] + CST + [shrunk(CST[-1], -0.04)]
+bm = bmesh.new()
+vs = loft(bm, [ring_of(s) for s in CST])
+cap(bm, vs[0]); cap(bm, list(reversed(vs[-1])))
+finish(bm)
+canopy_blk = new_object('JU87_CanopyBlock', bm, [M_BODY])
+LOG['canopy_stations'] = [[round(s['y'], 2), round(s['top'], 3), round(body_top(s['y']), 3)] for s in CST]
+
+def boolean_apply(ob, cutter, op):
+    md = ob.modifiers.new('B', 'BOOLEAN'); md.operation = op; md.object = cutter; md.solver = 'EXACT'
+    if hasattr(md, 'material_mode'): md.material_mode = 'TRANSFER'
+    dg = bpy.context.evaluated_depsgraph_get()
+    me = bpy.data.meshes.new_from_object(ob.evaluated_get(dg))
+    old = ob.data; ob.modifiers.clear(); ob.data = me
+    me.name = old.name + '_b'; bpy.data.meshes.remove(old); me.name = ob.name
+    return ob
+boolean_apply(fus, canopy_blk, 'UNION')
+bpy.data.objects.remove(canopy_blk, do_unlink=True)
+
 # ═══════════════════════════ 2. 座艙：盒切玻璃 + 黑色內槽 ═══════════════════════════
 # 玻璃盒的底是量到的玻璃下緣（參考 Ref_Glass 由外往內的最低命中）：
 #
@@ -382,15 +488,6 @@ cut_glass = hull_object('Cut_Glass', gb, M_COCK)
 tb = [(sx * w, y, z) for sx in (-1, 1) for y, w in ((0.05, 0.34), (-1.80, 0.34), (-2.15, 0.28))
       for z in (0.05, 0.95)]
 cut_tub = hull_object('Cut_Tub', tb, M_COCK)
-
-def boolean_apply(ob, cutter, op):
-    md = ob.modifiers.new('B', 'BOOLEAN'); md.operation = op; md.object = cutter; md.solver = 'EXACT'
-    if hasattr(md, 'material_mode'): md.material_mode = 'TRANSFER'
-    dg = bpy.context.evaluated_depsgraph_get()
-    me = bpy.data.meshes.new_from_object(ob.evaluated_get(dg))
-    old = ob.data; ob.modifiers.clear(); ob.data = me
-    me.name = old.name + '_b'; bpy.data.meshes.remove(old); me.name = ob.name
-    return ob
 
 glass = bpy.data.objects.new('JU87_Glass', fus.data.copy()); COLL.objects.link(glass)
 boolean_apply(glass, cut_glass, 'INTERSECT')
@@ -501,7 +598,8 @@ finish(bm)
 new_object('JU87_Spinner', bm, [M_ACC])
 LOG['spinner'] = [[round(y, 2), round(r, 3)] for y, r in sp_r]
 # 槳葉：槳盤 y 取參考槳葉頂點縱向範圍的中點（3.018…3.275）；半徑照史實 1.70
-# （Junkers VS 5 直徑 3.40 m；參考模型是 3.76）
+# （Junkers VS 5 直徑 3.40 m；參考模型是 3.76）。每片是一個等寬的長方塊：寬 0.22、厚 0.032，
+# 由槳轂內 0.20 伸到翼尖。
 bl = [v.co for v in O['Ref_Blade'].data.vertices]
 PROP_Y = 0.5 * (min(p.y for p in bl) + max(p.y for p in bl))
 PROP_R, PROP_BLADES = 1.70, 3
@@ -510,11 +608,8 @@ for i in range(PROP_BLADES):
     ang = 2 * math.pi * i / PROP_BLADES + math.pi / 2
     r0, r1, hw, ht = 0.20, PROP_R, 0.11, 0.016
     c, s_ = math.cos(ang), math.sin(ang)
-    pts = []
-    for r, w in ((r0, hw * 0.8), (0.55 * PROP_R, hw), (r1, hw * 0.55)):
-        for u in (-w, w):
-            for t in (-ht, ht):
-                pts.append(Vector((r * c - u * s_, PROP_Y + t, r * s_ + u * c)))
+    pts = [Vector((r * c - u * s_, PROP_Y + t, r * s_ + u * c))
+           for r in (r0, r1) for u in (-hw, hw) for t in (-ht, ht)]
     hull_into(bm, pts)
 finish(bm)
 new_object('JU87_Prop', bm, [M_ACC])
@@ -531,7 +626,6 @@ def chord_fine(T, x, zlo, zhi, yfront, yback, step=0.006):
         if h is not None and (te is None or h.y < te): te = h.y
     return le, te
 FR_W = [0.03, 0.09, 0.18, 0.30, 0.45, 0.62, 0.80, 0.94]
-FR_F = [0.20, 0.60]
 FR_T = [0.05, 0.20, 0.40, 0.65, 0.90]
 FR = FR_W
 def panel_station(T, x, zlo, zhi, yfront, yback, zsl, zsh):
@@ -634,34 +728,7 @@ LOG['wing_tip'] = [round(v, 3) for v in tip_pt]
 LOG['wing_stations'] = [[round(s['x'], 2), round(s['le'], 3), round(s['te'], 3),
                          round(s['up'][3], 3), round(s['dn'][3], 3)] for s in wst]
 
-# ═══════════════════════════ 7. 襟副翼（Junkers 雙翼式，左右各一片） ═══════════════════════════
-# 掛在主翼後緣下方的一片獨立薄翼，弦長 0.43（內）→ 0.17（翼尖），厚 0.05。前緣塞在主翼
-# 後緣下 0.09，兩片之間留一道縫 —— 這就是 Ju 87 由後下方看得到的那條「第二片翼」。
-# 左右不相連：中段會從機腹後方露出來（y −2.5 的機腹 −0.51，襟翼根 −0.46）。
-FR = FR_F
-FX = [0.55, 0.80, 1.10, 1.30, 1.50, 1.70, 2.00, 2.50, 3.00, 3.50, 4.10, 4.50, 5.00, 5.50, 6.00, 6.40, 6.72]
-fst = [panel_station(FLAP, x, -1.0, 0.5, -0.2, -3.2, -1.2, 0.8) for x in FX]
-fst = [s for s in fst if s is not None]
-fill_none(fst)
-bm = bmesh.new()
-for sx in (1, -1):
-    part = panel_mesh(fst, None, mirror=False, sx=sx)
-    me = bpy.data.meshes.new('tmp'); part.to_mesh(me); part.free(); bm.from_mesh(me); bpy.data.meshes.remove(me)
-new_object('JU87_Flap', bm, [M_BODY])
-flap_area = 0
-for a, b in zip(fst, fst[1:]):
-    # 露在主翼後緣之外的那一段（與主翼重疊的部分不算）
-    def ext(s):
-        wte = None
-        for w0, w1 in zip(wst, wst[1:]):
-            if w0['x'] <= s['x'] <= w1['x']:
-                t = (s['x'] - w0['x']) / (w1['x'] - w0['x']); wte = w0['te'] + (w1['te'] - w0['te']) * t
-        return max(0.0, (wte if wte is not None else s['le']) - s['te'])
-    flap_area += 0.5 * (ext(a) + ext(b)) * (b['x'] - a['x'])
-LOG['flap_area_exposed'] = round(2 * flap_area, 2)
-LOG['flap_stations'] = [[round(s['x'], 2), round(s['le'], 3), round(s['te'], 3)] for s in fst]
-
-# ═══════════════════════════ 8. 水平尾翼與撐桿 ═══════════════════════════
+# ═══════════════════════════ 7. 水平尾翼與撐桿 ═══════════════════════════
 # 矩形平面：x 0.1…2.35 每一站弦長 1.02（LE −5.98、TE −7.00）、z 0.57，逐站讀到的數字一樣。
 # 翼尖直接封口（參考模型的翼尖是方的）。
 FR = FR_T
@@ -711,7 +778,7 @@ finish(bm)
 new_object('JU87_Strut', bm, [M_BODY])
 LOG['strut'] = [[round(v, 3) for v in P0], [round(v, 3) for v in P1]]
 
-# ═══════════════════════════ 9. 垂尾與方向舵 ═══════════════════════════
+# ═══════════════════════════ 8. 垂尾與方向舵 ═══════════════════════════
 # 高處（z ≥ 0.7）照 Ref_Fin 逐站量；前緣是一條直線（0.7 → −5.752、1.8 → −6.284）。
 # 低處的方向舵掛在機身尾端（−7.065）之後、一路垂到 z −0.17：
 #
@@ -746,13 +813,25 @@ for z in (-0.10, 0.00, 0.10, 0.30, 0.50):
     te_lo[z] = t
 hw_lo = [0.030, 0.034, 0.030, 0.020, 0.010]
 le_line = lambda z: hi_st[0]['le'] + (hi_st[1]['le'] - hi_st[0]['le']) * (z - hi_st[0]['z']) / (hi_st[1]['z'] - hi_st[0]['z'])
+# 背鰭（根部整流）：參考模型機身 mesh 的中線頂在 y −4.6 之後離開機身本體的直線、一路
+# 長進垂尾前緣，而且 x 0.1 處也跟著抬（−5.3 是 0.521、−5.7 是 0.59），底寬約 ±0.10：
+#
+#   中線頂  y −4.90  −5.30  −5.65     垂尾前緣（量到）z 0.70 → −5.752
+#           z 0.523  0.565  0.611
+#
+# 本體頂線照直線收到機尾（第 1 節），這一條歸垂尾：z 0.50…0.61 三站的前緣照中線頂，
+# 厚度取到 ±0.12；z 0.40 那一站埋進本體（該處本體頂 0.44…0.51）。
+fillet_hw = [0.03, 0.10, 0.12, 0.06, 0.02]
 lo_st = [
     {'z': -0.15, 'le': -6.98, 'te': -7.10, 'hw': [0.02, 0.022, 0.02, 0.015, 0.008]},
     {'z': -0.10, 'le': -6.98, 'te': te_lo[-0.10], 'hw': hw_lo},
     {'z': 0.00, 'le': -6.95, 'te': te_lo[0.00], 'hw': hw_lo},
     {'z': 0.10, 'le': -6.85, 'te': te_lo[0.10], 'hw': hw_lo},
-    {'z': 0.30, 'le': -6.10, 'te': te_lo[0.30], 'hw': hw_lo},
-    {'z': 0.50, 'le': le_line(0.50), 'te': te_lo[0.50], 'hw': [0.04, 0.05, 0.04, 0.022, 0.012]},
+    {'z': 0.30, 'le': -4.40, 'te': te_lo[0.30], 'hw': hw_lo},
+    {'z': 0.40, 'le': -4.50, 'te': te_lo[0.30] + 0.005, 'hw': fillet_hw},
+    {'z': 0.50, 'le': -4.72, 'te': te_lo[0.50], 'hw': fillet_hw},
+    {'z': 0.565, 'le': -5.30, 'te': te_lo[0.50] + 0.01, 'hw': [0.03, 0.07, 0.08, 0.04, 0.015]},
+    {'z': 0.611, 'le': -5.65, 'te': te_lo[0.50] + 0.02, 'hw': [0.04, 0.06, 0.06, 0.03, 0.013]},
 ]
 # 頂端圓角：1.80 的後緣 −7.483、1.90 是 −7.128
 top_st = {'z': FIN_TOP - 0.005, 'le': le_line(FIN_TOP) - 0.06, 'te': -7.05,
@@ -774,7 +853,7 @@ finish(bm)
 new_object('JU87_Fin', bm, [M_BODY])
 LOG['fin'] = [[round(s['z'], 2), round(s['le'], 3), round(s['te'], 3)] for s in fins]
 
-# ═══════════════════════════ 10. 主起落架（固定式，整流罩＋腳柱＋輪胎） ═══════════════════════════
+# ═══════════════════════════ 9. 主起落架（固定式，整流罩＋腳柱＋輪胎） ═══════════════════════════
 # Ref_Gear 右側射線表（整流罩中心 x 1.486；腳柱在 z −1.4 以上、輪胎在 −2.17 以下，兩者排除）：
 #
 #   y      1.06   0.94   0.86   0.74   0.58   0.42   0.26   0.14   0.02  −0.10  −0.22  −0.34  −0.46
@@ -850,7 +929,7 @@ finish(bm)
 new_object('JU87_TailStrut', bm, [M_BODY])
 LOG['tailwheel'] = [round(twy, 3), round(twz, 3), round(twr, 3), round(tty, 3)]
 
-# ═══════════════════════════ 11. 玻璃框條 ═══════════════════════════
+# ═══════════════════════════ 10. 玻璃框條 ═══════════════════════════
 # 拱的 y 位置是量的：x 0／0.2／0.3 三條由上往下的射線，罩框比玻璃高（或沒有玻璃）的那幾格。
 #   0.21 風擋前緣、−0.02 風擋後框、−0.20 滑動罩前框、−0.48、−0.78、−1.12、−1.28、
 #   −1.60、−2.05（後座罩前框，寬 0.11）、−2.36（罩尾）
