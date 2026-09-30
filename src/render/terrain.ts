@@ -36,11 +36,12 @@ import {
   ROAD_WIDTH as POLTAVA_ROAD_WIDTH, ROADS as POLTAVA_ROADS, RUNWAY_CONCRETE,
 } from '../world/poltava'
 import {
-  createAsch, FIELD_CENTER as ASCH_CENTER, FIELD_LOBES as ASCH_LOBES, FIELD_PAD as ASCH_PAD,
+  createAsch, FIELD_BUILDING_CLEAR as ASCH_BUILDING_CLEAR, FIELD_CENTER as ASCH_CENTER,
+  FIELD_LOBES as ASCH_LOBES, FIELD_PAD as ASCH_PAD,
   FIELD_TREE_CLEAR as ASCH_TREE_CLEAR, PAD_GRASS as ASCH_GRASS, PAVED as ASCH_PAVED, PSP_STEEL,
   ROAD_WIDTH as ASCH_ROAD_WIDTH, ROADS as ASCH_ROADS,
 } from '../world/asch'
-import { buildAschScenery } from './aschScenery'
+import { aschClumpFlora, buildAschScenery } from './aschScenery'
 import type { HeightFieldData } from '../world/heightfield'
 import type { Season } from './season'
 import type { SiteLayout } from './fields'
@@ -523,9 +524,19 @@ export const ASCH_SITE: SiteLayout = {
   padLobes: ASCH_LOBES,
   padHex: ASCH_GRASS,
   treeClear: ASCH_TREE_CLEAR,
+  buildingClear: ASCH_BUILDING_CLEAR,
+  flora: aschClumpFlora,
   roads: ASCH_ROADS,
   roadWidth: ASCH_ROAD_WIDTH,
   patches: ASCH_PAVED.map((r) => ({ ...r, hex: PSP_STEEL })),
+}
+
+/**
+ * 墊面外不長樹、不蓋村莊的兩圈，m。村莊省略時跟著樹；沒有墊面的地圖兩者都是 0
+ */
+export function siteClearances(site?: SiteLayout): { trees: number; buildings: number } {
+  const trees = site?.treeClear ?? 0
+  return { trees, buildings: site?.buildingClear ?? trees }
 }
 
 /** Y-29：農地的算繪路徑、極緩的丘、深秋的枯色、營房與車場的佈景 */
@@ -600,8 +611,8 @@ function createInlandTerrain(
   const solid = outsideZero(farm.field)
   // 【廠區的墊面不長樹】把三個散佈器包一層矩形排除，主墊面與每一塊附加的
   // 墊面各包一層；農地不包，行為不變。墊面是廠區局部座標，樞紐與朝向要一起傳
-  const clear = site?.treeClear ?? 0
-  const padClear = (s: FloraSource): FloraSource => (site === undefined
+  const { trees: treeClear, buildings: buildingClear } = siteClearances(site)
+  const padClear = (s: FloraSource, clear = treeClear): FloraSource => (site === undefined
     ? s
     : [site.pad, ...(site.padLobes ?? [])].reduce((src, r) => excluding(src, {
       x0: r.x0 - clear, x1: r.x1 + clear,
@@ -609,13 +620,15 @@ function createInlandTerrain(
       ...(site.pivot === undefined ? {} : { pivot: site.pivot }),
       ...(site.heading === undefined ? {} : { heading: site.heading }),
     }), s))
-  let fields = (open ? [openHedgeFlora, openWoodFlora] : [farmHedgeFlora, farmWoodFlora]).map(padClear)
+  let fields = (open ? [openHedgeFlora, openWoodFlora] : [farmHedgeFlora, farmWoodFlora]).map((s) => padClear(s))
   // 【建築：植被與烘圖是同一個散佈器】兩邊各包一份的話，遠處的屋頂色塊與近處的
   // 房子對不上。真實地物的建築已經避開河道；程序村沒有，要包河廊
   // 程序生成的地圖的村用洛伊納那一套生成器（`farmSettlements.ts`），蓋到植被圈伸得到
   // 的地方
   const villageReach = farm.field.cell * (farm.field.size - 1) / 2 + FLORA_RADIUS + 1000
-  let buildings = padClear(dressing === undefined ? farmSettlementFlora(villageReach) : dressing.buildings)
+  let buildings = padClear(
+    dressing === undefined ? farmSettlementFlora(villageReach) : dressing.buildings, buildingClear,
+  )
   // 【不長樹的範圍】地圖列出它有的範圍，載入時各合成一張遮罩（`keepOutMask.ts`）。
   // 野生的樹（河岸林、河漫灘的林子）避開村鎮、礦坑、高速公路；田裡的樹（樹籬、田裡
   // 的林地）另外避開河漫灘與河廊。遮罩蓋到植被圈伸得到的地方，外面逐點算
@@ -644,6 +657,10 @@ function createInlandTerrain(
     splatted.push(bank)
   }
   fields.push(buildings)
+  if (site?.flora !== undefined) {
+    fields.push(site.flora)
+    splatted.push(site.flora)
+  }
   for (const s of dressing?.flora ?? []) {
     const src = padClear(excludingZones(s, wildOut))
     fields.push(src)

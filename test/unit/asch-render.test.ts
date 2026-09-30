@@ -1,9 +1,14 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { buildAschScenery, hutGeometry } from '../../src/render/aschScenery'
-import { buildingGeometry } from '../../src/render/floraShapes'
+import { buildingGeometry, createFloraGeometries, disposeFloraGeometries } from '../../src/render/floraShapes'
 import { preloadGroundModels } from '../../src/render/geometry/ground'
-import { createAsch, HUTS } from '../../src/world/asch'
+import { InstancedMesh, Matrix4 } from 'three'
+import { ASCH_SITE, createTerrain, LEUNA_SITE, POLTAVA_SITE, siteClearances } from '../../src/render/terrain'
+import { PLANT_TREE_CLEAR } from '../../src/world/leuna'
+import {
+  createAsch, FIELD_BUILDING_CLEAR, FIELD_CENTER, FIELD_LOBES, FIELD_PAD, FIELD_TREE_CLEAR, HUTS, TREE_CLUMPS,
+} from '../../src/world/asch'
 
 /** 佈景裡的車用地面單位的 GLB 樣板 —— 瀏覽器開場載，這裡直接讀 `public/` */
 async function readPublic(url: string): Promise<ArrayBuffer> {
@@ -63,6 +68,74 @@ describe('Y-29 的佈景', () => {
       g.dispose()
     }
     template.dispose()
+  })
+
+  /**
+   * 【樹 100 m、村莊 300 m】墊面外 100 m 內一株都沒有；100～300 m 之間長得出樹，
+   * 但一棟房子都沒有。池的頂點數分得出建築：房子與教堂各一個數，樹的每一級都不同
+   */
+  it('樹長到墊面外 100 m，村莊留在 300 m 外', () => {
+    const terrain = createTerrain('asch')
+    terrain.update(0, FIELD_CENTER.x, FIELD_CENTER.z)
+    terrain.settle?.()
+    const rects = [FIELD_PAD, ...FIELD_LOBES]
+    const beyond = (x: number, z: number): number => {
+      const lx = x - FIELD_CENTER.x
+      const lz = z - FIELD_CENTER.z
+      return Math.min(...rects.map((r) => Math.hypot(
+        Math.max(0, r.x0 - lx, lx - r.x1), Math.max(0, r.z0 - lz, lz - r.z1),
+      )))
+    }
+    const pools = createFloraGeometries('lateAutumn')
+    const verts = (k: keyof typeof pools): number => pools[k].getAttribute('position').count
+    const buildingVerts = new Set([verts('house'), verts('church')])
+    for (const k of ['broadNear', 'broadMid', 'coneNear', 'coneMid', 'bushNear'] as const) {
+      expect(buildingVerts.has(verts(k)), k).toBe(false)
+    }
+    disposeFloraGeometries(pools)
+    const planned = TREE_CLUMPS.flatMap((c) => c.plants)
+    let band = 0
+    let stray = 0
+    let clumpTrees = 0
+    let buildingsNear = 0
+    let treesInBand = 0
+    const m = new Matrix4()
+    terrain.object.traverse((o) => {
+      const mesh = o as InstancedMesh
+      if (!mesh.isInstancedMesh) return
+      const building = buildingVerts.has(mesh.geometry.getAttribute('position').count)
+      for (let i = 0; i < mesh.count; i++) {
+        mesh.getMatrixAt(i, m)
+        const x = m.elements[12]!
+        const z = m.elements[14]!
+        const d = beyond(x, z)
+        // 【墊面裡只有樹叢】每一株都要對得上 `TREE_CLUMPS` 的一株
+        if (d === 0) {
+          if (!building && planned.some((t) => Math.abs(t.x - x) < 0.01 && Math.abs(t.z - z) < 0.01)) clumpTrees++
+          else stray++
+        } else if (d < FIELD_TREE_CLEAR) band++
+        if (building && d < FIELD_BUILDING_CLEAR) buildingsNear++
+        if (!building && d >= FIELD_TREE_CLEAR && d < FIELD_BUILDING_CLEAR) treesInBand++
+      }
+    })
+    terrain.dispose()
+    expect(FIELD_TREE_CLEAR).toBeLessThan(FIELD_BUILDING_CLEAR)
+    expect(band).toBe(0)
+    expect(stray).toBe(0)
+    expect(clumpTrees).toBeGreaterThan(0)
+    expect(buildingsNear).toBe(0)
+    expect(treesInBand).toBeGreaterThan(0)
+  })
+
+  /**
+   * 【只有 Y-29 分開】上面那一條量的是實際長出來的東西，但這張圖剛好沒有村莊落在
+   * 100～300 m 之間 —— 村莊那一圈沒接上它也看不出來。這裡直接驗兩圈的值
+   */
+  it('淨空帶：Y-29 樹 100 m、村莊 300 m；波爾塔瓦與洛伊納兩者相同、不變', () => {
+    expect(siteClearances(ASCH_SITE)).toEqual({ trees: FIELD_TREE_CLEAR, buildings: FIELD_BUILDING_CLEAR })
+    expect(siteClearances(POLTAVA_SITE)).toEqual({ trees: 300, buildings: 300 })
+    expect(siteClearances(LEUNA_SITE)).toEqual({ trees: PLANT_TREE_CLEAR, buildings: PLANT_TREE_CLEAR })
+    expect(siteClearances()).toEqual({ trees: 0, buildings: 0 })
   })
 
   it('一顆網格、三角形數在預算內', () => {

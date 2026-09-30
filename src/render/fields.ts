@@ -1,6 +1,7 @@
 import { Color } from 'three'
 import { canopyColor, FIELD_COLORS, FLORA_COLORS, PALETTE_STEPS, type FieldColors, type Season } from './season'
 import { BROAD_CROWN_R, CONE_CROWN_R } from './floraShapes'
+import type { FloraSource } from './flora'
 
 /**
  * 諾曼第式的 Bocage 地景：**每一塊田都被樹籬完整圍起來。**
@@ -1304,6 +1305,13 @@ export interface SiteLayout {
    * 【著色器不看它】只有散佈器用 —— 這一圈仍然是田色，只是沒有樹籬與樹林。
    */
   readonly treeClear?: number
+  /** 墊面之外不蓋村莊的那一圈，m。**省略 = 同 `treeClear`** */
+  readonly buildingClear?: number
+  /**
+   * 墊面裡自己的植被（機場裡的樹叢）。**不被墊面與淨空帶排除**，與野地的植被
+   * 一起畫、一起烘進遠圖
+   */
+  readonly flora?: FloraSource
   /** 道路的折線，世界座標 */
   readonly roads: readonly (readonly { readonly x: number; readonly z: number }[])[]
   /** 路寬，m */

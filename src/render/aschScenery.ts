@@ -1,7 +1,8 @@
 import type { BufferGeometry } from 'three'
 import { buildDepot } from './depot'
 import { BUILDING_DEPTH, BUILDING_ROOF, BUILDING_WALL, BUILDING_WIDTH, buildingGeometry, TAR_ROOF } from './floraShapes'
-import { CRATE_FIELDS, HUTS, VEHICLES, type Hut } from '../world/asch'
+import { CRATE_FIELDS, HUTS, TREE_CLUMPS, VEHICLES, type Hut } from '../world/asch'
+import { FloraKind, pushFlora, type FloraSource } from './flora'
 
 /**
  * # Y-29 的佈景
@@ -34,6 +35,21 @@ export function buildAschScenery(heightAt: (x: number, z: number) => number): Bu
   ))
   template.dispose()
   return buildDepot(CRATE_FIELDS, VEHICLES, heightAt, huts)
+}
+
+const CLUMP_KIND = { broad: FloraKind.BroadTree, cone: FloraKind.ConeTree, bush: FloraKind.Bush } as const
+
+/**
+ * 機場裡的樹叢（`world/asch.ts` 的 `TREE_CLUMPS`）當植被的散佈器：這一格裡有的
+ * 株照原樣推進去。位置只由資料決定，與格子怎麼切無關
+ */
+export const aschClumpFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
+  for (const c of TREE_CLUMPS) {
+    for (const t of c.plants) {
+      if (t.x < x0 || t.x >= x1 || t.z < z0 || t.z >= z1) continue
+      pushFlora(out, t.x, heightAt(t.x, t.z), t.z, t.rot, t.scale, t.tint, CLUMP_KIND[t.kind])
+    }
+  }
 }
 
 /**
