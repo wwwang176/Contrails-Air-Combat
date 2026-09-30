@@ -1,4 +1,4 @@
-import { BufferAttribute, BufferGeometry } from 'three'
+import { BufferAttribute, BufferGeometry, MeshStandardMaterial, type Texture } from 'three'
 import { shipParts } from './shipLivery'
 
 /**
@@ -141,15 +141,48 @@ export function numberCanvas(text: string, def: ShipNumbersDef, pxHigh = 128): H
   return c
 }
 
+/**
+ * 號碼貼花的材質。
+ *
+ * 【alphaTest】字圖在框內、字外是透明的；少了它字外那一塊會以字圖的背景色蓋在船殼上。
+ * 【polygonOffset】與底下的船殼只差 3 cm，遠處深度精度不夠，再往前推一點免得互閃。
+ */
+export function numberMaterial(map: Texture | null): MeshStandardMaterial {
+  return new MeshStandardMaterial({
+    map, roughness: 0.8, alphaTest: 0.5,
+    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+  })
+}
+
 /** 貼花離船殼多遠，m。夠遠才不會與船殼搶深度，夠近才看不出浮起來 */
 const LIFT = 0.03
+
+/**
+ * 凸多邊形留下 `axis` 座標 ≥ `bound`（`upper` 為 true 時 ≤ `bound`）的那一半。
+ * 切點照線性內插，三角形是平的，所以切出來的點仍在原本那一面上。
+ */
+function clipPolygon(poly: number[][], axis: number, bound: number, upper: boolean): number[][] {
+  const inside = (p: number[]) => upper ? p[axis]! <= bound : p[axis]! >= bound
+  const out: number[][] = []
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]!
+    const b = poly[(i + 1) % poly.length]!
+    const ia = inside(a), ib = inside(b)
+    if (ia) out.push(a)
+    if (ia !== ib) {
+      const t = (bound - a[axis]!) / (b[axis]! - a[axis]!)
+      out.push([a[0]! + (b[0]! - a[0]!) * t, a[1]! + (b[1]! - a[1]!) * t, a[2]! + (b[2]! - a[2]!) * t])
+    }
+  }
+  return out
+}
 
 /**
  * 從 `geo`（艦體座標、沒有索引）挑出號碼框範圍內、朝那一面的三角形，複製成貼花。
  * 回傳的幾何有 position、normal、uv；一個都沒挑到回 null。
  *
- * - 挑面：三角形在那一面的投影外框與號碼框重疊；朝向是法線與那一面夾角 60° 以內
- *   （舷側）或 45° 以內（甲板）。
+ * - 挑面：朝向是法線與那一面夾角 60° 以內（舷側）或 45° 以內（甲板）；每一個
+ *   三角形裁到號碼框內，框外一點都不留。
  * - UV：框中心是 (0.5, 0.5)，v 向上。站在那一面看過去正著讀 —— 右舷艦首在右、
  *   左舷艦首在左、甲板字頂朝艦首（從艦尾進場的飛行員讀得正，右舷在右）。
  *
@@ -179,6 +212,10 @@ export function buildNumberDecal(
       case 'deck': return [0.5 + (x - cx) / box.w, 0.5 + (mark.z - z) / box.h]
     }
   }
+  // 號碼框在艦體座標的範圍：(軸, 下限, 上限)，軸 0 = x、1 = y、2 = z。甲板上字高沿 z
+  const clipBounds: readonly (readonly [number, number, number])[] = mark.view === 'deck'
+    ? [[2, mark.z - box.h / 2, mark.z + box.h / 2], [0, cx - box.w / 2, cx + box.w / 2]]
+    : [[2, mark.z - box.w / 2, mark.z + box.w / 2], [1, cy - box.h / 2, cy + box.h / 2]]
   const outP: number[] = []
   const outN: number[] = []
   const outUv: number[] = []
@@ -196,23 +233,22 @@ export function buildNumberDecal(
     nx /= len; ny /= len; nz /= len
     const facing = mark.view === 'starboard' ? nx > 0.5 : mark.view === 'port' ? nx < -0.5 : ny > 0.7
     if (!facing) continue
-    // 那一面的投影外框與號碼框重疊
-    let lo0 = Infinity, hi0 = -Infinity, lo1 = Infinity, hi1 = -Infinity
-    for (let k = 0; k < 3; k++) {
-      const a = v[k * 3 + 2]!
-      const b = mark.view === 'deck' ? v[k * 3]! : v[k * 3 + 1]!
-      lo0 = Math.min(lo0, a); hi0 = Math.max(hi0, a)
-      lo1 = Math.min(lo1, b); hi1 = Math.max(hi1, b)
+    // 【裁到號碼框內】框外不能靠字圖的透明邊擋：mipmap 縮小之後邊緣的 alpha 會升到
+    // 0.7 以上，過得了 alphaTest，遠看框外多出一片色塊
+    let poly: number[][] = [[v[0]!, v[1]!, v[2]!], [v[3]!, v[4]!, v[5]!], [v[6]!, v[7]!, v[8]!]]
+    for (const [axis, lo, hi] of clipBounds) {
+      poly = clipPolygon(poly, axis, lo, false)
+      poly = clipPolygon(poly, axis, hi, true)
+      if (poly.length < 3) break
     }
-    const c1 = mark.view === 'deck' ? cx : cy
-    const [bw, bh] = mark.view === 'deck' ? [box.h, box.w] : [box.w, box.h]
-    if (hi0 < mark.z - bw / 2 || lo0 > mark.z + bw / 2) continue
-    if (hi1 < c1 - bh / 2 || lo1 > c1 + bh / 2) continue
-    for (let k = 0; k < 3; k++) {
-      const x = v[k * 3]!, y = v[k * 3 + 1]!, z = v[k * 3 + 2]!
-      outP.push(x + nx * LIFT, y + ny * LIFT, z + nz * LIFT)
-      outN.push(nx, ny, nz)
-      outUv.push(...uvOf(x, y, z))
+    if (poly.length < 3) continue
+    // 凸多邊形，扇形切成三角形
+    for (let k = 1; k + 1 < poly.length; k++) {
+      for (const q of [poly[0]!, poly[k]!, poly[k + 1]!]) {
+        outP.push(q[0]! + nx * LIFT, q[1]! + ny * LIFT, q[2]! + nz * LIFT)
+        outN.push(nx, ny, nz)
+        outUv.push(...uvOf(q[0]!, q[1]!, q[2]!))
+      }
     }
   }
   if (outP.length === 0) return null

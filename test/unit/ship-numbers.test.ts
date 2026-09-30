@@ -6,7 +6,7 @@ import {
 import { applyShipLivery, buildShipNumberDecals } from '../../src/render/ships'
 import { createGltfLoader } from '../../src/render/geometry/gltfLoader'
 import {
-  DIGIT_SEGMENTS, buildNumberDecal, glyphRects, numberBox, shipNumber,
+  DIGIT_SEGMENTS, buildNumberDecal, glyphRects, numberBox, numberMaterial, shipNumber,
   type NumberMark,
 } from '../../src/render/shipNumbers'
 import { SHIP_LIVERIES } from '../../src/render/shipLiveries'
@@ -106,25 +106,25 @@ describe('貼花', () => {
     const mark: NumberMark = { view: 'starboard', z: 0, y: 3, height: 2 }
     const g = buildNumberDecal(walls(), mark, box)!
     const p = g.getAttribute('position')
-    expect(p.count).toBe(6)
+    expect(p.count).toBeGreaterThan(0)
     for (let i = 0; i < p.count; i++) expect(p.getX(i)).toBeGreaterThan(5)
-    // 框中心在 (z 0, y 3)：兩個三角形的頂點不在那裡，UV 是線性的，所以用角點推
-    const [uBow, vLow] = uvNear(g, 5, 0, -10)
-    const [uAft, vHigh] = uvNear(g, 5, 6, 10)
-    expect(uBow).toBeCloseTo(0.5 + 10 / box.w, 6)
-    expect(uAft).toBeCloseTo(0.5 - 10 / box.w, 6)
-    expect(vLow).toBeCloseTo(0.5 - 3 / box.h, 6)
-    expect(vHigh).toBeCloseTo(0.5 + 3 / box.h, 6)
+    // 框是 z −2…2、y 2…4：艦首下角是 (1, 0)、艦尾上角是 (0, 1)
+    const [uBow, vLow] = uvNear(g, 5, 2, -2)
+    const [uAft, vHigh] = uvNear(g, 5, 4, 2)
+    expect(uBow).toBeCloseTo(1, 6)
+    expect(vLow).toBeCloseTo(0, 6)
+    expect(uAft).toBeCloseTo(0, 6)
+    expect(vHigh).toBeCloseTo(1, 6)
   })
 
   it('左舷的貼花只挑朝 −X 的面，往艦首 u 變小（站在左舷看，艦首在左）', () => {
     const mark: NumberMark = { view: 'port', z: 0, y: 3, height: 2 }
     const g = buildNumberDecal(walls(), mark, box)!
     const p = g.getAttribute('position')
-    expect(p.count).toBe(6)
+    expect(p.count).toBeGreaterThan(0)
     for (let i = 0; i < p.count; i++) expect(p.getX(i)).toBeLessThan(-5)
-    const [uBow] = uvNear(g, -5, 0, -10)
-    expect(uBow).toBeCloseTo(0.5 - 10 / box.w, 6)
+    const [uBow] = uvNear(g, -5, 2, -2)
+    expect(uBow).toBeCloseTo(0, 6)
   })
 
   /** 【甲板上的字頂朝艦首】從艦尾進場的飛行員讀得正：右舷在右、艦首在上 */
@@ -133,9 +133,59 @@ describe('貼花', () => {
     const g = buildNumberDecal(deck(), mark, box)!
     const p = g.getAttribute('position')
     for (let i = 0; i < p.count; i++) expect(p.getY(i)).toBeGreaterThan(6)
-    const [uStbd, vBow] = uvNear(g, 5, 6, -10)
-    expect(uStbd).toBeCloseTo(0.5 + 5 / box.w, 6)
-    expect(vBow).toBeCloseTo(0.5 + 10 / box.h, 6)
+    // 甲板上框的長邊（字高）沿 z：z −1…1、x −2…2；右舷艦首角是 (1, 1)
+    const [uStbd, vBow] = uvNear(g, 2, 6, -1)
+    expect(uStbd).toBeCloseTo(1, 6)
+    expect(vBow).toBeCloseTo(1, 6)
+  })
+
+  /**
+   * 【裁到框內】框外不能靠字圖的透明邊擋：mipmap 縮小之後邊緣的 alpha 會升到 0.7
+   * 以上，過得了 alphaTest，遠看框外多出一片色塊。所以貼花本身就只蓋框內
+   */
+  it('貼花的每一個頂點都在號碼框內（UV 在 0…1）', () => {
+    for (const mark of [
+      { view: 'starboard', z: 0, y: 3, height: 2 },
+      { view: 'port', z: 0, y: 3, height: 2 },
+      { view: 'deck', z: 0, x: 0, height: 2 },
+    ] as const) {
+      const g = buildNumberDecal(mark.view === 'deck' ? deck() : walls(), mark, box)!
+      const uv = g.getAttribute('uv')
+      expect(uv.count).toBeGreaterThan(0)
+      for (let i = 0; i < uv.count; i++) {
+        expect(uv.getX(i)).toBeGreaterThanOrEqual(-1e-6)
+        expect(uv.getX(i)).toBeLessThanOrEqual(1 + 1e-6)
+        expect(uv.getY(i)).toBeGreaterThanOrEqual(-1e-6)
+        expect(uv.getY(i)).toBeLessThanOrEqual(1 + 1e-6)
+      }
+    }
+  })
+
+  /** 【只挑船殼】LST 的船身材質併了欄杆與立柱；不擋的話號碼會印半個字在立柱上 */
+  it('只挑最大的一塊零件時，框內別的小零件不會被印上', () => {
+    const g = walls()
+    const p = g.getAttribute('position')
+    const extra = [5.5, 2.5, 0.5, 5.5, 2.5, -0.5, 5.5, 3.5, -0.5]
+    const merged = new BufferGeometry()
+    merged.setAttribute('position', new Float32BufferAttribute([...(p.array as Float32Array), ...extra], 3))
+    const mark: NumberMark = { view: 'starboard', z: 0, y: 3, height: 2 }
+    const all = buildNumberDecal(merged, mark, box)!
+    const hull = buildNumberDecal(merged, mark, box, true)!
+    const maxX = (d: BufferGeometry) => {
+      const q = d.getAttribute('position')
+      let m = -Infinity
+      for (let i = 0; i < q.count; i++) m = Math.max(m, q.getX(i))
+      return m
+    }
+    expect(maxX(all)).toBeGreaterThan(5.4)
+    expect(maxX(hull)).toBeLessThan(5.1)
+  })
+
+  it('材質切掉字外的透明處，並往前推免得與船殼互閃', () => {
+    const m = numberMaterial(null)
+    expect(m.alphaTest).toBeGreaterThanOrEqual(0.5)
+    expect(m.polygonOffset).toBe(true)
+    expect(m.polygonOffsetFactor).toBeLessThan(0)
   })
 
   it('框外餘量之外的面不挑；一個都沒挑到回 null', () => {

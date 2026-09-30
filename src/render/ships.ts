@@ -8,7 +8,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { createGltfLoader } from './geometry/gltfLoader'
 import { applyShipLiveryUv, partTones } from './shipLivery'
 import {
-  buildNumberDecal, numberBox, numberCanvas, shipNumber, type ShipNumbersDef,
+  buildNumberDecal, numberBox, numberCanvas, numberMaterial, shipNumber, type ShipNumbersDef,
 } from './shipNumbers'
 import { SHIP_LIVERIES, liveryVariant, type ShipLiveryDef } from './shipLiveries'
 import { SHIP_CLASSES, type Ship, type ShipClassId } from '../world/ships'
@@ -317,11 +317,7 @@ export function createShipModels(ships: readonly Ship[]): ShipModels {
       const tex = new CanvasTexture(numberCanvas(shipNumber(numbers.values, s.index), numbers))
       tex.colorSpace = SRGBColorSpace
       tex.anisotropy = 8
-      const mat = new MeshStandardMaterial({
-        map: tex, roughness: 0.8, alphaTest: 0.5,
-        // 與底下的船殼差 3 cm：遠處深度精度不夠，再往前推一點免得互閃
-        polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
-      })
+      const mat = numberMaterial(tex)
       g.add(new Mesh(decal, mat))
       owned.push(tex, mat)
     }
