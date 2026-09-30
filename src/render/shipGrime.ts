@@ -122,13 +122,21 @@ function sprites(): Record<GrimeKind, HTMLCanvasElement> {
   }
 }
 
+/** `drawStamps` 用到的畫布操作（測試用錄製呼叫的假畫布） */
+export type StampCanvas = Pick<CanvasRenderingContext2D,
+  'save' | 'restore' | 'beginPath' | 'rect' | 'clip' | 'drawImage' | 'globalAlpha'> & {
+  readonly canvas: { readonly width: number }
+}
+
 /**
- * 把印子蓋到畫布上。畫布可以是版面的任何等比縮放（`k` = 畫布寬 / 2048）。每一條
- * 裁在它往外半個空白之內 —— 伸出去的部分會蓋到隔壁那一條。
+ * 把印子蓋到畫布上。畫布可以是版面的任何等比縮放，倍率由畫布寬度推（寬 / 2048）。
+ * 每一條裁在它往外半個空白之內 —— 伸出去的部分會蓋到隔壁那一條。
  */
-function drawStamps(g: CanvasRenderingContext2D, stamps: readonly GrimeStamp[], k: number): void {
+export function drawStamps(
+  g: StampCanvas, stamps: readonly GrimeStamp[], img: Record<GrimeKind, CanvasImageSource>,
+): void {
+  const k = g.canvas.width / SHIP_LIVERY_WIDTH
   const half = SHIP_LIVERY_GUTTER / 2
-  const img = sprites()
   const byStrip = new Map<ShipRect, GrimeStamp[]>()
   for (const st of stamps) {
     const list = byStrip.get(st.strip)
@@ -168,7 +176,7 @@ export function grimedLivery(base: Texture, stamps: readonly GrimeStamp[]): Text
   c.height = img.height
   const g = c.getContext('2d')!
   g.drawImage(img, 0, 0)
-  drawStamps(g, stamps, c.width / SHIP_LIVERY_WIDTH)
+  drawStamps(g, stamps, sprites())
   return canvasTexture(c)
 }
 
@@ -180,6 +188,6 @@ export function fittingGrime(stamps: readonly GrimeStamp[]): Texture {
   const g = c.getContext('2d')!
   g.fillStyle = '#ffffff'
   g.fillRect(0, 0, c.width, c.height)
-  drawStamps(g, stamps, 0.5)
+  drawStamps(g, stamps, sprites())
   return canvasTexture(c)
 }
