@@ -15,7 +15,7 @@
 每一條的漆往外延伸半個空白，mipmap 縮小時讀不到隔壁那一條的顏色。
 """
 import json, os, random
-from PIL import Image, ImageChops, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -97,6 +97,28 @@ class ShipLivery:
     def line(self, strip, a0, b0, a1, b1, fill, width_m=0.05):
         self.d.line([self.px(strip, a0, b0), self.px(strip, a1, b1)], fill=fill,
                     width=max(1, round(width_m * self.s * SS)))
+
+    def text(self, strip, a, b, s, height_m, fill, rotate=0, outline=None, outline_m=0.2):
+        """在 (a, b) 置中寫字。`height_m` 是字高（m），`rotate` 是逆時針轉幾度 ——
+        甲板條艦首在左，字頂要朝艦首就轉 90。裁在這一條往外半個空白之內"""
+        h = height_m * self.s * SS
+        font = ImageFont.truetype('arialbd.ttf', int(h * 1.36))
+        box = ImageDraw.Draw(self.im).textbbox((0, 0), s, font=font)
+        w, hh = box[2] - box[0], box[3] - box[1]
+        pad = int(outline_m * self.s * SS) + 4
+        layer = Image.new('RGBA', (w + 2 * pad, hh + 2 * pad), (0, 0, 0, 0))
+        d = ImageDraw.Draw(layer)
+        kw = {} if outline is None else {
+            'stroke_width': max(1, int(outline_m * self.s * SS)), 'stroke_fill': outline}
+        d.text((pad - box[0], pad - box[1]), s, font=font, fill=fill, **kw)
+        layer = layer.rotate(rotate, expand=True, resample=Image.BICUBIC)
+        cx, cy = self.px(strip, a, b)
+        at = (int(cx - layer.width / 2), int(cy - layer.height / 2))
+        full = Image.new('RGBA', self.im.size, (0, 0, 0, 0))
+        full.paste(layer, at)
+        clip = Image.new('L', self.im.size, 0)
+        ImageDraw.Draw(clip).rectangle(self.box(strip), fill=255)
+        self.im.paste(full.convert('RGB'), (0, 0), ImageChops.multiply(full.getchannel('A'), clip))
 
     # ── 漆面 ────────────────────────────────────────────────────
     def plates(self, strip, a0, a1, b0, b1, da, db, amount, seed):
