@@ -50,14 +50,22 @@ export function shipFoamTexture(): CanvasTexture {
   c.width = W
   c.height = H
   const g = c.getContext('2d')!
-  // 一條條沿航向的泡沫紋：寬窄、長短、濃淡隨機；上下各畫一份，縱向接得起來
-  for (let i = 0; i < 260; i++) {
+  // 一團團軟邊的泡沫：大小、濃淡隨機，沿航向略拉長；上下各畫一份，縱向接得起來
+  const blob = (x: number, y: number, r: number, a: number) => {
+    const grad = g.createRadialGradient(x, y, 0, x, y, r)
+    grad.addColorStop(0, `rgba(255,255,255,${a.toFixed(3)})`)
+    grad.addColorStop(1, 'rgba(255,255,255,0)')
+    g.fillStyle = grad
+    g.beginPath()
+    g.ellipse(x, y, r * 0.8, r * 1.4, 0, 0, Math.PI * 2)
+    g.fill()
+  }
+  for (let i = 0; i < 420; i++) {
     const x = Math.random() * W
     const y = Math.random() * H
-    const len = 10 + Math.random() * 70
-    const w = 1 + Math.random() * 4
-    g.fillStyle = `rgba(255,255,255,${(0.15 + Math.random() * 0.5).toFixed(3)})`
-    for (const oy of [0, -H]) g.fillRect(x - w / 2, y + oy, w, len)
+    const r = 2 + Math.random() * Math.random() * 12
+    const a = 0.2 + Math.random() * 0.55
+    for (const oy of [0, -H, H]) blob(x, y + oy, r, a)
   }
   // 橫向的軟邊：中間濃、兩邊淡到 0
   g.globalCompositeOperation = 'destination-in'
@@ -89,10 +97,45 @@ export function shipHalfSize(ship: Ship): { halfLength: number, halfBeam: number
 
 const V = /* @__PURE__ */ new Vector3()
 
-/** 艦首（`end` = −1）或艦尾（+1）在海面上的點，寫進 `out` */
-export function shipWakePoint(ship: Ship, end: -1 | 1, out: Vector3): Vector3 {
+/**
+ * 艦尾那一條從哪裡落：船身中點往艦尾半長的這個比例。
+ *
+ * 【從船身底下開始】落在艦尾的話，帶子的頭端剛好在艦尾、一出生是窄的，和船尾之間
+ * 看起來斷一截；從船身底下開始，一出生就被船身蓋住，拖出來時已經和船尾接在一起。
+ */
+export const STERN_WAKE_START = 0.4
+
+/**
+ * 艦首（`end` = −1）或艦尾那一條的起點（+1）在海面上的點，寫進 `out`。`at` 是船的
+ * 位置，省略 = 現在的位置（開場往回推的時候給過去的位置）。
+ */
+export function shipWakePoint(
+  ship: Ship, end: -1 | 1, out: Vector3, at: Vector3 = ship.position,
+): Vector3 {
   const { halfLength } = shipHalfSize(ship)
-  return out.set(0, 0, end * halfLength).applyQuaternion(ship.orientation).add(ship.position)
+  const z = end < 0 ? -halfLength : STERN_WAKE_START * halfLength
+  return out.set(0, 0, z).applyQuaternion(ship.orientation).add(at)
+}
+
+/**
+ * (x, z) 在不在某一艘船的船身範圍內（俯視，照船體盒的半長半寬）。`cos`／`sin` 是
+ * 每艘船的艏向，呼叫端每幀算一次。
+ */
+export function insideShips(
+  ships: readonly Ship[], cos: Float64Array, sin: Float64Array, x: number, z: number,
+): boolean {
+  for (let k = 0; k < ships.length; k++) {
+    const s = ships[k]!
+    if (!s.alive) continue
+    const { halfLength, halfBeam } = shipHalfSize(s)
+    const dx = x - s.position.x
+    const dz = z - s.position.z
+    // 轉回艦體座標：繞 +Y 轉 −艏向
+    const lx = dx * cos[k]! - dz * sin[k]!
+    const lz = dx * sin[k]! + dz * cos[k]!
+    if (Math.abs(lx) <= halfBeam && Math.abs(lz) <= halfLength) return true
+  }
+  return false
 }
 
 export interface ShipWakes {
@@ -118,9 +161,50 @@ export function createShipWakes(ships: readonly Ship[], foam: Texture | null = n
   const object = new Group()
   object.add(stern.object, bow.object)
 
+  // 【開場就鋪好】照每艘船現在的航向與航速往回推過去走過的路，先落好節點、老化到
+  // 該有的年齡 —— 不然開場船後面是空的，航跡一格一格長出來，看起來像船才剛起步
+  const flat = () => 0
+  const fwd = new Vector3()
+  const past = new Vector3()
+  const PREWARM_STEP = 0.5
+  for (let back = SHIP_STERN_WAKE.life; back >= 0; back -= PREWARM_STEP) {
+    for (let k = 0; k < ships.length; k++) {
+      const s = ships[k]!
+      if (!s.alive || !(s.speed >= SHIP_WAKE_MIN_SPEED)) continue
+      fwd.set(0, 0, -1).applyQuaternion(s.orientation)
+      past.copy(s.position).addScaledVector(fwd, -s.speed * back)
+      shipWakePoint(s, 1, V, past)
+      stern.emit(k, V.x, V.z, s.index)
+      shipWakePoint(s, -1, V, past)
+      bow.emit(k, V.x, V.z, s.index)
+    }
+    stern.step(PREWARM_STEP, 0, flat)
+    bow.step(PREWARM_STEP, 0, flat)
+  }
+
+  // 【船身底下的帶子壓在水線】艦尾那一條從船身底下開始落；浪峰高的時候照浪抬起來
+  // 會比艦尾甲板（Fletcher 只有 2.7 m）還高，泡沫從甲板上冒出來。船身範圍內一律不
+  // 高過水線 —— 那一段本來就被船身蓋住，出了船身才跟著浪起伏
+  const cos = new Float64Array(slots)
+  const sin = new Float64Array(slots)
+  let current: readonly Ship[] = ships
+  let base: (x: number, z: number, t: number) => number = flat
+  const clamped = (x: number, z: number, t: number): number => {
+    const h = base(x, z, t)
+    return h > 0 && insideShips(current, cos, sin, x, z) ? 0 : h
+  }
+
   return {
     object,
     step(list, dt, time, heightAt) {
+      current = list
+      base = heightAt
+      for (let k = 0; k < list.length && k < slots; k++) {
+        const q = list[k]!.orientation
+        const yaw = 2 * Math.atan2(q.y, q.w)
+        cos[k] = Math.cos(yaw)
+        sin[k] = Math.sin(yaw)
+      }
       for (let k = 0; k < list.length && k < slots; k++) {
         const s = list[k]!
         if (!s.alive || !(s.speed >= SHIP_WAKE_MIN_SPEED)) continue
@@ -129,8 +213,8 @@ export function createShipWakes(ships: readonly Ship[], foam: Texture | null = n
         shipWakePoint(s, -1, V)
         bow.emit(k, V.x, V.z, s.index)
       }
-      stern.step(dt, time, heightAt)
-      bow.step(dt, time, heightAt)
+      stern.step(dt, time, clamped)
+      bow.step(dt, time, clamped)
     },
     dispose() {
       stern.dispose()

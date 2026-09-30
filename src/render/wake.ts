@@ -251,7 +251,26 @@ export function createWakes(
     depthWrite: false,
     side: DoubleSide,
   })
-  material.onBeforeCompile = injectVertexAlpha
+  /** 泡沫翻動的時鐘，秒。`step` 每幀寫 */
+  const foamTime = { value: 0 }
+  if (foamed) {
+    // 【泡沫會翻動】同一張泡沫圖用兩個尺寸、兩個方向的偏移各讀一次再合起來，偏移隨
+    // 時間走 —— 兩層交疊的地方一直變，看起來是在翻滾，不是靜止的條紋。u 不動，兩邊
+    // 的軟邊因此維持在帶子邊上
+    material.onBeforeCompile = (shader) => {
+      injectVertexAlpha(shader)
+      shader.uniforms['uFoamTime'] = foamTime
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform float uFoamTime;')
+        .replace('#include <map_fragment>', /* glsl */`
+          vec4 foamA = texture2D( map, vMapUv + vec2( 0.0, uFoamTime * 0.05 ) );
+          vec4 foamB = texture2D( map, vec2( vMapUv.x, vMapUv.y * 1.7 - uFoamTime * 0.08 + 0.37 ) );
+          diffuseColor.a *= clamp( ( foamA.a + foamB.a ) * 0.75 - 0.15, 0.0, 1.0 );`)
+    }
+    material.customProgramCacheKey = () => 'wake-foam'
+  } else {
+    material.onBeforeCompile = injectVertexAlpha
+  }
 
   const object = new Mesh(geometry, material)
   // 包圍球是建立時算的（全部在原點）—— 開著視錐剔除，相機一離開原點附近
@@ -430,6 +449,7 @@ export function createWakes(
       position.needsUpdate = true
       alpha.needsUpdate = true
       if (uvAttr !== null) uvAttr.needsUpdate = true
+      foamTime.value = time
     },
 
     reset() {
