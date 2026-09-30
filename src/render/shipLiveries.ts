@@ -264,14 +264,17 @@ const ESSEX: ShipLiveryDef = {
     ESSEX_Sponsons: [{ name: 'sponson', tone: 1.2, boxes: [{}] }],
   },
   /**
-   * 飛行甲板艦首端的「9」：深色字、淺色細邊，字頂朝艦首（從艦尾進場讀得正）——
-   * 照 1945-05-20 的兩張空拍。飛行甲板艦首端在 z −131.5，字心往艦尾 24 m；字高
-   * 是**起始值**
+   * 飛行甲板兩端的「9」：深色字、淺色細邊。艦首那一個字頂朝艦首（從艦尾進場讀得正，
+   * 1945-05-20 的兩張空拍），艦尾那一個字頂朝艦尾（Essex 級的側視與俯視圖兩端各一個、
+   * 都朝外）。甲板兩端在 z −131.5 與 129.5，字心各往內 24 m；字高是**起始值**
    */
   numbers: {
     values: ['9'],
     mesh: 'ESSEX_Deck',
-    marks: [{ view: 'deck', z: -107.5, x: 0, height: 22 }],
+    marks: [
+      { view: 'deck', z: -107.5, x: 0, height: 22 },
+      { view: 'deck', z: 105.5, x: 0, height: 22, top: 'stern' },
+    ],
     color: 0x262a32,
     outline: 0x969ba2,
   },
