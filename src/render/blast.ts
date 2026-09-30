@@ -200,6 +200,43 @@ export const TORPEDO_BLAST: BlastParams = {
 }
 
 /**
+ * 飛機殘骸落水。**只有水冠，沒有火** —— 殘骸的火在空中就放過了，砸進水裡的是
+ * 一團金屬。起始值，由試飛裁定。
+ *
+ * 【比炸彈落水小】一架戰鬥機三、四噸砸進水裡，水冠要讀得出來，但不能跟 500 lb
+ * 的水柱一樣高 —— 高度約六成、柱數約一半。水霧由水柱塌下時自己留（`blastJets`
+ * 的 `onFade`），不必另外噴。
+ *
+ * 【水花是逐根算的】每一根柱腳噴 `sprayCount` 顆，七根共 35 顆，疊在殘骸入水本來
+ * 那一圈（`WRECK_SPRAY_COUNT`）上。
+ */
+export const WRECK_WATER_BLAST: BlastParams = {
+  fireCount: 0,
+  fireSpeed: 0,
+  fireSize: 0,
+  fireCone: 0,
+  smokeCount: 0,
+  smokeSpeed: 0,
+  smokeSize: 0,
+  smokeCone: 0,
+  dustCount: 0,
+  dustSpeed: 0,
+  dustSize: 0,
+  dustCone: 0,
+  sprayCount: 5,
+  spraySpeed: 15,
+  sprayCone: (60 * Math.PI) / 180,
+  jetCount: 7,
+  jetSpread: 4.5,
+  jetHeight: 20,
+  jetRadius: 2.4,
+  mistPerJet: 5,
+  mistSize: 4.2,
+  glowSize: 0,
+  glowAlpha: 0,
+}
+
+/**
  * 空中擊墜。**沒有塵、沒有水冠** —— 那兩樣都是地面的東西。
  *
  * 【比墜地小】一架飛機的油箱不是 500 lb 的裝藥。火球團徑約 20 m，煙也少
