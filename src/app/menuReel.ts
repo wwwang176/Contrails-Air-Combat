@@ -241,8 +241,8 @@ const TORPEDO_SHIP_REACH = 6
 const LOCAL = new Vector3()
 const INV_Q = new Quaternion()
 /**
- * `shipUnder` 找到的那一點正下方最高的盒頂，m。**不是 `Ship.impactY`** —— 那是整艘
- * 船蓋住中線的最高盒頂，LST 的艉樓盒也蓋住中線，戰車甲板上的爆炸會高出 4.5 m
+ * `shipUnder` 找到的那一點正下方最高的盒頂，m。**不是 `Ship.impactY`** —— 那是主甲板；
+ * 落在 LST 艉樓、Essex 艦島上的炸彈要在它們的頂上爆，不是穿進去到甲板才爆
  */
 let underTop = 0
 
