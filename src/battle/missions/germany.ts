@@ -213,8 +213,8 @@ export const GERMANY: readonly MissionCard[] = [
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       entry: 'strikeDeep',
       terrain: 'kursk',
-      // 【塵霾】乾熱、砲擊與車輛揚起的塵土，地平線一片黃褐
-      timeOfDay: 'julyNoon',
+      // 【清晨】日出後的低太陽；砲擊與車輛揚起的塵土，地平線一片黃褐
+      timeOfDay: 'julyMorning',
       /**
        * 【2,000 m】俯衝轟炸要有高度可以換；輕型防空的射程 2,640 m 打得到。
        * **起始值，由試飛裁定。**

@@ -21,11 +21,11 @@ import type { SceneContext } from './scene'
 export type { TimeOfDay }
 
 /**
- * 【`novemberNoon`、`storm`、`julyNoon` 排最後】它們進工具頁的時段按鈕，**不進遭遇戰
+ * 【`novemberNoon`、`storm`、`julyMorning` 排最後】它們進工具頁的時段按鈕，**不進遭遇戰
  * 選單** —— `ui/menu.ts` 的那份清單是手寫的四筆，任務卡才會選它們。
  */
 export const TIME_OF_DAY_IDS: readonly TimeOfDay[] = [
-  'dawn', 'noon', 'dusk', 'night', 'novemberNoon', 'storm', 'julyNoon',
+  'dawn', 'noon', 'dusk', 'night', 'novemberNoon', 'storm', 'julyMorning',
 ]
 
 /**
@@ -244,32 +244,36 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     fogDensity: FOG_DENSITY * 10,
   },
   /**
-   * 盛夏的戰場正午：51°N 的七月，太陽很高；乾熱、砲擊與車輛揚起的塵土讓整片天
-   * 低處泛黃褐。德 M4 庫斯克用。海色照抄正午 —— 內陸用不到。**起始值，拿眼睛校。**
+   * 盛夏的戰場清晨：51°N 的七月，日出後一兩個鐘頭，太陽仰角約 14°、從戰場的右手邊
+   * 斜著來；砲擊與車輛揚起的塵土讓地平線泛黃褐。德 M4 庫斯克用。
+   * 海色照抄正午 —— 內陸用不到。**起始值，拿眼睛校。**
+   *
+   * 【低太陽只換色調與亮度】場景沒有陰影（`scene.ts` 的 `shadowMap`），所以不會有
+   * 長影子，只有天色、整體亮度與地色偏暖。
    */
-  julyNoon: {
-    id: 'julyNoon',
-    name: '盛夏正午',
-    skyHorizon: 0xd6c9a6,
-    skyZenith: 0x6c8cb0,
+  julyMorning: {
+    id: 'julyMorning',
+    name: '盛夏清晨',
+    skyHorizon: 0xf0c590,
+    skyZenith: 0x5d7fa8,
     skyPower: 0.7,
     stars: 0,
-    // 仰角 ≈ 58°
-    sunDir: [-0.35, 0.85, 0.4],
-    sunColor: 0xfff0d2,
-    sunIntensity: 2.2,
-    hemiSky: 0xcfd2c4,
-    hemiGround: 0x3d3a2c,
-    hemiIntensity: 0.9,
-    ambientColor: 0xfff4e2,
-    ambientIntensity: 0.16,
+    // 仰角 ≈ 14°
+    sunDir: [0.876, 0.242, 0.418],
+    sunColor: 0xffc88a,
+    sunIntensity: 1.8,
+    hemiSky: 0xc8c4b8,
+    hemiGround: 0x332e24,
+    hemiIntensity: 0.7,
+    ambientColor: 0xffe2c0,
+    ambientIntensity: 0.14,
     seaColor: SEA_COLOR,
     seaHorizon: SEA_HORIZON_COLOR,
     sparkle: 1,
-    foliage: 1,
-    // 【塵霾】比正午濃：2 km 的投彈距離上淡 5%，10 km 外化掉兩成多，地平線上
-    // 是一片黃褐
-    fogDensity: 2.6e-5,
+    foliage: 0.8,
+    // 【塵霾】2 km 的投彈距離上只淡 0.4%、10 km 外淡 9%、30 km 外化掉一半多，
+    // 地平線上是一片黃褐
+    fogDensity: 3.0e-5,
   },
 }
 

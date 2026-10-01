@@ -21,7 +21,7 @@ const ALL = TIME_OF_DAY_IDS.map((id) => DAY_PALETTES[id])
 
 describe('DAY_PALETTES', () => {
   it('七個時段都在，鍵與 id 一致', () => {
-    expect(TIME_OF_DAY_IDS).toEqual(['dawn', 'noon', 'dusk', 'night', 'novemberNoon', 'storm', 'julyNoon'])
+    expect(TIME_OF_DAY_IDS).toEqual(['dawn', 'noon', 'dusk', 'night', 'novemberNoon', 'storm', 'julyMorning'])
     for (const id of TIME_OF_DAY_IDS) expect(DAY_PALETTES[id].id).toBe(id)
   })
 
