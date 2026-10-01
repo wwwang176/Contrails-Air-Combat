@@ -79,6 +79,44 @@ export const BRICK_WALL = 0x8b6b4a
 export const OLD_ROOF = 0x7a4636
 /** 油毛氈：穀倉、倉庫、戰時搭的棚子 */
 export const TAR_ROOF = 0x4a4946
+
+/** 一種建築的牆色與屋頂色 */
+export interface BuildingColor {
+  readonly wall: number
+  readonly roof: number
+}
+
+/** 四個建築池各自的牆與屋頂。**季節換的是這一張表**（`buildingColors`） */
+export interface BuildingColors {
+  readonly house: BuildingColor
+  readonly houseSlate: BuildingColor
+  readonly barn: BuildingColor
+  readonly barnTar: BuildingColor
+}
+
+const CENTRAL_EUROPE: BuildingColors = {
+  house: { wall: WALL, roof: ROOF },
+  houseSlate: { wall: WALL, roof: SLATE },
+  barn: { wall: BRICK_WALL, roof: OLD_ROOF },
+  barnTar: { wall: BRICK_WALL, roof: TAR_ROOF },
+}
+
+/**
+ * 俄國南部的農村：石灰刷白的泥牆、麥稈紮的草頂（khata）；附屬的棚子是土黃的泥牆、
+ * 更舊更暗的草頂；少數公家的房子（場部、學校）是鐵皮頂。池的名字沿用 —— 池只認
+ * 顏色表，形狀都一樣
+ */
+const STEPPE_VILLAGE: BuildingColors = {
+  house: { wall: 0xe4dcc6, roof: 0x9b8453 },
+  houseSlate: { wall: 0xd9d1bb, roof: 0x6d716a },
+  barn: { wall: 0xa39069, roof: 0x6b5a39 },
+  barnTar: { wall: 0x7a6a50, roof: 0x4a443a },
+}
+
+/** 這個季節的建築顏色。夏季與晚秋是德國中部那一套（原本的常數） */
+export function buildingColors(season: Season): BuildingColors {
+  return season === 'julyWheat' ? STEPPE_VILLAGE : CENTRAL_EUROPE
+}
 /**
  * 建築在縮放 1、倍率 1 時的尺寸，m：牆的面寬（x）、進深（z）、牆高、屋頂高。
  * 一層樓的房子；樓高倍率 2 是兩層半左右的街屋，屋頂跟著變陡
@@ -277,6 +315,7 @@ export type MeshPool = Exclude<PoolName, PointPool>
  */
 export function createFloraGeometries(season: Season = 'summer'): Record<MeshPool, BufferGeometry> {
   const c = FLORA_COLORS[season]
+  const bc = buildingColors(season)
   return {
     // 闊葉近：圓柱樹幹 12 ＋ 八面體樹冠 8 = 20
     broadNear: build((s) => {
@@ -299,10 +338,10 @@ export function createFloraGeometries(season: Season = 'summer'): Record<MeshPoo
     // 【建築只有一種形狀】房子、穀倉、倉庫都是它：面寬、樓高、進深由實例各軸
     // 縮放（`pushFlora` 的 `wide`、`tall`），四個池差的只有牆與屋頂的顏色 ——
     // 逐實例色整棟一起乘，換料只能靠另一份頂點色
-    house: build((s) => { building(s, WALL, ROOF) }),
-    houseSlate: build((s) => { building(s, WALL, SLATE) }),
-    barn: build((s) => { building(s, BRICK_WALL, OLD_ROOF) }),
-    barnTar: build((s) => { building(s, BRICK_WALL, TAR_ROOF) }),
+    house: build((s) => { building(s, bc.house.wall, bc.house.roof) }),
+    houseSlate: build((s) => { building(s, bc.houseSlate.wall, bc.houseSlate.roof) }),
+    barn: build((s) => { building(s, bc.barn.wall, bc.barn.roof) }),
+    barnTar: build((s) => { building(s, bc.barnTar.wall, bc.barnTar.roof) }),
     // 教堂：本堂 12 ＋ 本堂屋頂 6 ＋ 塔 12 ＋ 尖頂 4 = 34。屋頂是石板瓦
     church: build((s) => {
       box(s, CHURCH_WALL, 9, 18, 0, 6)

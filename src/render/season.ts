@@ -59,6 +59,12 @@ export interface FieldColors {
    * 長出來的樹就對不上
    */
   readonly woodGate: readonly [number, number]
+  /**
+   * 一條田界長樹籬的機率（`fields.ts` 的 `HEDGE_CHANCE` 是中歐的值）。地色、CPU 的
+   * `fieldAt`、植被的樹籬散佈器讀同一份 —— 地上畫了樹籬而沒有樹，或有樹而沒畫，都是
+   * 兩邊各讀各的
+   */
+  readonly hedgeChance: number
 }
 
 export interface FloraColors {
@@ -80,6 +86,7 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
     open: 0x626b43,
     openAlt: 0x78754f,
     woodGate: [0.5, 0.62],
+    hedgeChance: 0.92,
   },
   /**
    * 晚秋：收割後的麥茬赭 → 冬麥苗的淡綠；大半的田犁過了，露出深褐的土。
@@ -108,6 +115,7 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
     open: 0x6e6a4a,
     openAlt: 0x5f5a47,
     woodGate: [0.5, 0.62],
+    hedgeChance: 0.92,
   },
   /**
    * 七月的俄國南部森林草原：麥子快熟了，整片是黃綠到麥金；集體農場的大田很少犁著
@@ -125,6 +133,7 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
     open: 0x9c8f58,
     openAlt: 0x7f7c4c,
     woodGate: [0.7, 0.8],
+    hedgeChance: 0.06,
   },
 }
 

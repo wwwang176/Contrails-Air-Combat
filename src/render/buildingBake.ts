@@ -1,8 +1,8 @@
 import { BufferAttribute, BufferGeometry, Color } from 'three'
 import { createFloraBuffer, FLORA_STRIDE, FloraKind, SHAPE_ONE, type FloraSource } from './flora'
 import {
-  BRICK_WALL, BROAD_CROWN_R, BUILDING_DEPTH, BUILDING_WIDTH, BUSH_R, CHURCH_WALL, CONE_CROWN_R, OLD_ROOF, ROOF,
-  SLATE, TAR_ROOF, WALL,
+  BRICK_WALL, BROAD_CROWN_R, buildingColors, BUILDING_DEPTH, BUILDING_WIDTH, BUSH_R, CHURCH_WALL, CONE_CROWN_R,
+  OLD_ROOF, ROOF, SLATE, TAR_ROOF, WALL,
 } from './floraShapes'
 import { canopyColor, FLORA_COLORS, type Season } from './season'
 import { TINT_RANGE } from './vegetation'
@@ -64,13 +64,31 @@ const ROOFS: ReadonlyMap<FloraKind, Splat> = new Map([
   [FloraKind.Church, roof(CHURCH_ROOF_W, CHURCH_ROOF_D, splatColor(SLATE, CHURCH_WALL))],
 ])
 
+/**
+ * 這個季節的屋頂色塊。**與近處的模型同一張顏色表**（`floraShapes.ts` 的
+ * `buildingColors`）—— 遠處是紅瓦、近處是草頂的話，飛近的時候整個村換色
+ */
+function roofsFor(season: Season): ReadonlyMap<FloraKind, Splat> {
+  if (season !== 'julyWheat') return ROOFS
+  const bc = buildingColors(season)
+  const b = (k: { wall: number; roof: number }): Splat =>
+    roof(BUILDING_WIDTH + 1, BUILDING_DEPTH + 1, splatColor(k.roof, k.wall))
+  return new Map([
+    [FloraKind.House, b(bc.house)],
+    [FloraKind.Barn, b(bc.barn)],
+    [FloraKind.SlateHouse, b(bc.houseSlate)],
+    [FloraKind.TarBarn, b(bc.barnTar)],
+    [FloraKind.Church, ROOFS.get(FloraKind.Church)!],
+  ])
+}
+
 /** 屋頂加上這個季節的樹冠：外框是樹冠的直徑 */
 function splatsFor(season: Season): ReadonlyMap<FloraKind, Splat> {
   const c = FLORA_COLORS[season]
   const crown = (r: number, hex: number): Splat =>
     ({ w: 2 * r, d: 2 * r, color: canopyColor(hex), tint: TINT_RANGE.plant, wide: false })
   return new Map([
-    ...ROOFS,
+    ...roofsFor(season),
     [FloraKind.BroadTree, crown(BROAD_CROWN_R, c.broadLeaf)],
     [FloraKind.ConeTree, crown(CONE_CROWN_R, c.conifer)],
     [FloraKind.Bush, crown(BUSH_R, c.bushLeaf)],

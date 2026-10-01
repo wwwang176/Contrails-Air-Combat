@@ -254,6 +254,8 @@ let winHeight: (x: number, z: number) => number = () => 0
 let winOut: FloraBuffer = createFloraBuffer(1)
 /** 這一次是「田圍著村」的地圖嗎：空地（`isOpenParcel`）的邊不長樹籬 */
 let winOpen = false
+/** 這一次一條田界長樹籬的機率（季節的 `hedgeChance`）。見 `hedged` */
+let winHedge: number = HEDGE_CHANCE
 
 /**
  * 沿一條線種東西。
@@ -286,7 +288,7 @@ function walkLine(
     // 另一側會整片被丟掉
     regionAt(x, z, AT)
     if (AT.id !== winRid) continue
-    fieldAt(x, z, AT, FLD)
+    fieldAt(x, z, AT, FLD, winHedge)
     if (!FLD.hedged || FLD.edge >= HEDGE_WIDTH / 2) continue
     if (winOpen && isOpenParcel(FLD)) continue
 
@@ -305,7 +307,7 @@ function walkLine(
 
 /** 這條邊長不長樹籬。與 `fieldAt` 的判準相同 —— 不長的線整條跳過 */
 function hedged(lineKey: number): boolean {
-  return hash1(lineKey) / 4294967296 < HEDGE_CHANCE
+  return hash1(lineKey) / 4294967296 < winHedge
 }
 
 /**
@@ -334,6 +336,7 @@ function plantLine(
  */
 export const farmHedgeFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
   winOpen = false
+  winHedge = HEDGE_CHANCE
   hedges(x0, z0, x1, z1, heightAt, out)
 }
 
@@ -342,7 +345,22 @@ export const openHedgeFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
   // 【整格都是空地就整格跳過】空地的邊不長樹籬，而荒野裡的格一大片都是
   if (FLORA_FAST_PATHS.on && tileLandUse(x0, z0, x1, z1) === LAND_OPEN) return
   winOpen = true
+  winHedge = HEDGE_CHANCE
   hedges(x0, z0, x1, z1, heightAt, out)
+}
+
+/**
+ * 同 `openHedgeFlora`，一條田界長樹籬的機率由季節給（`FieldColors.hedgeChance`）。
+ * **與地色傳同一份**。預設值就回原本那一支
+ */
+export function openHedgeFloraFor(chance: number): FloraSource {
+  if (chance === HEDGE_CHANCE) return openHedgeFlora
+  return (x0, z0, x1, z1, heightAt, out) => {
+    if (FLORA_FAST_PATHS.on && tileLandUse(x0, z0, x1, z1) === LAND_OPEN) return
+    winOpen = true
+    winHedge = chance
+    hedges(x0, z0, x1, z1, heightAt, out)
+  }
 }
 
 const hedges: FloraSource = (x0, z0, x1, z1, heightAt, out) => {

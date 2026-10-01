@@ -620,7 +620,7 @@ export function isWoodField(id: number): boolean {
  * 熱路徑之外（測試與工具用；畫面上跑的是 GLSL 那一份），但仍然不配置。
  */
 export function fieldAt(
-  x: number, z: number, reg: RegionSample, out: FieldSample,
+  x: number, z: number, reg: RegionSample, out: FieldSample, hedgeChance: number = HEDGE_CHANCE,
 ): void {
   const cos = Math.cos(-reg.angle)
   const sin = Math.sin(-reg.angle)
@@ -675,7 +675,7 @@ export function fieldAt(
 
   out.id = hash1(cellHash ^ (part * 0x7f4a))
   out.edge = best
-  out.hedged = hash1(edgeKey) / 4294967296 < HEDGE_CHANCE
+  out.hedged = hash1(edgeKey) / 4294967296 < hedgeChance
   // 地塊中心轉回世界座標（q 是世界轉了 −angle）。與 GLSL 同一個算法：轉差值再加回
   // 這一點，不轉上萬公尺的座標
   const ca = Math.cos(reg.angle)
@@ -815,7 +815,7 @@ export function fieldSurfaceColor(
   regionAt(x, z, REG)
   if (onTrack(x, z, REG)) return out.setHex(c.track)
 
-  fieldAt(x, z, REG, FLD)
+  fieldAt(x, z, REG, FLD, c.hedgeChance)
   if (open && isOpenParcel(FLD)) return openColor(x, z, out, c)
   if (FLD.hedged && FLD.edge < HEDGE_WIDTH / 2) return out.setHex(c.hedge)
 
@@ -1065,7 +1065,7 @@ const float EDGE_JITTER = ${EDGE_JITTER.toFixed(3)};
 const float SPLIT_CHANCE = ${SPLIT_CHANCE.toFixed(3)};
 const float REGION_SPACING = ${REGION_SPACING.toFixed(1)};${candidates ? CANDIDATE_DECL_GLSL : ''}
 const float HEDGE_WIDTH = ${HEDGE_WIDTH.toFixed(1)};
-const float HEDGE_CHANCE = ${HEDGE_CHANCE.toFixed(3)};
+const float HEDGE_CHANCE = ${c.hedgeChance.toFixed(3)};
 const float TRACK_WIDTH = ${TRACK_WIDTH.toFixed(1)};
 const float PLOUGH_CHANCE = ${c.ploughChance.toFixed(3)};
 const float WOOD_CHANCE = ${WOOD_CHANCE.toFixed(3)};
@@ -1351,7 +1351,7 @@ export interface SiteLayout {
   /** 路面的顏色。**省略 = 柏油**（廠區、機場）；土路給土色 */
   readonly roadHex?: number
   /**
-   * 疊在田上的戰場痕跡：彈坑、燒田、履帶痕、壕溝（`battleScars.ts`）。畫在道路之前。
+   * 疊在田上的戰場痕跡：彈坑、燒田、履帶痕、壕溝（`battleScars.ts`）。畫在道路之後（先有路、後來才被炸）。
    * 只有畫面 —— `siteSurfaceColor` 不算它
    */
   readonly scars?: BattleScars
@@ -1762,9 +1762,9 @@ ${patchGlsl}
 ${outpostGlsl}
   }`
   })()
-  // 【戰場的痕跡畫在道路之前】土路從彈坑區穿過，路面壓在坑上
+  // 【戰場的痕跡畫在道路之後】先有路、後來才被炸：坑蓋在路面上
   const scarSection = site.scars === undefined ? '' : scarsGlsl(site.scars)
-  return `${padSection}${scarSection}
+  return `${padSection}
   // 【道路與鐵路自己一個外接矩形】底下這 ${rail.length + segs.length} 段點線距離是每個像素都跑的，
   // 而連外道路一路畫到圖邊 —— 墊面那個矩形擋不住它們，得自己算一個。
   // 見 roadBounds()：留的邊界要蓋得住抗鋸齒帶，否則路的外緣會沿著矩形邊
@@ -1785,7 +1785,7 @@ ${list}
     roadD = min(roadD, length(world - (a + ab * t)));
   }
   col = mix(col, ${rgb(site.roadHex ?? ASPHALT)}, bandCoverage(roadD, ${(site.roadWidth / 2).toFixed(1)}, px));
-  }`
+  }${scarSection}`
 }
 
 /** 有廠區的那一份 GLSL。`site` 省略時與 `fieldGlsl(season)` 逐字相同 */

@@ -5,7 +5,7 @@ import { assetUrl } from '../core/asset'
  * # 戰場的痕跡
  *
  * 疊在麥田上的彈坑、燒焦的田、坦克的履帶痕、壕溝。**畫在田的著色器裡**（`fields.ts`
- * 的 `siteGlsl` 接在道路之前），所以跟著田色一起烘進近遠四層貼圖，不加任何幾何。
+ * 的 `siteGlsl` 接在道路之後），所以跟著田色一起烘進近遠四層貼圖，不加任何幾何。
  *
  * 貼圖是一張 4 × 4 的圖集（`public/textures/battlefield.png`，由
  * `tools/battlefield/craters.py` 產生），格子依列優先、左上為 0：
@@ -136,7 +136,7 @@ function linesGlsl(name: string, lines: readonly ScarLine[], cells: readonly [nu
 }
 
 /**
- * 接在 `fieldColorAt` 的道路之前（`siteGlsl`）。用的變數：`world`、`px`、`col`。
+ * 接在 `fieldColorAt` 的道路之後（`siteGlsl`）。用的變數：`world`、`px`、`col`。
  * 輔助函式 `scarTexel` 由 `SCARS_FN` 提供，要放在 `fieldColorAt` 之前。
  */
 export function scarsGlsl(s: BattleScars): string {

@@ -1,6 +1,8 @@
 import { villageSite, type FloraSource } from './flora'
 import { regionAt, regionSeed, trackGap, trackWidthAt, REGION_SPACING, type RegionSample } from './fields'
 import { settlementLayout } from './settlements'
+import { steppeLayout, type GardenStrip, type LaneVillage } from './steppeVillage'
+import type { Season } from './season'
 import type { Place } from '../world/landFeatures'
 
 /**
@@ -36,7 +38,15 @@ function mix(h: number): number {
 
 /** `half` 見方的半邊以內的村與小聚落 */
 export function farmPlaces(half: number): Place[] {
-  const out: Place[] = []
+  return farmLaneVillages(half).map((v) => v.place)
+}
+
+/**
+ * 同 `farmPlaces`，另外給每個村的站址（凹路上）與凹路的走向。**小聚落的站址與走向
+ * 沿用它所屬的村**。草原街村（`steppeVillage.ts`）沿凹路排房子，要這兩個
+ */
+export function farmLaneVillages(half: number): LaneVillage[] {
+  const out: LaneVillage[] = []
   const site = { x: 0, z: 0 }
   const seed = { x: 0, z: 0 }
   const n = Math.ceil(half / REGION_SPACING) + 1
@@ -52,13 +62,22 @@ export function farmPlaces(half: number): Place[] {
       const cz = site.z + ((seed.z - site.z) / dl) * CENTRE_OFFSET
       const h = mix((i * 73856093) ^ (j * 19349663))
       const pop = VILLAGE_POP[0] + ((h & 0xffff) / 65536) * (VILLAGE_POP[1] - VILLAGE_POP[0])
-      out.push({ name: `v${i},${j}`, kind: 'village', x: cx, z: cz, pop: Math.round(pop) })
+      // 凹路的走向垂直於站址到種子的方向
+      const lane = Math.atan2((seed.x - site.x) / dl, -(seed.z - site.z) / dl)
+      const village = {
+        place: { name: `v${i},${j}`, kind: 'village', x: cx, z: cz, pop: Math.round(pop) } as Place,
+        siteX: site.x, siteZ: site.z, lane,
+      }
+      out.push(village)
       const hamlets = (h >>> 16) % (HAMLETS_MAX + 1)
       for (let k = 0; k < hamlets; k++) {
         const g = mix(h ^ (k * 0x9e3779b1))
         const a = ((g & 0xffff) / 65536) * Math.PI * 2
         const d = HAMLET_RING[0] + ((g >>> 16) / 65536) * (HAMLET_RING[1] - HAMLET_RING[0])
-        out.push({ name: `h${i},${j},${k}`, kind: 'hamlet', x: site.x + Math.cos(a) * d, z: site.z + Math.sin(a) * d })
+        out.push({
+          place: { name: `h${i},${j},${k}`, kind: 'hamlet', x: site.x + Math.cos(a) * d, z: site.z + Math.sin(a) * d } as Place,
+          siteX: site.x, siteZ: site.z, lane,
+        })
       }
     }
   }
@@ -72,11 +91,23 @@ const REG: RegionSample = { r1: 0, r2: 0, ax: 0, az: 0, bx: 0, bz: 0, id: 0, ang
  * 算好、依 tile 分桶）。房子不蓋在凹路上
  */
 export function farmSettlementFlora(half: number): FloraSource {
+  return farmSettlements(half).flora
+}
+
+/**
+ * 村與小聚落：建築與樹（`flora`）、屋後的菜園（`gardens`，只有草原街村有）。
+ *
+ * @param season 七月麥田（`julyWheat`）是俄國南部的街村；其餘是德國中部的團狀村與綠地村
+ */
+export function farmSettlements(
+  half: number, season: Season = 'summer',
+): { flora: FloraSource; gardens: readonly GardenStrip[] } {
   const onLane = (x: number, z: number): boolean => {
     regionAt(x, z, REG)
     return trackGap(x, z, REG) < trackWidthAt(x, z) + LANE_CLEAR
   }
+  if (season === 'julyWheat') return steppeLayout(farmLaneVillages(half), onLane)
   // 團狀村與綠地村各半：由站址座標的雜湊挑（`eastOfSaale` 在這裡只是村形的開關）
   const angerdorf = (x: number, z: number): boolean => (mix(Math.imul(Math.round(x), 73856093) ^ Math.round(z)) & 1) === 0
-  return settlementLayout(farmPlaces(half), onLane, angerdorf).flora
+  return { flora: settlementLayout(farmPlaces(half), onLane, angerdorf).flora, gardens: [] }
 }

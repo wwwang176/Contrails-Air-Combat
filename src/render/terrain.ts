@@ -7,7 +7,8 @@ import { SCENERY_CHUNK, SCENERY_MIN_TRIS, splitByGrid } from './sceneryChunks'
 import { CULL } from './cullRuns'
 import { createFieldClipmap, type ClipLevelSpec, type FieldClipmap } from './fieldClipmap'
 import { floraSplats } from './buildingBake'
-import { farmSettlementFlora } from './farmSettlements'
+import { farmSettlements } from './farmSettlements'
+import { buildGardens } from './steppeVillage'
 import type { DayPalette } from './timeOfDay'
 import { createIslands } from './island'
 import { createFarmGround } from './farmGround'
@@ -18,7 +19,7 @@ import {
 } from './vegetation'
 import {
   createIslandFlora, createLeyteFlora, farmHedgeFlora, farmWoodFlora,
-  islandCanopyCover, leyteCanopyCoarse, leyteFarCover, openHedgeFlora, openWoodFloraFor, type FloraSource,
+  islandCanopyCover, leyteCanopyCoarse, leyteFarCover, openHedgeFloraFor, openWoodFloraFor, type FloraSource,
 } from './flora'
 import { requestLeyteCanopy } from './canopyBake'
 import { createLeyteGround } from './leyteGround'
@@ -639,13 +640,15 @@ function createInlandTerrain(
   const padClear = (s: FloraSource): FloraSource => pads.reduce((src, r) => excluding(src, r), s)
   // 【空地的樹林門檻跟著季節】與地色（`openDeclGlsl`）讀同一份 `woodGate`
   const openWoods = openWoodFloraFor(FIELD_COLORS[season].woodGate)
-  let fields = (open ? [openHedgeFlora, openWoods] : [farmHedgeFlora, farmWoodFlora]).map(padClear)
+  const openHedges = openHedgeFloraFor(FIELD_COLORS[season].hedgeChance)
+  let fields = (open ? [openHedges, openWoods] : [farmHedgeFlora, farmWoodFlora]).map(padClear)
   // 【建築：植被與烘圖是同一個散佈器】兩邊各包一份的話，遠處的屋頂色塊與近處的
   // 房子對不上。真實地物的建築已經避開河道；程序村沒有，要包河廊
   // 程序生成的地圖的村用洛伊納那一套生成器（`farmSettlements.ts`），蓋到植被圈伸得到
   // 的地方
   const villageReach = farm.field.cell * (farm.field.size - 1) / 2 + FLORA_RADIUS + 1000
-  let buildings = padClear(dressing === undefined ? farmSettlementFlora(villageReach) : dressing.buildings)
+  const villages = dressing === undefined ? farmSettlements(villageReach, season) : null
+  let buildings = padClear(villages === null ? dressing!.buildings : villages.flora)
   // 【不長樹的範圍】地圖列出它有的範圍，載入時各合成一張遮罩（`keepOutMask.ts`）。
   // 野生的樹（河岸林、河漫灘的林子）避開村鎮、礦坑、高速公路；田裡的樹（樹籬、田裡
   // 的林地）另外避開河漫灘與河廊。遮罩蓋到植被圈伸得到的地方，外面逐點算
@@ -685,10 +688,17 @@ function createInlandTerrain(
   const reach = farm.field.cell * (farm.field.size - 1) / 2
     + FIELD_CLIP_HORIZON.size * FIELD_CLIP_HORIZON.metersPerTexel / 2
   const roofs = clipmap === null ? null : floraSplats(splatted, -reach, -reach, reach, reach, season)
+  /** 菜園的網格。烘圖的 overlay 不替呼叫端丟幾何，`dispose` 要自己丟 */
+  let gardenGeometry: BufferGeometry | null = null
   if (clipmap !== null && roofs !== null) {
     for (const m of dressing?.baked ?? []) {
       clipmap.addOverlay(m.geometry, true)
       clipmap.replaces(m)
+    }
+    // 屋後的長條菜園（草原街村）：平貼在地上，烘進近圖
+    if (villages !== null && villages.gardens.length > 0) {
+      gardenGeometry = buildGardens((x, z) => solid.sample(x, z), villages.gardens)
+      clipmap.addOverlay(gardenGeometry, true)
     }
     for (const m of dressing?.beyond ?? []) clipmap.beyondFar(m)
     clipmap.addOverlay(roofs, false)
@@ -775,6 +785,7 @@ function createInlandTerrain(
       vegetation.dispose()
       clipmap?.dispose()
       roofs?.dispose()
+      gardenGeometry?.dispose()
       if (river !== null) disposeRiverMeshes(river)
       dressing?.dispose()
       if (sceneryGroup !== null) {
