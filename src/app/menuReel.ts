@@ -22,6 +22,8 @@ import {
 import { createBombs, createTorpedoes, type BombVisuals, type OrdnancePool } from '../render/bombs'
 import { createGroundModels, type GroundModels } from '../render/groundTargets'
 import { createGroundTarget, type GroundTarget } from '../world/groundTargets'
+import { createHitResult, hitAircraft, segmentPointDistanceSq } from '../world/hit'
+import { clearImpacts, createImpacts, pushImpact, type ImpactEvents } from '../world/events'
 
 /**
  * 主選單背景的短片放映機。分鏡在 `reelShots.ts`；這裡負責建／拆演員、推進時間、
@@ -39,6 +41,8 @@ export interface ReelFx {
    */
   kill(model: AircraftModel, spec: AircraftSpec, vx: number, vy: number, vz: number,
     seed: number, blast: boolean): void
+  /** 機槍彈打中機身：遊戲那一套命中火花。**呼叫完就清空**，不要留著事件 */
+  hits(events: ImpactEvents): void
   /** 一朵高砲黑雲 */
   flak(x: number, y: number, z: number): void
   /** 受損拖的一團煙 */
@@ -105,6 +109,8 @@ export interface MenuReel {
   /** 放到第幾段的哪一秒、鏡頭在哪看哪。量測與截圖用（每次讀都配置，不要在幀迴圈裡讀） */
   readonly status: {
     readonly shot: string | null, readonly t: number
+    /** 這一段到現在機槍打中飛機幾發 */
+    readonly hits: number
     readonly camera: number[], readonly target: number[], readonly up: number[]
     readonly facing: number[], readonly lens: number[]
   }
@@ -171,6 +177,12 @@ interface AaStream {
 /** 短片裡的船沒有砲位可以被打掉。模組層建一次 —— 每幀傳一個新的箭頭函式就是每幀配置 */
 const NO_GUN_LOST = (): void => {}
 
+/** 防空與機槍手曳光的射手編號：負數不做命中判定（−1 是彈丸池的空槽，不能用） */
+const STREAM_OWNER = -2
+const S0 = new Vector3()
+const S1 = new Vector3()
+const HIT = createHitResult()
+
 /**
  * 短片自己的炸彈或魚雷。**位置每幀由 `bombAt`／`torpedoAt` 從投下那一刻算出來**，
  * 填進外觀池讀的那幾格（`OrdnancePool`）。起點都是世界座標 —— 重力只往下，
@@ -222,6 +234,11 @@ const SHIP_FIRES_PER_SHIP = 6
 const TORPEDO_SHIP_REACH = 6
 const LOCAL = new Vector3()
 const INV_Q = new Quaternion()
+/**
+ * `shipUnder` 找到的那一點正下方最高的盒頂，m。**不是 `Ship.impactY`** —— 那是整艘
+ * 船蓋住中線的最高盒頂，LST 的艉樓盒也蓋住中線，戰車甲板上的爆炸會高出 4.5 m
+ */
+let underTop = 0
 
 /** 船上的一處火：位置記在艦體座標，跟著船走 */
 interface ShipFire {
@@ -242,6 +259,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   const group = new Group()
   group.name = 'menuReel'
   const projectiles = new Projectiles(REEL_PROJECTILES)
+  const impacts = createImpacts()
   const tracers: Tracers = createTracers(REEL_PROJECTILES)
   const muzzles: Muzzles<MuzzleSource> = createMuzzles(REEL_MAX_PLANES)
   const bombVisuals: BombVisuals = createBombs()
@@ -260,6 +278,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   let t = 0
   let cursor = 0
   let fadingOut = false
+  let hitCount = 0
   /**
    * 主角現在落在畫面寬度的第幾成。換頁或縮放時改的是 `subjectGoal`，這裡用
    * `SUBJECT_SLIDE` 秒前後放慢滑過去 —— 直接寫進來的話整個畫面在一幀內橫移兩成寬
@@ -346,6 +365,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     t = 0
     cursor = 0
     fadingOut = false
+    hitCount = 0
     if (group.parent === null) scene.add(group)
     // 【先換地形再換時段】時段要套到新的那一張地形上
     stage.setTerrain(next.terrain ?? 'archipelago')
@@ -527,15 +547,20 @@ export function createMenuReel(stage: ReelStage): MenuReel {
 
   /**
    * 這一點在哪一艘船的船體上（俯視：碰撞盒外擴 `reach` m）。沒有回 −1。
-   * 只看水平 —— 呼叫端自己判斷高度
+   * 只看水平 —— 呼叫端拿 `underTop` 判斷高度
    */
   function shipUnder(p: Vector3, reach = SHIP_HIT_REACH): number {
     for (let k = 0; k < ships.length; k++) {
       const s = ships[k]!
       LOCAL.copy(p).sub(s.position).applyQuaternion(INV_Q.copy(s.orientation).invert())
+      let top = -Infinity
       for (const b of s.cls.hull) {
         if (Math.abs(LOCAL.x - b.center.x) < b.half.x + reach
-          && Math.abs(LOCAL.z - b.center.z) < b.half.z + reach) return k
+          && Math.abs(LOCAL.z - b.center.z) < b.half.z + reach) top = Math.max(top, b.center.y + b.half.y)
+      }
+      if (top > -Infinity) {
+        underTop = top
+        return k
       }
     }
     return -1
@@ -605,8 +630,8 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       bombAt(bombs.p0[i]!, bombs.v0[i]!, tau, V1)
       // 【先看有沒有打中船】船不是地形：落在船上要在甲板高度爆，不是掉到海面掀水柱
       const k = shipUnder(V1)
-      if (k >= 0 && V1.y <= ships[k]!.impactY) {
-        V1.y = ships[k]!.impactY
+      if (k >= 0 && V1.y <= underTop) {
+        V1.y = underTop
         fx.shipHit(V1.x, V1.y, V1.z)
         igniteShip(k, V1)
         bombs.active[i] = 0
@@ -645,7 +670,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
           if (k >= 0) {
             V1.y = 4
             igniteShip(k, V1)
-            V1.y = ships[k]!.impactY
+            V1.y = underTop
             igniteShip(k, V1)
           }
         }
@@ -715,12 +740,12 @@ export function createMenuReel(stage: ReelStage): MenuReel {
         }
       }
       a.smokeFrom.copy(V1)
-      stepGuns(a, dt)
+      stepGuns(a, i, dt)
     }
   }
 
   /** 連射：與機庫展示場同一個做法，各掛架照自己的射速輪流吐 */
-  function stepGuns(a: Actor, dt: number): void {
+  function stepGuns(a: Actor, owner: number, dt: number): void {
     const mounts = a.spec.battery.mounts
     const firing = a.burstLeft > 0
     if (firing) a.burstLeft -= dt
@@ -739,7 +764,41 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       // 【曳光沿機槍的實際方向，不修正】要打中是導演的事：把飛機飛到機首對著目標的位置
       mountDirection(a.spec.battery, i, V2).applyQuaternion(a.quaternion)
       V2.multiplyScalar(weapon.muzzleVelocity).add(a.velocity)
-      projectiles.spawn(V1.x, V1.y, V1.z, V2.x, V2.y, V2.z, 0, 0, 0, PROJECTILE_LIFETIME, weapon.caliber)
+      projectiles.spawn(V1.x, V1.y, V1.z, V2.x, V2.y, V2.z, 0, owner, 0, PROJECTILE_LIFETIME, weapon.caliber)
+    }
+  }
+
+  /**
+   * 固定機槍的彈打中飛機：用遊戲的命中盒判定，噴遊戲那一套火花、彈丸停在機身上。
+   * 射手自己不算。船的防空與機槍手的曳光（`STREAM_OWNER`）不判定 —— 它們照設計是擦身而過
+   */
+  function stepHits(): void {
+    const p = projectiles
+    for (let i = 0; i < p.capacity; i++) {
+      const owner = p.owner[i]!
+      if (owner < 0) continue
+      S0.set(p.sx[i]!, p.sy[i]!, p.sz[i]!)
+      S1.set(p.x[i]!, p.y[i]!, p.z[i]!)
+      for (let j = 0; j < actors.length; j++) {
+        const a = actors[j]!
+        if (j === owner || a.model === null) continue
+        const r = a.spec.wing.span
+        if (segmentPointDistanceSq(S0.x, S0.y, S0.z, S1.x, S1.y, S1.z,
+          a.position.x, a.position.y, a.position.z) > r * r) continue
+        if (!hitAircraft(a.spec.hitBoxes, a.position, a.quaternion, S0, S1, HIT)) continue
+        V3.lerpVectors(S0, S1, HIT.t)
+        // 法線是機體座標；彈從盒內出發（沒有入射面）就朝來向噴
+        if (HIT.nx === 0 && HIT.ny === 0 && HIT.nz === 0) V2.subVectors(S0, S1).normalize()
+        else V2.set(HIT.nx, HIT.ny, HIT.nz).applyQuaternion(a.quaternion)
+        pushImpact(impacts, V3.x, V3.y, V3.z, V2.x, V2.y, V2.z)
+        hitCount++
+        p.kill(i)
+        break
+      }
+    }
+    if (impacts.count > 0) {
+      fx.hits(impacts)
+      clearImpacts(impacts)
     }
   }
 
@@ -778,7 +837,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
         V2.sub(V1).normalize().multiplyScalar(AA_SPEED)
         // 機槍手的彈要加上自己的機速
         if (shooter !== undefined) V2.add(shooter.velocity)
-        projectiles.spawn(V1.x, V1.y, V1.z, V2.x, V2.y, V2.z, 0, 0, 0, PROJECTILE_LIFETIME, ship !== undefined ? 40 : 13)
+        projectiles.spawn(V1.x, V1.y, V1.z, V2.x, V2.y, V2.z, 0, STREAM_OWNER, 0, PROJECTILE_LIFETIME, ship !== undefined ? 40 : 13)
       }
     }
   }
@@ -850,6 +909,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     stepOrdnance()
     stepShipFires(dt)
     projectiles.step(dt)
+    stepHits()
     tracers.update(projectiles)
     muzzles.update(sources, positions, quaternions)
   }
@@ -857,7 +917,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   return {
     get status() {
       return {
-        shot: shot?.id ?? null, t,
+        shot: shot?.id ?? null, t, hits: hitCount,
         camera: camera.position.toArray().map(Math.round),
         target: cam.target.toArray().map(Math.round),
         up: camera.up.toArray().map((v) => Math.round(v * 100) / 100),
