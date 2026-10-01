@@ -27,17 +27,20 @@ import {
 //             6.3 秒右發起火，6.4 秒往右下脫離
 //   7.4–9.8   中彈的後果：右僚機正後方略低往前看，它襯著天、右發起火拖黑煙，
 //             脫離的野貓從它底下往右前方竄出去，它開始掉隊、長機在前方越拉越遠
-//   9.8–12.2  長機機腹下：10 秒起炸彈一枚枚從彈艙掉出來
-//   12.2–15.0 跟著長機第四枚炸彈往下掉：鏡頭在炸彈下方往上看，整串炸彈與長機襯著天
-//   15.0–17.0 第二編隊長機的上方砲塔往前看：野貓從左前上方俯衝對頭開火，
-//             17.05 秒擦過頭頂
-//   17.0–19.6 灘頭西段的沙灘往東看：炸彈串從 LST 的艉一路炸到艏、再炸上沙灘，甲板上
-//             一團團炸開留下火點，後方的泊地掀起水柱，鏡頭跟著震
-//   19.6–22.2 山坡樹梢上仰拍：編隊從頭上飛過，起火的右僚機拖著煙
-//   22.2–24.8 第二編隊長機的機腹吊艙往後下看：自己炸過的戰車集結場在下面燒，第三編隊
+//   9.8–11.8  第二編隊長機的上方砲塔往前看：野貓從左前上方俯衝對頭開火，
+//             11.85 秒擦過頭頂
+//   11.8–14.2 長機機腹下：12 秒起炸彈一枚枚從彈艙掉出來
+//   14.2–17.6 跟著長機第四枚炸彈往下掉：鏡頭在炸彈下方往上看，整串炸彈與長機襯著天
+//   17.6–21.6 灘頭西段的沙灘往東看：先是平靜的灘頭與天上落下的黑點，19.6 秒起炸彈串
+//             從 LST 的艉一路炸到艏、再炸上沙灘，甲板上一團團炸開留下火點，鏡頭跟著震
+//   21.6–24.2 山坡樹梢上仰拍：編隊從頭上飛過，下面的集結場挨炸
+//   24.2–26.8 第二編隊長機的機腹吊艙往後下看：自己炸過的戰車集結場在下面燒，第三編隊
 //             的炸彈串走過油料與彈藥堆，炸開起火
-//   24.8–27.4 長機背上的機槍位往後看：自己的垂尾、後面兩個編隊、整片灘頭在燒
-//   27.4–30   第一個三機左後下方：剪影越飛越遠，往東北爬升離開
+//   26.8–29.4 長機背上的機槍位往後看：自己的垂尾、後面兩個編隊、整片灘頭在燒
+//   29.4–32   第一個三機左後下方：剪影越飛越遠，往東北爬升離開
+//
+// 【戰鬥機在前、炸彈在後】攔截全部演完才投彈；第一次看到爆炸是跟著炸彈那一刀之後。
+// 炸彈從投下到落地約 7.6 秒，比投彈與跟炸彈兩刀加起來長 —— 灘頭那一刀先空等兩秒
 
 const S1 = new Vector3()
 const S2 = new Vector3()
@@ -87,9 +90,9 @@ const SPEED = 85
 /** 雲底下的進場高度。主峰 425 m 在航線西邊 950 m，航線底下最高的是東北小山的山腰 */
 const ALT = 270
 const TRACK_X = 950
-const Z0 = 2400
+const Z0 = 2570
 /** 投完彈、往右轉出去的時刻 */
-const TURN_AT = 19.5
+const TURN_AT = 21.5
 
 const lead: Path = (t, out) => {
   out.set(TRACK_X, ALT, Z0 - SPEED * t)
@@ -161,11 +164,12 @@ const WILDCAT_FIRE_LEN = 1.1
  *
  * 【直線的斜率是瞄出來的】曳光沿機首直直打出去。橫移 (13.4, −15.3) m/s 讓機首那條線
  * 在穿越前 1.6 秒（`HEAD_AIM_AT`，約 345 m）正好穿過長機中心；之後每秒偏開約 13 m
- * （長機自己往前飛 85 m/s，機首的線是斜的），所以只能在那一刻前後各 0.2 秒開火 ——
- * 再長就超過翼展的六分之一，曳光從翼尖外飛過。越晚瞄準，橫移要越大、偏得越快
- * 【往前延伸要彎】直線往回推 17 秒是 3.6 km 外，出了動作圓
+ * （長機自己往前飛 85 m/s，機首的線是斜的），加上僚機各自的起伏，只能在那一刻前
+ * 0.15、後 0.2 秒開火 —— 再長就超過翼展的六分之一，曳光從翼尖外飛過。越晚瞄準，
+ * 橫移要越大、偏得越快
+ * 【往前延伸要彎】直線往回推十幾秒是兩三公里外，出了動作圓
  */
-const PASS_AT = 17.05
+const PASS_AT = 11.85
 const HEAD_SPEED = 130
 const HEAD_AIM_AT = PASS_AT - 1.6
 const HEAD_VX = 13.4
@@ -183,7 +187,7 @@ const headOn: Path = (t, out) => {
 }
 const HEAD_ON = 10
 
-const BOMB_AT = 10.0
+const BOMB_AT = 12.0
 const BOMB_INTERVAL = 0.22
 /**
  * 跟拍的那一枚：長機第四枚。投下那一刻的機腹點與速度在載入時算一次 ——
@@ -249,31 +253,7 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 9.8, subject: 0, mount: 0,
-    camera(t, out) {
-      // 機腹右後下方往前上看彈艙：炸彈從機腹掉出來、從鏡頭前落下去
-      body(lead, t, 2.6, -4.2, 5.5, false, out.position)
-      body(lead, t, 0, -2.2, -1.5, false, out.target)
-      bodyUp(lead, t, out.up)
-      out.fov = 60
-      shake(t, 0.14, 5, out)
-    },
-  },
-  {
-    from: 12.2, subject: null,
-    camera(t, out) {
-      // 跟著那一枚往下掉：鏡頭在它右前下方 20 m，往上看炸彈與後面的長機 —— 炸彈與飛機
-      // 襯著天。往下看的話深色的彈體疊在深色的海上，看不見
-      bombAt(FOLLOW_P, FOLLOW_V, t - FOLLOW_AT, S1)
-      out.position.set(S1.x + 8, S1.y - 20, S1.z - 10)
-      lead(t, S2)
-      aimBetween(out.position, S1, S2, 0.45, out.target)
-      out.fov = 58
-      shake(t, 0.35, 6, out)
-    },
-  },
-  {
-    from: 15.0, subject: HEAD_ON, mount: LEAD2,
+    from: 9.8, subject: HEAD_ON, mount: LEAD2,
     camera(t, out) {
       // 上方砲塔的位置（機身命中盒頂 1.50、背上補漏盒頂 1.68）
       body(lead2, t, 0, 2.5, 3.0, false, out.position)
@@ -286,20 +266,44 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 17.0, subject: null,
+    from: 11.8, subject: 0, mount: 0,
+    camera(t, out) {
+      // 機腹右後下方往前上看彈艙：炸彈從機腹掉出來、從鏡頭前落下去
+      body(lead, t, 2.6, -4.2, 5.5, false, out.position)
+      body(lead, t, 0, -2.2, -1.5, false, out.target)
+      bodyUp(lead, t, out.up)
+      out.fov = 60
+      shake(t, 0.14, 5, out)
+    },
+  },
+  {
+    from: 14.2, subject: null,
+    camera(t, out) {
+      // 跟著那一枚往下掉：鏡頭在它右前下方 20 m，往上看炸彈與後面的長機 —— 炸彈與飛機
+      // 襯著天。往下看的話深色的彈體疊在深色的海上，看不見
+      bombAt(FOLLOW_P, FOLLOW_V, t - FOLLOW_AT, S1)
+      out.position.set(S1.x + 8, S1.y - 20, S1.z - 10)
+      lead(t, S2)
+      aimBetween(out.position, S1, S2, 0.45, out.target)
+      out.fov = 58
+      shake(t, 0.35, 6, out)
+    },
+  },
+  {
+    from: 17.6, subject: null,
     camera(t, out) {
       // 西叢 LST 東邊的沙灘（沙灘上沒有樹）往東看：東叢三艘 LST 在 200 m 外並排頂在
-      // 灘上，長機與左僚機兩串從艉炸到艏、再炸上沙灘。整串落地的 1.6 秒裡跟著震
+      // 灘上，長機與左僚機兩串從艉炸到艏、再炸上沙灘。前兩秒炸彈還在天上，整串落地的 1.8 秒裡跟著震
       out.position.set(750, 12, 945)
       out.target.set(1000, 30, 990)
       out.fov = 52
       shake(t, 0.3, 8, out)
-      // 第一編隊的炸彈 17.6～19.4 秒落地（200 m 外的甲板爆炸與水柱：一下 0.9°）
-      jolt(t, 0.9, 17.6, 19.4, out)
+      // 第一編隊的炸彈 19.6～21.4 秒落地（200 m 外的甲板爆炸與水柱：一下 0.9°）
+      jolt(t, 0.9, 19.6, 21.4, out)
     },
   },
   {
-    from: 19.6, subject: 0,
+    from: 21.6, subject: 0,
     camera(t, out) {
       // 山腰高過樹梢 10 m：注視點跟不上長機 0.25 秒，偏向背後挨炸的戰車集結場
       out.position.set(950, 168, 450)
@@ -311,10 +315,10 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 22.2, subject: null, mount: LEAD2,
+    from: 24.2, subject: null, mount: LEAD2,
     camera(t, out) {
       // 第二編隊長機的機腹吊艙後方（機身命中盒底 −1.25、吊艙補漏盒底 −1.31，再外擴 0.5）
-      // 往後下看：自己剛炸過、正在燒的戰車集結場在正下方，第三編隊的炸彈串 22.0～23.5 秒
+      // 往後下看：自己剛炸過、正在燒的戰車集結場在正下方，第三編隊的炸彈串 24.0～25.5 秒
       // 走過右後方的油料與彈藥堆。注視點釘在地上，鏡頭跟著飛機慢慢轉過去
       body(lead2, t, 0, -2.3, 5.0, false, out.position)
       out.target.set(985, 5, 835)
@@ -324,7 +328,7 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 24.8, subject: LEAD2, mount: 0,
+    from: 26.8, subject: LEAD2, mount: 0,
     camera(t, out) {
       // 背上機槍位（機身命中盒頂 1.50）往後看
       body(lead, t, 0, 2.4, 5.0, false, out.position)
@@ -335,10 +339,10 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 27.4, subject: 0,
+    from: 29.4, subject: 0,
     camera(t, out) {
       // 左後下方、慢慢落後：三機的腹面剪影襯著雨幕
-      body(lead, t, -10, -22, 85 + 6 * (t - 27.4), true, out.position)
+      body(lead, t, -10, -22, 85 + 6 * (t - 29.4), true, out.position)
       body(lead, t, -8, 0, 10, true, out.target)
       out.fov = 44
       shake(t, 0.17, 12, out)
@@ -421,26 +425,26 @@ const PLANES: readonly ReelPlane[] = [
 
 export const RAID: Shot = {
   id: 'raid',
-  duration: 30,
+  duration: 32,
   timeOfDay: 'storm',
   faceSun: false,
   site: 'island',
-  clear: { x: 900, z: 900, radius: 2800 },
+  clear: { x: 950, z: 1500, radius: 3000 },
   planes: PLANES,
   ships: SHIPS,
   props: PROPS,
   cuts: CUTS,
   camera: edit(CUTS),
   events: timeline([
-    ...barrage(301, 0, 24, 1.4, (t, out) => lead(t, out).add(S3.set(0, 20, 80)),
+    ...barrage(301, 0, 26, 1.4, (t, out) => lead(t, out).add(S3.set(0, 20, 80)),
       { x: 220, yLo: -70, yHi: 110, z: 260 }, edit(CUTS), 60),
     // 船上的防空：外海的護航艦從進場一路打，搶灘的 LST 等編隊到頭頂才開火
     { at: 1.0, kind: 'aa', ship: DD, actor: 0, seconds: 7, miss: 30 },
     { at: 2.0, kind: 'aa', ship: CA, actor: 1, seconds: 7, miss: 30 },
     { at: 3.0, kind: 'aa', ship: DD, actor: CRIPPLED, seconds: 6, miss: 30 },
-    { at: 8.0, kind: 'aa', ship: CA, actor: LEAD2, seconds: 8, miss: 25 },
-    { at: 9.0, kind: 'aa', ship: LST_B3, actor: 0, seconds: 8, miss: 25 },
-    { at: 10.0, kind: 'aa', ship: LST_A1, actor: 6, seconds: 10, miss: 30 },
+    { at: 9.0, kind: 'aa', ship: CA, actor: LEAD2, seconds: 9, miss: 25 },
+    { at: 11.0, kind: 'aa', ship: LST_B3, actor: 0, seconds: 8, miss: 25 },
+    { at: 12.0, kind: 'aa', ship: LST_A1, actor: 6, seconds: 10, miss: 30 },
     // 野貓咬住右僚機
     { at: 4.2, kind: 'gunner', actor: CRIPPLED, target: WILDCAT, seconds: 3.0, miss: 10 },
     { at: 4.6, kind: 'gunner', actor: 0, target: WILDCAT, seconds: 2.0, miss: 16 },
@@ -449,25 +453,25 @@ export const RAID: Shot = {
     { at: FIRE_AT, kind: 'smoke', actor: CRIPPLED, engine: 1, fire: true },
     { at: 7.6, kind: 'gunner', actor: CRIPPLED, target: WILDCAT, seconds: 1.6, miss: 14 },
     // 對衝第二編隊
-    { at: 15.0, kind: 'gunner', actor: LEAD2, target: HEAD_ON, seconds: 2.0, miss: 12 },
-    { at: 15.2, kind: 'gunner', actor: 4, target: HEAD_ON, seconds: 1.8, miss: 14 },
-    { at: 15.4, kind: 'gunner', actor: 5, target: HEAD_ON, seconds: 1.6, miss: 16 },
-    { at: HEAD_AIM_AT - 0.2, kind: 'burst', actor: HEAD_ON, seconds: 0.4, target: LEAD2 },
+    { at: PASS_AT - 2.05, kind: 'gunner', actor: LEAD2, target: HEAD_ON, seconds: 2.0, miss: 12 },
+    { at: PASS_AT - 1.85, kind: 'gunner', actor: 4, target: HEAD_ON, seconds: 1.8, miss: 14 },
+    { at: PASS_AT - 1.65, kind: 'gunner', actor: 5, target: HEAD_ON, seconds: 1.6, miss: 16 },
+    { at: HEAD_AIM_AT - 0.15, kind: 'burst', actor: HEAD_ON, seconds: 0.35, target: LEAD2 },
     // 油料與彈藥堆：第三編隊是配角，觸控裝置上不出場、不投彈，這兩處就炸不到。
     // 桌機上那之前已經被炸彈炸毀，這兩筆晚一點才到，炸毀過的不會再炸一次
-    { at: 23.5, kind: 'destroy', prop: FUEL_DUMP },
-    { at: 23.6, kind: 'destroy', prop: AMMO_DUMP },
+    { at: 25.5, kind: 'destroy', prop: FUEL_DUMP },
+    { at: 25.6, kind: 'destroy', prop: AMMO_DUMP },
     // 投彈：第一編隊炸 LST（長機、左僚機兩串落在東叢 B2、B1 的甲板上再炸上沙灘），
     // 第二編隊從水邊炸進戰車集結場，第三編隊炸灘頭東端的油料與彈藥堆。
     // 落點照 `bombAt` 算，改了投彈秒數或航線要對著船位與車位重算
     { at: BOMB_AT, kind: 'bomb', actor: 0, count: 8, interval: BOMB_INTERVAL },
-    { at: 10.05, kind: 'bomb', actor: 1, count: 8, interval: BOMB_INTERVAL },
-    { at: 10.15, kind: 'bomb', actor: CRIPPLED, count: 8, interval: BOMB_INTERVAL },
-    { at: 11.95, kind: 'bomb', actor: LEAD2, count: 8, interval: BOMB_INTERVAL },
-    { at: 12.05, kind: 'bomb', actor: 4, count: 8, interval: BOMB_INTERVAL },
-    { at: 12.0, kind: 'bomb', actor: 5, count: 8, interval: BOMB_INTERVAL },
-    { at: 13.85, kind: 'bomb', actor: 6, count: 8, interval: BOMB_INTERVAL },
-    { at: 13.95, kind: 'bomb', actor: 7, count: 8, interval: BOMB_INTERVAL },
-    { at: 13.9, kind: 'bomb', actor: 8, count: 8, interval: BOMB_INTERVAL },
+    { at: BOMB_AT + 0.05, kind: 'bomb', actor: 1, count: 8, interval: BOMB_INTERVAL },
+    { at: BOMB_AT + 0.15, kind: 'bomb', actor: CRIPPLED, count: 8, interval: BOMB_INTERVAL },
+    { at: BOMB_AT + 1.95, kind: 'bomb', actor: LEAD2, count: 8, interval: BOMB_INTERVAL },
+    { at: BOMB_AT + 2.05, kind: 'bomb', actor: 4, count: 8, interval: BOMB_INTERVAL },
+    { at: BOMB_AT + 2.0, kind: 'bomb', actor: 5, count: 8, interval: BOMB_INTERVAL },
+    { at: BOMB_AT + 3.85, kind: 'bomb', actor: 6, count: 8, interval: BOMB_INTERVAL },
+    { at: BOMB_AT + 3.95, kind: 'bomb', actor: 7, count: 8, interval: BOMB_INTERVAL },
+    { at: BOMB_AT + 3.9, kind: 'bomb', actor: 8, count: 8, interval: BOMB_INTERVAL },
   ]),
 }
