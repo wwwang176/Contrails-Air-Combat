@@ -3,6 +3,7 @@ import type { AircraftSpec } from '../../specs/types'
 import type { TimeOfDay } from '../../world/timeOfDay'
 import type { ShipClassId } from '../../world/ships'
 import type { GroundUnitId } from '../../render/geometry/ground'
+import type { DecorKind } from '../../render/geometry/ground/plantDecor'
 import { hash01 } from '../../render/scatter'
 import { WRECK_TERMINAL } from '../../render/wrecks'
 import { createFlight, flightPose, type Path } from '../reelFlight'
@@ -36,6 +37,21 @@ export interface ReelProp {
   readonly x: number
   readonly z: number
   readonly heading: number
+}
+
+/**
+ * 佈景建築（廠房、倉庫、辦公樓、管架、小槽組）：**不是目標、沒有命中盒**，整批合併成
+ * 一顆網格，所以件數可以上百。局部座標，落在地形上；`heading` 與 `ReelProp` 同一個約定。
+ * 尺寸省略時用 `DECOR_DEFAULT`（`pipeRack` 的 `d` 是長度）。炸彈落在它旁邊會燒黑起火
+ */
+export interface ReelDecor {
+  readonly kind: DecorKind
+  readonly x: number
+  readonly z: number
+  readonly heading: number
+  readonly w?: number
+  readonly d?: number
+  readonly h?: number
 }
 
 /** 局部座標的軸對齊矩形，m */
@@ -194,6 +210,8 @@ export interface Shot {
   readonly ships: readonly ReelShip[]
   /** 地上的物件（省略 = 沒有）。見 `ReelProp` */
   readonly props?: readonly ReelProp[]
+  /** 地上的佈景建築（省略 = 沒有）。見 `ReelDecor` */
+  readonly decor?: readonly ReelDecor[]
   /** 依 `from` 排序，第一刀從 0 開始 */
   readonly cuts: readonly Cut[]
   /** 照剪接表取這一刻的鏡頭 */
