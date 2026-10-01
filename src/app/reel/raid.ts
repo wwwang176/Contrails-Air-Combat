@@ -8,33 +8,34 @@ import {
 
 // ── 雷雨空襲 ───────────────────────────────────────────────
 //
-// 暴雨，九架 He 111 分三個三機編隊，從東南的海上往北飛，越過泊地的船、把炸彈
-// 落在泊地與岸邊平地上的小機場、油庫，再右轉爬升離開。英軍的 Martlet 從正後方咬住右僚機，
-// 打著它的右發動機；另一架從正前方對衝第二個編隊。局部原點是群島最大那座島的島心
-// （`site: 'island'`）。
+// 暴雨，九架 He 111 分三個三機編隊，從東南的海上往北飛，轟炸美軍的登陸灘頭：
+// 第一編隊的炸彈串落在搶灘的 LST 上、一路走上沙灘；第二編隊落在灘頭的戰車與卡車
+// 集結場；第三編隊落在灘頭東端的油料與彈藥堆。投完右轉爬升離開。護航航艦的野貓
+// 從正後方咬住右僚機、打著它的右發動機；另一架從正前方對衝第二個編隊。外海一艘
+// 驅逐艦、一艘巡洋艦打防空。局部原點是群島最大那座島的島心（`site: 'island'`）。
 //
-// 地形（局部座標）：主峰 425 m 在原點；東南岸 x 600…1050、z 700…900 是一片
-// 0～40 m 的緩坡平地，海岸線從 (600, 1000) 斜到 (1050, 800)，再往南是開闊的泊地。
-// 東北的小山頂 205 m 在 (1150, 320)。山坡上全是 30 m 高的針葉樹，貼地的鏡頭只能
-// 架在沙灘上，或高過樹梢。
+// 地形（局部座標）：主峰 425 m 在原點；東南岸線從 (583, 1009) 斜到 (1078, 783)，
+// 岸線往內 55～60 m 都在 12 m 以下 —— 那一條是沒有樹的沙灘，再往內是 30 m 高的
+// 針葉林。車輛與貼地的鏡頭只能放在沙灘上（或高過樹梢）。岸外 50 m 水深 5～6 m，
+// LST 的艦體中點落得下去。東北的小山頂 205 m 在 (1150, 320)。
 //
 // 刀表：
 //   0–2.6     雨幕剪影：長機左前下方仰看，長機與右僚機上下疊著、第三編隊在遠處
-//   2.6–5.0   長機座艙頂上往前下看（投彈手的視線）：整片玻璃機鼻在下緣，島與泊地的船
-//             在前方，船上的防空曳光往上竄
-//   5.0–7.4   Martlet 肩後：從正後方略低處咬住右僚機、5.2 秒開火，右僚機的機槍手回擊；
+//   2.6–5.0   長機座艙頂上往前下看（投彈手的視線）：整片玻璃機鼻在下緣，灘頭與搶灘的
+//             LST 在前方，外海的防空曳光往上竄
+//   5.0–7.4   野貓肩後：從正後方略低處咬住右僚機、5.2 秒開火，右僚機的機槍手回擊；
 //             6.3 秒右發起火，6.4 秒往右下脫離
 //   7.4–9.8   右僚機右翼尖前上方回看：右發動機冒火拖煙
 //   9.8–12.2  長機機腹下：10 秒起炸彈一枚枚從彈艙掉出來
 //   12.2–15.0 跟著長機第四枚炸彈往下掉：鏡頭在炸彈下方往上看，整串炸彈與長機襯著天
-//   15.0–17.0 第二編隊長機的上方砲塔往前看：Martlet 從左前上方俯衝對頭開火，
+//   15.0–17.0 第二編隊長機的上方砲塔往前看：野貓從左前上方俯衝對頭開火，
 //             17.05 秒擦過頭頂
-//   17.0–19.6 泊地西岸的沙灘：炸彈串落在並排停著的巡洋艦與驅逐艦身上，甲板上一團團
-//             炸開、留下火點冒黑煙，右舷外掀起水柱，鏡頭跟著震
+//   17.0–19.6 灘頭西段的沙灘往東看：炸彈串從 LST 的艉一路炸到艏、再炸上沙灘，甲板上
+//             一團團炸開留下火點，旁邊那艘的舷外掀起水柱，鏡頭跟著震
 //   19.6–22.2 山坡樹梢上仰拍：編隊從頭上飛過，起火的右僚機拖著煙
-//   22.2–24.8 第二編隊長機的機腹吊艙往後下看：自己炸過的停機線在下面燒，第三編隊的
-//             炸彈串走過油槽與彈藥堆，炸開起火
-//   24.8–27.4 長機背上的機槍位往後看：自己的垂尾、後面兩個編隊、岸邊的機場在燒
+//   22.2–24.8 第二編隊長機的機腹吊艙往後下看：自己炸過的戰車集結場在下面燒，第三編隊
+//             的炸彈串走過油料與彈藥堆，炸開起火
+//   24.8–27.4 長機背上的機槍位往後看：自己的垂尾、後面兩個編隊、整片灘頭在燒
 //   27.4–30   第一個三機左後下方：剪影越飛越遠，往東北爬升離開
 
 const S1 = new Vector3()
@@ -121,7 +122,7 @@ const L3_LEFT = wingman(lead, 60, 33, 238, 4.4)
 const L3_RIGHT = wingman(lead, 126, 28, 236, 5.2)
 
 /**
- * 從正後方略低處咬住右僚機的 Martlet（相對右僚機的位移）：沿一條固定的視線每秒
+ * 從正後方略低處咬住右僚機的野貓（相對右僚機的位移）：沿一條固定的視線每秒
  * 拉近 30 m，`BREAK_AT` 往右下壓坡度脫離，接近率同時收掉 —— 不收的話它在 8 秒
  * 從右僚機旁不到 20 m 擦過。
  *
@@ -134,7 +135,7 @@ const ATTACK_T0 = 3.5
 const BREAK_AT = 6.4
 const LOS_X = 0.015
 const LOS_Y = -0.03
-const martlet: Path = (t, out) => {
+const wildcat: Path = (t, out) => {
   crippled(t, out)
   const s = 140 - 30 * (t - ATTACK_T0)
   out.x += LOS_X * s + rampedOffset(t, BREAK_AT, 0.8, 24) - rampedOffset(t, BREAK_AT + 2.2, 0.8, 24)
@@ -143,13 +144,13 @@ const martlet: Path = (t, out) => {
   out.z += s + rampedOffset(t, BREAK_AT, 0.8, 13) - rampedOffset(t, BREAK_AT + 3, 0.8, 13)
   return out
 }
-const MARTLET = 9
-/** Martlet 連射的起訖秒數：肩後那一刀的快抖跟著它 */
-const MARTLET_FIRE = 5.2
-const MARTLET_FIRE_LEN = 1.1
+const WILDCAT = 9
+/** 野貓連射的起訖秒數：肩後那一刀的快抖跟著它 */
+const WILDCAT_FIRE = 5.2
+const WILDCAT_FIRE_LEN = 1.1
 
 /**
- * 從左前上方俯衝對頭攻擊第二個編隊的 Martlet：第 `PASS_AT` 秒穿過第二編隊長機所在的
+ * 從左前上方俯衝對頭攻擊第二個編隊的野貓：第 `PASS_AT` 秒穿過第二編隊長機所在的
  * 橫切面，在它左上方 (−14, 16)。最後 2.6 秒是一條直線，之前往東彎過來（反向的
  * `rampedOffset`：越早偏得越多），穿過去之後拉平。
  *
@@ -211,18 +212,18 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 5.0, subject: CRIPPLED, mount: MARTLET,
+    from: 5.0, subject: CRIPPLED, mount: WILDCAT,
     camera(t, out) {
       // 右肩後（座艙命中盒頂 1.20、機身 |x| 0.73，各外擴 0.5）
-      body(martlet, t, 0.9, 1.9, 2.8, false, out.position)
+      body(wildcat, t, 0.9, 1.9, 2.8, false, out.position)
       crippled(t, S1)
-      body(martlet, t, 0, 0, -200, false, S2)
+      body(wildcat, t, 0, 0, -200, false, S2)
       aimBetween(out.position, S1, S2, 0.35, out.target)
-      bodyUp(martlet, t, out.up)
+      bodyUp(wildcat, t, out.up)
       out.fov = 50
       shake(t, 0.35, 3, out)
       // 連射時機身的震動：慢晃之外再疊一層小的快抖
-      jolt(t, 0.3, MARTLET_FIRE, MARTLET_FIRE + MARTLET_FIRE_LEN, out)
+      jolt(t, 0.3, WILDCAT_FIRE, WILDCAT_FIRE + WILDCAT_FIRE_LEN, out)
     },
   },
   {
@@ -276,23 +277,23 @@ const CUTS: readonly Cut[] = [
   {
     from: 17.0, subject: null,
     camera(t, out) {
-      // 泊地西岸的沙灘（沙灘上沒有樹）往東看：長機三機的炸彈串落在 200 m 外並排的
-      // 巡洋艦與驅逐艦身上。整串落地的 1.6 秒裡跟著震
+      // 西叢 LST 東邊的沙灘（沙灘上沒有樹）往東看：東叢三艘 LST 在 200 m 外並排頂在
+      // 灘上，長機與左僚機兩串從艉炸到艏、再炸上沙灘。整串落地的 1.6 秒裡跟著震
       out.position.set(750, 12, 945)
       out.target.set(1000, 30, 990)
       out.fov = 52
       shake(t, 0.3, 8, out)
-      // 長機三機的炸彈 17.8～19.4 秒落地（200 m 外的甲板爆炸與水柱：一下 0.9°）
-      jolt(t, 0.9, 17.8, 19.4, out)
+      // 第一編隊的炸彈 17.6～19.4 秒落地（200 m 外的甲板爆炸與水柱：一下 0.9°）
+      jolt(t, 0.9, 17.6, 19.4, out)
     },
   },
   {
     from: 19.6, subject: 0,
     camera(t, out) {
-      // 山腰高過樹梢 10 m：注視點跟不上長機 0.25 秒，偏向背後挨炸的停機線
+      // 山腰高過樹梢 10 m：注視點跟不上長機 0.25 秒，偏向背後挨炸的戰車集結場
       out.position.set(950, 168, 450)
       lead(t - 0.25, S1)
-      S2.set(900, 20, 790)
+      S2.set(890, 5, 885)
       aimBetween(out.position, S1, S2, 0.25, out.target)
       out.fov = 62
       shake(t, 0.42, 9, out)
@@ -302,10 +303,10 @@ const CUTS: readonly Cut[] = [
     from: 22.2, subject: null, mount: LEAD2,
     camera(t, out) {
       // 第二編隊長機的機腹吊艙後方（機身命中盒底 −1.25、吊艙補漏盒底 −1.31，再外擴 0.5）
-      // 往後下看：自己剛炸過、正在燒的停機線在正下方，第三編隊的炸彈串 22.3～23.8 秒
-      // 走過右後方的油槽與彈藥堆。注視點釘在地上，鏡頭跟著飛機慢慢轉過去
+      // 往後下看：自己剛炸過、正在燒的戰車集結場在正下方，第三編隊的炸彈串 22.0～23.5 秒
+      // 走過右後方的油料與彈藥堆。注視點釘在地上，鏡頭跟著飛機慢慢轉過去
       body(lead2, t, 0, -2.3, 5.0, false, out.position)
-      out.target.set(960, 15, 790)
+      out.target.set(985, 5, 835)
       bodyUp(lead2, t, out.up)
       out.fov = 56
       shake(t, 0.14, 10, out)
@@ -335,37 +336,63 @@ const CUTS: readonly Cut[] = [
 ]
 
 /**
- * 泊地的船：停著。巡洋艦與驅逐艦艦艏朝北並排，船身順著第一編隊的航線 —— 長機那一串
- * （x 950）落在巡洋艦中線偏左 5 m、左僚機那一串（x 914）落在驅逐艦中線上，各有三、四枚
- * 在甲板上炸開、留下火點；右僚機那一串（x 986）在巡洋艦右舷外 20 m 落水掀水柱。
- * 放映機只把落在碰撞盒外擴 2 m 內的炸彈算在船上，船挪開幾公尺就全變成水柱
+ * 搶灘的 LST 與外海的護航艦。LST 照雷伊泰灘頭的擺法（`world/leyte.ts`）：原點是水線 ×
+ * 艦體中點，放下的跳板末端（艦體 z −53.5）落在岸線上，艏向朝岸線內法線（約 0.47），
+ * 一叢並排、整叢與每艘各偏一點角度。艦體中點在岸外 50 m、水深 5～6 m，艏底下約 −1.2 m
+ * —— 龍骨（−1.5）剛好頂在灘上。挪近的話艏埋進沙裡，挪遠的話跳板浮在水上。
+ *
+ * 東叢三艘偏西 18°（艏向 0.12～0.17），船身幾乎順著第一編隊的航線（正北）：左僚機
+ * 那一串（x 914）從 B1 的艉一路炸到艏、長機那一串（x 950）沿 B2 炸過去，各有四、五枚
+ * 在甲板上炸開留火點，剩下的炸上沙灘；右僚機那一串（x 986）在 B3 左舷外 15 m 落水。
+ * 放映機只把落在碰撞盒外擴 2 m 內的炸彈算在船上 —— 船挪開幾公尺就全變成水柱。
+ * 西叢兩艘沒挨炸，鏡頭從它們那邊往東看
  */
 const SHIPS: readonly ReelShip[] = [
-  { cls: 'wichita', x: 955, z: 1000, heading: 0, speed: 0 },
-  { cls: 'fletcher', x: 914, z: 1005, heading: 0, speed: 0 },
-  { cls: 'fletcher', x: 1260, z: 930, heading: -1.15, speed: 0 },
+  { cls: 'lst', x: 914.0, z: 958.4, heading: 0.15, speed: 0 },
+  { cls: 'lst', x: 951.1, z: 939.2, heading: 0.17, speed: 0 },
+  { cls: 'lst', x: 1004.4, z: 906.1, heading: 0.12, speed: 0 },
+  { cls: 'lst', x: 665.6, z: 1029.5, heading: 0.5, speed: 0 },
+  { cls: 'lst', x: 713.8, z: 1020.9, heading: 0.46, speed: 0 },
+  { cls: 'fletcher', x: 1180, z: 1120, heading: -1.15, speed: 0 },
+  { cls: 'wichita', x: 820, z: 1260, heading: -1.15, speed: 0 },
 ]
+const DD = 5
+const CA = 6
+const LST_B3 = 2
+const LST_A1 = 3
 
+/** 灘頭車輛的艏向：朝內陸（岸線內法線）與順著岸線 */
+const INLAND = 0.47
+const ALONG = INLAND + Math.PI / 2
 /**
- * 岸邊平地上的小機場與油庫。第二編隊的三串（x 853、888、920，z 860→745，20.8～22.2 秒）
- * 落在停機線與油桶堆上，第三編隊（x 1007、1045、1074，22.3～23.8 秒）落在油槽與
- * 彈藥堆上 —— 炸彈落在命中盒外擴 15 m 內才會炸毀，挪開幾十公尺就只剩彈坑。
- * 停機線西端兩架、高砲與探照燈在炸彈串外面，炸完還在
+ * 灘頭：全在岸線往內 60 m 以內的沙灘上（地形 2～6 m）—— 再往內是針葉林，車會長在樹裡。
+ * 東叢 LST 跳板後面是戰車與卡車的集結場（第二編隊三串 x 853、888、920 從水邊炸進來）；
+ * 灘頭東端是油料與彈藥堆（第三編隊 x 1007、1045、1074）。炸彈落在命中盒外擴 15 m 內
+ * 才會炸毀。西叢那邊卸貨的卡車與防空半履帶沒挨炸
  */
 const PROPS: readonly ReelProp[] = [
-  { id: 'parkedP51', x: 860, z: 790, heading: Math.PI },
-  { id: 'parkedP51', x: 885, z: 796, heading: Math.PI },
-  { id: 'parkedP51', x: 910, z: 802, heading: Math.PI },
-  { id: 'parkedP51', x: 835, z: 784, heading: Math.PI },
-  { id: 'parkedP51', x: 810, z: 778, heading: Math.PI },
-  { id: 'fuelDump', x: 890, z: 765, heading: 0.3 },
-  { id: 'oilTank', x: 1000, z: 795, heading: 0 },
-  { id: 'bombDump', x: 1030, z: 765, heading: -0.4 },
-  { id: 'truck', x: 1060, z: 745, heading: 1.2 },
-  { id: 'flakHeavy', x: 800, z: 830, heading: 0 },
-  { id: 'flakLight', x: 850, z: 870, heading: 0 },
-  { id: 'searchlight', x: 960, z: 820, heading: 0 },
+  { id: 'usTank', x: 850, z: 905, heading: INLAND },
+  { id: 'usTank', x: 868, z: 898, heading: INLAND },
+  { id: 'usTank', x: 886, z: 890, heading: INLAND },
+  { id: 'usTank', x: 904, z: 882, heading: INLAND },
+  { id: 'usTank', x: 922, z: 874, heading: INLAND },
+  { id: 'usTruck', x: 856, z: 893, heading: INLAND },
+  { id: 'usTruck', x: 874, z: 886, heading: INLAND },
+  { id: 'usTruck', x: 892, z: 878, heading: INLAND },
+  { id: 'usTruck', x: 910, z: 870, heading: INLAND },
+  { id: 'fuelDump', x: 1040, z: 790, heading: INLAND },
+  { id: 'bombDump', x: 1070, z: 772, heading: INLAND },
+  { id: 'usTruck', x: 1010, z: 818, heading: ALONG },
+  { id: 'usTruck', x: 1025, z: 805, heading: ALONG },
+  { id: 'usFlakTrack', x: 1090, z: 760, heading: INLAND },
+  { id: 'usFlakTrack', x: 980, z: 840, heading: INLAND },
+  { id: 'usTruck', x: 700, z: 950, heading: ALONG },
+  { id: 'usTruck', x: 720, z: 945, heading: ALONG },
+  { id: 'usFlakTrack', x: 660, z: 960, heading: INLAND },
+  { id: 'usTank', x: 760, z: 925, heading: INLAND },
 ]
+const FUEL_DUMP = 9
+const AMMO_DUMP = 10
 
 const PLANES: readonly ReelPlane[] = [
   { spec: HE111, path: lead },
@@ -377,7 +404,7 @@ const PLANES: readonly ReelPlane[] = [
   { spec: HE111, path: lead3, extra: true },
   { spec: HE111, path: L3_LEFT, extra: true },
   { spec: HE111, path: L3_RIGHT, extra: true },
-  { spec: F4F4, path: martlet },
+  { spec: F4F4, path: wildcat },
   { spec: F4F4, path: headOn },
 ]
 
@@ -396,39 +423,40 @@ export const RAID: Shot = {
   events: timeline([
     ...barrage(301, 0, 24, 1.4, (t, out) => lead(t, out).add(S3.set(0, 20, 80)),
       { x: 220, yLo: -70, yHi: 110, z: 260 }, edit(CUTS), 60),
-    // 船上的防空：從進場一路打到編隊飛過頭頂
-    { at: 1.0, kind: 'aa', ship: 0, actor: 0, seconds: 6, miss: 30 },
-    { at: 2.0, kind: 'aa', ship: 1, actor: 1, seconds: 6, miss: 30 },
-    { at: 3.0, kind: 'aa', ship: 2, actor: CRIPPLED, seconds: 6, miss: 30 },
-    { at: 8.0, kind: 'aa', ship: 0, actor: LEAD2, seconds: 8, miss: 25 },
-    { at: 9.0, kind: 'aa', ship: 1, actor: 0, seconds: 8, miss: 25 },
-    { at: 10.0, kind: 'aa', ship: 2, actor: 6, seconds: 8, miss: 30 },
-    // Martlet 咬住右僚機
-    { at: 4.2, kind: 'gunner', actor: CRIPPLED, target: MARTLET, seconds: 3.0, miss: 10 },
-    { at: 4.6, kind: 'gunner', actor: 0, target: MARTLET, seconds: 2.0, miss: 16 },
-    { at: MARTLET_FIRE, kind: 'burst', actor: MARTLET, seconds: MARTLET_FIRE_LEN, target: CRIPPLED },
+    // 船上的防空：外海的護航艦從進場一路打，搶灘的 LST 等編隊到頭頂才開火
+    { at: 1.0, kind: 'aa', ship: DD, actor: 0, seconds: 7, miss: 30 },
+    { at: 2.0, kind: 'aa', ship: CA, actor: 1, seconds: 7, miss: 30 },
+    { at: 3.0, kind: 'aa', ship: DD, actor: CRIPPLED, seconds: 6, miss: 30 },
+    { at: 8.0, kind: 'aa', ship: CA, actor: LEAD2, seconds: 8, miss: 25 },
+    { at: 9.0, kind: 'aa', ship: LST_B3, actor: 0, seconds: 8, miss: 25 },
+    { at: 10.0, kind: 'aa', ship: LST_A1, actor: 6, seconds: 10, miss: 30 },
+    // 野貓咬住右僚機
+    { at: 4.2, kind: 'gunner', actor: CRIPPLED, target: WILDCAT, seconds: 3.0, miss: 10 },
+    { at: 4.6, kind: 'gunner', actor: 0, target: WILDCAT, seconds: 2.0, miss: 16 },
+    { at: WILDCAT_FIRE, kind: 'burst', actor: WILDCAT, seconds: WILDCAT_FIRE_LEN, target: CRIPPLED },
     // 第 1 具是右發
     { at: FIRE_AT, kind: 'smoke', actor: CRIPPLED, engine: 1, fire: true },
-    { at: 7.6, kind: 'gunner', actor: CRIPPLED, target: MARTLET, seconds: 1.6, miss: 14 },
+    { at: 7.6, kind: 'gunner', actor: CRIPPLED, target: WILDCAT, seconds: 1.6, miss: 14 },
     // 對衝第二編隊
     { at: 15.0, kind: 'gunner', actor: LEAD2, target: HEAD_ON, seconds: 2.0, miss: 12 },
     { at: 15.2, kind: 'gunner', actor: 4, target: HEAD_ON, seconds: 1.8, miss: 14 },
     { at: 15.4, kind: 'gunner', actor: 5, target: HEAD_ON, seconds: 1.6, miss: 16 },
     { at: HEAD_AIM_AT - 0.2, kind: 'burst', actor: HEAD_ON, seconds: 0.4, target: LEAD2 },
-    // 油槽與彈藥堆：第三編隊是配角，觸控裝置上不出場、不投彈，這兩處就炸不到。
-    // 桌機上 22.6～22.9 秒已經被炸彈炸毀，這兩筆在那之後才到，炸毀過的不會再炸一次
-    { at: 23.0, kind: 'destroy', prop: 6 },
-    { at: 23.1, kind: 'destroy', prop: 7 },
-    // 投彈：長機與左僚機的炸彈串直接落在巡洋艦與驅逐艦的甲板上（各三、四枚），右僚機
-    // 那一串在巡洋艦右舷外落水；第二、三編隊落在岸邊的機場與油庫
+    // 油料與彈藥堆：第三編隊是配角，觸控裝置上不出場、不投彈，這兩處就炸不到。
+    // 桌機上那之前已經被炸彈炸毀，這兩筆晚一點才到，炸毀過的不會再炸一次
+    { at: 23.5, kind: 'destroy', prop: FUEL_DUMP },
+    { at: 23.6, kind: 'destroy', prop: AMMO_DUMP },
+    // 投彈：第一編隊炸 LST（長機、左僚機兩串落在東叢 B2、B1 的甲板上再炸上沙灘），
+    // 第二編隊從水邊炸進戰車集結場，第三編隊炸灘頭東端的油料與彈藥堆。
+    // 落點照 `bombAt` 算，改了投彈秒數或航線要對著船位與車位重算
     { at: BOMB_AT, kind: 'bomb', actor: 0, count: 8, interval: BOMB_INTERVAL },
     { at: 10.05, kind: 'bomb', actor: 1, count: 8, interval: BOMB_INTERVAL },
     { at: 10.15, kind: 'bomb', actor: CRIPPLED, count: 8, interval: BOMB_INTERVAL },
-    { at: 13.0, kind: 'bomb', actor: LEAD2, count: 8, interval: BOMB_INTERVAL },
-    { at: 13.1, kind: 'bomb', actor: 4, count: 8, interval: BOMB_INTERVAL },
-    { at: 13.05, kind: 'bomb', actor: 5, count: 8, interval: BOMB_INTERVAL },
-    { at: 14.2, kind: 'bomb', actor: 6, count: 8, interval: BOMB_INTERVAL },
-    { at: 14.3, kind: 'bomb', actor: 7, count: 8, interval: BOMB_INTERVAL },
-    { at: 14.25, kind: 'bomb', actor: 8, count: 8, interval: BOMB_INTERVAL },
+    { at: 11.95, kind: 'bomb', actor: LEAD2, count: 8, interval: BOMB_INTERVAL },
+    { at: 12.05, kind: 'bomb', actor: 4, count: 8, interval: BOMB_INTERVAL },
+    { at: 12.0, kind: 'bomb', actor: 5, count: 8, interval: BOMB_INTERVAL },
+    { at: 13.85, kind: 'bomb', actor: 6, count: 8, interval: BOMB_INTERVAL },
+    { at: 13.95, kind: 'bomb', actor: 7, count: 8, interval: BOMB_INTERVAL },
+    { at: 13.9, kind: 'bomb', actor: 8, count: 8, interval: BOMB_INTERVAL },
   ]),
 }
