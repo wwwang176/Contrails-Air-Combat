@@ -2,7 +2,6 @@ import { Vector3 } from 'three'
 import type { AircraftSpec } from '../../specs/types'
 import type { TimeOfDay } from '../../world/timeOfDay'
 import type { ShipClassId } from '../../world/ships'
-import type { MessageKey } from '../../i18n'
 import { hash01 } from '../../render/scatter'
 import { WRECK_TERMINAL } from '../../render/wrecks'
 import { createFlight, flightPose, type Path } from '../reelFlight'
@@ -118,8 +117,6 @@ export interface Shot {
   /** 秒 */
   readonly duration: number
   readonly timeOfDay: TimeOfDay
-  /** 右下角的地點與年月 */
-  readonly captionKey: MessageKey
   /** 局部 −Z 轉到太陽的水平方位 */
   readonly faceSun: boolean
   /**
@@ -169,6 +166,13 @@ export function rampedOffset(t: number, t0: number, d: number, a: number): numbe
   const r = tau - d
   return a * d * d * 0.15 + a * d * 0.5 * r + 0.5 * a * r * r
 }
+
+/**
+ * 瞄準連射最多把彈道從機首方向偏開幾度（rad）。曳光要看得出是從機鼻往前打出去的；
+ * 目標不在機首前方這個角度裡的話，彈道停在錐面上 —— 打不中，畫面上也不會斜著射。
+ * `reel-shots.test.ts` 要求每一段瞄準連射的期間，目標都在機首前方這個角度（加 1°）裡
+ */
+export const REEL_MAX_AIM = (5 * Math.PI) / 180
 
 /**
  * 線性阻力加重力的拋體，從 `p`、`v` 出發 `tau` 秒後在哪（解析解）。`terminal` 是終端速度。

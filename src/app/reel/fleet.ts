@@ -260,7 +260,6 @@ export const FLEET: Shot = {
   id: 'fleet',
   duration: 32,
   timeOfDay: 'dawn',
-  captionKey: 'reel.fleet',
   faceSun: true,
   clear: { x: 0, z: -100, radius: 3000 },
   planes: PLANES,

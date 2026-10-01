@@ -45,12 +45,6 @@
       #reel-fade { position: fixed; inset: 0; z-index: 1; background: #000; opacity: 1;
         transition: opacity .6s ease; pointer-events: none; }
       #reel-fade[hidden] { display: none; }
-      /* 地點與年月：換景亮回來之後才淡入 */
-      #reel-caption { position: fixed; right: 28px; bottom: 22px; z-index: 1; pointer-events: none;
-        font: 13px/1 'Special Elite', 'Noto Serif TC', serif; letter-spacing: .14em;
-        color: rgba(242, 233, 210, .85); text-shadow: 0 1px 4px rgba(0, 0, 0, .8);
-        opacity: 0; transition: opacity 1.2s ease; }
-      #reel-caption.on { opacity: 1; transition-delay: .5s; }
 
       /* ── 共用 ────────────────────────────────────────── */
       /* 【捲軸也是這張桌子的一部分】任務列表、機庫的卷宗架、結算名單都在捲，
@@ -699,9 +693,8 @@
   </head>
   <body>
     <canvas id="scene"></canvas>
-    <!-- 主選單短片的暗場與字幕（app/menuReel.ts）。蓋在畫布上、選單之下 -->
+    <!-- 主選單短片的暗場（app/menuReel.ts）。蓋在畫布上、選單之下 -->
     <div id="reel-fade"></div>
-    <div id="reel-caption"></div>
     <!-- 壓在世界上的滿版遮罩（投彈暗角、黑視／紅視）與貼著飛機的敵我標示、
          目標框。【要與 #hud 分開】整張 #hud 會跟著鏡頭震動平移旋轉：遮罩移開
          之後邊上沒有像素可以蓋，標示則是已經隨鏡頭震過一次。這一張不震 -->
