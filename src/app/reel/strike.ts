@@ -21,9 +21,11 @@ import {
 //   10.8–13  入水點後上方：白色航跡往前伸，長機與左翼拉起飛向巡洋艦，黑雲滿天
 //   13–15.1  巡洋艦左舷艦艏外的海面仰拍：長機與左翼從艦艏前方的天空掠過
 //   15.1–19.1 野貓座艙後上方：咬著第二波右翼連射，打到起火、18.9 秒爆開
-//   19.1–30.4 一刀到底：貼浪跟在長機那一枚雷後面，20.6 秒起煞住、讓開、升高，雷跡自己
-//             跑向巡洋艦，28.4 秒前段命中、29.2 秒後段再中，水柱之後船上起火冒黑煙
-//   30.4–33  同一個方向退到 500 m 外：一道道雷跡收向冒煙的巡洋艦，陸攻在落日裡越飛越小
+//   19.1–23  貼浪跟在長機那一枚雷後面、同速前進並慢慢升高：航跡直直伸向越來越大的巡洋艦
+//   23–26.2  巡洋艦艦艏右前方往艦艉看、跟著船走並推近降低：船身在右，航跡從左邊逼近舷側
+//   26.2–30.4 雷的右後方斜側、一路推近升高：28.4 秒前段命中、29.2 秒後段再中，水柱之後
+//             船上起火冒黑煙
+//   30.4–33  同一個方向退到 500 m 外慢慢升起：一道道雷跡收向冒煙的巡洋艦，陸攻越飛越小
 
 const S1 = new Vector3()
 const S2 = new Vector3()
@@ -225,15 +227,18 @@ const T_HIT = T_DROP + LEAD_DROP.entry + Math.hypot(HIT.x - LEAD_DROP.splash.x, 
 /** 長機那一枚的航向（水平單位向量）與它右手邊 */
 const RUN = new Vector3(HIT.x - LEAD_DROP.splash.x, 0, HIT.z - LEAD_DROP.splash.z).normalize()
 const RUN_RIGHT = new Vector3(-RUN.z, 0, RUN.x)
-/** 長機那一枚入水的秒數 */
-const T_SPLASH = T_DROP + LEAD_DROP.entry
-/**
- * 跟雷的那一刀：`CHASE_FROM` 起以雷速跟在後面，`BRAKE_AT` 起 `BRAKE_FOR` 秒內平順減到停
- * （速度照 smoothstep 降，位置是它的積分 —— 一步停下的話畫面在那一幀急煞）
- */
+/** 雷跑向巡洋艦的三刀：跟在雷後面、從船邊反打、斜側看命中 */
 const CHASE_FROM = FIGHTER_KILL + 0.2
-const BRAKE_AT = 20.6
-const BRAKE_FOR = 3.5
+const REVERSE_FROM = 23
+const IMPACT_FROM = 26.2
+/** 長機那一枚在艦體座標裡打中的位置：艦體中心往艦艏 20 m */
+const HIT_LZ = -20
+
+/** 長機那一枚在第 `t` 秒的位置（水中時 y = 雷深） */
+function torpedo(t: number, out: Vector3): Vector3 {
+  torpedoAt(LEAD_DROP.p, LEAD_DROP.v, LEAD_DROP.entry, HIT, t - T_DROP, out)
+  return out
+}
 
 /** 左翼那一枚：晚 0.8 秒打在艦體中心後方 45 m，第二根水柱 */
 const LEFT_DROP = drop(leftWing, T_DROP + 0.13)
@@ -352,34 +357,62 @@ const CUTS: readonly Cut[] = [
   {
     from: CHASE_FROM, subject: null,
     camera(t, out) {
-      // 一刀從雷跑到命中：先貼著浪跟在長機那一枚雷後面 30 m，航跡從腳下直直伸向巡洋艦；
-      // 20.6 秒起鏡頭煞住、稍微往右讓、升高收窄，雷跡自己往前跑完最後 160 m，
-      // 28.4 與 29.2 秒一前一後打在舷側，水柱、火與黑煙都在這一刀裡。
-      // 從頭到尾都在雷的後方往前看 —— 魚雷往哪跑、船在哪，觀眾一直看得到
-      const u = t <= BRAKE_AT ? 0 : t >= BRAKE_AT + BRAKE_FOR ? 1 : (t - BRAKE_AT) / BRAKE_FOR
-      const ease = u * u * (3 - 2 * u)
-      const along = (CHASE_FROM - T_SPLASH) * TORPEDO_SPEED - 30
-        + TORPEDO_SPEED * ((t < BRAKE_AT ? t : BRAKE_AT) - CHASE_FROM)
-        + TORPEDO_SPEED * BRAKE_FOR * (u - u * u * u + (u * u * u * u) / 2)
-      // 只往右讓 10 m：讓多了，靠鏡頭這一段航跡斜到畫面左邊、躲進選單後面
-      out.position.copy(LEAD_DROP.splash).addScaledVector(RUN, along).addScaledVector(RUN_RIGHT, 3 + 7 * ease)
-      out.position.y = 6.5 + 6.5 * ease
+      // 貼著浪跟在長機那一枚雷後面，鏡頭與雷同速、從 30 m 慢慢落後到 40 m、一邊升高：
+      // 航跡從腳下直直伸向前方的巡洋艦，船一路變大。雷往畫面深處跑
+      const k = t - CHASE_FROM
+      torpedo(t, S1)
+      out.position.copy(S1).addScaledVector(RUN, -30 - 2.5 * k).addScaledVector(RUN_RIGHT, 3 + 0.8 * k)
+      out.position.y = 6 + 0.9 * k
+      out.target.copy(S1).addScaledVector(RUN, 150)
+      out.target.y = 2
+      handheld(t, 0.25, 5, out)
+      out.fov = 50
+    },
+  },
+  {
+    from: REVERSE_FROM, subject: null,
+    camera(t, out) {
+      // 從巡洋艦艦艏右前方往艦艉看：船身在畫面右邊，白色航跡從左邊的海面斜斜朝舷側逼近。
+      // 鏡頭在雷的右手邊（艦艏那一側），與前一刀同一側，雷在畫面上往右、往船身走，不越軸；
+      // 換到艦艉那一側的話雷改成往左走，船身也落到左邊的選單後面。
+      // 鏡頭跟著船走、同時往船身推近、慢慢降低。高度至少 15 m：航跡是平貼在海面上的
+      // 一條帶子，鏡頭低於 10 m 的話百米外的航跡幾乎是側著看，整條看不見
+      const k = t - REVERSE_FROM
+      onShip(WICHITA, t, 45 - 2 * k, 24 - 1.5 * k, HIT_LZ - 180 + 6 * k, out.position)
+      onShip(WICHITA, t, 9, 4, HIT_LZ, S1)
+      torpedo(t, S2)
+      S2.y = 0
+      aimBetween(out.position, S1, S2, 0.42, out.target)
+      // 鏡頭架在船上，跟著船身慢慢起伏
+      out.position.y += 0.3 * Math.sin(1.3 * t)
+      handheld(t, 0.3, 6, out)
+      out.fov = 50
+    },
+  },
+  {
+    from: IMPACT_FROM, subject: null,
+    camera(t, out) {
+      // 回到雷的後方、偏右斜側 150 m 的海面，一路往前推、往右移、慢慢升高：雷跡最後一段
+      // 收進舷側，28.4 秒前段命中、29.2 秒後段再中，水柱之後船上起火冒黑煙，都在這一刀。
       // 注視點往艦艉偏 20 m：後段那一發（艦體中心後方 45 m）才不會落在選單邊上
-      out.target.set(HIT.x - 20 * ease, 2 + 10 * ease, HIT.z)
-      // 貼著浪跟著雷跑時慢晃；停下來等命中時穩著，兩次命中各震一下
-      handheld(t, 0.25 - 0.1 * ease, 5, out)
+      const k = t - IMPACT_FROM
+      out.position.copy(HIT).addScaledVector(RUN, -150 + 7 * k).addScaledVector(RUN_RIGHT, 12 + 3 * k)
+      out.position.y = 9 + 0.8 * k
+      out.target.set(HIT.x - 20, 10, HIT.z)
+      // 等命中時穩著；兩次命中各震一下
+      handheld(t, 0.15, 8, out)
       jolt(t, T_HIT, 0.9, out)
       jolt(t, T_LEFT_HIT, 0.7, out)
-      out.fov = 50 - 12 * ease
+      out.fov = 40 - 1.2 * k
     },
   },
   {
     from: 30.4, subject: 0,
     camera(t, out) {
-      // 陸攻來的那一側、離巡洋艦 500 m 貼海面迎著落日：一道道雷跡收向冒煙的巡洋艦，
-      // 陸攻在它上方越飛越小
+      // 陸攻來的那一側、離巡洋艦 500 m 貼海面迎著落日，鏡頭慢慢升起：一道道雷跡收向
+      // 冒煙的巡洋艦，陸攻在它上方越飛越小
       shipAt(WICHITA, t, S1)
-      out.position.set(S1.x - 60, 25, S1.z + 500)
+      out.position.set(S1.x - 60, 25 + 4 * (t - 30.4), S1.z + 500)
       S1.y = 15
       lead(t, out.target).lerp(S1, 0.45)
       // 收尾的大遠景：幾乎不晃
