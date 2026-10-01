@@ -3,7 +3,7 @@ import { B17G } from '../../specs/b17g'
 import { P51D } from '../../specs/p51d'
 import { BF109K4 } from '../../specs/bf109k4'
 import {
-  BOMB_RELEASE_Y, barrage, body, bodyUp, bombAt, edit, rampedOffset, timeline, velocityAt, wingman,
+  BOMB_RELEASE_Y, barrage, body, bodyUp, bombAt, edit, rampedOffset, timeline, velocityAt, wingman, wreckAt,
   type Cut, type Path, type ReelDecor, type ReelPlane, type ReelProp, type Shot,
 } from './kit'
 
@@ -20,22 +20,23 @@ import {
 // 刀表（每一刀在主軸上的作用）：
 //   0.0–2.4   長機右翼外側的發動機特寫，四周高砲炸開：編隊在投彈航線上
 //   2.4–4.6   109 肩後：機背、座艙罩與兩翼在下緣，右僚機在機首前從 1 km 放大到半公里，開火
-//   4.6–6.5   右僚機機鼻前、長焦：109 迎面衝來、槍口焰閃著、曳光擦過鏡頭，最後一刻
-//             猛然拉起（翼尖拉出凝結尾），塞滿畫面
-//   6.5–7.6   右僚機機背上：鏡頭盯著 109，它從頭上 25 m 掠過時往上往後甩頭（震一下），
-//             看它在身後拉起
+//   4.6–7.6   一刀到底，右僚機翼根上方：長焦看 109 迎面撲來開火、曳光打進機身，逼近時拉寬，
+//             它從頭上 25 m 掠過時鏡頭甩頭追到身後（震一下），看它拉起
 //   7.6–9.0   右僚機右後上方跟拍（手持）：冒煙的發動機竄出火，它仍守在隊形裡
 //   9.0–10.6  平行跟拍第二架 109（手持）：它在前景俯衝開火，長機與編隊在前方放大，曳光交錯
 //   10.6–11.9 低空組長機的上方砲塔往前上方看：第二架 109 撲向長機、火花打在長機身上，
 //             最後一刻從長機頭上拉起掠過
-//   11.9–13.6 長機右腰窗（手持）：拖著火的右僚機進入投彈航線時被高砲直接命中炸開，編隊不散
-//   13.6–16.6 長機機腹下：油廠在前下方，彈艙打開，十枚炸彈一枚枚落下
-//   16.6–20.5 編隊後上方往下俯看：每一架機腹下拖出一串炸彈，往下方的油廠落下去
-//   20.5–23.9 跟著長機的最後一枚炸彈往下掉：完好的油廠在下方越來越大，第一顆在畫面下方炸開
-//   23.9–26.4 貼地在動力區北邊往南看、鏡頭一路後退：炸彈串一顆接一顆朝鏡頭走過來，
-//             鍋爐房炸開，最後一顆落在 70 m 外、鏡頭被震開
-//   26.4–28.6 繞著一排煙囪低角度側移、從底部往上搖：煙囪一根接一根被炸黑、底下竄出火
-//   28.6–31.0 長機球形砲塔往後下方看：低空組在前景，底下整片油廠在燒
+//   11.9–13.4 長機右腰窗（手持）：拖著火的右僚機 12.6 秒被高砲直接命中炸開，編隊不散
+//   13.4–15.6 伴飛機往右後下方看：右僚機的殘骸冒火翻滾往下掉，編隊從它上方飛過、越離越遠
+//   15.6–18.4 長機機腹下：油廠在前下方，彈艙打開，十枚炸彈一枚枚落下
+//   18.4–22.3 編隊後上方往下俯看：每一架機腹下拖出一串炸彈，往下方的油廠落下去
+//   22.3–25.7 跟著長機的最後一枚炸彈往下掉：完好的油廠在下方越來越大，第一顆在畫面下方炸開
+//   25.7–28.2 貼地在動力區北邊往南看、鏡頭一路後退：炸彈串一顆接一顆朝鏡頭走過來，
+//             鍋爐房與兩座氣櫃殉爆，最後一顆落在 70 m 外、鏡頭被震開
+//   28.2–30.2 繞著一排煙囪低角度側移、從底部往上搖：煙囪一根接一根被炸黑、底下竄出火
+//   30.2–31.8 高潮：快速推近西北槽區，油槽一座接一座殉爆，最後整片炸成最大的一團火球，
+//             鏡頭被推開、震得最兇
+//   31.8–34.0 長機球形砲塔往後下方看：低空組在前景，底下整片油廠在燒、槽區還在炸
 
 const S1 = new Vector3()
 const S2 = new Vector3()
@@ -94,10 +95,10 @@ const STREAM_SPEED = 75
 const STREAM_ALT = 400
 /**
  * 長機第 0 秒在哪。投彈時刻與油廠的位置都綁著它：從 400 m 投下的炸彈往前拋 603 m，
- * 長機 14.2 秒投下的第一枚落在 (450, −1112)，一串掃到 z −1287 —— 廠區的正中間
+ * 長機 16.0 秒投下的第一枚落在 (450, −1112)，一串掃到 z −1287 —— 廠區的正中間
  */
 const STREAM_X0 = 450
-const STREAM_Z0 = 555
+const STREAM_Z0 = 690
 const streamLead: Path = (t, out) => out.set(STREAM_X0, STREAM_ALT, STREAM_Z0 - STREAM_SPEED * t)
 
 /** 長機組：長機、左僚機、右僚機（中彈的那一架） */
@@ -107,7 +108,7 @@ const STREAM_HIT = 2
  * 中彈的右僚機拖著火守在隊形裡，進入投彈航線時被高砲直接命中炸開 —— 它那一串炸彈
  * 沒投出去。編隊不散，照樣飛向目標
  */
-const KILL_AT = 12.9
+const KILL_AT = 12.6
 const crippledBase = wingman(streamLead, 38, 7, 26, 1.7)
 const crippled = crippledBase
 
@@ -192,9 +193,9 @@ const forwardA = wingman(streamLead, 130, 70, -460, 0.5)
 const forwardB = wingman(streamLead, 175, 62, -500, 2.9)
 
 /** 長機組開始投彈的時刻；一串十枚、每 0.26 秒一枚 */
-const BOMBS_AWAY = 14.2
+const BOMBS_AWAY = 16.0
 const BOMB_GAP = 0.26
-/** 長機最後一枚炸彈：投下那一刻的機腹點與速度，第 20.5～23.9 秒鏡頭跟著它往下掉 */
+/** 長機最後一枚炸彈：投下那一刻的機腹點與速度，第 22.3～25.7 秒鏡頭跟著它往下掉 */
 const LAST_DROP = BOMBS_AWAY + 9 * BOMB_GAP
 const LAST_P = body(streamLead, LAST_DROP, 0, BOMB_RELEASE_Y, 0, false, new Vector3())
 const LAST_V = velocityAt(streamLead, LAST_DROP, new Vector3())
@@ -205,6 +206,10 @@ const PLANT = new Vector3(450, 0, -1200)
 
 /** 右僚機被高砲直接命中的那一朵：炸開那一刻在它的左前上方 */
 const DIRECT_HIT = crippled(KILL_AT - 0.05, new Vector3()).add(new Vector3(-5, 4, -7))
+/** 右僚機交給殘骸池那一刻的位置與速度；殘骸翻滾墜落那一刀用 `wreckAt` 從它算出殘骸在哪 */
+const WRECK_P = crippled(KILL_AT, new Vector3())
+const WRECK_V = velocityAt(crippled, KILL_AT, new Vector3())
+const WRECK = new Vector3()
 
 const CUTS: readonly Cut[] = [
   {
@@ -232,22 +237,8 @@ const CUTS: readonly Cut[] = [
   {
     from: 4.6, subject: BANDIT, mount: STREAM_HIT,
     camera(t, out) {
-      // 右僚機機鼻正前方往前看、長焦：109 迎面從 470 m 衝到頭頂，槍口焰閃著、曳光擦著
-      // 鏡頭打進機身，火花就噴在鏡頭旁。最後一刻它猛然拉起，注視點跟著它往上甩。
-      // 鏡頭離機鼻再近就進了測試的螺旋槳盤範圍
-      body(crippled, t, 0, -1.0, -8.2, false, out.position)
-      body(crippled, t, 0, 0, -400, false, S1)
-      bandit(t, S2)
-      aimBetween(out.position, S1, S2, 0.92, out.target)
-      shake(t, 0.12, 21, out.target)
-      bodyUp(crippled, t, out.up)
-      out.fov = 30
-    },
-  },
-  {
-    from: 6.5, subject: BANDIT, mount: STREAM_HIT,
-    camera(t, out) {
-      // 右僚機右翼根上方：鏡頭一路盯著 109 —— 它從前上方衝來，6.69 秒從頭上 25 m 掠過時
+      // 一刀到底：右僚機右翼根上方，鏡頭一路盯著 109。先是長焦（28°）看它從 470 m 外迎面
+      // 撲來、槍口焰閃著、曳光打進機身；逼近時鏡頭拉寬到 62°，6.69 秒它從頭上 25 m 掠過，
       // 鏡頭跟著抬頭、繞過頭頂甩向後方（尖峰約每秒 500°），震一下，接著看它在身後拉起、
       // 轉開，自己的垂尾與平尾在畫面裡。注視點取 109 0.03 秒前的位置，甩頭時跟不上一點。
       // 【鏡頭偏離機身中線 4 m】109 沿中線掠過，鏡頭架在中線上的話視線會正好穿過頭頂、
@@ -257,7 +248,7 @@ const CUTS: readonly Cut[] = [
       out.target.copy(out.position).addScaledVector(S1, 30)
       jolt(t, PASS_1, 1.2, out.target)
       bodyUp(crippled, t, out.up)
-      out.fov = 62
+      out.fov = 28 + 34 * ease(t, 5.8, 0.7)
     },
   },
   {
@@ -308,10 +299,10 @@ const CUTS: readonly Cut[] = [
     from: 11.9, subject: STREAM_HIT, mount: 0,
     camera(t, out) {
       // 長機右腰窗：機槍手的視角，自己的平尾壓在畫面上緣。拖著火守在隊形裡的右僚機
-      // 12.9 秒被高砲直接命中炸開（震一下）；長機照樣往前飛。
+      // 12.6 秒被高砲直接命中炸開（震一下）；長機照樣往前飛。
       // 【鏡頭位置不晃】平尾離鏡頭 3 m，位置晃 0.3 m 它就在畫面上跳 5°；只轉方向
       body(streamLead, t, 2.1, 0.5, 9.2, false, out.position)
-      crippled(t - 0.2, out.target)
+      crippled(Math.min(t, KILL_AT) - 0.2, out.target)
       shake(t, 0.4, 6, out.target)
       jolt(t, KILL_AT, 1.4, out.target)
       bodyUp(streamLead, t, out.up)
@@ -319,10 +310,25 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 13.6, subject: null, mount: 0,
+    from: 13.4, subject: null,
     camera(t, out) {
-      // 機腹下、彈艙後方往前下方看：前下方的田裡是油廠，14.2 秒起十枚炸彈一枚枚從機腹
-      // 落下、往後飄過鏡頭下方，最後一枚 16.54 秒
+      // 編隊右後上方 70 m 的伴飛機往右後下方看（手持 0.25°）：右僚機的殘骸冒著火、拖著
+      // 黑煙翻滾往下掉，長機組與低空組照樣從它上方飛過去，它在畫面裡越掉越遠
+      // （13.4 → 15.6 秒，離鏡頭 60 → 220 m）。不跟到落地
+      streamLead(t, out.position).add(S1.set(75, 70, 40))
+      shake(t, 0.3, 24, out.position)
+      wreckAt(WRECK_P, WRECK_V, t - 0.25 - KILL_AT, WRECK)
+      streamLead(t, S2).add(S3.set(20, -20, 60))
+      aimBetween(out.position, WRECK, S2, 0.35, out.target)
+      shake(t, 0.4, 25, out.target)
+      out.fov = 50
+    },
+  },
+  {
+    from: 15.6, subject: null, mount: 0,
+    camera(t, out) {
+      // 機腹下、彈艙後方往前下方看：前下方的田裡是油廠，16.0 秒起十枚炸彈一枚枚從機腹
+      // 落下、往後飄過鏡頭下方，最後一枚 18.34 秒
       body(streamLead, t, 1.6, -3.4, 7.0, false, out.position)
       body(streamLead, t, 0, -6, -3, false, out.target)
       bodyUp(streamLead, t, out.up)
@@ -330,7 +336,7 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 16.6, subject: 0,
+    from: 18.4, subject: 0,
     camera(t, out) {
       // 編隊後上方 120 m 往下俯看（伴飛機，手持 0.15°）：整個編隊在畫面裡，
       // 每一架機腹下拖出一串炸彈，一串串往下方的油廠落下去 —— 地毯式轟炸。
@@ -344,10 +350,10 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 20.5, subject: null,
+    from: 22.3, subject: null,
     camera(t, out) {
       // 跟著長機的最後一枚炸彈往下掉：鏡頭在它後上方幾公尺，炸彈在畫面下半，前面幾枚
-      // 在更下方；完好的油廠在正下方越來越大，冷卻塔冒著白汽。23.70 秒第一顆在畫面下方
+      // 在更下方；完好的油廠在正下方越來越大，冷卻塔冒著白汽。25.50 秒第一顆在畫面下方
       // 炸開，這一刀在第二、三顆之間切到地面 —— 那時這一枚還在百來公尺高。
       // 【這一刀之前廠區不能有火】觀眾第一次看到廠區爆炸，要在跟著炸彈掉下去之後
       bombAt(LAST_P, LAST_V, t - LAST_DROP, LAST_BOMB)
@@ -358,49 +364,72 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 23.9, subject: null,
+    from: 25.7, subject: null,
     camera(t, out) {
       // 貼地在動力區北邊、氣櫃與鍋爐房之間的空隙口，離地 20 m 往南看：左僚機那一串沿著
       // 空隙、長機那一串貼著鍋爐房，一顆接一顆朝鏡頭「走」過來（每 0.26 秒一顆、每顆近
       // 19 m），鏡頭一路往後退（每秒 14 m，退得比炸彈走得慢，一顆比一顆近）。鍋爐房
-      // 24.54、25.84 秒炸開；最後一顆 26.10 秒落在 70 m 外，鏡頭被衝擊往後彈開 6 m、
+      // 26.34、27.64 秒炸開，遠處的氣櫃 26.83 秒殉爆；最後一顆 27.90 秒落在 70 m 外，
+      // 左前方 80 m 的氣櫃 27.92 秒跟著殉爆成一團大火球，鏡頭被衝擊往後彈開 6 m、
       // 一震最兇。不晃 —— 只有爆炸那幾下震。
       // 【鏡頭要在空隙口】架在鍋爐房正後方的話，整面牆擋住畫面
       // 【不再靠近】炸彈的火球半徑幾十公尺，最後一顆再近鏡頭就鑽進火裡、整片紅
-      const back = 14 * (t - 23.9) + 6 * ease(t, 26.1, 0.25)
-      out.position.set(415, 20 + 2 * ease(t, 26.1, 0.25), -1330 - back)
+      const back = 14 * (t - 25.7) + 6 * ease(t, 27.9, 0.25)
+      out.position.set(415, 20 + 2 * ease(t, 27.9, 0.25), -1330 - back)
       out.target.set(425, 12, -1180 - back)
-      jolt(t, 24.54, 0.5, out.target)
-      jolt(t, 25.06, 0.6, out.target)
-      jolt(t, 25.58, 0.8, out.target)
-      jolt(t, 25.84, 1.2, out.target)
-      jolt(t, 26.1, 1.8, out.target)
+      jolt(t, 26.34, 0.5, out.target)
+      jolt(t, 26.83, 0.9, out.target)
+      jolt(t, 27.38, 0.8, out.target)
+      jolt(t, 27.64, 1.2, out.target)
+      jolt(t, 27.9, 1.8, out.target)
+      jolt(t, 27.92, 1.5, out.target)
       out.fov = 56
     },
   },
   {
-    from: 26.4, subject: null,
+    from: 28.2, subject: null,
     camera(t, out) {
       // 仰拍一排四根煙囪（百公尺高）：鏡頭在它們北端外、離地 12 m，繞著煙囪排由西往東
-      // 緩緩側移（弧長約 50 m，每秒 23 m），同時從煙囪底部往上搖到頂（仰角 4° → 29°）。
-      // 右上僚機的一串沿著煙囪排落下來，26.80、27.10、27.71、28.32 秒一根接一根被炸黑、
-      // 底下竄出火，最後一根就在鏡頭前（每根震一下，越近越兇）。炸毀的物件只換焦黑
-      // 材質、不會倒
-      const u = ease(t, 26.4, 2.2)
+      // 緩緩側移（弧長約 50 m，每秒 25 m），同時從煙囪底部往上搖到頂（仰角 4° → 29°）。
+      // 右上僚機的一串沿著煙囪排落下來，28.63、28.94、29.57、30.19 秒一根接一根被炸黑、
+      // 底下竄出火，29.0 秒煙囪根部的管線再炸一團。最後一根就在鏡頭前（每根震一下，
+      // 越近越兇）。炸毀的物件只換焦黑材質、不會倒
+      const u = ease(t, 28.2, 2.0)
       const arc = -0.3 + 0.4 * u
       out.position.set(520 + 125 * Math.sin(arc), 12, -1240 - 125 * Math.cos(arc))
       out.target.set(522, 20 + 60 * u, -1240)
-      jolt(t, 26.8, 0.5, out.target)
-      jolt(t, 27.1, 0.7, out.target)
-      jolt(t, 27.71, 1.0, out.target)
-      jolt(t, 28.32, 1.6, out.target)
+      jolt(t, 28.63, 0.5, out.target)
+      jolt(t, 28.94, 0.7, out.target)
+      jolt(t, 29.0, 0.9, out.target)
+      jolt(t, 29.57, 1.0, out.target)
+      jolt(t, 30.19, 1.6, out.target)
       out.fov = 58
     },
   },
   {
-    from: 28.6, subject: LOW_LEAD, mount: 0,
+    from: 30.2, subject: null,
     camera(t, out) {
-      // 球形砲塔：機腹下往左後下方看，低空組在前景，底下整片油廠在燒。掛在機上，不晃
+      // 高潮：西北槽區的殉爆。鏡頭從槽區東南 280 m、離地 40 m 快速推近 60 m，油槽一座接
+      // 一座被引爆成大火球（30.35、30.65、31.1 秒，中間 30.9 秒油桶堆），31.3 秒整個槽區
+      // 炸成一團 4.5 倍的火球 —— 最大的一團，鏡頭被衝擊往後推開 15 m、往上抬，震得最兇。
+      // 【不再推近】那一團的火球半徑上百公尺；推到 150 m 內鏡頭就鑽進火裡、整片紅
+      const push = 60 * ease(t, 30.2, 1.1) - 15 * ease(t, 31.3, 0.3)
+      out.position.set(330 - 0.758 * push, 40 - 10 * ease(t, 30.2, 1.1) + 6 * ease(t, 31.3, 0.3),
+        -1270 - 0.65 * push)
+      out.target.set(115, 15 + 35 * ease(t, 31.3, 0.5), -1445)
+      jolt(t, 30.35, 0.6, out.target)
+      jolt(t, 30.65, 0.8, out.target)
+      jolt(t, 30.9, 0.9, out.target)
+      jolt(t, 31.1, 1.2, out.target)
+      jolt(t, 31.3, 3.0, out.target)
+      out.fov = 54
+    },
+  },
+  {
+    from: 31.8, subject: LOW_LEAD, mount: 0,
+    camera(t, out) {
+      // 球形砲塔：機腹下往左後下方看，低空組在前景，底下整片油廠在燒，槽區還一座接一座
+      // 在炸（32.3、32.8、33.3 秒）。掛在機上，不晃
       body(streamLead, t, 0, -2.6, 2.0, false, out.position)
       body(streamLead, t, -90, -200, 190, false, out.target)
       bodyUp(streamLead, t, out.up)
@@ -515,7 +544,7 @@ const DECOR: readonly ReelDecor[] = [
 
 export const STREAM: Shot = {
   id: 'stream',
-  duration: 31,
+  duration: 34,
   timeOfDay: 'noon',
   faceSun: false,
   terrain: 'farmland',
@@ -550,10 +579,10 @@ export const STREAM: Shot = {
   cuts: CUTS,
   camera: edit(CUTS),
   events: timeline([
-    ...barrage(101, 0, 30.5, 2.0, (t, out) => streamLead(t, out).add(S3.set(-20, -20, 70)),
+    ...barrage(101, 0, 33.5, 2.0, (t, out) => streamLead(t, out).add(S3.set(-20, -20, 70)),
       { x: 190, yLo: -80, yHi: 100, z: 240 }, edit(CUTS), 70),
     // 投彈航線上：長機組前方的一片彈幕，編隊直直飛進去
-    ...barrage(202, 11.5, 17, 3.0, (t, out) => streamLead(t, out).add(S3.set(10, 10, -260)),
+    ...barrage(202, 13.3, 18.8, 3.0, (t, out) => streamLead(t, out).add(S3.set(10, 10, -260)),
       { x: 160, yLo: -50, yHi: 90, z: 160 }, edit(CUTS), 70),
     // 第一架 109 撲向右僚機：編隊的機槍手迎著它打，它從 500 m 打到 260 m
     { at: 2.6, kind: 'gunner', actor: STREAM_HIT, target: BANDIT, seconds: 4.0, miss: 14 },
@@ -573,15 +602,27 @@ export const STREAM: Shot = {
     { at: 9.0, kind: 'gunner', actor: STREAM_HIT, target: BANDIT_2, seconds: 2.4, miss: 16 },
     { at: FIRE_2 - FIRE_HALF, kind: 'burst', actor: BANDIT_2, seconds: 2 * FIRE_HALF, target: 0 },
     { at: 10.6, kind: 'smoke', actor: 0, engine: 3 },
-    // 投彈：前導組先投，長機組、低空組、右上那一架照順序
+    // 投彈：長機組、低空組、右上那一架照順序
     { at: BOMBS_AWAY, kind: 'bomb', actor: 0, count: 10, interval: BOMB_GAP },
     { at: BOMBS_AWAY + 0.1, kind: 'bomb', actor: 1, count: 10, interval: BOMB_GAP },
-    { at: 15.7, kind: 'bomb', actor: 3, count: 8, interval: 0.3 },
-    { at: 16.0, kind: 'bomb', actor: 4, count: 8, interval: 0.3 },
-    { at: 16.0, kind: 'bomb', actor: 5, count: 8, interval: 0.3 },
-    { at: 16.2, kind: 'bomb', actor: 6, count: 8, interval: 0.3 },
+    { at: 17.5, kind: 'bomb', actor: 3, count: 8, interval: 0.3 },
+    { at: 17.8, kind: 'bomb', actor: 4, count: 8, interval: 0.3 },
+    { at: 17.8, kind: 'bomb', actor: 5, count: 8, interval: 0.3 },
+    { at: 18.0, kind: 'bomb', actor: 6, count: 8, interval: 0.3 },
     // 進入投彈航線，右僚機被高砲直接命中
     { at: KILL_AT - 0.05, kind: 'flak', x: DIRECT_HIT.x, y: DIRECT_HIT.y, z: DIRECT_HIT.z },
     { at: KILL_AT, kind: 'kill', actor: STREAM_HIT, blast: true },
+    // 層層升級：炸彈串（25.5 秒起）→ 鍋爐房、氣櫃殉爆 → 煙囪排 → 西北槽區一座接一座
+    // 被引爆（油槽、油桶堆炸毀時自己會殉爆一團 2.5 倍的火球）→ 31.3 秒整個槽區一團
+    // 4.5 倍的大火球 → 收尾那一刀槽區還在一座座炸
+    { at: 29.0, kind: 'blast', x: 535, y: 6, z: -1250, size: 2 },
+    { at: 30.35, kind: 'destroy', prop: 7 },
+    { at: 30.65, kind: 'destroy', prop: 5 },
+    { at: 30.9, kind: 'destroy', prop: 9 },
+    { at: 31.1, kind: 'destroy', prop: 3 },
+    { at: 31.3, kind: 'blast', x: 120, y: 20, z: -1450, size: 4.5 },
+    { at: 32.3, kind: 'destroy', prop: 1 },
+    { at: 32.8, kind: 'destroy', prop: 6 },
+    { at: 33.3, kind: 'blast', x: 100, y: 12, z: -1470, size: 3 },
   ]),
 }
