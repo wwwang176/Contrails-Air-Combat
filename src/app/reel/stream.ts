@@ -31,12 +31,11 @@ import {
 //   15.6–18.4 長機機腹下：油廠在前下方，彈艙打開，十枚炸彈一枚枚落下
 //   18.4–22.3 編隊後上方往下俯看：每一架機腹下拖出一串炸彈，往下方的油廠落下去
 //   22.3–25.7 跟著長機的最後一枚炸彈往下掉：完好的油廠在下方越來越大，第一顆在畫面下方炸開
-//   25.7–28.2 貼地在動力區北邊往南看、鏡頭一路後退：炸彈串一顆接一顆朝鏡頭走過來，
-//             鍋爐房與兩座氣櫃殉爆，最後一顆落在 70 m 外、鏡頭被震開
-//   28.2–30.2 繞著一排煙囪低角度側移、從底部往上搖：煙囪一根接一根被炸黑、底下竄出火
-//   30.2–31.8 高潮：快速推近西北槽區，油槽一座接一座殉爆，最後整片炸成最大的一團火球，
-//             鏡頭被推開、震得最兇
-//   31.8–34.0 長機球形砲塔往後下方看：低空組在前景，底下整片油廠在燒、槽區還在炸
+//   25.7–28.6 廠區東緣地上往西仰看：天上的編隊與落下的炸彈同框，地上一串串從左往右
+//             走過動力區，前景冷卻塔冒白汽
+//   28.6–30.6 廠區北邊的田上仰看：編隊從頭上飛過，背後的中東槽組連環殉爆成一大團
+//   30.6–32.4 長機機腹往後下方看：整片廠區在燒，西北槽區連環殉爆成一大團
+//   32.4–34.0 長機背上往後看：低空組在前景，後下方整片油廠在燒、槽區還在炸
 
 const S1 = new Vector3()
 const S2 = new Vector3()
@@ -366,74 +365,61 @@ const CUTS: readonly Cut[] = [
   {
     from: 25.7, subject: null,
     camera(t, out) {
-      // 貼地在動力區北邊、氣櫃與鍋爐房之間的空隙口，離地 20 m 往南看：左僚機那一串沿著
-      // 空隙、長機那一串貼著鍋爐房，一顆接一顆朝鏡頭「走」過來（每 0.26 秒一顆、每顆近
-      // 19 m），鏡頭一路往後退（每秒 14 m，退得比炸彈走得慢，一顆比一顆近）。鍋爐房
-      // 26.34、27.64 秒炸開，遠處的氣櫃 26.83 秒殉爆；最後一顆 27.90 秒落在 70 m 外，
-      // 左前方 80 m 的氣櫃 27.92 秒跟著殉爆成一團大火球，鏡頭被衝擊往後彈開 6 m、
-      // 一震最兇。不晃 —— 只有爆炸那幾下震。
-      // 【鏡頭要在空隙口】架在鍋爐房正後方的話，整面牆擋住畫面
-      // 【不再靠近】炸彈的火球半徑幾十公尺，最後一顆再近鏡頭就鑽進火裡、整片紅
-      const back = 14 * (t - 25.7) + 6 * ease(t, 27.9, 0.25)
-      out.position.set(415, 20 + 2 * ease(t, 27.9, 0.25), -1330 - back)
-      out.target.set(425, 12, -1180 - back)
-      jolt(t, 26.34, 0.5, out.target)
-      jolt(t, 26.83, 0.9, out.target)
-      jolt(t, 27.38, 0.8, out.target)
-      jolt(t, 27.64, 1.2, out.target)
-      jolt(t, 27.9, 1.8, out.target)
-      jolt(t, 27.92, 1.5, out.target)
-      out.fov = 56
+      // 廠區東緣、冷卻塔外 60 m 的地上（離地 20 m）往西仰看：編隊在 400 m 高空、炸彈還一串串
+      // 掛在天上往下落，地面那幾串從畫面左邊（南）一顆接一顆往右（北）走過動力區，
+      // 鍋爐房、氣櫃、煙囪在爆炸裡清楚可辨；前景是冷卻塔與它冒的白汽。
+      // 因果同框：觀眾先看到炸彈在天上、再看到它落地。380 m 外，鏡頭穩，只在幾下大的
+      // 殉爆時輕震（0.4～0.6°）
+      out.position.set(800, 20, -1150)
+      shake(t, 0.3, 7, out.position)
+      out.target.set(430, 140, -1185)
+      shake(t, 0.5, 8, out.target)
+      jolt(t, 26.83, 0.4, out.target)
+      jolt(t, 27.64, 0.5, out.target)
+      jolt(t, 27.92, 0.6, out.target)
+      out.fov = 60
     },
   },
   {
-    from: 28.2, subject: null,
+    from: 28.6, subject: null,
     camera(t, out) {
-      // 仰拍一排四根煙囪（百公尺高）：鏡頭在它們北端外、離地 12 m，繞著煙囪排由西往東
-      // 緩緩側移（弧長約 50 m，每秒 25 m），同時從煙囪底部往上搖到頂（仰角 4° → 29°）。
-      // 右上僚機的一串沿著煙囪排落下來，28.63、28.94、29.57、30.19 秒一根接一根被炸黑、
-      // 底下竄出火，29.0 秒煙囪根部的管線再炸一團。最後一根就在鏡頭前（每根震一下，
-      // 越近越兇）。炸毀的物件只換焦黑材質、不會倒
-      const u = ease(t, 28.2, 2.0)
-      const arc = -0.3 + 0.4 * u
-      out.position.set(520 + 125 * Math.sin(arc), 12, -1240 - 125 * Math.cos(arc))
-      out.target.set(522, 20 + 60 * u, -1240)
-      jolt(t, 28.63, 0.5, out.target)
-      jolt(t, 28.94, 0.7, out.target)
-      jolt(t, 29.0, 0.9, out.target)
-      jolt(t, 29.57, 1.0, out.target)
-      jolt(t, 30.19, 1.6, out.target)
-      out.fov = 58
-    },
-  },
-  {
-    from: 30.2, subject: null,
-    camera(t, out) {
-      // 高潮：西北槽區的殉爆。鏡頭從槽區東南 280 m、離地 40 m 快速推近 60 m，油槽一座接
-      // 一座被引爆成大火球（30.35、30.65、31.1 秒，中間 30.9 秒油桶堆），31.3 秒整個槽區
-      // 炸成一團 4.5 倍的火球 —— 最大的一團，鏡頭被衝擊往後推開 15 m、往上抬，震得最兇。
-      // 【不再推近】那一團的火球半徑上百公尺；推到 150 m 內鏡頭就鑽進火裡、整片紅
-      const push = 60 * ease(t, 30.2, 1.1) - 15 * ease(t, 31.3, 0.3)
-      out.position.set(330 - 0.758 * push, 40 - 10 * ease(t, 30.2, 1.1) + 6 * ease(t, 31.3, 0.3),
-        -1270 - 0.65 * push)
-      out.target.set(115, 15 + 35 * ease(t, 31.3, 0.5), -1445)
-      jolt(t, 30.35, 0.6, out.target)
-      jolt(t, 30.65, 0.8, out.target)
-      jolt(t, 30.9, 0.9, out.target)
-      jolt(t, 31.1, 1.2, out.target)
-      jolt(t, 31.3, 3.0, out.target)
-      out.fov = 54
-    },
-  },
-  {
-    from: 31.8, subject: LOW_LEAD, mount: 0,
-    camera(t, out) {
-      // 球形砲塔：機腹下往左後下方看，低空組在前景，底下整片油廠在燒，槽區還一座接一座
-      // 在炸（32.3、32.8、33.3 秒）。掛在機上，不晃
-      body(streamLead, t, 0, -2.6, 2.0, false, out.position)
-      body(streamLead, t, -90, -200, 190, false, out.target)
-      bodyUp(streamLead, t, out.up)
+      // 廠區北邊 400 m 的田上 40 m（編隊前方）仰看：編隊迎著鏡頭飛過來、越來越高，背後的
+      // 廠區連環殉爆 —— 中東那組油槽一座接一座炸成火球（28.9、29.25、29.6、29.95 秒），
+      // 30.25 秒整組炸成一大團。注視點跟不上長機 0.25 秒、偏向背後挨炸的槽組（手持 0.25°）
+      out.position.set(480, 40, -1900)
+      shake(t, 0.4, 9, out.position)
+      streamLead(t - 0.25, S1)
+      S2.set(600, 20, -1330)
+      aimBetween(out.position, S1, S2, 0.55, out.target)
+      shake(t, 0.5, 10, out.target)
       out.fov = 64
+    },
+  },
+  {
+    from: 30.6, subject: null, mount: 0,
+    camera(t, out) {
+      // 長機機腹下、球形砲塔的位置往後下方看：自己剛炸過、整片在燒的廠區在正下方，
+      // 西北槽區還在一座接一座殉爆（30.8～31.7 秒），32.0 秒整片槽區炸成一大團。
+      // 注視點釘在地上，鏡頭跟著飛機慢慢轉過去。掛在機上，只留 0.1° 的慢晃
+      body(streamLead, t, 0, -2.6, 2.0, false, out.position)
+      out.target.set(300, 0, -1330)
+      shake(t, 0.2, 11, out.target)
+      bodyUp(streamLead, t, out.up)
+      out.fov = 60
+    },
+  },
+  {
+    from: 32.4, subject: LOW_LEAD, mount: 0,
+    camera(t, out) {
+      // 長機背上機槍位往後看：低空組在前景，後下方整片油廠在燒，槽區最後幾座還在炸
+      // （32.8、33.2、33.5 秒）。掛在機上，只留 0.1° 的慢晃
+      // 【背鰭整流罩的命中盒頂在 2.58】再低鏡頭就在盒子裡
+      body(streamLead, t, 0, 3.2, 5.0, false, out.position)
+      lowLead(t, S1)
+      aimBetween(out.position, S1, PLANT, 0.45, out.target)
+      shake(t, 0.25, 12, out.target)
+      bodyUp(streamLead, t, out.up)
+      out.fov = 58
     },
   },
 ]
@@ -612,17 +598,20 @@ export const STREAM: Shot = {
     // 進入投彈航線，右僚機被高砲直接命中
     { at: KILL_AT - 0.05, kind: 'flak', x: DIRECT_HIT.x, y: DIRECT_HIT.y, z: DIRECT_HIT.z },
     { at: KILL_AT, kind: 'kill', actor: STREAM_HIT, blast: true },
-    // 層層升級：炸彈串（25.5 秒起）→ 鍋爐房、氣櫃殉爆 → 煙囪排 → 西北槽區一座接一座
-    // 被引爆（油槽、油桶堆炸毀時自己會殉爆一團 2.5 倍的火球）→ 31.3 秒整個槽區一團
-    // 4.5 倍的大火球 → 收尾那一刀槽區還在一座座炸
-    { at: 29.0, kind: 'blast', x: 535, y: 6, z: -1250, size: 2 },
-    { at: 30.35, kind: 'destroy', prop: 7 },
-    { at: 30.65, kind: 'destroy', prop: 5 },
-    { at: 30.9, kind: 'destroy', prop: 9 },
-    { at: 31.1, kind: 'destroy', prop: 3 },
-    { at: 31.3, kind: 'blast', x: 120, y: 20, z: -1450, size: 4.5 },
-    { at: 32.3, kind: 'destroy', prop: 1 },
-    { at: 32.8, kind: 'destroy', prop: 6 },
-    { at: 33.3, kind: 'blast', x: 100, y: 12, z: -1470, size: 3 },
+    // 炸彈串之後的連環殉爆（油槽、油桶堆炸毀時自己會殉爆一團 2.5 倍的火球）：中東槽組
+    // 一座接一座、30.25 秒一大團 → 西北槽區一座接一座、32.0 秒一大團 → 收尾還在炸
+    { at: 28.9, kind: 'destroy', prop: 10 },
+    { at: 29.25, kind: 'destroy', prop: 12 },
+    { at: 29.6, kind: 'destroy', prop: 11 },
+    { at: 29.95, kind: 'destroy', prop: 13 },
+    { at: 30.25, kind: 'blast', x: 620, y: 15, z: -1360, size: 4 },
+    { at: 30.8, kind: 'destroy', prop: 7 },
+    { at: 31.1, kind: 'destroy', prop: 5 },
+    { at: 31.4, kind: 'destroy', prop: 9 },
+    { at: 31.7, kind: 'destroy', prop: 3 },
+    { at: 32.0, kind: 'blast', x: 130, y: 15, z: -1450, size: 4.5 },
+    { at: 32.8, kind: 'destroy', prop: 1 },
+    { at: 33.2, kind: 'destroy', prop: 6 },
+    { at: 33.5, kind: 'blast', x: 100, y: 12, z: -1470, size: 3 },
   ]),
 }
