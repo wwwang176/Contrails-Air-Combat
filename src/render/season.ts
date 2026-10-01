@@ -132,7 +132,7 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
    * 德 M4 庫斯克用
    */
   julyWheat: {
-    palette: [0x6f7148, 0x7b7a4c, 0x878350, 0x938b55, 0x9e925a, 0xa8985e, 0xb09d62, 0xb6a167],
+    palette: [0x566a3a, 0x667441, 0x777e48, 0x87884f, 0x989256, 0xa89c5e, 0xb9a665, 0xc9b06c],
     ploughed: 0x6a5a45,
     // 田埂：被踩實曬乾的淺土色
     hedge: 0xb8aa7c,

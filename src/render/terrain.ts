@@ -42,7 +42,7 @@ import {
   ROAD_WIDTH as ASCH_ROAD_WIDTH, ROADS as ASCH_ROADS,
 } from '../world/asch'
 import {
-  createKursk, DIRT_ROAD, KURSK_ROAD_WIDTH, KURSK_ROADS, SCAR_ZONE, SCORCH, TRACKS, TRENCHES,
+  createKursk, SCAR_ZONE, SCORCH, TRACKS, TRENCHES,
 } from '../world/kursk'
 import { preloadScarAtlas } from './battleScars'
 import type { HeightFieldData } from '../world/heightfield'
@@ -547,9 +547,8 @@ function createAschTerrain(gfx?: TerrainGfx): Terrain {
  * 拿眼睛校**
  */
 export const KURSK_SITE: SiteLayout = {
-  roads: KURSK_ROADS,
-  roadWidth: KURSK_ROAD_WIDTH,
-  roadHex: DIRT_ROAD,
+  roads: [],
+  roadWidth: 0,
   scars: {
     zone: SCAR_ZONE, fade: 700, dense: 0.3, sparse: 0.03,
     scorch: SCORCH, trenches: TRENCHES, tracks: TRACKS,

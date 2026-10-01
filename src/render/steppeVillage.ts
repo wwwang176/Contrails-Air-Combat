@@ -42,7 +42,7 @@ export interface GardenStrip {
 }
 
 /** 菜園的色：馬鈴薯與蔬菜的深綠、向日葵的黃綠、剛翻過的裸土 */
-const GARDEN_COLORS = [0x657240, 0x6d7847, 0x7a8350, 0x84764f] as const
+const GARDEN_COLORS = [0x727548, 0x7b7c4c, 0x85804f, 0x7a6b4a] as const
 
 /** 街的總長，m：`BASE + pop × PER_POP`，人口沒給時取中間 */
 const STREET_LENGTH = { base: 420, perPop: 1.0 } as const

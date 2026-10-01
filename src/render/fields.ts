@@ -1194,7 +1194,11 @@ ${candidates ? CANDIDATE_LOOKUP_GLSL : ''}  for (int dj = -1; dj <= 1; dj++) {
     }
   }
 ${candidates ? '  }\n' : ''}  uint rh = fieldHash1(rid);
-  float angle = (float(rh & 0xffffu) / 65536.0) * 3.14159265;
+  float angle = ${steppe
+    // 【草原田的朝向各區塊只差一點】集體農場的大田是一整片規劃出來的，沒有中歐那種每個
+    // 區塊轉一個任意角度。相鄰區塊差不到 ±14°，區塊交界不會切出尖角的楔形田塊
+    ? '0.35 + (float(rh & 0xffffu) / 65536.0 - 0.5) * 0.5'
+    : '(float(rh & 0xffffu) / 65536.0) * 3.14159265'};
   float scale = SPACING_VAR_LO
     + (float(rh >> 16u) / 65536.0) * (SPACING_VAR_HI - SPACING_VAR_LO);
   float cellW = FIELD_SPACING * scale;
@@ -1790,6 +1794,8 @@ ${outpostGlsl}
   })()
   // 【戰場的痕跡畫在道路之後】先有路、後來才被炸：坑蓋在路面上
   const scarSection = site.scars === undefined ? '' : scarsGlsl(site.scars)
+  // 【沒有道路也沒有鐵路就整段不產生】GLSL 不准零長度的陣列
+  if (segs.length === 0 && rail.length === 0) return `${padSection}${scarSection}`
   return `${padSection}
   // 【道路與鐵路自己一個外接矩形】底下這 ${rail.length + segs.length} 段點線距離是每個像素都跑的，
   // 而連外道路一路畫到圖邊 —— 墊面那個矩形擋不住它們，得自己算一個。
