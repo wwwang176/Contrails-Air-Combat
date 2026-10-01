@@ -1,6 +1,7 @@
 import { createHeightField, type HeightFieldData } from './heightfield'
 import { bakeRelief, SEA_FLOOR, WOBBLE_MAX, type IslandDesc, type LobeDesc } from './archipelago'
 import { HILL_GAP } from './farmland'
+import type { CrateField, ParkedVehicle } from './depot'
 
 /**
  * # 雷伊泰的海岸線地形（日 M2）
@@ -482,21 +483,10 @@ export const LEYTE_BALLOONS: readonly LeyteBalloon[] = /* @__PURE__ */ (() => {
 
 // ── 灘頭的佈景：補給堆與停著的車 ─────────────────────────────
 
-/**
- * 一堆補給：一塊長方形的場地，裡面由 `render/leyteBeach.ts` 用種子排滿木箱。
- * `heading` 是場地「深」那一邊的朝向（rad，0 = 朝 −Z），`width` 橫向、`depth`
- * 沿 `heading`，m。`lane` = 中間留一條這麼寬的走道（LST 跳板上來的車道），0 = 不留。
- */
-export interface BeachDump {
-  readonly x: number; readonly z: number; readonly heading: number
-  readonly width: number; readonly depth: number; readonly lane: number
-  readonly seed: number
-}
-/** 一台停著不動的車。`heading` 0 = 車頭朝 −Z */
-export interface BeachVehicle {
-  readonly unit: 'usTruck' | 'usTank' | 'usFlakTrack'
-  readonly x: number; readonly z: number; readonly heading: number
-}
+/** 一堆補給（`world/depot.ts`）。卸貨區的 `lane` 是 LST 跳板上來的車道 */
+export type BeachDump = CrateField
+/** 一台停著不動的車 */
+export type BeachVehicle = ParkedVehicle
 
 /**
  * 灘頭的佈景（**不是目標、沒有碰撞**，`render/leyteBeach.ts` 合併成一顆網格）：

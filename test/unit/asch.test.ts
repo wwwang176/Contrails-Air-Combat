@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
-  ASCH_HILLS, createAsch, DUMPS, FIELD_BOUNDS, FIELD_CENTER, FIELD_PAD, inField, LIGHT_FLAK_SITES,
-  PARKED_ROWS, PAVED, PSP_STEEL, RUNWAY, STAND_LANES, STAND_PADS, TAKEOFF_LINE, TAXI_LOOP,
-  taxiRoute, worldToField, type FieldRect,
+  ASCH_HILLS, CRATE_FIELDS, createAsch, DUMPS, FIELD_BOUNDS, FIELD_CENTER, FIELD_LOBES, FIELD_PAD,
+  FIELD_TREE_CLEAR, FLAK_SITES, HOLD_ROWS, HUTS, inField, PARKED_ROWS, PAVED, PSP_STEEL, ROAD_WIDTH, RUNWAY, STAND_LANES, STAND_PADS,
+  TAKEOFF_LINE, TAXI_LOOP, taxiRoute, TREE_CLUMPS, VEHICLES, worldToField, type FieldRect,
 } from '../../src/world/asch'
+import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from '../../src/render/floraShapes'
 import { RUNWAY_CONCRETE } from '../../src/world/poltava'
 import { PAD_CLEARANCE } from '../../src/world/leuna'
 import { FARM_CELL, HILL_GAP, HILL_LIMIT } from '../../src/world/farmland'
@@ -138,17 +139,71 @@ describe('asch 的佈局', () => {
     }
   })
 
-  it('油桶堆與輕高砲在墊面附近、離鋪面 20 m 以上、離停放的 P-51 40 m 以上', () => {
+  it('油桶堆與防空砲在墊面附近、離鋪面 20 m 以上、離停放的 P-51 40 m 以上', () => {
     expect(DUMPS.length).toBeGreaterThan(0)
-    expect(LIGHT_FLAK_SITES.length).toBeGreaterThan(0)
+    expect(FLAK_SITES.length).toBeGreaterThan(0)
     for (const d of DUMPS) {
       expect(inRect(d.x, d.z, FIELD_PAD), `${d.x},${d.z}`).toBe(true)
     }
-    for (const s of [...DUMPS, ...LIGHT_FLAK_SITES]) {
+    for (const s of [...DUMPS, ...FLAK_SITES]) {
       expect(clearOfPaving(s.x, s.z, 20), `${s.x},${s.z}`).toBe(true)
       for (const p of PARKED_ROWS) {
         expect(Math.hypot(s.x - p.x, s.z - p.z), `${s.x},${s.z}`).toBeGreaterThanOrEqual(40)
       }
+    }
+  })
+
+  /** 【防空車不站在林子裡】墊面外只清 `FIELD_TREE_CLEAR`；也不擋在連外道路上 */
+  it('防空砲都在不長樹的那一圈裡、不壓連外道路', () => {
+    for (const s of FLAK_SITES) {
+      const p = local(s.x, s.z)
+      const d = Math.min(...[FIELD_PAD, ...FIELD_LOBES].map((r) => Math.hypot(
+        Math.max(0, r.x0 - p.x, p.x - r.x1), Math.max(0, r.z0 - p.z, p.z - r.z1),
+      )))
+      expect(d, `${p.x},${p.z}`).toBeLessThanOrEqual(FIELD_TREE_CLEAR - 10)
+      if (p.x < FIELD_PAD.x0) expect(Math.abs(p.z), `${p.x},${p.z}`).toBeGreaterThanOrEqual(ROAD_WIDTH / 2 + 10)
+    }
+  })
+
+  /**
+   * 【一個小隊已經在跑道頭】南段滑行帶的末端排成一列、機首朝跑道，滑幾十公尺就
+   * 上跑道 —— 玩家抵達前那一批已經升空
+   */
+  it('跑道頭 4 架 P-51 排在南段滑行帶的末端、機首朝跑道、彼此不重疊', () => {
+    const south = TAXI_LOOP[2]!
+    expect(HOLD_ROWS).toHaveLength(4)
+    for (const p of HOLD_ROWS) {
+      expect(inRect(p.x, p.z, south), `${p.x},${p.z}`).toBe(true)
+      expect(inRect(p.x, p.z, RUNWAY), `${p.x},${p.z}`).toBe(false)
+      // heading −π/2 = 機首朝 +X，也就是跑道那一側
+      expect(p.heading).toBe(-Math.PI / 2)
+    }
+    const xs = HOLD_ROWS.map((p) => local(p.x, p.z).x).sort((a, b) => b - a)
+    expect(RUNWAY.x0 - xs[0]!).toBeLessThanOrEqual(50)
+    for (let i = 1; i < xs.length; i++) expect(xs[i - 1]! - xs[i]!).toBeGreaterThanOrEqual(20)
+  })
+
+  it('跑道頭那 4 架的滑行路徑很短：終點是起飛點、每一點都在鋪面上、全長 200 m 內', () => {
+    const onPaving = (x: number, z: number): boolean =>
+      PAVED.some((r) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1)
+    const line = local(TAKEOFF_LINE.x, TAKEOFF_LINE.z)
+    for (const p of HOLD_ROWS) {
+      const path = taxiRoute(p.x, p.z, 0)
+      expect(path[0]).toEqual({ x: p.x, z: p.z })
+      const end = local(path.at(-1)!.x, path.at(-1)!.z)
+      expect(end).toEqual({ x: (RUNWAY.x0 + RUNWAY.x1) / 2, z: line.z })
+      let length = 0
+      for (let i = 1; i < path.length; i++) {
+        const a = local(path[i - 1]!.x, path[i - 1]!.z)
+        const b = local(path[i]!.x, path[i]!.z)
+        length += Math.hypot(b.x - a.x, b.z - a.z)
+        const n = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z))
+        for (let k = 0; k <= n; k++) {
+          const f = n === 0 ? 0 : k / n
+          expect(onPaving(a.x + (b.x - a.x) * f, a.z + (b.z - a.z) * f), `${p.x} 第 ${i} 段`).toBe(true)
+        }
+      }
+      expect(length).toBeLessThan(200)
     }
   })
 
@@ -210,5 +265,135 @@ describe('asch 的佈局', () => {
     // heading 0 = 機首朝 −Z：起點要在 +Z 那一端
     expect(TAKEOFF_LINE.heading).toBe(0)
     expect(p.z).toBeGreaterThan((RUNWAY.z0 + RUNWAY.z1) / 2)
+  })
+})
+
+/**
+ * 營房、補給堆、停著的車是佈景：沒有命中盒，但壓在鋪面上的話 P-51 會從車裡
+ * 滑出去；落在墊面外的話底下是田、旁邊會長樹。
+ */
+describe('asch 的營區', () => {
+  interface Item { tag: string; x: number; z: number; r: number }
+  const items: Item[] = [
+    ...HUTS.map((h) => ({ tag: `營房 ${h.x.toFixed(0)},${h.z.toFixed(0)}`, x: h.x, z: h.z, r: Math.hypot(h.length, h.width) / 2 })),
+    ...CRATE_FIELDS.map((d) => ({ tag: `補給堆 ${d.x.toFixed(0)},${d.z.toFixed(0)}`, x: d.x, z: d.z, r: Math.hypot(d.width, d.depth) / 2 })),
+    ...VEHICLES.map((v) => ({ tag: `${v.unit} ${v.x.toFixed(0)},${v.z.toFixed(0)}`, x: v.x, z: v.z, r: 4 })),
+  ]
+
+  it('附加的墊面都與主墊面相接', () => {
+    for (const r of FIELD_LOBES) expect(touches(r, FIELD_PAD), `${r.x0},${r.z0}`).toBe(true)
+  })
+
+  it('每一件連同外接圓都在墊面裡', () => {
+    for (const e of items) {
+      const p = local(e.x, e.z)
+      for (const [dx, dz] of [[-e.r, 0], [e.r, 0], [0, -e.r], [0, e.r]] as const) {
+        expect(inField(p.x + dx, p.z + dz), e.tag).toBe(true)
+      }
+    }
+  })
+
+  /** 【3 m】整備區貼著停機墊擺；滑行的 P-51 只走鋪面，留一點縫就不會穿過車子 */
+  it('離鋪面 3 m 以上', () => {
+    for (const e of items) expect(clearOfPaving(e.x, e.z, e.r + 3), e.tag).toBe(true)
+  })
+
+  it('不壓防空砲、油桶堆與停放的 P-51', () => {
+    const solid = [
+      ...FLAK_SITES.map((s) => ({ x: s.x, z: s.z, r: 5 })),
+      ...DUMPS.map((d) => ({ x: d.x, z: d.z, r: 15 })),
+      ...PARKED_ROWS.map((p) => ({ x: p.x, z: p.z, r: 8 })),
+    ]
+    for (const e of items) {
+      for (const s of solid) {
+        expect(Math.hypot(e.x - s.x, e.z - s.z), `${e.tag} 對 ${s.x.toFixed(0)},${s.z.toFixed(0)}`)
+          .toBeGreaterThanOrEqual(e.r + s.r + 5)
+      }
+    }
+  })
+
+  it('箱子堆是停機位的整備區：每一格至少一堆，都在 P-51 旁 50 m 內，大小不一', () => {
+    const nearest = (x: number, z: number): number =>
+      Math.min(...PARKED_ROWS.map((p) => Math.hypot(x - p.x, z - p.z)))
+    for (const d of CRATE_FIELDS) expect(nearest(d.x, d.z), `${d.x.toFixed(0)},${d.z.toFixed(0)}`).toBeLessThanOrEqual(50)
+    for (const p of PARKED_ROWS) {
+      expect(CRATE_FIELDS.some((d) => Math.hypot(d.x - p.x, d.z - p.z) <= 50), `${p.x},${p.z}`).toBe(true)
+    }
+    const widths = CRATE_FIELDS.map((d) => d.width)
+    expect(Math.max(...widths) - Math.min(...widths)).toBeGreaterThan(4)
+  })
+
+  it('卡車停在停機位、營房或箱子堆旁邊；佈景裡沒有 M16（會開火的才是 M16）', () => {
+    expect(VEHICLES.length).toBeGreaterThanOrEqual(20)
+    const anchors = [
+      ...HUTS.map((h) => ({ x: h.x, z: h.z, r: Math.hypot(h.length, h.width) / 2 })),
+      ...CRATE_FIELDS.map((d) => ({ x: d.x, z: d.z, r: Math.hypot(d.width, d.depth) / 2 })),
+      ...PARKED_ROWS.map((p) => ({ x: p.x, z: p.z, r: 25 })),
+    ]
+    for (const v of VEHICLES) {
+      expect(v.unit, `${v.x.toFixed(0)},${v.z.toFixed(0)}`).toBe('usTruck')
+      const gap = Math.min(...anchors.map((a) => Math.hypot(v.x - a.x, v.z - a.z) - a.r))
+      expect(gap, `${v.x.toFixed(0)},${v.z.toFixed(0)}`).toBeLessThanOrEqual(25)
+    }
+  })
+
+  it('不壓連外道路', () => {
+    const half = ROAD_WIDTH / 2
+    for (const e of items) {
+      const p = local(e.x, e.z)
+      if (p.x - e.r > FIELD_PAD.x0) continue
+      expect(Math.abs(p.z), e.tag).toBeGreaterThanOrEqual(e.r + half)
+    }
+  })
+
+  /**
+   * 【一叢一叢的樹】跑道周圍不長樹：樹冠外緣離跑道 80 m，灌木 15 m。其餘鋪面
+   * （滑行帶、窄巷、停機墊）只留 3 m —— 滑行的翼尖都在鋪面上。營房、箱子、車、
+   * 防空砲、油桶堆與停放的 P-51 旁邊可以長，只是樹冠不能蓋到
+   */
+  const crown = { broad: BROAD_CROWN_R, cone: CONE_CROWN_R, bush: BUSH_R } as const
+  const plants = TREE_CLUMPS.flatMap((c) => c.plants)
+  const rectGap = (p: { x: number; z: number }, r: FieldRect): number =>
+    Math.hypot(Math.max(0, r.x0 - p.x, p.x - r.x1), Math.max(0, r.z0 - p.z, p.z - r.z1))
+
+  it('樹叢在墊面的草地上，跑道周圍沒有樹，樹冠不蓋到鋪面與任何一件東西', () => {
+    expect(TREE_CLUMPS.length).toBeGreaterThanOrEqual(10)
+    const solid = [
+      ...items,
+      ...FLAK_SITES.map((s) => ({ tag: 'flak', x: s.x, z: s.z, r: 5 })),
+      ...DUMPS.map((d) => ({ tag: 'dump', x: d.x, z: d.z, r: 15 })),
+      ...PARKED_ROWS.map((p) => ({ tag: 'P-51', x: p.x, z: p.z, r: 8 })),
+    ]
+    for (const t of plants) {
+      const r = crown[t.kind] * t.scale
+      const tag = `${t.kind} ${t.x.toFixed(0)},${t.z.toFixed(0)}`
+      const p = local(t.x, t.z)
+      expect(inField(p.x, p.z), tag).toBe(true)
+      expect(rectGap(p, RUNWAY) - r, `${tag} 對跑道`).toBeGreaterThanOrEqual(t.kind === 'bush' ? 15 : 80)
+      expect(clearOfPaving(t.x, t.z, r + 3), tag).toBe(true)
+      for (const s of solid) {
+        expect(Math.hypot(t.x - s.x, t.z - s.z), `${tag} 對 ${s.tag}`).toBeGreaterThanOrEqual(r + s.r)
+      }
+    }
+    expect(plants.length).toBeGreaterThanOrEqual(3 * TREE_CLUMPS.length)
+  })
+
+  it('營房與停機位旁邊長得出樹', () => {
+    const trees = plants.filter((t) => t.kind !== 'bush')
+    const nearHut = trees.filter((t) => HUTS.some((h) =>
+      Math.hypot(t.x - h.x, t.z - h.z) - Math.hypot(h.length, h.width) / 2 - crown[t.kind] * t.scale < 10))
+    const nearStand = trees.filter((t) => PARKED_ROWS.some((p) => Math.hypot(t.x - p.x, t.z - p.z) < 50))
+    expect(nearHut.length).toBeGreaterThan(0)
+    expect(nearStand.length).toBeGreaterThan(0)
+  })
+
+  it('彼此不重疊', () => {
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const a = items[i]!
+        const b = items[j]!
+        expect(Math.hypot(a.x - b.x, a.z - b.z), `${a.tag} 對 ${b.tag}`).toBeGreaterThanOrEqual(a.r + b.r)
+      }
+    }
   })
 })
