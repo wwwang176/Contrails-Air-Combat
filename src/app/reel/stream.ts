@@ -19,14 +19,16 @@ import {
 //
 // 刀表（每一刀在主軸上的作用）：
 //   0.0–2.4   長機右翼外側的發動機特寫，四周高砲炸開：編隊在投彈航線上
-//   2.4–5.0   109 的右後上方：從正前上方 12 點高位俯衝撲向編隊，B-17 在機鼻前放大
-//   5.0–8.3   反打，右僚機後上方（手持）：109 迎面俯衝開火、曳光打進右僚機噴出火花，
-//             發動機冒煙，109 從頭上與鏡頭旁衝過 —— 攻擊者與目標同框
-//   8.3–10.2  右僚機右後上方跟拍（手持）：冒煙的發動機竄出火，它仍守在隊形裡
-//   10.2–12.0 長機上方砲塔：第二架 109 俯衝撲向長機，機槍手迎著它打
-//   12.0–14.0 長機機鼻往前下方看：油廠進到瞄準線上，黑雲四起
+//   2.4–4.6   109 座艙罩後方、長焦：右僚機與編隊在機鼻前從 1 km 放大到半公里，開火
+//   4.6–6.5   右僚機機鼻前、長焦：109 迎面衝來、槍口焰閃著、曳光擦過鏡頭，最後一刻
+//             猛然拉起（翼尖拉出凝結尾），塞滿畫面
+//   6.5–7.6   右僚機機背上往前看：109 從頭上 25 m 呼嘯而過（震一下），發動機冒煙
+//   7.6–9.0   右僚機右後上方跟拍（手持）：冒煙的發動機竄出火，它仍守在隊形裡
+//   9.0–10.6  長機上方砲塔、長焦：第二架 109 迎面撲來開火，機槍手迎著它打
+//   10.6–11.5 第二架 109 的座艙罩後方：長機在擋風玻璃前放大、火花打在它身上，猛然拉起
+//   11.5–14.0 長機機鼻往前下方看：油廠進到瞄準線上，黑雲四起
 //   14.0–16.4 長機機腹下：彈艙打開，炸彈一枚枚落下
-//   16.4–18.8 編隊左下方（手持）：整個編隊一串串放下炸彈，冒火的右僚機也在投
+//   16.4–18.8 掛在長機第一枚炸彈旁往上看：長機的機腹越退越遠、還在一枚枚放
 //   18.8–21.6 長機右腰窗（手持）：投完彈的右僚機脫隊，20.9 秒被高砲直接命中炸開
 //   21.6–25.9 跟著長機的最後一枚炸彈往下掉：油廠在下方越來越大，前導組炸的煙已經冒起
 //   25.9–29.6 地面，油廠東南邊（手持）：炸彈串落進廠區，一座座炸開起火
@@ -110,25 +112,31 @@ const lowLeft = wingman(streamLead, -110, -55, 138, 3.4)
 const lowRight = wingman(streamLead, -34, -41, 138, 2.2)
 const LOW_LEAD = 3
 
-/** 109 俯衝攻擊：俯角、速度、扣扳機那一刻離目標多遠 */
-const DIVE_ANGLE = (16 * Math.PI) / 180
+/** 109 對頭攻擊：俯角、速度、射擊窗正中那一刻離目標多遠 */
+const DIVE_ANGLE = (6 * Math.PI) / 180
 const FIGHTER_SPEED = 150
 const FIRE_RANGE = 380
 /**
- * 俯衝的直線第 `fireAt` 秒正好穿過目標的機身中心 —— 開火要以這一刻為中心。
- * 【開火只有半秒】目標水平往前飛、109 斜著往下衝，目標每秒偏離機首那條線
- * 75 × sin 16° = 21 m；機身容許 5.3 m，前後各 0.22 秒
+ * 往下 6° 的直線第 `fireAt` 秒正好穿過目標的機身中心 —— 射擊窗以這一刻為中心。
+ * 目標水平往前飛、109 微微往下衝，目標每秒偏離機首那條線 75 × sin 6° = 7.8 m；
+ * 機身容許 5.3 m（僚機另有 0.5 m 的起伏），前後各 0.55 秒，距離從 500 m 打到 260 m
  */
-const FIRE_HALF = 0.22
-/** 從扣扳機到飛過目標那一個橫切面要幾秒；那一刻 109 在目標上方 36 m */
+const FIRE_HALF = 0.55
+/** 從射擊窗正中到飛過目標那一個橫切面要幾秒 */
 const PASS_AFTER = (Math.cos(DIVE_ANGLE) * FIRE_RANGE) / (FIGHTER_SPEED * Math.cos(DIVE_ANGLE) + STREAM_SPEED)
+/** 停火之後最後一刻拉起：擦身那一刻多抬高幾公尺（直線本身已經高出 13 m） */
+const PULL_UP = 12
+const PULL_D = 0.3
+const PULL_T = PASS_AFTER - FIRE_HALF
+const PULL_GAIN = 1 / (0.5 * PULL_D * (PULL_T - PULL_D) + 0.5 * (PULL_T - PULL_D) ** 2)
 
 /**
- * 109 從正前上方撲向 `target`：一條往下 16° 的直線，第 `fireAt` 秒穿過目標的機身中心、
- * 那時離它 380 m。目標水平往前飛，所以 109 從它頭上 36 m 衝過去，不必閃。
- * 衝過去之後拉起改出、往 `side` 那一側壓坡度轉開。
+ * 109 從正前方對頭撲向 `target`：一條往下 6° 的直線，第 `fireAt` 秒穿過目標的機身中心、
+ * 那時離它 380 m。停火的那一刻（`fireAt + FIRE_HALF`）猛然拉起，從目標頭上 25 m
+ * 掠過（約 4 G，翼尖拉出凝結尾），之後往 `side` 那一側壓坡度轉開。
  *
- * 【改出只能往上拉】往下的加速度一超過 g，升力方向就翻到機腹下面、整架瞬間倒過來
+ * 【拉起只能在停火之後】曳光沿機首直直打出去；一拉起機首就離開目標
+ * 【擦身的間距】B-17 加 109 的半翼展和是 20.8 m，僚機另有 ±2 m 的起伏
  */
 function diveOn(target: Path, fireAt: number, side: number): Path {
   const aim = target(fireAt, new Vector3())
@@ -137,23 +145,24 @@ function diveOn(target: Path, fireAt: number, side: number): Path {
   const x0 = aim.x
   const y0 = aim.y + sy * FIRE_RANGE
   const z0 = aim.z - cz * FIRE_RANGE
+  const pullFrom = fireAt + FIRE_HALF
   const pass = fireAt + PASS_AFTER
   return (t, out) => {
     const s = FIGHTER_SPEED * (t - fireAt)
     out.set(x0, y0 - sy * s, z0 + cz * s)
-    out.y += rampedOffset(t, pass + 0.1, 1.2, 20) - rampedOffset(t, pass + 2.4, 1.2, 20)
-    out.x += side * rampedOffset(t, pass + 0.3, 1.5, 8)
-    out.z -= rampedOffset(t, pass + 0.3, 1.5, 8)
+    out.y += PULL_UP * PULL_GAIN * (rampedOffset(t, pullFrom, PULL_D, 1) - rampedOffset(t, pass - PULL_D, PULL_D, 1))
+    out.x += side * rampedOffset(t, pass + 0.3, 1.5, 9)
+    out.z -= rampedOffset(t, pass + 0.3, 1.5, 10)
     return out
   }
 }
 /** 第一架：撲向右僚機 */
-const FIRE_1 = 6.0
+const FIRE_1 = 5.0
 const PASS_1 = FIRE_1 + PASS_AFTER
 const bandit = diveOn(crippledBase, FIRE_1, 1)
 const BANDIT = 9
 /** 第二架：撲向長機，打中左外側發動機 */
-const FIRE_2 = 10.6
+const FIRE_2 = 10.0
 const bandit2 = diveOn(streamLead, FIRE_2, -1)
 const BANDIT_2 = 10
 
@@ -174,6 +183,10 @@ const FORWARD_B = 12
 /** 長機組開始投彈的時刻；一串十枚、每 0.26 秒一枚 */
 const BOMBS_AWAY = 14.2
 const BOMB_GAP = 0.26
+/** 長機第一枚炸彈：投下那一刻的機腹點與速度，第 16.4～18.8 秒鏡頭掛在它旁邊往上看 */
+const FIRST_P = body(streamLead, BOMBS_AWAY, 0, BOMB_RELEASE_Y, 0, false, new Vector3())
+const FIRST_V = velocityAt(streamLead, BOMBS_AWAY, new Vector3())
+const FIRST_BOMB = new Vector3()
 /** 長機最後一枚炸彈：投下那一刻的機腹點與速度，第 21.6～25.9 秒鏡頭跟著它往下掉 */
 const LAST_DROP = BOMBS_AWAY + 9 * BOMB_GAP
 const LAST_P = body(streamLead, LAST_DROP, 0, BOMB_RELEASE_Y, 0, false, new Vector3())
@@ -200,38 +213,49 @@ const CUTS: readonly Cut[] = [
   {
     from: 2.4, subject: STREAM_HIT, mount: BANDIT,
     camera(t, out) {
-      // 109 的右後上方：整架 109 在下半的前景，順著它往下 16° 的機鼻看出去，編隊在正前方
-      // 越來越大（1,300 → 600 m）。掛在機上，不晃
-      body(bandit, t, 1.4, 2.0, 7.5, false, out.position)
+      // 109 的座艙罩左後上方、長焦：自己的機背在下緣，右僚機在機鼻正前方從 1 km 放大到
+      // 半公里，4.45 秒槍口開火。掛在機上，不晃
+      body(bandit, t, -1.0, 2.1, 3.4, false, out.position)
       crippled(t, S1)
-      body(bandit, t, 0, 0, -300, false, S2)
-      aimBetween(out.position, S1, S2, 0.35, out.target)
+      body(bandit, t, 0, -2, -300, false, S2)
+      aimBetween(out.position, S1, S2, 0.5, out.target)
       bodyUp(bandit, t, out.up)
-      out.fov = 40
+      out.fov = 22
     },
   },
   {
-    from: 5.0, subject: STREAM_HIT,
+    from: 4.6, subject: BANDIT, mount: STREAM_HIT,
     camera(t, out) {
-      // 反打：右僚機後上方 110 m 的伴飛機（手持 0.25°）。109 從右僚機正前上方俯衝下來、
-      // 開火，曳光打進右僚機噴出火花，右內側發動機冒煙；109 從它頭上 36 m 衝過，
-      // 再從鏡頭左邊 25 m 擦過（震一下）。注視點先偏向 109 一點，衝過之前收回右僚機
-      streamLead(t, out.position).add(S1.set(62, 30, 130))
-      shake(t, 0.2, 11, out.position)
-      crippled(t, S1)
+      // 右僚機機鼻正前方往前看、長焦：109 迎面從 470 m 衝到頭頂，槍口焰閃著、曳光擦著
+      // 鏡頭打進機身，火花就噴在鏡頭旁。最後一刻它猛然拉起，注視點跟著它往上甩。
+      // 鏡頭離機鼻再近就進了測試的螺旋槳盤範圍
+      body(crippled, t, 0, -1.0, -8.2, false, out.position)
+      body(crippled, t, 0, 0, -400, false, S1)
       bandit(t, S2)
-      const lean = Math.min(1, Math.max(0, (PASS_1 - 0.3 - t) / 0.6))
-      aimBetween(out.position, S1, S2, 0.5 * lean, out.target)
-      shake(t, 0.3, 12, out.target)
-      jolt(t, PASS_1 + 0.47, 1.0, out.target)
-      out.fov = 46
+      aimBetween(out.position, S1, S2, 0.92, out.target)
+      shake(t, 0.12, 21, out.target)
+      bodyUp(crippled, t, out.up)
+      out.fov = 30
     },
   },
   {
-    from: 8.3, subject: STREAM_HIT,
+    from: 6.5, subject: STREAM_HIT, mount: STREAM_HIT,
+    camera(t, out) {
+      // 右僚機機背上、上方砲塔後面往前看：機身與冒煙的右內側發動機在前下方，109 從
+      // 頭上 25 m 呼嘯而過（6.69 秒，鏡頭震一下）
+      body(crippled, t, 0, 3.4, 7.5, false, out.position)
+      body(crippled, t, 2, -2, -60, false, S1)
+      out.target.copy(S1)
+      jolt(t, PASS_1, 1.2, out.target)
+      bodyUp(crippled, t, out.up)
+      out.fov = 60
+    },
+  },
+  {
+    from: 7.6, subject: STREAM_HIT,
     camera(t, out) {
       // 右僚機右後上方 35 m 跟拍（手持 0.2°）：冒煙的右內側發動機（`enginePoints[0]`，
-      // 機體 x +3.05）8.6 秒竄出火，它仍守在隊形裡、長機在它左前方。再貼近的話煙尾從
+      // 機體 x +3.05）7.8 秒竄出火，它仍守在隊形裡、長機在它左前方。再貼近的話煙尾從
       // 鏡頭旁流過，整架隔著一層煙
       body(crippled, t, 25, 11, 22, true, out.position)
       shake(t, 0.08, 13, out.position)
@@ -241,20 +265,34 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 10.2, subject: BANDIT_2, mount: 0,
+    from: 9.0, subject: BANDIT_2, mount: 0,
     camera(t, out) {
-      // 長機上方砲塔往前上方看：第二架 109 從正前上方俯衝撲來、開火，砲塔的曳光迎著
-      // 它打，右邊的前導組正在投彈。掛在機上，只留 0.1° 的慢晃
+      // 長機上方砲塔往前上方看、長焦：第二架 109 從 600 m 外迎面撲來、開火，砲塔的
+      // 曳光迎著它打。掛在機上，只留 0.1° 的慢晃
       body(streamLead, t, 0.6, 3.0, -0.5, false, out.position)
       body(streamLead, t, 0, -20, -400, false, S1)
       bandit2(t, S2)
-      aimBetween(out.position, S1, S2, 0.85, out.target)
+      aimBetween(out.position, S1, S2, 0.9, out.target)
       shake(t, 0.15, 15, out.target)
-      out.fov = 36
+      out.fov = 26
     },
   },
   {
-    from: 12.0, subject: null, mount: 0,
+    from: 10.6, subject: 0, mount: BANDIT_2,
+    camera(t, out) {
+      // 第二架 109 的座艙罩右後上方：長機在擋風玻璃前迅速放大到整個機翼橫跨畫面，
+      // 火花打在它的機鼻與發動機上；11.4 秒它猛然拉起，長機往畫面下緣滑出去。
+      // 掛在機上，不晃
+      body(bandit2, t, 0.9, 1.8, 3.6, false, out.position)
+      streamLead(t, S1)
+      body(bandit2, t, 0, -2, -300, false, S2)
+      aimBetween(out.position, S1, S2, 0.4, out.target)
+      bodyUp(bandit2, t, out.up)
+      out.fov = 38
+    },
+  },
+  {
+    from: 11.5, subject: null, mount: 0,
     camera(t, out) {
       // 長機機鼻正前方 1.8 m（投彈手的位置）往前下方看：油廠在前下方的田裡，越來越近，
       // 黑雲在前方炸開。鏡頭離機鼻再近就進了測試的螺旋槳盤範圍
@@ -276,16 +314,18 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 16.4, subject: LOW_LEAD,
+    from: 16.4, subject: 0,
     camera(t, out) {
-      // 編隊左下方 150 m（手持 0.25°）往右上看：長機組與低空組一架架放下炸彈，
-      // 一串串往下拉成虛線；冒火的右僚機也在投
-      streamLead(t, out.position).add(S1.set(-190, -110, 70))
-      shake(t, 0.4, 17, out.position)
-      streamLead(t, S1).add(S2.set(-30, -50, 70))
-      out.target.copy(S1)
-      shake(t, 0.6, 18, out.target)
-      out.fov = 48
+      // 掛在長機的第一枚炸彈旁邊往上看：炸彈在前景往下掉，長機的機腹在上方越退越遠、
+      // 還在一枚枚放；兩側的僚機（右邊那架拖著火）與後方的低空組也在投
+      // 【鏡頭的上方取機首方向】幾乎正朝上看，世界的上方退化，畫面會亂轉
+      bombAt(FIRST_P, FIRST_V, t - BOMBS_AWAY, FIRST_BOMB)
+      out.position.copy(FIRST_BOMB).add(S1.set(4.5, -3.0, 3.0))
+      shake(t, 0.05, 17, out.position)
+      streamLead(t, S2)
+      aimBetween(out.position, FIRST_BOMB, S2, 0.8, out.target)
+      out.up.set(0, 0, -1)
+      out.fov = 60
     },
   },
   {
@@ -407,24 +447,24 @@ export const STREAM: Shot = {
     // 投彈航線上：長機組前方的一片彈幕，編隊直直飛進去
     ...barrage(202, 11.5, 17, 3.0, (t, out) => streamLead(t, out).add(S3.set(10, 10, -260)),
       { x: 160, yLo: -50, yHi: 90, z: 160 }, edit(CUTS), 70),
-    // 第一架 109 撲向右僚機：編隊的機槍手迎著它打，它在 380 m 開火
-    { at: 3.4, kind: 'gunner', actor: STREAM_HIT, target: BANDIT, seconds: 4.0, miss: 14 },
-    { at: 3.8, kind: 'gunner', actor: 0, target: BANDIT, seconds: 3.4, miss: 12 },
-    { at: 4.2, kind: 'gunner', actor: 6, target: BANDIT, seconds: 3.4, miss: 18 },
-    { at: 4.6, kind: 'gunner', actor: 3, target: BANDIT, seconds: 3.2, miss: 16 },
+    // 第一架 109 撲向右僚機：編隊的機槍手迎著它打，它從 500 m 打到 260 m
+    { at: 2.6, kind: 'gunner', actor: STREAM_HIT, target: BANDIT, seconds: 4.0, miss: 14 },
+    { at: 3.0, kind: 'gunner', actor: 0, target: BANDIT, seconds: 3.4, miss: 12 },
+    { at: 3.4, kind: 'gunner', actor: 6, target: BANDIT, seconds: 3.0, miss: 18 },
+    { at: 3.8, kind: 'gunner', actor: 3, target: BANDIT, seconds: 2.8, miss: 16 },
     { at: FIRE_1 - FIRE_HALF, kind: 'burst', actor: BANDIT, seconds: 2 * FIRE_HALF, target: STREAM_HIT },
-    // 右內側發動機：先冒煙，兩秒多後竄出火 —— 火一下子整團冒出來的話看不出是被打的
-    { at: 6.3, kind: 'smoke', actor: STREAM_HIT, engine: 0 },
-    { at: 8.6, kind: 'smoke', actor: STREAM_HIT, engine: 0, fire: true },
+    // 右內側發動機：先冒煙，兩秒後竄出火 —— 火一下子整團冒出來的話看不出是被打的
+    { at: 5.6, kind: 'smoke', actor: STREAM_HIT, engine: 0 },
+    { at: 7.8, kind: 'smoke', actor: STREAM_HIT, engine: 0, fire: true },
     // 衝過去之後低空組追著它的背打
-    { at: 7.8, kind: 'gunner', actor: 5, target: BANDIT, seconds: 1.8, miss: 14 },
-    { at: 8.0, kind: 'gunner', actor: 3, target: BANDIT, seconds: 1.6, miss: 18 },
+    { at: 6.8, kind: 'gunner', actor: 5, target: BANDIT, seconds: 1.8, miss: 14 },
+    { at: 7.0, kind: 'gunner', actor: 3, target: BANDIT, seconds: 1.6, miss: 18 },
     // 第二架 109 撲向長機
-    { at: 9.0, kind: 'gunner', actor: 0, target: BANDIT_2, seconds: 3.2, miss: 10 },
-    { at: 9.4, kind: 'gunner', actor: 1, target: BANDIT_2, seconds: 2.8, miss: 14 },
-    { at: 9.6, kind: 'gunner', actor: STREAM_HIT, target: BANDIT_2, seconds: 2.4, miss: 16 },
+    { at: 8.4, kind: 'gunner', actor: 0, target: BANDIT_2, seconds: 3.2, miss: 10 },
+    { at: 8.8, kind: 'gunner', actor: 1, target: BANDIT_2, seconds: 2.8, miss: 14 },
+    { at: 9.0, kind: 'gunner', actor: STREAM_HIT, target: BANDIT_2, seconds: 2.4, miss: 16 },
     { at: FIRE_2 - FIRE_HALF, kind: 'burst', actor: BANDIT_2, seconds: 2 * FIRE_HALF, target: 0 },
-    { at: 11.0, kind: 'smoke', actor: 0, engine: 3 },
+    { at: 10.6, kind: 'smoke', actor: 0, engine: 3 },
     // 投彈：前導組先投，長機組、低空組、右上那一架照順序
     { at: 8.6, kind: 'bomb', actor: FORWARD_B, count: 8, interval: 0.3 },
     { at: 9.1, kind: 'bomb', actor: FORWARD_A, count: 8, interval: 0.3 },
