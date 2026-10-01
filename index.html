@@ -40,6 +40,17 @@
       /* 【非有不可】上面那條 `canvas { display: block }` 是作者樣式，
          會壓過 [hidden] 的 UA 樣式 —— 少了這一行，選單期間 HUD 藏不起來 */
       #hud[hidden], #hud-mask[hidden] { display: none; }
+      /* 主選單短片的暗場：換景時全黑，過渡時間要與 `REEL_FADE`（0.6 秒）一致。
+         層級在畫布之上、選單（#ui，2）之下 */
+      #reel-fade { position: fixed; inset: 0; z-index: 1; background: #000; opacity: 1;
+        transition: opacity .6s ease; pointer-events: none; }
+      #reel-fade[hidden] { display: none; }
+      /* 地點與年月：換景亮回來之後才淡入 */
+      #reel-caption { position: fixed; right: 28px; bottom: 22px; z-index: 1; pointer-events: none;
+        font: 13px/1 'Special Elite', 'Noto Serif TC', serif; letter-spacing: .14em;
+        color: rgba(242, 233, 210, .85); text-shadow: 0 1px 4px rgba(0, 0, 0, .8);
+        opacity: 0; transition: opacity 1.2s ease; }
+      #reel-caption.on { opacity: 1; transition-delay: .5s; }
 
       /* ── 共用 ────────────────────────────────────────── */
       /* 【捲軸也是這張桌子的一部分】任務列表、機庫的卷宗架、結算名單都在捲，
@@ -165,11 +176,16 @@
       .cover::after { content: ''; position: absolute; left: 22px; top: -1px; width: 8px; height: 8px;
         border-radius: 50%; background: rgba(0,0,0,.5); box-shadow: 30px 0 0 rgba(0,0,0,.5); }
 
-      /* ①b 主選單：三條橫幅疊在中間。
+      /* ①b 主選單：標題與三條橫幅靠左，右邊留給背景的短片（app/menuReel.ts）。
          【形狀與陣營頁刻意不同】陣營頁是三張直卡；兩層都用直卡的話，玩家只剩
-         返回鍵分得出自己在第幾層 */
-      .menu-title { margin-bottom: 6px; text-align: center; text-shadow: 0 2px 10px rgba(0,0,0,.6); }
-      .rows { display: flex; flex-direction: column; gap: 14px; width: min(600px, 100%); }
+         返回鍵分得出自己在第幾層。
+         【遮罩左濃右淡】左邊的字要讀得清楚，右邊是短片的主角 */
+      #ui .screen#menu {
+        align-items: flex-start; padding-left: max(24px, 6vw);
+        background: linear-gradient(90deg, rgba(var(--veil), .66) 0%, rgba(var(--veil), .42) 36%, rgba(var(--veil), 0) 68%);
+      }
+      .menu-title { margin-bottom: 6px; text-shadow: 0 2px 10px rgba(0,0,0,.6); }
+      .rows { display: flex; flex-direction: column; gap: 14px; width: min(560px, 44vw); }
       .menurow { position: relative; display: grid; grid-template-columns: 210px 1fr auto;
         align-items: center; gap: 0 22px; padding: 8px 24px 8px 8px; text-align: left; }
       .menurow .photo { height: 118px; }
@@ -563,8 +579,9 @@
 
         /* 主選單：標題收掉，三條橫幅的高度跟著畫面高（扣掉頁首 46、頁尾 10、兩道間距） */
         .menu-title { display: none; }
-        .rows { gap: 8px; width: min(520px, calc(100vw - 24px)); }
-        .menurow { grid-template-columns: 150px 1fr auto; gap: 0 16px; padding: 6px 18px 6px 6px; }
+        #ui .screen#menu { padding-left: 64px; }
+        .rows { gap: 8px; width: min(400px, 48vw); }
+        .menurow { grid-template-columns: 120px 1fr auto; gap: 0 14px; padding: 6px 16px 6px 6px; }
         .menurow .photo { height: min(96px, calc((100vh - 92px) / 3 - 14px)); height: min(96px, calc((100dvh - 92px) / 3 - 14px)); }
         .menurow .t { font-size: 18px; }
         .menurow .d { margin-top: 2px; font-size: 12px; }
@@ -682,6 +699,9 @@
   </head>
   <body>
     <canvas id="scene"></canvas>
+    <!-- 主選單短片的暗場與字幕（app/menuReel.ts）。蓋在畫布上、選單之下 -->
+    <div id="reel-fade"></div>
+    <div id="reel-caption"></div>
     <!-- 壓在世界上的滿版遮罩（投彈暗角、黑視／紅視）與貼著飛機的敵我標示、
          目標框。【要與 #hud 分開】整張 #hud 會跟著鏡頭震動平移旋轉：遮罩移開
          之後邊上沒有像素可以蓋，標示則是已經隨鏡頭震過一次。這一張不震 -->
