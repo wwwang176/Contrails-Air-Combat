@@ -249,7 +249,7 @@ export const zh = {
 
   'campaign.pick': '選擇陣營',
   'reel.fleet': '菲律賓海　1944 年 6 月',
-  'reel.stream': '德國灣上空　1944 年 3 月',
+  'reel.stream': '柏林上空　1944 年 3 月',
   'reel.dogfight': '北海上空　1944 年 11 月',
   'reel.strike': '倫內爾島外海　1943 年 1 月',
   'reel.raid': '馬爾他上空　1942 年 4 月',

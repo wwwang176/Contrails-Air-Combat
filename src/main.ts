@@ -1405,7 +1405,6 @@ function leaveBattle(): void {
   boardActions.hidden = true
   boardEl.classList.remove('finished')
   clearBattleScenery()
-  restoreMenuTerrain()
 }
 
 /**
@@ -1446,10 +1445,13 @@ function clearBattleScenery(): void {
   storm = null
 }
 
-/** 選單的短片都在海上取景：上一場不是群島的話換回群島 */
-function restoreMenuTerrain(): void {
-  if (terrainKind === 'archipelago') return
-  terrainKind = 'archipelago'
+/**
+ * 選單短片要的地形：與現在的不同才重建。短片每換一段都叫它（在暗場裡），
+ * 所以從戰鬥回到選單也由它換回來
+ */
+function setMenuTerrain(kind: 'archipelago' | 'farmland'): void {
+  if (terrainKind === kind) return
+  terrainKind = kind
   ctx.scene.remove(terrain.object)
   terrain.dispose()
   terrain = createTerrain(terrainKind, terrainGfx())
@@ -3596,6 +3598,7 @@ const menuReel: MenuReel = createMenuReel({
   scene: ctx.scene,
   camera: ctx.camera,
   terrain: () => terrain,
+  setTerrain: setMenuTerrain,
   setTimeOfDay(tod) {
     setMenuTimeOfDay(tod)
   },

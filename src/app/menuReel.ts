@@ -72,6 +72,8 @@ export interface ReelStage {
   readonly camera: PerspectiveCamera
   readonly fx: ReelFx
   terrain(): ReelTerrain
+  /** 換成這張地形（與現在的相同就不動）。換景的暗場裡呼叫 */
+  setTerrain(kind: 'archipelago' | 'farmland'): void
   setTimeOfDay(tod: TimeOfDay): void
   /** 全黑的那一層。opacity 由這裡寫，過渡時間在 CSS */
   readonly fade: HTMLElement
@@ -301,6 +303,8 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     cursor = 0
     fadingOut = false
     if (group.parent === null) scene.add(group)
+    // 【先換地形再換時段】時段要套到新的那一張地形上
+    stage.setTerrain(next.terrain ?? 'archipelago')
     stage.setTimeOfDay(next.timeOfDay)
 
     if (next.faceSun) {
