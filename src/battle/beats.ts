@@ -190,8 +190,23 @@ export interface RetargetBeat {
   readonly rules: MissionRules
 }
 
+/**
+ * 條件成立之後，這一種單位剩下還活著的，在隨後 `within` 秒內被劇本打掉（地面戰的己方戰車打的，
+ * 畫面上由地面戰的戲補一發命中的砲彈）。德 M4：炸掉七門砲之後，剩下的由前進的德軍坦克處理。
+ *
+ * 【劇本打掉的不算摧毀數】與 `GroundEntry.killAt` 同一條路（`GroundTarget.scripted`）。
+ * **沒有訊息** —— 前進的坦克開砲就是通知。
+ */
+export interface MopUpBeat {
+  readonly kind: 'mopUp'
+  readonly when: BeatCondition
+  readonly unit: GroundUnitId
+  /** 每一個剩下的在條件成立後第幾秒被打掉，s；各自依索引雜湊散在這個範圍裡 */
+  readonly within: readonly [number, number]
+}
+
 export type Beat =
-  | ReinforceBeat | WithdrawBeat | RecycleBeat | FlareBeat | ConveyorBeat | DepartBeat | RetargetBeat
+  | ReinforceBeat | WithdrawBeat | RecycleBeat | FlareBeat | ConveyorBeat | DepartBeat | RetargetBeat | MopUpBeat
 
 /** 一個節拍走到哪裡。**執行狀態放這裡，不放 `MissionCard`** —— 見下。 */
 export type BeatPhase = 'waiting' | 'warned' | 'done'

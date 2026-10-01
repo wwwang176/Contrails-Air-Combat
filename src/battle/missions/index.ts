@@ -399,6 +399,9 @@ function cardBeats(
       rules: { kind: 'destroy', count: r.destroyCount, unit: r.destroyUnit },
     })
   }
+  if (b.mopUp !== undefined) {
+    out.push({ kind: 'mopUp', when: triggerToCondition(b.mopUp.when), unit: b.mopUp.unit, within: b.mopUp.within })
+  }
   if (b.withdraw !== undefined) out.push(withdrawBeat(b.withdraw, altitude))
   if (b.convoyDuty === 'stream') out.push({ kind: 'conveyor' })
   return out.length === 0 ? undefined : out

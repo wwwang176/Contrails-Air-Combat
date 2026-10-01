@@ -457,6 +457,11 @@ export interface MissionBattle {
    */
   readonly retarget?: MissionRetarget
   /**
+   * 第一段的目標炸夠數之後，剩下的由地面的己方戰車打掉（不必全部殲滅，隊友的坦克會打）。
+   * 劇本打掉的不算進摧毀數
+   */
+  readonly mopUp?: MissionMopUp
+  /**
    * 地面戰的戲：互射、彈著、砲兵塵土、長燒的煙。**純畫面，不進 `BattleConfig`**
    * （與 `timeOfDay` 同一條路，`main.ts` 直接從卡片讀）—— 混進戰鬥設定的話，逐位元
    * 重播的護欄會被純視覺的改動弄紅
@@ -610,6 +615,17 @@ export interface MissionRetarget {
   readonly messageKey: MessageKey
   readonly destroyCount: number
   readonly destroyUnit: GroundUnitId
+}
+
+/**
+ * 條件成立之後，這一種單位剩下還活著的，由地面戰的己方戰車在隨後幾秒內打掉。德 M4：炸掉七門砲
+ * 就進下一段，剩下的幾門由前進的德軍坦克處理。見 `beats.ts` 的 `MopUpBeat`
+ */
+export interface MissionMopUp {
+  readonly when: MissionTrigger
+  readonly unit: GroundUnitId
+  /** 每一個剩下的在條件成立後第幾秒被打掉，s；各自依索引雜湊散在這個範圍裡 */
+  readonly within: readonly [number, number]
 }
 
 /** 地面戰的戲。見 `render/groundBattle.ts` */

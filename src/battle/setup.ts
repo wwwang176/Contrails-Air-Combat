@@ -1382,7 +1382,7 @@ function stepBeats(b: Battle): void {
       // 【照明彈與縱隊出發沒有訊息】天亮起來、車動起來就是通知
       if (beat.kind === 'reinforce') b.message = beat.warnKey
       else if (beat.kind === 'withdraw' || beat.kind === 'retarget') b.message = beat.messageKey
-      if (beat.kind !== 'flare' && beat.kind !== 'depart') b.messageUntil = st.dueAt + MESSAGE_SECONDS
+      if (beat.kind !== 'flare' && beat.kind !== 'depart' && beat.kind !== 'mopUp') b.messageUntil = st.dueAt + MESSAGE_SECONDS
     }
     // 【落下來而不是 continue】`warnLead` 為 0 的節拍，預警與生效是同一刻。
     // 中間硬隔一個物理步的話，那 4 ms 看不出來，卻讓「0 秒預警」這個寫法
@@ -1406,6 +1406,14 @@ function stepBeats(b: Battle): void {
     else if (beat.kind === 'depart') {
       const targets = b.world.groundTargets
       for (let k = beat.first; k < beat.first + beat.count; k++) targets[k]!.departAt = now
+    } else if (beat.kind === 'mopUp') {
+      // 【剩下還活著的排定被打掉的時刻】`stepScriptedKill` 到了 `killAt` 就走擊毀流程、標成劇本打掉的
+      // （不算摧毀數）。索引雜湊把它們散在 `within` 裡，不是同一刻一排爆
+      for (const t of b.world.groundTargets) {
+        if (t.unit.id !== beat.unit || !t.alive || t.scripted || t.killAt !== Infinity) continue
+        const u = (Math.imul(t.index + 1, 2654435761) >>> 0) / 4294967296
+        t.killAt = now + beat.within[0] + (beat.within[1] - beat.within[0]) * u
+      }
     } else if (beat.kind === 'retarget') {
       // 【換參考，不配置】規則物件在建場時就建好（`RetargetBeat.rules`）
       b.rules = beat.rules

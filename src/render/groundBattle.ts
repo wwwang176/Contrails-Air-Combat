@@ -65,6 +65,9 @@ const BULLET_CAPACITY = 256
 /** 一幀最多處理幾發（一台）。長幀之後補發的上限 */
 const MAX_SHOTS_PER_FRAME = 8
 
+/** 劇本打掉的那一台，在 `killAt` 前幾秒內開始找人補最後一發，s。要大於砲彈最長的飛行時間（射程 ÷ 砲彈速度） */
+const KILL_SHOT_LEAD = 6
+
 const TWO_PI = Math.PI * 2
 
 /**
@@ -178,6 +181,8 @@ export function createGroundBattle(
 ): GroundBattle {
   const shooters = new Set<GroundUnitId>(theater.shooters)
   const isTarget = (id: GroundUnitId): boolean => shooters.has(id)
+  /** 劇本打掉的最後一發由戰車與砲打，步兵的槍打不穿 */
+  const isTank = (id: GroundUnitId): boolean => shooters.has(id) && id !== 'infantry'
 
   // 【比真的大一號】玩家在 1.5～2 km 外往下看，照實的 3 m 槍焰只有兩三個像素
   const flash = createParticles({
@@ -205,6 +210,8 @@ export function createGroundBattle(
   let trackClock = new Float32Array(0)
   /** 每一台第一次被看到死掉的世界秒數；−1 = 還活著。長燒的煙從它起算 */
   let diedAt = new Float32Array(0)
+  /** 每一台劇本打掉前的那一發補過了沒（1 = 補過）。`reset` 清掉 */
+  let killShot = new Uint8Array(0)
   let burnClock = 0
   let artilleryClock = 0
   let lastTime = -1
@@ -257,13 +264,18 @@ export function createGroundBattle(
     }
   }
 
+  /**
+   * 第 `s` 台開一發。`victim` ≥ 0 時打指定的那一台、而且必中（劇本打掉的那一台的最後一發）；
+   * 省略時挑射程內最近的存活敵方，打中的機率 `HIT_CHANCE`
+   */
   function shoot(
     targets: readonly GroundTarget[], s: number, k: number,
-    groundAt: (x: number, z: number) => number,
+    groundAt: (x: number, z: number) => number, victim = -1,
   ): void {
     const me = targets[s]!
     const infantry = me.unit.id === 'infantry'
-    const j = nearestEnemy(targets, s, infantry ? Math.min(INFANTRY_RANGE, theater.range) : theater.range, isTarget)
+    const j = victim >= 0 ? victim
+      : nearestEnemy(targets, s, infantry ? Math.min(INFANTRY_RANGE, theater.range) : theater.range, isTarget)
     if (j < 0) return
     const them = targets[j]!
     const dx = them.position.x - me.position.x
@@ -278,7 +290,7 @@ export function createGroundBattle(
     const oz = me.position.z + uz * reach
     const oy = me.position.y + (infantry ? 1.4 : me.unit.realHeight * 0.8)
     const seed = s * 7919 + k
-    const hit = hash01(seed) < HIT_CHANCE
+    const hit = victim >= 0 || hash01(seed) < HIT_CHANCE
     let tx = them.position.x
     let tz = them.position.z
     let ty = them.position.y + them.unit.realHeight * 0.5
@@ -306,6 +318,7 @@ export function createGroundBattle(
       if (trackClock.length !== targets.length) {
         trackClock = new Float32Array(targets.length)
         diedAt = new Float32Array(targets.length).fill(-1)
+        killShot = new Uint8Array(targets.length)
       }
       // 【第一幀不補發】開場那一刻沒有「上一幀」，從 0 算的話會一口氣補上開場前的發數
       const t0 = lastTime < 0 || time < lastTime ? time : lastTime
@@ -317,6 +330,19 @@ export function createGroundBattle(
         if (shooters.has(me.unit.id)) {
           const n = shotTimesBetween(s, theater.period, t0, time, shotBuf)
           for (let k = 0; k < n; k++) shoot(targets, s, Math.round(shotBuf[k]! * 10), groundAt)
+        }
+        // 【照劇本被打掉的，最後挨一發命中的砲彈】`killAt` 在未來 `KILL_SHOT_LEAD` 秒內的，由射程內
+        // 最近的敵方戰車（不是步兵）補一發必中、算好飛行時間讓它在 `killAt` 落地：看得到是誰打的，
+        // 不是憑空爆炸。每一台一發。開場殘骸（`killAt` 0）不在未來，不算
+        if (killShot[s] === 0 && me.killAt > time && me.killAt - time < KILL_SHOT_LEAD) {
+          const j = nearestEnemy(targets, s, theater.range, isTank)
+          if (j >= 0) {
+            const d = Math.hypot(targets[j]!.position.x - me.position.x, targets[j]!.position.z - me.position.z)
+            if (time >= me.killAt - d / SHELL_SPEED) {
+              killShot[s] = 1
+              shoot(targets, j, Math.round(time * 10), groundAt, s)
+            }
+          }
         }
         // 【行進揚塵】車尾、貼地
         if (me.speed > 0) {
@@ -390,6 +416,7 @@ export function createGroundBattle(
       artilleryClock = 0
       trackClock.fill(0)
       diedAt.fill(-1)
+      killShot.fill(0)
     },
 
     dispose() {

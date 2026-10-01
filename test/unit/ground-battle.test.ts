@@ -114,6 +114,62 @@ describe('用真的卡片開打', () => {
   })
 })
 
+/**
+ * 【劇本打掉的最後一發】`killAt` 到了，那一台由模擬打掉（沒有血量可言）；畫面上補一發命中的砲彈，
+ * 看得到是誰打的、不是憑空爆炸。週期設得極大，只剩這一發。
+ */
+describe('劇本打掉前的最後一發', () => {
+  const theater = { shooters: ['tank'], period: 1e6, range: 1500 } as const
+  const flat = (): number => 0
+  const run = (targets: ReturnType<typeof createGroundTarget>[], from: number, to: number, gb: ReturnType<typeof createGroundBattle>): void => {
+    for (let t = from; t < to; t += 0.1) gb.update(targets, t, 0.1, flat)
+  }
+
+  it('killAt 之前 6 秒內，射程內最近的敵方戰車補一發，而且只補一發', () => {
+    const attacker = createGroundTarget(0, 'tank', 'blue', 0, 0, 0)
+    const victim = createGroundTarget(1, 'tank', 'red', 900, 0, 0)
+    victim.killAt = 30
+    const gb = createGroundBattle(theater as never, () => {})
+    run([attacker, victim], 0, 22, gb)
+    expect(gb.shots).toBe(0)
+    run([attacker, victim], 22, 31, gb)
+    expect(gb.shots).toBe(1)
+    run([attacker, victim], 31, 45, gb)
+    expect(gb.shots).toBe(1)
+    gb.dispose()
+  })
+
+  it('射程外沒有人補；開場殘骸（killAt 0）不補；沒排定的（Infinity）不補', () => {
+    const far = createGroundBattle(theater as never, () => {})
+    const a = createGroundTarget(0, 'tank', 'blue', 0, 0, 0)
+    const v = createGroundTarget(1, 'tank', 'red', 2400, 0, 0)
+    v.killAt = 30
+    run([a, v], 0, 40, far)
+    expect(far.shots).toBe(0)
+    far.dispose()
+    const wreck = createGroundBattle(theater as never, () => {})
+    const w = createGroundTarget(1, 'tank', 'red', 600, 0, 0)
+    w.killAt = 0
+    run([createGroundTarget(0, 'tank', 'blue', 0, 0, 0), w], 0, 40, wreck)
+    expect(wreck.shots).toBe(0)
+    wreck.dispose()
+    const none = createGroundBattle(theater as never, () => {})
+    run([createGroundTarget(0, 'tank', 'blue', 0, 0, 0), createGroundTarget(1, 'tank', 'red', 600, 0, 0)], 0, 40, none)
+    expect(none.shots).toBe(0)
+    none.dispose()
+  })
+
+  it('補的是砲彈（不是步兵的槍）：只有戰車與砲補，步兵不補', () => {
+    const infantry = createGroundTarget(0, 'infantry', 'blue', 0, 0, 0)
+    const victim = createGroundTarget(1, 'tank', 'red', 400, 0, 0)
+    victim.killAt = 30
+    const gb = createGroundBattle({ shooters: ['tank', 'infantry'], period: 1e6, range: 1500 } as never, () => {})
+    run([infantry, victim], 0, 40, gb)
+    expect(gb.shots).toBe(0)
+    gb.dispose()
+  })
+})
+
 describe('挑目標', () => {
   const tank = (i: number, team: 'red' | 'blue', x: number) =>
     createGroundTarget(i, 'tank', team, x, 0, 0)

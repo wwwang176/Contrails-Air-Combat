@@ -55,8 +55,15 @@ const KURSK_GROUND: readonly GroundEntry[] = [
   ...SOVIET_TRUCKS.map((s): GroundEntry => ({ unit: 'truck', team: 'red', ...s })),
 ]
 
-/** 反坦克砲全部炸掉：德軍推進、蘇軍反擊、目標換成反擊的 T-34，同一刻 */
-const KURSK_BREAKTHROUGH: MissionTrigger = { kind: 'destroyed', atLeast: AT_GUNS.length, unit: 'atGun' }
+/**
+ * 第一段要炸掉幾門反坦克砲。**不必全部殲滅** —— 炸到這個數，缺口就開了，德軍的戰車往前推，
+ * 剩下的由它們打掉（`mopUp`）。史實上德軍當面是一整個裝甲師的一個團，不是十二輛；戰車的數量
+ * 夠多，地面戰才有「隊友在打」的分量。**起始值，由試飛裁定。**
+ */
+const BREAKTHROUGH_GUNS = 7
+
+/** 反坦克砲炸夠數：德軍推進、蘇軍反擊、目標換成反擊的 T-34、剩下的砲被打掉，同一刻 */
+const KURSK_BREAKTHROUGH: MissionTrigger = { kind: 'destroyed', atLeast: BREAKTHROUGH_GUNS, unit: 'atGun' }
 
 /** 德軍線的卡片。**這一條線的卡片只住在這裡。** */
 export const GERMANY: readonly MissionCard[] = [
@@ -229,37 +236,41 @@ export const GERMANY: readonly MissionCard[] = [
       columns: [
         {
           team: 'blue', route: PANZER_ROUTE_A, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
-          gap: COLUMN_GAP, units: ['panzer4', 'panzer4', 'tiger', 'panzer4', 'panzer4', 'panzer4'],
+          gap: COLUMN_GAP, units: ['panzer4', 'panzer4', 'tiger', ...Array<'panzer4'>(7).fill('panzer4')],
           depart: KURSK_BREAKTHROUGH,
         },
         {
           team: 'blue', route: PANZER_ROUTE_B, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
-          gap: COLUMN_GAP, units: ['panzer4', 'tiger', 'panzer4', 'panzer4', 'panzer4', 'panzer4'],
+          gap: COLUMN_GAP, units: ['panzer4', 'tiger', ...Array<'panzer4'>(8).fill('panzer4')],
           depart: KURSK_BREAKTHROUGH,
         },
         {
           team: 'red', route: T34_RESERVE_WEST, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
-          gap: COLUMN_GAP, units: ['tank', 'tank', 'tank', 'tank', 'tank'],
+          gap: COLUMN_GAP, units: Array<'tank'>(10).fill('tank'),
           depart: KURSK_BREAKTHROUGH, hidden: true,
         },
         {
           team: 'red', route: T34_RESERVE_EAST, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
-          gap: COLUMN_GAP, units: ['tank', 'tank', 'tank', 'tank', 'tank'],
+          gap: COLUMN_GAP, units: Array<'tank'>(10).fill('tank'),
           depart: KURSK_BREAKTHROUGH, hidden: true,
         },
       ],
-      // 【第一段：反坦克砲全毀】防空、步兵、半埋的 T-34 打得掉但不算
-      destroyCount: AT_GUNS.length, destroyUnit: 'atGun',
-      // 【第二段：反擊的預備隊 T-34 炸掉 5 輛】**起始值，由試飛裁定**
+      // 【第一段：反坦克砲炸掉七門】防空、步兵、半埋的 T-34 打得掉但不算
+      destroyCount: BREAKTHROUGH_GUNS, destroyUnit: 'atGun',
+      // 【炸夠數之後，剩下的砲由前進的德軍坦克打掉】劇本打掉的不算摧毀數；畫面上由地面戰的戲補
+      // 一發命中的砲彈。**起始值，由試飛裁定**
+      mopUp: { when: KURSK_BREAKTHROUGH, unit: 'atGun', within: [12, 45] },
+      // 【第二段：反擊的預備隊 T-34 炸掉 8 輛】二十輛裡的八輛，其餘由德軍的戰車對付。**起始值，由試飛裁定**
       retarget: {
         when: KURSK_BREAKTHROUGH, messageKey: 'mission.germany-m4.retarget',
-        destroyCount: 5, destroyUnit: 'tank',
+        destroyCount: 8, destroyUnit: 'tank',
       },
+      // 【節奏】一台平均 4 秒一發（原本 7 秒看起來太慢）；步兵的班也一樣。砲兵的彈著 1.6 秒一柱
       theater: {
         shooters: ['panzer4', 'tiger', 'tank', 'tankDug', 'atGun', 'infantry'],
-        period: 7,
+        period: 4,
         range: 1500,
-        artillery: { ...ARTILLERY_ZONE, period: 2.5 },
+        artillery: { ...ARTILLERY_ZONE, period: 1.6 },
         smokes: KURSK_SMOKES,
       },
     },

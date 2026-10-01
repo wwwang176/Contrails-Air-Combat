@@ -182,10 +182,10 @@ export interface ChunkConfig {
 }
 
 /**
- * 一次墜地十幾塊，池子夠幾十次同時活著。長燒的殘骸與火源（庫斯克最壞 43 處）每 0.3 秒各發
- * 4 塊、一塊活 0.51 秒，同時活著 43 × 4 × 2 = 344 塊，要與爆炸共用，所以 512
+ * 一次墜地十幾塊，池子夠幾十次同時活著。長燒的殘骸與火源（庫斯克最壞 65 處）每 0.3 秒各發
+ * 4 塊、一塊活 0.51 秒，同時活著 65 × 4 × 2 = 520 塊，要與爆炸共用，所以 768
  */
-export const FIRE_CHUNK_CAPACITY = 512
+export const FIRE_CHUNK_CAPACITY = 768
 export const FIRE_CHUNK_LIFE = 0.85
 /**
  * 峰值直徑，m。
