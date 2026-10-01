@@ -50,13 +50,13 @@ const MISS_FAR = 25
 /** 移動中的坦克每隔幾秒在車尾補一團塵土 */
 const TRACK_DUST_EVERY = 0.35
 /** 長燒的煙每隔幾秒補一朵火 */
-const BURN_EVERY = 0.3
+export const BURN_EVERY = 0.3
 
 /**
  * 殘骸整場冒煙的單位：只有坦克。砲位、步兵、卡車也冒的話火點多到幾十處，
  * 而地面火的池子是照一次轟炸的量訂的
  */
-const BURNS: ReadonlySet<GroundUnitId> = new Set<GroundUnitId>(['panzer4', 'tiger', 'tank', 'tankDug'])
+export const BURNS: ReadonlySet<GroundUnitId> = new Set<GroundUnitId>(['panzer4', 'tiger', 'tank', 'tankDug'])
 
 /** 戲裡同時在飛的曳光彈上限 */
 const SHELL_CAPACITY = 256

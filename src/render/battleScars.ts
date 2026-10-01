@@ -67,12 +67,19 @@ export interface BattleScars {
   readonly minefields: readonly ScarRect[]
 }
 
-/** 雷區小點的格距與半徑，m。近層才看得到，像素足跡超過格距的三成就淡掉 */
+/** 雷區小點的格距與半徑，m。近層才看得到 */
 export const MINE_PITCH = 16
 export const MINE_DOT_R = 2.2
 /** 雷區邊緣虛線的線寬（半寬）與虛線一段的長度，m */
 export const MINE_EDGE_HALF = 2
 export const MINE_DASH = 12
+/**
+ * 小點與虛線依像素半足跡 `px`（m）淡出：`px` 到下限開始淡、到上限全沒了（smoothstep）。
+ * **上限要小於 週期 ÷ (2√2)**：烘圖時取樣間距是 √2 × `px`，超過週期的一半，規則的小點與虛線
+ * 就混疊成錯誤的低頻紋，烘進遠圖。遠層（`FIELD_CLIP_FAR`）的 `px` 約 5.2 m，要在它之下全淡掉
+ */
+export const MINE_DOT_FADE = [MINE_PITCH * 0.1, MINE_PITCH * 0.28] as const
+export const MINE_DASH_FADE = [MINE_DASH * 0.12, MINE_DASH * 0.3] as const
 
 /** 彈坑候選點的格距，m。坑的半徑上限要小於它，3 × 3 格才看得到所有蓋到這一點的坑 */
 export const CRATER_GRID = 24
@@ -184,8 +191,8 @@ export function scarsGlsl(s: BattleScars): string {
       col = mix(col, t.rgb, t.a);
     }
   }`
-  const mines = s.minefields.length === 0 ? '' : `
-  // 雷區：有向矩形裡。翻土的淡色塊（遠近都看得到）、規則的小點與邊緣的虛線（依像素足跡淡出）
+  const mines = s.minefields.length === 0 ? '' : `  // 雷區：在燒田之上、履帶痕之下。有向矩形裡翻土的淡色塊（遠近都看得到）、規則的小點與
+  // 邊緣的虛線（依像素足跡淡出，見 \`MINE_DOT_FADE\`）
   {
     const vec4 MINES_A[${s.minefields.length}] = vec4[${s.minefields.length}](${
   s.minefields.map((m) => `vec4(${f(m.x)}, ${f(m.z)}, ${f(m.hu)}, ${f(m.hv)})`).join(', ')});
@@ -200,23 +207,23 @@ export function scarsGlsl(s: BattleScars): string {
       if (eu <= 0.0 || ev <= 0.0) continue;
       float e = min(eu, ev);
       col = mix(col, vec3(0.62, 0.53, 0.37), 0.26);
-      float dotFade = 1.0 - smoothstep(${f(MINE_PITCH * 0.15)}, ${f(MINE_PITCH * 0.45)}, px);
+      float dotFade = 1.0 - smoothstep(${f(MINE_DOT_FADE[0])}, ${f(MINE_DOT_FADE[1])}, px);
       vec2 g = fract(vec2(u, v) / ${f(MINE_PITCH)}) - 0.5;
       float dd = length(g) * ${f(MINE_PITCH)};
       float dotA = (1.0 - smoothstep(${f(MINE_DOT_R * 0.7)}, ${f(MINE_DOT_R * 1.2)}, dd)) * dotFade;
       col = mix(col, vec3(0.16, 0.14, 0.11), 0.7 * dotA);
       float along = eu < ev ? v : u;
-      float dash = mix(0.5, step(0.5, fract(along / ${f(MINE_DASH)})), 1.0 - smoothstep(${f(MINE_DASH * 0.3)}, ${f(MINE_DASH)}, px));
+      float dash = mix(0.5, step(0.5, fract(along / ${f(MINE_DASH)})), 1.0 - smoothstep(${f(MINE_DASH_FADE[0])}, ${f(MINE_DASH_FADE[1])}, px));
       col = mix(col, vec3(0.2, 0.17, 0.12), 0.75 * dash * bandCoverage(e, ${f(MINE_EDGE_HALF)}, px));
     }
-  }`
+  }
+`
   return `
-  // 【戰場的痕跡】燒田最底、雷區、履帶痕、壕溝、彈坑最上 —— 坑炸在溝與車轍上
+  // 【戰場的痕跡】燒田最底、再來履帶痕、壕溝、彈坑最上 —— 坑炸在溝與車轍上
   if (world.x > ${f(z.x0 - s.fade - 2000)} && world.x < ${f(z.x1 + s.fade + 2000)}
       && world.y > ${f(z.z0 - s.fade - 2000)} && world.y < ${f(z.z1 + s.fade + 2000)}) {
 ${scorch}
-${mines}
-${linesGlsl('TRACKS', s.tracks, [12, 13])}
+${mines}${linesGlsl('TRACKS', s.tracks, [12, 13])}
 ${linesGlsl('TRENCHES', s.trenches, [14, 15])}
   // 彈坑：周圍 3 × 3 格的候選點。密度看候選點離交戰帶多遠
   if (world.x > ${f(z.x0 - s.fade - CRATER_GRID)} && world.x < ${f(z.x1 + s.fade + CRATER_GRID)}

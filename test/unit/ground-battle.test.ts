@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { createGroundBattle, nearestEnemy, shotTimesBetween, SHOT_JITTER } from '../../src/render/groundBattle'
+import {
+  BURN_EVERY, BURNS, createGroundBattle, nearestEnemy, shotTimesBetween, SHOT_JITTER,
+} from '../../src/render/groundBattle'
+import { BLAST_PACE, FIRE_BLAST } from '../../src/render/blast'
+import { FIRE_CHUNK_CAPACITY, FIRE_CHUNK_LIFE } from '../../src/render/chunks'
 import { createGroundTarget } from '../../src/world/groundTargets'
 import { MISSIONS, missionConfigFrom, type ReadyMissionCard } from '../../src/battle/missions'
 import { createBattle, stepBattle } from '../../src/battle/setup'
@@ -48,6 +52,25 @@ describe('射擊排程', () => {
 
   it('不同的射手錯開，不會全場同一刻開火', () => {
     expect(times(0, 7, 0, 7)).not.toEqual(times(1, 7, 0, 7))
+  })
+})
+
+describe('庫斯克的長燒火塊', () => {
+  /**
+   * 【最壞情況：所有能燒的單位都死了、卡片上的火源全開】長燒的殘骸與火源每 `BURN_EVERY` 秒各發
+   * 一朵火（`FIRE_BLAST.fireCount` 塊），一塊活 `FIRE_CHUNK_LIFE × BLAST_PACE` 秒。池子滿了新的會
+   * 蓋掉還沒熄的，症狀是火一閃一閃地缺塊。與爆炸共用，所以要留餘裕
+   */
+  it('最壞情況同時活著的火塊不超過共用池的容量', () => {
+    const card = MISSIONS.germany.find((c) => c.id === 'germany-m4') as ReadyMissionCard
+    const burnable = (id: string): boolean => (BURNS as ReadonlySet<string>).has(id)
+    const fromGround = card.battle.ground!.filter((g) => burnable(g.unit)).length
+    const fromColumns = card.battle.columns!.reduce((n, c) => n + c.units.filter(burnable).length, 0)
+    const sources = fromGround + fromColumns + (card.battle.theater!.smokes?.length ?? 0)
+    const batches = Math.ceil((FIRE_CHUNK_LIFE * BLAST_PACE) / BURN_EVERY)
+    const need = sources * FIRE_BLAST.fireCount * batches
+    expect(sources).toBeGreaterThan(30)
+    expect(need).toBeLessThanOrEqual(FIRE_CHUNK_CAPACITY)
   })
 })
 
