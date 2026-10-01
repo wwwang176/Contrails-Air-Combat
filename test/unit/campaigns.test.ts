@@ -11,7 +11,10 @@ import { loadoutOf } from '../../src/weapons/stores'
 import { LANGS, setLang, t } from '../../src/i18n'
 
 /**
- * # 三條戰役與 9 張卡
+ * # 三條戰役與它們的卡
+ *
+ * 每一條線幾張不由測試鎖：加一關是討論過才加的。這裡守的是結構 —— 前綴、
+ * 唯一性、每一張都打得起來。
  *
  * 卡片拆成兩層：**目錄**（選單畫得出來就靠它）與**戰鬥設定**（`battle`）。
  * `battle === null` 就是「還沒做」——那取代了原本的 `playable` 旗標，
@@ -23,13 +26,13 @@ const ALL: readonly MissionCard[] = CAMPAIGNS.flatMap((c) => MISSIONS[c])
 const ready = (m: MissionCard): m is ReadyMissionCard => m.battle !== null
 
 describe('三條戰役', () => {
-  it('三條線各 3 關', () => {
+  it('三條線，每一條至少一關', () => {
     expect(CAMPAIGNS).toEqual(['allies', 'germany', 'japan'])
-    for (const c of CAMPAIGNS) expect(MISSIONS[c], c).toHaveLength(3)
+    for (const c of CAMPAIGNS) expect(MISSIONS[c].length, c).toBeGreaterThan(0)
   })
 
-  it('9 個 id 唯一，而且前綴就是戰役', () => {
-    expect(new Set(ALL.map((m) => m.id)).size).toBe(9)
+  it('id 唯一，而且前綴就是戰役', () => {
+    expect(new Set(ALL.map((m) => m.id)).size).toBe(ALL.length)
     for (const c of CAMPAIGNS) {
       for (const m of MISSIONS[c]) expect(m.id.startsWith(`${c}-`), m.id).toBe(true)
     }
@@ -39,7 +42,7 @@ describe('三條戰役', () => {
     try {
       for (const lang of LANGS) {
         setLang(lang)
-        expect(new Set(ALL.map((m) => t(m.titleKey))).size, lang).toBe(9)
+        expect(new Set(ALL.map((m) => t(m.titleKey))).size, lang).toBe(ALL.length)
         for (const m of ALL) expect(t(m.summaryKey).length, `${lang} ${m.id}`).toBeGreaterThan(0)
       }
     } finally {
@@ -47,11 +50,8 @@ describe('三條戰役', () => {
     }
   })
 
-  it('九張全部打得起來', () => {
-    expect(ALL.filter(ready).map((m) => m.id).sort()).toEqual([
-      'allies-m1', 'allies-m2', 'allies-m3', 'germany-m1', 'germany-m2', 'germany-m3',
-      'japan-m1', 'japan-m2', 'japan-m3',
-    ])
+  it('每一張都打得起來', () => {
+    for (const m of ALL) expect(m.battle, m.id).not.toBeNull()
   })
 })
 
@@ -658,6 +658,43 @@ describe('炸毀任務', () => {
       const hostile = m.battle.ground!
         .filter((e) => e.team === 'red' && (unit === undefined || e.unit === unit)).length
       expect(hostile, `${m.id} 目標 ${n} 座但敵方構件只有 ${hostile} 座`).toBeGreaterThanOrEqual(n)
+    }
+  })
+
+  /**
+   * 【換目標的第二段也要打得完】數的是地面清單加縱隊裡的紅方，劇本會打掉的不算 ——
+   * 那幾台不會算進摧毀數，數進來的話第二段可能永遠湊不滿
+   */
+  it('換目標：必須有第一段，第二段的敵方單位數量夠', () => {
+    for (const m of ALL.filter(ready)) {
+      const r = m.battle.retarget
+      if (r === undefined) continue
+      expect(m.battle.destroyCount, `${m.id} 換目標卻沒有第一段`).toBeDefined()
+      const inGround = (m.battle.ground ?? [])
+        .filter((e) => e.team === 'red' && e.unit === r.destroyUnit && e.killAt === undefined).length
+      const inColumns = (m.battle.columns ?? [])
+        .filter((c) => c.team === 'red')
+        .reduce((n, c) => n + c.units.filter((u) => u === r.destroyUnit).length, 0)
+      expect(inGround + inColumns, m.id).toBeGreaterThanOrEqual(r.destroyCount)
+    }
+  })
+
+  it('劇本不打任務目標：killAt 的單位不是兩段要數的那一種', () => {
+    for (const m of ALL.filter(ready)) {
+      const targets = [m.battle.destroyUnit, m.battle.retarget?.destroyUnit]
+      for (const e of m.battle.ground ?? []) {
+        if (e.killAt === undefined || e.team === 'blue') continue
+        expect(targets.includes(e.unit), `${m.id} 劇本打掉了目標 ${e.unit}`).toBe(false)
+      }
+    }
+  })
+
+  it('縱隊的路線至少兩點、至少一輛', () => {
+    for (const m of ALL.filter(ready)) {
+      for (const c of m.battle.columns ?? []) {
+        expect(c.route.length, m.id).toBeGreaterThanOrEqual(2)
+        expect(c.units.length, m.id).toBeGreaterThan(0)
+      }
     }
   })
 

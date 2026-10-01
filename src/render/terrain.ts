@@ -40,6 +40,10 @@ import {
   PAD_GRASS as ASCH_GRASS, PAVED as ASCH_PAVED, PSP_STEEL,
   ROAD_WIDTH as ASCH_ROAD_WIDTH, ROADS as ASCH_ROADS,
 } from '../world/asch'
+import {
+  BATTLE_CENTER as KURSK_CENTER, CHURNED_EARTH, createKursk, KURSK_PAD, KURSK_ROAD_WIDTH, KURSK_ROADS,
+  KURSK_TREE_CLEAR,
+} from '../world/kursk'
 import type { HeightFieldData } from '../world/heightfield'
 import type { Season } from './season'
 import type { SiteLayout } from './fields'
@@ -238,6 +242,7 @@ export function createTerrain(kind: TerrainKind, gfx?: TerrainGfx): Terrain {
   if (kind === 'leuna') return createLeunaTerrain(gfx)
   if (kind === 'poltava') return createPoltavaTerrain(gfx)
   if (kind === 'asch') return createAschTerrain(gfx)
+  if (kind === 'kursk') return createKurskTerrain(gfx)
   if (kind === 'leyte') return createLeyteTerrain()
   if (kind === 'sea') return createSeaTerrain()
   return createArchipelagoTerrain()
@@ -529,6 +534,21 @@ export const ASCH_SITE: SiteLayout = {
 /** Y-29：農地的算繪路徑、極緩的丘、深秋的枯色、沒有佈景 */
 function createAschTerrain(gfx?: TerrainGfx): Terrain {
   return createInlandTerrain(createAsch(), 'lateAutumn', ASCH_SITE, undefined, gfx)
+}
+
+/** 庫斯克的交戰帶（裸土）與三條土路 */
+export const KURSK_SITE: SiteLayout = {
+  pivot: { x: KURSK_CENTER.x, z: KURSK_CENTER.z },
+  pad: KURSK_PAD,
+  padHex: CHURNED_EARTH,
+  treeClear: KURSK_TREE_CLEAR,
+  roads: KURSK_ROADS,
+  roadWidth: KURSK_ROAD_WIDTH,
+}
+
+/** 庫斯克：農地的算繪路徑、手擺的緩丘、夏季、交戰帶，沒有佈景 */
+function createKurskTerrain(gfx?: TerrainGfx): Terrain {
+  return createInlandTerrain(createKursk(), 'summer', KURSK_SITE, undefined, gfx)
 }
 
 /**

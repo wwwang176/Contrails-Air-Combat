@@ -5,6 +5,7 @@ import type { FlightPlan } from './order'
 import type { SideEntry } from './entry'
 import type { GroundUnitId } from '../render/geometry/ground'
 import type { MessageKey } from '../i18n'
+import type { MissionRules } from './mission'
 
 /**
  * # 節拍 —— 一場仗中途會發生的事
@@ -159,7 +160,38 @@ export interface ConveyorBeat {
   readonly kind: 'conveyor'
 }
 
-export type Beat = ReinforceBeat | WithdrawBeat | RecycleBeat | FlareBeat | ConveyorBeat
+/**
+ * 一支地面縱隊出發：`world.groundTargets[first, first + count)` 的出發時刻寫成
+ * 條件成立的那一刻。**沒有預警、沒有訊息** —— 車動起來就是通知。
+ *
+ * 【用索引範圍】縱隊在 `ground` 清單裡是連續的一段（`missions/index.ts` 展開時
+ * 排好），而地面目標的索引就是它在清單裡的位置。
+ */
+export interface DepartBeat {
+  readonly kind: 'depart'
+  readonly when: BeatCondition
+  readonly first: number
+  readonly count: number
+}
+
+/**
+ * 任務目標換成炸毀另一種單位。德 M4：反坦克砲炸完，換成反擊的 T-34。
+ *
+ * 【規則在建場時就建好】條件成立的那一步在物理步裡，換的只是參考，不配置。
+ *
+ * 【同一步不判勝】`stepBeats` 在 `stepMission` 之前跑，炸掉最後一個舊目標的那一步
+ * 先換規則；新規則的單位要是還沒出場（藏著的縱隊），摧毀數從 0 起算。
+ */
+export interface RetargetBeat {
+  readonly kind: 'retarget'
+  readonly when: BeatCondition
+  /** 畫面中心的文字的鍵，同時取代 HUD 目標列 */
+  readonly messageKey: MessageKey
+  readonly rules: MissionRules
+}
+
+export type Beat =
+  | ReinforceBeat | WithdrawBeat | RecycleBeat | FlareBeat | ConveyorBeat | DepartBeat | RetargetBeat
 
 /** 一個節拍走到哪裡。**執行狀態放這裡，不放 `MissionCard`** —— 見下。 */
 export type BeatPhase = 'waiting' | 'warned' | 'done'

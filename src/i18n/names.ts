@@ -48,7 +48,12 @@ const SHIP: Readonly<Record<ShipClassId, MessageKey>> = {
 
 const GROUND: Readonly<Record<GroundUnitId, MessageKey>> = {
   tank: 'name.ground.tank',
+  tankDug: 'name.ground.tankDug',
   truck: 'name.ground.truck',
+  atGun: 'name.ground.atGun',
+  panzer4: 'name.ground.panzer4',
+  tiger: 'name.ground.tiger',
+  infantry: 'name.ground.infantry',
   flakHeavy: 'name.ground.flakHeavy',
   flakLight: 'name.ground.flakLight',
   usTank: 'name.ground.usTank',

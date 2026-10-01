@@ -55,6 +55,7 @@ import {
 } from './render/ships'
 import { createGroundModels, type GroundModels } from './render/groundTargets'
 import { createSearchlights, makeGlareTexture, type Searchlights } from './render/searchlights'
+import { createGroundBattle, type GroundBattle } from './render/groundBattle'
 import { groundModelUrls, preloadGroundModels } from './render/geometry/ground'
 import { settleGroundTargets } from './world/groundTargets'
 import {
@@ -352,6 +353,8 @@ let groundModels: GroundModels | null = null
 let balloonModels: BalloonModels | null = null
 /** 探照燈的光束。與 `groundModels` 同一個生命週期：每一場重建 */
 let searchlights: Searchlights | null = null
+/** 地面戰的戲（德 M4）。卡片有 `theater` 才建 */
+let groundBattle: GroundBattle | null = null
 /** 探照燈眩光的十字貼圖：畫一次、每一場共用 */
 const glareTexture = makeGlareTexture()
 /** 砲位陣亡時噴火球用的暫存。熱路徑之外，但仍不配置。 */
@@ -1386,6 +1389,17 @@ function fitCameraToPlayer(): void {
 }
 
 /** 離開戰鬥：清場並收掉記分板。 */
+/**
+ * 收掉地面戰的戲。**離場與換一場都走這裡** —— 只在換場時收的話，放棄任務回到選單
+ * 之後那幾池粒子與曳光會凍在選單的背景裡
+ */
+function releaseGroundBattle(): void {
+  if (groundBattle === null) return
+  for (const o of groundBattle.objects) ctx.scene.remove(o)
+  groundBattle.dispose()
+  groundBattle = null
+}
+
 function leaveBattle(): void {
   audio.stopAll()
   clearCues(cues)
@@ -1394,6 +1408,7 @@ function leaveBattle(): void {
   tutorialOpen = false
   ignoreNextUnlock = false
   releaseVisuals()
+  releaseGroundBattle()
   // 【圓環要移出場景】不移的話回到主選單，那個環還浮在選單的背景海上
   ctx.scene.remove(objectiveRing.object)
   // 【記分板要一起收】`stepAndDrawBattle` 不再跑，結算板會就這樣留在
@@ -1738,6 +1753,13 @@ function startWorld(cfg: BattleConfig): void {
     ctx.scene.add(groundModels.object)
     searchlights = createSearchlights(world.groundTargets, glareTexture)
     ctx.scene.add(searchlights.object)
+  }
+  // 地面戰的戲：純畫面，從卡片讀（不進 `BattleConfig`）。每一場重建
+  releaseGroundBattle()
+  const theater = pendingMission?.battle.theater
+  if (theater !== undefined && world.groundTargets.length > 0) {
+    groundBattle = createGroundBattle(theater, emitFirePuff, smokeTexture)
+    for (const o of groundBattle.objects) ctx.scene.add(o)
   }
   // 氣球與船同一個做法：每一場重建
   if (balloonModels !== null) {
@@ -3061,6 +3083,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
   // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
   groundModels?.update(world.groundTargets, ctx.camera.position, worldSeconds)
+  // 【吃世界秒數】射擊排程是 `world.time` 的純函數；暫停時兩者都不走
+  groundBattle?.update(world.groundTargets, world.time, worldSeconds, world.groundAt)
   balloonModels?.update(world.balloons, worldSeconds, terrain.collisionHeightAt, burnBalloon)
   searchlights?.update(elapsed, world.combatants, ctx.camera.position)
   shipModels?.update(world.ships, (x, y, z) => {
@@ -4209,13 +4233,38 @@ const GFX_HIDDEN_LAYER = 31
 ;(window as unknown as Record<string, unknown>)['__ground'] = () =>
   world.groundTargets.map((t) => ({
     id: t.unit.id,
+    team: t.team,
     alive: t.alive,
     arrived: t.arrived,
+    dormant: t.dormant,
+    scripted: t.scripted,
     speed: t.speed,
     x: +t.position.x.toFixed(1),
     y: +t.position.y.toFixed(1),
     z: +t.position.z.toFixed(1),
   }))
+
+/** **量測出口**：地面戰的戲開場到現在打了幾發。`null` = 這一場沒有戲 */
+;(window as unknown as Record<string, unknown>)['__theater'] = () => groundBattle?.shots ?? null
+
+/**
+ * **量測出口**：把紅方 `unit` 的前 `n` 台（省略 = 全部）直接打掉。
+ *
+ * 【為什麼需要它】德 M4 的兩段要驗「反坦克砲炸完 → 縱隊出發、目標換段」。靠 AI 去
+ * 炸要好幾分鐘而且每次不同；這一支讓驗收直接跳到換段那一刻。走的是與炸彈同一條
+ * 摧毀判定（`alive = false`），算進摧毀數。玩家沒有任何路徑碰得到。
+ */
+;(window as unknown as Record<string, unknown>)['__wreckGround'] = (unit: string, n = Infinity) => {
+  let k = 0
+  for (const t of world.groundTargets) {
+    if (k >= n) break
+    if (t.team !== 'red' || t.unit.id !== unit || !t.alive) continue
+    t.hp = 0
+    t.alive = false
+    k++
+  }
+  return k
+}
 
 /**
  * **量測出口**：場上每一艘船的艦級、位置與艏向（度，0 = 艦首朝 −Z）。

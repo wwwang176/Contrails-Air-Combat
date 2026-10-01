@@ -1239,8 +1239,9 @@ function placeGround(
   if (ground === undefined) return
   for (const e of ground) {
     const t = createGroundTarget(
-      world.groundTargets.length, e.unit, e.team, e.x, e.z, e.heading, e.motion ?? null,
+      world.groundTargets.length, e.unit, e.team, e.x, e.z, e.heading, e.motion ?? null, e.hidden === true,
     )
+    if (e.killAt !== undefined) t.killAt = e.killAt
     // 【地上的飛機照飛機算】血量、部位、防護力與天上那一架相同。規格從同一張
     // 手感表拿 —— 離地時交給的那一席用的是同一份（`spawnMember`）
     const base = GROUND_AIRFRAME[e.unit]
@@ -1378,10 +1379,10 @@ function stepBeats(b: Battle): void {
       if (grounded) continue
       st.phase = 'warned'
       st.dueAt = now + (beat.kind === 'reinforce' ? beat.warnLead : 0)
-      // 【照明彈沒有訊息】天亮起來就是通知
+      // 【照明彈與縱隊出發沒有訊息】天亮起來、車動起來就是通知
       if (beat.kind === 'reinforce') b.message = beat.warnKey
-      else if (beat.kind === 'withdraw') b.message = beat.messageKey
-      if (beat.kind !== 'flare') b.messageUntil = st.dueAt + MESSAGE_SECONDS
+      else if (beat.kind === 'withdraw' || beat.kind === 'retarget') b.message = beat.messageKey
+      if (beat.kind !== 'flare' && beat.kind !== 'depart') b.messageUntil = st.dueAt + MESSAGE_SECONDS
     }
     // 【落下來而不是 continue】`warnLead` 為 0 的節拍，預警與生效是同一刻。
     // 中間硬隔一個物理步的話，那 4 ms 看不出來，卻讓「0 秒預警」這個寫法
@@ -1402,7 +1403,15 @@ function stepBeats(b: Battle): void {
     b.beatsLeft--
     if (beat.kind === 'reinforce') reinforce(b, beat.flight)
     else if (beat.kind === 'flare') dropFlares(b, beat)
-    else {
+    else if (beat.kind === 'depart') {
+      const targets = b.world.groundTargets
+      for (let k = beat.first; k < beat.first + beat.count; k++) targets[k]!.departAt = now
+    } else if (beat.kind === 'retarget') {
+      // 【換參考，不配置】規則物件在建場時就建好（`RetargetBeat.rules`）
+      b.rules = beat.rules
+      resetMissionState(b.rules, b.mission)
+      b.objectiveKey = beat.messageKey
+    } else {
       // 【規則與狀態兩個都要換】`stepMission` 是依規則分支的：只換狀態的話
       // 倒數永遠停在原值、計量顯示的是敵機數，飛進撤離圈也不會判勝
       //
@@ -1537,6 +1546,8 @@ export function isObjectiveGround(t: GroundTarget, rules: MissionRules): boolean
  *
  * ```
  *   開到終點   不算 —— 它是開到了，不是被打掉
+ *   劇本打掉   不算 —— 那是地面戰的戲，不是玩家的戰果
+ *   還沒出現   不算 —— 藏著的縱隊出發前不在場上
  *   沒有離場   停機墊上的那一台打掉了沒有
  *   已經離場   從它起飛的那一架還活不活著（滑行、滾行、升空後被打掉都算）
  * ```
@@ -1545,7 +1556,7 @@ export function isObjectiveGround(t: GroundTarget, rules: MissionRules): boolean
  * 起飛或抵達的那一刻就算成摧毀。
  */
 export function destroyedInPool(t: GroundTarget, cs: readonly Combatant[]): boolean {
-  if (t.arrived) return false
+  if (t.arrived || t.scripted || t.dormant) return false
   if (!t.departed) return !t.alive
   return !cs[t.departedAs]!.alive
 }

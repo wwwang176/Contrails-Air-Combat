@@ -197,7 +197,7 @@ export interface MissionRecycle {
 }
 
 /**
- * 一條戰役。**三條線各 4 關。**
+ * 一條戰役。每一條幾關由卡片陣列決定，型別與測試都不鎖張數。
  *
  * 【為什麼三個都用國家而不是陣營】日本也是軸心。留著 `axis` 當德軍的代稱，
  * 是一個等著發生的誤讀。
@@ -447,6 +447,22 @@ export interface MissionBattle {
    */
   readonly interdict?: { readonly count: number; readonly leak: number; readonly unit: GroundUnitId }
   /**
+   * 事件啟動的地面縱隊。**展開成 `ground` 的條目**（排在 `ground` 與車隊之後），
+   * 每一支配一個 `depart` 節拍。與 `vehicleConvoy` 不同：出發等觸發、走到終點停住
+   */
+  readonly columns?: readonly MissionGroundColumn[]
+  /**
+   * 打到一半把炸毀的目標換成另一種單位。必須配 `destroyCount`（第一段）——
+   * `campaigns.test.ts` 守著
+   */
+  readonly retarget?: MissionRetarget
+  /**
+   * 地面戰的戲：互射、彈著、砲兵塵土、長燒的煙。**純畫面，不進 `BattleConfig`**
+   * （與 `timeOfDay` 同一條路，`main.ts` 直接從卡片讀）—— 混進戰鬥設定的話，逐位元
+   * 重播的護欄會被純視覺的改動弄紅
+   */
+  readonly theater?: MissionTheater
+  /**
    * 開場高度，m。**省略 = `DEFAULT_BATTLE.altitude`（4,000）。**
    *
    * 【為什麼要有它】在這一格之前，十二關的開場高度全部寫死成同一個值。
@@ -555,6 +571,62 @@ export interface GroundEntry {
    * `'mg'` = 車頂一挺 .50 機槍（`GROUND_MG_SPEC`）。
    */
   readonly guns?: 'mg'
+  /**
+   * 照劇本在第幾秒被打掉，世界秒。**0 = 開場就是殘骸**（不爆、照樣冒煙）。
+   * 劇本打掉的不算進摧毀數（`GroundTarget.scripted`）
+   */
+  readonly killAt?: number
+  /** 開局藏著，到了出發時刻才出現。只有縱隊展開時填（`columnGround`） */
+  readonly hidden?: true
+}
+
+/**
+ * 事件啟動的地面縱隊：沿路線排成一列，觸發成立才出發，走到終點**保持車距**停住。
+ *
+ * 【集結】第一輛停在路線起點往前 `(n − 1) × gap`，最後一輛在起點。路線的第一段
+ * 要比整列長，開場的車頭才朝同一個方向。
+ */
+export interface MissionGroundColumn {
+  readonly team: Team
+  /** 路線，世界座標。與地上畫的路是同一份 */
+  readonly route: readonly { readonly x: number; readonly z: number }[]
+  /** 車速，m/s */
+  readonly speed: number
+  /** 轉角圓弧的半徑，m */
+  readonly turnRadius: number
+  /** 前後兩輛的車距，m。停住時也是這個距離 */
+  readonly gap: number
+  /** 依行進順序，第一個是車頭 */
+  readonly units: readonly GroundUnitId[]
+  readonly depart: MissionTrigger
+  /** 出發之前不在場上：不畫、不擋彈、不是目標、不算摧毀。省略 = 開場就在 */
+  readonly hidden?: true
+}
+
+/** 打到一半換目標。見 `beats.ts` 的 `RetargetBeat` */
+export interface MissionRetarget {
+  readonly when: MissionTrigger
+  /** 畫面中心的文字，同時取代 HUD 目標列 */
+  readonly messageKey: MessageKey
+  readonly destroyCount: number
+  readonly destroyUnit: GroundUnitId
+}
+
+/** 地面戰的戲。見 `render/groundBattle.ts` */
+export interface MissionTheater {
+  /** 會開火的單位 */
+  readonly shooters: readonly GroundUnitId[]
+  /** 平均幾秒一發，s */
+  readonly period: number
+  /** 射程，m：範圍內最近的存活敵方才打 */
+  readonly range: number
+  /** 砲兵彈著的矩形（世界座標）與平均間隔，s */
+  readonly artillery?: {
+    readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number
+    readonly period: number
+  }
+  /** 整場不熄的煙柱，世界座標 */
+  readonly smokes?: readonly { readonly x: number; readonly z: number }[]
 }
 
 /**

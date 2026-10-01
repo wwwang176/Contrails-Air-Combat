@@ -42,7 +42,7 @@ import {
   stepBalloons,
   type Balloon,
 } from './balloons'
-import type { GroundTarget } from './groundTargets'
+import { stepScriptedKill, type GroundTarget } from './groundTargets'
 import { stepGroundMotion } from './groundMotion'
 import { MATERIAL } from './material'
 import {
@@ -755,6 +755,7 @@ export class World {
     for (const t of this.groundTargets) {
       stepGroundMotion(t, this.time, this.groundAt)
       if (t.taxi !== null) this.stepGroundTaxi(t, dt)
+      stepScriptedKill(t, this.time, this.groundKillEvents)
     }
     // 【陸上的高砲位走同一支】掛了砲的地面目標（洛伊納那八個）就是一座砲台。
     // **傳整組地面目標當「艦隊」** —— 目標分攤要跨全部砲位數，各自只數自己

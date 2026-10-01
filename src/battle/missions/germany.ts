@@ -7,8 +7,14 @@ import {
   DUMPS as ASCH_DUMPS, LIGHT_FLAK_SITES as ASCH_FLAK, PARKED_ROWS as ASCH_PARKED, TAKEOFF_LINE,
 } from '../../world/asch'
 import { GROUND_FLAK_SPEC } from '../../world/shipGuns'
+import { JU87 } from '../../specs/ju87'
+import {
+  ARTILLERY_ZONE, AT_GUNS, COLUMN_GAP, COLUMN_SPEED, COLUMN_TURN_RADIUS, FRONT_T34, FRONT_T34_SCRIPTED,
+  GERMAN_INFANTRY, KURSK_SMOKES, PANZER_ROUTE_EAST, PANZER_ROUTE_WEST, SOVIET_FLAK, SOVIET_INFANTRY,
+  SOVIET_TRUCKS, STALLED_PANZERS, T34_ROUTE, WRECK_PANZERS, WRECK_T34,
+} from '../../world/kursk'
 import { POLTAVA_GROUND } from './shared'
-import type { GroundEntry, MissionCard } from './types'
+import type { GroundEntry, MissionCard, MissionTrigger } from './types'
 
 /**
  * Y-29 的地面目標：12 架停放的 P-51、兩堆油桶、6 座輕高砲，全部是紅方的。
@@ -26,7 +32,33 @@ const ASCH_GROUND: readonly GroundEntry[] = [
   })),
 ]
 
-/** 德軍線的三關。**這一條線的卡片只住在這裡。** */
+/**
+ * 庫斯克的固定地面單位。佈局在 `world/kursk.ts`。
+ *
+ * 【殘骸與劇本】`killAt: 0` 的是開場就燒著的殘骸；其餘 `killAt` 是地面戰的戲裡
+ * 照劇本被打掉的那幾輛。劇本打掉的不算進摧毀數。
+ */
+const KURSK_GROUND: readonly GroundEntry[] = [
+  ...AT_GUNS.map((s): GroundEntry => ({ unit: 'atGun', team: 'red', ...s })),
+  ...FRONT_T34.map((s, i): GroundEntry => ({
+    unit: 'tankDug', team: 'red', ...s,
+    ...(i === FRONT_T34_SCRIPTED.index ? { killAt: FRONT_T34_SCRIPTED.at } : {}),
+  })),
+  ...WRECK_T34.map((s): GroundEntry => ({ unit: 'tankDug', team: 'red', ...s, killAt: 0 })),
+  ...WRECK_PANZERS.map((s): GroundEntry => ({ unit: 'panzer4', team: 'blue', ...s, killAt: 0 })),
+  ...STALLED_PANZERS.map((s): GroundEntry => ({
+    unit: 'panzer4', team: 'blue', x: s.x, z: s.z, heading: s.heading, killAt: s.killAt,
+  })),
+  ...SOVIET_INFANTRY.map((s): GroundEntry => ({ unit: 'infantry', team: 'red', ...s })),
+  ...GERMAN_INFANTRY.map((s): GroundEntry => ({ unit: 'infantry', team: 'blue', ...s })),
+  ...SOVIET_FLAK.map((s): GroundEntry => ({ unit: 'flakLight', team: 'red', ...s })),
+  ...SOVIET_TRUCKS.map((s): GroundEntry => ({ unit: 'truck', team: 'red', ...s })),
+]
+
+/** 反坦克砲全部炸掉：德軍推進、蘇軍反擊、目標換成反擊的 T-34，同一刻 */
+const KURSK_BREAKTHROUGH: MissionTrigger = { kind: 'destroyed', atLeast: AT_GUNS.length, unit: 'atGun' }
+
+/** 德軍線的卡片。**這一條線的卡片只住在這裡。** */
 export const GERMANY: readonly MissionCard[] = [
   {
     id: 'germany-m1', titleKey: 'mission.germany-m1.title', type: 'intercept',
@@ -166,6 +198,63 @@ export const GERMANY: readonly MissionCard[] = [
           side: 'theirs', spec: P51D, count: 4, takeoff: TAKEOFF_LINE, departs: 'parkedP51',
         },
       ],
+    },
+  },
+  {
+    id: 'germany-m4', titleKey: 'mission.germany-m4.title', type: 'strike',
+    summaryKey: 'mission.germany-m4.summary',
+    placeKey: 'mission.germany-m4.place', period: { year: 1943, month: 7 },
+    battle: {
+      objectiveKey: 'mission.germany-m4.objective', bannerKey: 'mission.germany-m4.banner',
+      blueSpec: JU87, redSpec: P51D, convoySpec: null,
+      // 【沒有敵機】壓力全在地面的防空。`redSpec` 只是型別要填
+      blueCount: 4, redCount: 0,
+      convoyCount: 0, convoyPriority: 1,
+      targetDistance: 0, targetRadius: 0, seconds: Infinity,
+      entry: 'headOn',
+      terrain: 'kursk',
+      timeOfDay: 'noon',
+      /**
+       * 【2,000 m】俯衝轟炸要有高度可以換；輕型防空的射程 2,640 m 打得到。
+       * **起始值，由試飛裁定。**
+       */
+      altitude: 2000,
+      ground: KURSK_GROUND,
+      /**
+       * 【兩路德軍開場就在、蘇軍反擊縱隊藏著】三支同一個觸發出發。蘇軍那一支出發前
+       * 不在場上 —— 第一段先炸掉它們的話，第二段一開始就達成了
+       */
+      columns: [
+        {
+          team: 'blue', route: PANZER_ROUTE_WEST, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
+          gap: COLUMN_GAP, units: ['panzer4', 'panzer4', 'tiger', 'panzer4', 'panzer4'],
+          depart: KURSK_BREAKTHROUGH,
+        },
+        {
+          team: 'blue', route: PANZER_ROUTE_EAST, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
+          gap: COLUMN_GAP, units: ['panzer4', 'tiger', 'panzer4', 'panzer4', 'panzer4'],
+          depart: KURSK_BREAKTHROUGH,
+        },
+        {
+          team: 'red', route: T34_ROUTE, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
+          gap: COLUMN_GAP, units: ['tank', 'tank', 'tank', 'tank', 'tank', 'tank'],
+          depart: KURSK_BREAKTHROUGH, hidden: true,
+        },
+      ],
+      // 【第一段：反坦克砲全毀】防空、步兵、第一線的 T-34 打得掉但不算
+      destroyCount: AT_GUNS.length, destroyUnit: 'atGun',
+      // 【第二段：反擊的 T-34 炸掉 4 輛】**起始值，由試飛裁定**
+      retarget: {
+        when: KURSK_BREAKTHROUGH, messageKey: 'mission.germany-m4.retarget',
+        destroyCount: 4, destroyUnit: 'tank',
+      },
+      theater: {
+        shooters: ['panzer4', 'tiger', 'tank', 'tankDug', 'atGun', 'infantry'],
+        period: 7,
+        range: 1500,
+        artillery: { ...ARTILLERY_ZONE, period: 2.5 },
+        smokes: KURSK_SMOKES,
+      },
     },
   },
 ]

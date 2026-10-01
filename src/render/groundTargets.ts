@@ -147,8 +147,9 @@ export function createGroundModels(targets: readonly GroundTarget[]): GroundMode
         const want = t.alive ? live : wreck
         if (m.material !== want) m.material = want
         // 【起飛離場的不畫】它已經是空中那一架了，留著會是一具不存在的殘骸。
-        // 開到前線退場的車也不畫 —— 它是開走了，不是燒在路上
-        m.visible = !t.departed && !t.arrived
+        // 開到前線退場的車也不畫 —— 它是開走了，不是燒在路上。藏著還沒出發的
+        // 縱隊也不畫：它還不在場上
+        m.visible = !t.departed && !t.arrived && !t.dormant
       }
     },
     lodState() {

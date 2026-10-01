@@ -52,22 +52,36 @@ const RADIAL_SEGMENTS = 4
 export const TRACER_MIN_WIDTH_PX = 1
 const TRACER_MIN_RADIUS_PX = TRACER_MIN_WIDTH_PX / Math.SQRT2
 
-/** 頂點調整：以實例中心的深度算頭端半徑有幾個像素，不夠就把截面（本地 xy）放粗 */
-const MIN_WIDTH_VERTEX = /* glsl */ `
+/**
+ * 頂點調整：以實例中心的深度算頭端半徑有幾個像素，不夠就把截面（本地 xy）放粗。
+ * 半徑與最小像素寬都乘上 `widthScale` —— 細一號的曳光（步兵）在遠處也細一號
+ */
+function minWidthVertex(widthScale: number): string {
+  return /* glsl */ `
   vec4 tracerCenter = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-  float tracerRadiusPx = ${TRACER_RADIUS.toFixed(4)} * projectionMatrix[1][1] * uHalfHeight
+  float tracerRadiusPx = ${(TRACER_RADIUS * widthScale).toFixed(4)} * projectionMatrix[1][1] * uHalfHeight
     / max(-tracerCenter.z, 1e-3);
-  float tracerGrow = max(1.0, ${TRACER_MIN_RADIUS_PX.toFixed(4)} / tracerRadiusPx);
+  float tracerGrow = max(1.0, ${(TRACER_MIN_RADIUS_PX * widthScale).toFixed(4)} / tracerRadiusPx);
   transformed.xy *= tracerGrow;
   vTracerDim = 1.0 / tracerGrow;
 `
+}
+
+/**
+ * 曳光讀的那幾格。`Projectiles` 滿足它；地面戰的戲（`render/groundBattle.ts`）用自己的
+ * 一小池，世界看不到
+ */
+export type TracerSource = Pick<
+  Projectiles, 'capacity' | 'x' | 'y' | 'z' | 'vx' | 'vy' | 'vz' | 'age' | 'owner'
+>
+
 
 /** 每次畫之前讀繪圖緩衝的尺寸。模組私有、重用（熱路徑零配置） */
 const BUFFER_SIZE = new Vector2()
 
 export interface Tracers {
   object: InstancedMesh
-  update(p: Projectiles): void
+  update(p: TracerSource): void
   dispose(): void
 }
 
@@ -91,13 +105,14 @@ const ZERO = new Vector3(0, 0, 0)
  * 6 個，並多出 32,000 個三角形。draw call 仍然是 1。換到的是正確的透視粗細
  * （見 `TRACER_RADIUS`）。
  */
-export function createTracers(capacity: number = PROJECTILE_CAPACITY): Tracers {
+export function createTracers(capacity: number = PROJECTILE_CAPACITY, widthScale = 1): Tracers {
   // 【高度取 1、半徑烘進幾何】長度由每個實例的 Z 縮放給，粗細不跟著被拉長。
   //
   // CylinderGeometry 的軸沿 +Y，rotateX(π/2) 把它轉到 +Z：較粗的
   // radiusTop 因此落在 +Z 端。把 +Z 對齊「由尾指向頭」就得到頭粗尾細。
+  const radius = TRACER_RADIUS * widthScale
   const geometry = new CylinderGeometry(
-    TRACER_RADIUS, TRACER_RADIUS * TRACER_TAPER, 1, RADIAL_SEGMENTS, 1, true,
+    radius, radius * TRACER_TAPER, 1, RADIAL_SEGMENTS, 1, true,
   )
   geometry.rotateX(Math.PI / 2)
 
@@ -112,13 +127,14 @@ export function createTracers(capacity: number = PROJECTILE_CAPACITY): Tracers {
     shader.uniforms['uHalfHeight'] = halfHeight
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\n  uniform float uHalfHeight;\n  varying float vTracerDim;')
-      .replace('#include <project_vertex>', `${MIN_WIDTH_VERTEX}\n#include <project_vertex>`)
+      .replace('#include <project_vertex>', `${minWidthVertex(widthScale)}\n#include <project_vertex>`)
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\n  varying float vTracerDim;')
       // 放粗幾倍就淡幾倍
       .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.a *= vTracerDim;')
   }
-  material.customProgramCacheKey = () => 'tracer-min-width'
+  // 【倍率要進快取鍵】兩種粗細共用一支程式的話，後建的那一份會拿到先建的著色器
+  material.customProgramCacheKey = () => `tracer-min-width-${widthScale}`
 
   const object = new InstancedMesh(geometry, material, capacity)
   object.onBeforeRender = (renderer) => {
@@ -149,7 +165,7 @@ export function createTracers(capacity: number = PROJECTILE_CAPACITY): Tracers {
   return {
     object,
 
-    update(p: Projectiles): void {
+    update(p: TracerSource): void {
       const n = Math.min(capacity, p.capacity)
       let touched = false
       let lo = capacity

@@ -163,9 +163,9 @@ describe('briefingOf —— 其他', () => {
     }
   })
 
-  it('九張卡的空域各不相同 —— 每一關取材自不同的地方', () => {
+  it('每一張卡的空域各不相同 —— 每一關取材自不同的地方', () => {
     const all = Object.values(MISSIONS).flat()
-    expect(new Set(all.map((c) => c.placeKey)).size).toBe(9)
-    expect(new Set(all.map((c) => t(c.placeKey))).size).toBe(9)
+    expect(new Set(all.map((c) => c.placeKey)).size).toBe(all.length)
+    expect(new Set(all.map((c) => t(c.placeKey))).size).toBe(all.length)
   })
 })

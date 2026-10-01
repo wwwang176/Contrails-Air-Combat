@@ -15,8 +15,8 @@ import { ALLIES } from './allies'
 import { GERMANY } from './germany'
 import { JAPAN } from './japan'
 import type {
-  Campaign, GroundEntry, MissionBattle, MissionCard, MissionRecycle, MissionSide, MissionTrigger,
-  MissionVehicleConvoy, MissionWave, MissionWithdraw, ReadyMissionCard,
+  Campaign, GroundEntry, MissionBattle, MissionCard, MissionGroundColumn, MissionRecycle, MissionSide,
+  MissionTrigger, MissionVehicleConvoy, MissionWave, MissionWithdraw, ReadyMissionCard,
 } from './types'
 
 /**
@@ -226,7 +226,18 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
           plan, b.blueSpec, b.blueCount, b.redSpec, b.redCount, b.redStarboard,
           DEFAULT_BATTLE.entryRange, DEFAULT_BATTLE.lateralOffset,
         ), DEFAULT_BATTLE.schwarmSpacing)
-  const beats = cardBeats(card, plan, altitude)
+  // 【縱隊排在最後】`depart` 節拍用索引範圍指認它們，而地面目標的索引就是在這張
+  // 清單裡的位置
+  const ground: GroundEntry[] = [
+    ...(b.ground ?? []),
+    ...(b.vehicleConvoy === undefined ? [] : convoyGround(b.vehicleConvoy)),
+  ]
+  const columnFirst: number[] = []
+  for (const c of b.columns ?? []) {
+    columnFirst.push(ground.length)
+    ground.push(...columnGround(c))
+  }
+  const beats = cardBeats(card, plan, altitude, columnFirst)
   return {
     ...DEFAULT_BATTLE,
     units,
@@ -255,15 +266,10 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
       : {}),
     ...(b.fleet === undefined ? {} : { fleet: b.fleet }),
     ...(b.balloons === undefined ? {} : { balloons: b.balloons }),
-    // 【車隊併進地面目標】兩者都有時串起來；只有車隊時就是車隊
-    ...(b.ground === undefined && b.vehicleConvoy === undefined
+    // 【車隊與縱隊併進地面目標】三者都沒有時連鍵都不放
+    ...(b.ground === undefined && b.vehicleConvoy === undefined && b.columns === undefined
       ? {}
-      : {
-        ground: [
-          ...(b.ground ?? []),
-          ...(b.vehicleConvoy === undefined ? [] : convoyGround(b.vehicleConvoy)),
-        ],
-      }),
+      : { ground }),
     ...(b.flakSpec === undefined ? {} : { flakSpec: b.flakSpec }),
     // 【明列，因為這一支不透傳】漏抄的症狀是複寫靜靜失效、玩家掛著預設的
     // 東西起飛，而且不報錯。護欄在 `missions.test.ts`
@@ -303,7 +309,7 @@ export function convoyGround(c: MissionVehicleConvoy): GroundEntry[] {
     const n = batch.units.length
     batch.units.forEach((unit, i) => {
       const m = createGroundMotion(c.route, motion, starts[b]! + (n - 1 - i) * c.gap, 0)
-      motionPose(m, 0, pose)
+      motionPose(m, m.departAt, 0, pose)
       fwd.set(0, 0, -1).applyQuaternion(pose.orientation)
       out.push({
         unit, team: 'red', x: pose.position.x, z: pose.position.z,
@@ -313,6 +319,34 @@ export function convoyGround(c: MissionVehicleConvoy): GroundEntry[] {
     })
   })
   return out
+}
+
+/**
+ * 卡片上的一支縱隊 → 地面目標的條目。出發時刻是 `Infinity`（等 `depart` 節拍），
+ * 走到終點停住：第 i 輛停在終點前 `i × gap`，停下來仍然是一列。
+ *
+ * 【開場的 x、z、航向就是 motion 還沒出發的姿態】理由同 `convoyGround`。
+ *
+ * 載入期跑一次，不在熱路徑上。
+ */
+export function columnGround(c: MissionGroundColumn): GroundEntry[] {
+  const motion = { speed: c.speed, turnRadius: c.turnRadius, turnRate: c.speed / c.turnRadius }
+  const pose = {
+    position: new Vector3(), velocity: new Vector3(),
+    orientation: new Quaternion(), angularVelocity: new Vector3(),
+  }
+  const fwd = new Vector3()
+  const n = c.units.length
+  return c.units.map((unit, i) => {
+    const m = createGroundMotion(c.route, motion, (n - 1 - i) * c.gap, Infinity, i * c.gap)
+    motionPose(m, Infinity, 0, pose)
+    fwd.set(0, 0, -1).applyQuaternion(pose.orientation)
+    return {
+      unit, team: c.team, x: pose.position.x, z: pose.position.z,
+      heading: Math.atan2(-fwd.x, -fwd.z), motion: m,
+      ...(c.hidden === true ? { hidden: true as const } : {}),
+    }
+  })
 }
 
 /**
@@ -335,7 +369,7 @@ function convoyOf(card: ReadyMissionCard): AircraftSpec {
  * 所以排哪裡都不影響行為 —— 寫死在最後只是為了讀起來一致。
  */
 function cardBeats(
-  card: ReadyMissionCard, plan: EntryPlan, altitude: number,
+  card: ReadyMissionCard, plan: EntryPlan, altitude: number, columnFirst: readonly number[],
 ): readonly Beat[] | undefined {
   const b = card.battle
   const out: Beat[] = []
@@ -352,6 +386,18 @@ function cardBeats(
   })
   if (b.flares !== undefined) {
     out.push({ kind: 'flare', when: triggerToCondition(b.flares.when), points: b.flares.points })
+  }
+  b.columns?.forEach((c, i) => {
+    out.push({
+      kind: 'depart', when: triggerToCondition(c.depart), first: columnFirst[i]!, count: c.units.length,
+    })
+  })
+  if (b.retarget !== undefined) {
+    const r = b.retarget
+    out.push({
+      kind: 'retarget', when: triggerToCondition(r.when), messageKey: r.messageKey,
+      rules: { kind: 'destroy', count: r.destroyCount, unit: r.destroyUnit },
+    })
   }
   if (b.withdraw !== undefined) out.push(withdrawBeat(b.withdraw, altitude))
   if (b.convoyDuty === 'stream') out.push({ kind: 'conveyor' })

@@ -8,6 +8,7 @@ import type { GroundMotion } from './groundMotion'
 import type { Team } from './World'
 import type { TakeoffRoll } from '../control/takeoffRoll'
 import type { AircraftSpec } from '../specs/types'
+import { pushImpact, type ImpactEvents } from './events'
 
 /**
  * # 場上的地面目標
@@ -41,7 +42,14 @@ import type { AircraftSpec } from '../specs/types'
  */
 export const GROUND_HP: Readonly<Record<GroundUnitId, number>> = {
   tank: 1_200,
+  tankDug: 1_200,
   truck: 120,
+  // 【SC 500 一發就毀】與輕型砲位同一個量級；露天砲座，機槍也打得掉
+  atGun: 160,
+  panzer4: 1_200,
+  tiger: 1_500,
+  // 一個班：近失彈就倒，機槍也掃得掉
+  infantry: 60,
   flakHeavy: 400,
   flakLight: 160,
   // 美軍三台與上面對應的那三種同一個量級：戰車靠裝甲、卡車與防空車掃射得掉
@@ -79,7 +87,14 @@ export const GROUND_HP: Readonly<Record<GroundUnitId, number>> = {
  */
 export const GROUND_ARMOUR: Readonly<Record<GroundUnitId, number>> = {
   tank: 45,
+  tankDug: 45,
   truck: 0,
+  // 防盾只擋破片，擋不住任何一種機槍
+  atGun: 0,
+  // IV 號 H 型車體前方 80 mm、虎式 100 mm
+  panzer4: 80,
+  tiger: 100,
+  infantry: 0,
   flakHeavy: 0,
   flakLight: 0,
   // 雪曼車體前方 51 mm —— 與 T-34 一樣只有炸彈炸得掉
@@ -115,6 +130,13 @@ export const GROUND_VALUE: Readonly<Partial<Record<GroundUnitId, number>>> = {
   parkedB17: 20_000,
   // 同一個理由：德 M3 的目標就是它，血量卻比油桶堆低
   parkedP51: 20_000,
+  // 【德 M4 的先後】反坦克砲（第一段）> 反擊的 T-34（第二段）> 第一線的 T-34。
+  // 價值是固定的，所以第二段之前 AI 就會先去炸反坦克砲
+  atGun: 5_000,
+  tank: 2_000,
+  tankDug: 600,
+  // 步兵不是任務目標，AI 不拿炸彈去追他們
+  infantry: 10,
 }
 
 export interface GroundTarget extends StrikeTarget {
@@ -145,6 +167,24 @@ export interface GroundTarget extends StrikeTarget {
   speed: number
   /** 沿路線移動的設定。**null = 不動**（停放的飛機、砲位、廠房） */
   readonly motion: GroundMotion | null
+  /**
+   * 出發時刻，世界秒。開局抄 `motion.departAt`；事件啟動的縱隊開局是 `Infinity`，
+   * 由 `depart` 節拍寫成觸發那一刻（`battle/setup.ts`）。不動的目標恆為 `Infinity`
+   */
+  departAt: number
+  /** 開局藏著：出發之前不在場上（見 `dormant`）。德 M4 的蘇軍反擊縱隊 */
+  readonly hidden: boolean
+  /**
+   * 還沒出現。**`alive` 同時為 false**：不擋子彈、不是目標、畫面上不畫、不算摧毀。
+   * 到了 `departAt` 由 `stepGroundMotion` 變回活的
+   */
+  dormant: boolean
+  /** 照劇本在這一秒被打掉，世界秒。`Infinity` = 沒有劇本 */
+  killAt: number
+  /**
+   * 是劇本打掉的。**不算摧毀**（`destroyedInPool`）—— 那是地面戰的戲，不是玩家的戰果
+   */
+  scripted: boolean
   /**
    * 走完路線退場了。**`alive` 同時為 false**：不擋子彈、不是目標、畫面上不畫。
    * **不算摧毀** —— 它是開到了，不是被打掉（`battle/setup.ts` 的 `destroyedInPool`）。
@@ -221,7 +261,7 @@ export function groundTopOf(unit: GroundUnit): number {
 
 export function createGroundTarget(
   index: number, id: GroundUnitId, team: Team,
-  x: number, z: number, heading: number, motion: GroundMotion | null = null,
+  x: number, z: number, heading: number, motion: GroundMotion | null = null, hidden = false,
 ): GroundTarget {
   const unit = groundUnitOf(id)
   const position = new Vector3(x, 0, z)
@@ -240,12 +280,17 @@ export function createGroundTarget(
     hull: unit.hull,
     speed: 0,
     motion,
+    departAt: motion?.departAt ?? Infinity,
+    hidden,
+    dormant: hidden,
+    killAt: Infinity,
+    scripted: false,
     arrived: false,
     // 【getter 而不是常數】`position.y` 由 `settleGroundTargets` 之後才填
     get impactY() { return position.y + top },
     value: GROUND_VALUE[id] ?? GROUND_HP[id],
     hp: GROUND_HP[id],
-    alive: true,
+    alive: !hidden,
     departed: false,
     departedAs: -1,
     taxi: null,
@@ -279,7 +324,10 @@ export function resetGroundTarget(t: GroundTarget): void {
   t.position.copy(t.spawn)
   // 【飛機的血量是飛機的】讀 `GROUND_HP` 的話重開一場停著的 P-51 就回到 250
   t.hp = t.airframe?.hp ?? GROUND_HP[t.unit.id]
-  t.alive = true
+  t.alive = !t.hidden
+  t.dormant = t.hidden
+  t.departAt = t.motion?.departAt ?? Infinity
+  t.scripted = false
   t.departed = false
   t.departedAs = -1
   t.arrived = false
@@ -291,4 +339,21 @@ export function resetGroundTarget(t: GroundTarget): void {
   // 【砲也要回開局】留著上一場的目標與射速時鐘，重開之後第一步就會對著
   // 一個已經不存在的索引開火
   if (t.guns.length > 0) resetGroundBattery(t)
+}
+
+/**
+ * 照劇本擊毀：到了 `killAt` 就走擊毀流程，推一筆擊毀事件（兇手 −1，戰報不通報）。
+ * 標成 `scripted`，不算進摧毀數。
+ *
+ * 【開場殘骸不爆】`killAt === 0` 的那一筆 nz = 1：畫面那一層照「炸彈已經爆過」處理，
+ * 只點火、不放爆炸與震動 —— 開場那一刻不該有一排爆炸。
+ *
+ * 熱路徑：一次比較，不配置。
+ */
+export function stepScriptedKill(t: GroundTarget, time: number, events: ImpactEvents): void {
+  if (!t.alive || time < t.killAt) return
+  t.hp = 0
+  t.alive = false
+  t.scripted = true
+  pushImpact(events, t.position.x, t.position.y, t.position.z, t.index, -1, t.killAt === 0 ? 1 : 0)
 }
