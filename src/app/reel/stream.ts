@@ -22,9 +22,10 @@ import {
 //   2.6–5.2   右後上方的伴飛機（手持）：整個編隊壓在德國的田、樹林與村子上
 //   5.2–7.6   左僚機的右腰窗外：自己的右翼在前景，長機與右僚機在黑雲裡
 //   7.6–10.0  長機機腹下往前看：炸彈一枚枚從彈艙掉出去，底下是一公里外的田
-//   10.0–11.6 109 機尾左後上方：編隊迎面變大，109 對著右僚機開火
-//   11.6–12.8 長機上方砲塔往前看：兩架 109 衝過來，正對著長機的那一架 11.9 秒炸開
-//   12.8–15.6 右僚機右翼外側往回看：109 從頭上擦過，右內側發動機 13.0 秒起火
+//   10.0–11.0 109 機尾左後上方：編隊迎面變大，109 對著右僚機開火
+//   11.0–13.6 反打，右僚機後上方的伴飛機（手持）：曳光打進右僚機右翼噴出火花，右內側
+//             發動機 11.6 秒冒煙；109 從右僚機頭上拉起、從鏡頭左邊擦過
+//   13.6–15.6 右僚機右後上方 27 m 跟拍（手持）：冒煙的發動機 13.8 秒竄出火
 //   15.6–18.8 低空組前方（手持）：第二架 109 從低空組長機正下方鑽過去，追在同一條航線
 //             上的野馬開火，18.45 秒把它打爆
 //   18.8–21.8 長機右腰窗（手持）：右僚機拖著火往右下脫隊，21.2 秒被高砲直接命中炸開
@@ -138,9 +139,11 @@ const PASS_AT = 13.1
 const BANDIT_SWERVE = 1.8
 const bandit = attack(PASS_AT, 38, 7, 26, -16, 17, BANDIT_SWERVE, -1, PASS_AT + 1)
 const BANDIT = 9
-/** 左邊的僚機，正對著長機衝，還沒到就被機槍手打爆 */
+/**
+ * 左邊的僚機，正對著長機打，從長機左上方 28 m 擦過。
+ * 【不擊落】它在編隊前方 300 m 炸開的話，殘骸帶著 140 m/s 正好穿過反打那一刀的畫面
+ */
 const BANDIT_WING = 10
-const BLAST_AT = 11.9
 /**
  * 第二波：單獨一架正對著低空組長機打，17.2 秒從它正下方 34 m 鑽過去。
  * 【下方要留得比 109 自己需要的多】跟在後面的野馬走同一條航線，但它通過低空組長機時
@@ -227,7 +230,7 @@ const CUTS: readonly Cut[] = [
   {
     from: 10.0, subject: STREAM_HIT, mount: BANDIT,
     camera(t, out) {
-      // 機尾左後上方：整架 109 在右下前景，編隊在它前方。
+      // 機尾左後上方：整架 109 在右下前景，編隊在它前方，曳光沿機首打向右僚機。
       // 貼著座艙的話畫面只剩一塊機背和半透明的槳盤，看不出是 109
       body(bandit, t, -1.8, 2.4, 9.0, false, out.position)
       crippled(t, S1)
@@ -238,25 +241,35 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 11.6, subject: BANDIT, mount: 0,
+    from: 11.0, subject: STREAM_HIT,
     camera(t, out) {
-      // 上方砲塔：自己的座艙頂在下緣，兩架 109 從正前方偏上衝過來
-      body(streamLead, t, 0.6, 3.0, -0.5, false, out.position)
-      body(streamLead, t, 0, -40, -400, false, S1)
+      // 反打：右僚機後上方 110 m 的伴飛機（手持 0.25°）。109 的曳光迎面打進右僚機的
+      // 右翼、噴出火花，右內側發動機冒起一縷煙；
+      // 109 從右僚機頭上拉起，13.5 秒從鏡頭左邊 50 m 擦過（震一下）。
+      // 右僚機與 109 的來向差不到 15°，在同一個畫面裡。注視點偏向 109 一點，
+      // 109 開始閃避（12.6 秒）之後收回右僚機 —— 不收的話它擦過鏡頭時把右僚機甩出畫面
+      streamLead(t, out.position).add(S1.set(62, 30, 130))
+      shake(t, 0.2, 11, out.position)
+      crippled(t, S1)
       bandit(t, S2)
-      aimBetween(out.position, S1, S2, 0.6, out.target)
-      out.fov = 54
+      const lean = Math.min(1, Math.max(0, (PASS_AT - 0.3 - t) / 0.5))
+      aimBetween(out.position, S1, S2, 0.25 * lean, out.target)
+      shake(t, 0.3, 12, out.target)
+      jolt(t, PASS_AT + 0.45, 1.0, out.target)
+      out.fov = 30
     },
   },
   {
-    from: 12.8, subject: STREAM_HIT, mount: STREAM_HIT,
+    from: 13.6, subject: STREAM_HIT,
     camera(t, out) {
-      // 起火的是右內側那一具（`enginePoints[0]`，機體 x +3.05）：從它的右前上方
-      // 往後看，火與煙順著機翼往機尾拉
-      body(crippled, t, 7.0, 4.5, -9.5 + 0.4 * (t - 12.8), false, out.position)
-      body(crippled, t, 3.05, 0.6, 2.5, false, out.target)
-      bodyUp(crippled, t, out.up)
-      out.fov = 46
+      // 右僚機右後上方 35 m 跟拍（手持 0.2°）：冒煙的右內側發動機（`enginePoints[0]`，
+      // 機體 x +3.05）13.8 秒竄出火，火與煙順著機翼往後拉。再貼近的話煙尾從鏡頭旁
+      // 流過，整架隔著一層煙
+      body(crippled, t, 25, 11, 22, true, out.position)
+      shake(t, 0.08, 13, out.position)
+      body(crippled, t, 1.5, 0, -1, true, out.target)
+      shake(t, 0.15, 14, out.target)
+      out.fov = 40
     },
   },
   {
@@ -411,9 +424,10 @@ export const STREAM: Shot = {
     { at: 10.8, kind: 'gunner', actor: 0, target: BANDIT_WING, seconds: 1.1, miss: 8 },
     { at: 11.0, kind: 'burst', actor: BANDIT_WING, seconds: 0.5, target: 0 },
     { at: 11.2, kind: 'gunner', actor: 6, target: BANDIT, seconds: 1.6, miss: 20 },
-    { at: BLAST_AT, kind: 'kill', actor: BANDIT_WING, blast: true },
     { at: 12.0, kind: 'gunner', actor: 0, target: BANDIT, seconds: 1.0, miss: 10 },
-    { at: 12.95, kind: 'smoke', actor: STREAM_HIT, engine: 0, fire: true },
+    // 右內側發動機：先冒煙，兩秒後竄出火 —— 火一下子整團冒出來的話看不出是被打的
+    { at: 11.6, kind: 'smoke', actor: STREAM_HIT, engine: 0 },
+    { at: 13.8, kind: 'smoke', actor: STREAM_HIT, engine: 0, fire: true },
     // 穿過去之後低空組追著它的背打
     { at: 13.4, kind: 'gunner', actor: 3, target: BANDIT, seconds: 1.8, miss: 14 },
     { at: 13.5, kind: 'gunner', actor: 6, target: BANDIT, seconds: 1.6, miss: 18 },
