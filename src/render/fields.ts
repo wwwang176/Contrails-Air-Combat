@@ -1103,13 +1103,28 @@ export function steppeRegionParams(id: number, out: RegionSample): void {
 }
 
 /**
- * 草原田：世界座標 (x, z) 到最近一條田埂（田界）的距離，m。**是 GLSL `fieldColorAt` 裡
- * `best` 的 CPU 版**（草原田不對切，所以只有四條外框）。畫在地上的東西要避開田埂線時問它：
- * 沿著田埂走的支路會與田埂重疊成一條線，看起來像田埂延伸成路。
+ * 草原的防風林帶：一條田界有林帶的機率。`flora.ts` 種樹（`steppeBeltFloraFor`）與地面著色器畫
+ * 遠處的帶子（`SiteLayout.belts`）讀同一個數；判準是田界的身分（`edgeKey`）再雜湊一次小於它。
+ */
+export const BELT_CHANCE = 0.4
+
+/** 草原田最近的一條田界：距離與身分 */
+export interface SteppeEdge {
+  /** 到最近一條田界的距離，m */
+  gap: number
+  /** 那條田界的身分，**與 GLSL `fieldColorAt` 裡的 `edgeKey` 同一個值**（`fieldAt` 的 `edgeKey` 也是） */
+  key: number
+}
+
+const STEPPE_EDGE: SteppeEdge = { gap: 0, key: 0 }
+
+/**
+ * 草原田：世界座標 (x, z) 最近的一條田界，就地寫進 `out`。**是 GLSL `fieldColorAt` 裡 `best` 與
+ * `edgeKey` 的 CPU 版**（草原田不對切，所以只有四條外框）。
  *
  * 熱路徑之外（載入時與測試），不配置。
  */
-export function steppeRidgeGap(x: number, z: number): number {
+export function steppeNearestEdge(x: number, z: number, out: SteppeEdge): void {
   regionAt(x, z, STEPPE_REG)
   steppeRegionParams(STEPPE_REG.id, STEPPE_REG)
   const { angle, cellW, cellH } = STEPPE_REG
@@ -1126,10 +1141,27 @@ export function steppeRidgeGap(x: number, z: number): number {
   if (qx < steppeEdgeAt(c, cellW, colSalt)) c--
   else if (qx >= steppeEdgeAt(c + 1, cellW, colSalt)) c++
 
-  return Math.min(
-    qx - steppeEdgeAt(c, cellW, colSalt), steppeEdgeAt(c + 1, cellW, colSalt) - qx,
-    qz - steppeEdgeAt(r, cellH, 1), steppeEdgeAt(r + 1, cellH, 1) - qz,
-  )
+  let best = qx - steppeEdgeAt(c, cellW, colSalt)
+  let key = hash2(c ^ colSalt, 0x51ed)
+  const dr = steppeEdgeAt(c + 1, cellW, colSalt) - qx
+  if (dr < best) { best = dr; key = hash2((c + 1) ^ colSalt, 0x51ed) }
+  const db = qz - steppeEdgeAt(r, cellH, 1)
+  if (db < best) { best = db; key = hash2(r, 0x9e37) }
+  const dt = steppeEdgeAt(r + 1, cellH, 1) - qz
+  if (dt < best) { best = dt; key = hash2(r + 1, 0x9e37) }
+  out.gap = best
+  out.key = key
+}
+
+/**
+ * 草原田：世界座標 (x, z) 到最近一條田埂（田界）的距離，m。畫在地上的東西要避開田埂線時問它：
+ * 沿著田埂走的支路會與田埂重疊成一條線，看起來像田埂延伸成路。
+ *
+ * 熱路徑之外（載入時與測試），不配置。
+ */
+export function steppeRidgeGap(x: number, z: number): number {
+  steppeNearestEdge(x, z, STEPPE_EDGE)
+  return STEPPE_EDGE.gap
 }
 
 function fieldGlslBase(season: Season, candidates: boolean): string {
@@ -1367,6 +1399,23 @@ export const FIELD_GLSL = fieldGlsl('summer')
  * 【為什麼畫在著色器裡而不是幾何】道路是 20 km 的帶子，幾何要跟著地形的
  * 起伏切；著色器吃世界座標，圖案本來就釘在地上。
  */
+export interface SiteBelts {
+  /**
+   * 林帶不進的戰場方框：世界座標的原點、橫向單位向量 `(rx, rz)` 與縱向（朝蘇軍後方）單位向量
+   * `(fx, fz)`、橫向半寬、北緣與南緣的 lz，以及往外漸增到滿的距離，m。**與 `world/kursk.ts` 的
+   * `shelterbeltFade` 同一組數、同一條式子**，遠處的帶子才與近處種出來的樹對得上
+   */
+  readonly frame: {
+    readonly ox: number; readonly oz: number; readonly rx: number; readonly rz: number
+    readonly fx: number; readonly fz: number
+    readonly half: number; readonly north: number; readonly south: number; readonly ramp: number
+  }
+  /** 遠處帶子的半寬，m（樹帶三排加樹冠約 ±10 m） */
+  readonly halfWidth: number
+  /** 帶子的顏色（遠處的林冠） */
+  readonly hex: number
+}
+
 export interface SiteLayout {
   /**
    * 廠區局部座標系的原點，世界座標。省略時是 (0, 0)。
@@ -1441,6 +1490,12 @@ export interface SiteLayout {
    * 只有畫面 —— `siteSurfaceColor` 不算它
    */
   readonly scars?: BattleScars
+  /**
+   * 草原的防風林帶在遠處的樣子。植被只畫到 4.8～6 km，再遠的樹要靠地面；與歐陸的樹籬同一個做法：
+   * 著色器依田界的身分把有林帶的田界畫成一條深色的帶子，不逐棵烘。只有畫面 ——
+   * `siteSurfaceColor` 不算它
+   */
+  readonly belts?: SiteBelts
 }
 
 const CONCRETE = 0x8d8a82
@@ -1850,8 +1905,10 @@ ${outpostGlsl}
   })()
   // 【戰場的痕跡畫在道路之後】先有路、後來才被炸：坑蓋在路面上
   const scarSection = site.scars === undefined ? '' : scarsGlsl(site.scars)
+  // 【林帶畫在痕跡之前】遠圖上的帶子是田界的一部分，戰場的坑與壕溝壓在它上面
+  const beltSection = site.belts === undefined ? '' : beltsGlsl(site.belts)
   // 【沒有道路也沒有鐵路就整段不產生】GLSL 不准零長度的陣列
-  if (segs.length === 0 && rail.length === 0) return `${padSection}${scarSection}`
+  if (segs.length === 0 && rail.length === 0) return `${padSection}${beltSection}${scarSection}`
   return `${padSection}
   // 【道路與鐵路自己一個外接矩形】底下這 ${rail.length + segs.length} 段點線距離是每個像素都跑的，
   // 而連外道路一路畫到圖邊 —— 墊面那個矩形擋不住它們，得自己算一個。
@@ -1873,7 +1930,33 @@ ${list}
     roadD = min(roadD, length(world - (a + ab * t)));
   }
   col = mix(col, ${rgb(site.roadHex ?? ASPHALT)}, bandCoverage(roadD, ${(site.roadWidth / 2).toFixed(1)}, px));
-  }${scarSection}`
+  }${beltSection}${scarSection}`
+}
+
+/**
+ * 草原的防風林帶（遠處）：有林帶的田界畫成一條深色的帶子。
+ *
+ * - 哪些田界有林帶：`edgeKey ^ 0x2be1` 的雜湊小於 `BELT_CHANCE`，**與 `flora.ts` 的
+ *   `steppeBeltFloraFor` 同一個判準**（`edgeKey` 是 `fieldAt` 與 `steppeNearestEdge` 也在用的
+ *   田界身分）
+ * - 只畫在遠層（`fieldFar`）：近處有真的樹，這一條在植被圈外才接手
+ * - 戰場方框裡不畫、往外漸增：公式與 `world/kursk.ts` 的 `shelterbeltFade` 同一條
+ */
+function beltsGlsl(b: SiteBelts): string {
+  const f = b.frame
+  const n = (v: number): string => v.toFixed(5)
+  return `
+  // 防風林帶（遠處）
+  if (fieldFar > 0.35 && float(fieldHash1(edgeKey ^ 0x2be1u)) / 4294967296.0 < ${n(BELT_CHANCE)}) {
+    vec2 bd = world - vec2(${n(f.ox)}, ${n(f.oz)});
+    float blx = dot(bd, vec2(${n(f.rx)}, ${n(f.rz)}));
+    float blz = -dot(bd, vec2(${n(f.fx)}, ${n(f.fz)}));
+    float box = max(0.0, abs(blx) - ${n(f.half)});
+    float boz = max(0.0, max(blz - ${n(f.south)}, ${n(f.north)} - blz));
+    float bt = clamp(sqrt(box * box + boz * boz) / ${n(f.ramp)}, 0.0, 1.0);
+    float beltFade = bt * bt * (3.0 - 2.0 * bt) * smoothstep(0.35, 0.9, fieldFar);
+    col = mix(col, ${rgb(b.hex)}, bandCoverage(best, ${n(b.halfWidth)}, px) * beltFade);
+  }`
 }
 
 /** 有廠區的那一份 GLSL。`site` 省略時與 `fieldGlsl(season)` 逐字相同 */

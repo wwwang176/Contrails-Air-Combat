@@ -43,8 +43,8 @@ import {
   ROAD_WIDTH as ASCH_ROAD_WIDTH, ROADS as ASCH_ROADS,
 } from '../world/asch'
 import {
-  battleKeepOut, burnRateOf, CRATER_PATCHES, createKursk, isLargeVillage, MINEFIELDS, OBSTACLES, SCAR_ZONE, SCORCH,
-  shelterbeltFade,
+  BELT_FRAME, battleKeepOut, burnRateOf, CRATER_PATCHES, createKursk, isLargeVillage, MINEFIELDS, OBSTACLES, SCAR_ZONE,
+  SCORCH, shelterbeltFade,
   TRACKS, TRENCHES,
 } from '../world/kursk'
 import { buildObstacles } from './geometry/ground/obstacles'
@@ -577,6 +577,8 @@ export const KURSK_SITE: SiteLayout = {
     scorch: SCORCH, trenches: TRENCHES, tracks: TRACKS, minefields: MINEFIELDS,
     craterPatches: CRATER_PATCHES,
   },
+  // 防風林帶在植被圈外（4.8～6 km 以遠）由著色器畫成田界上的深色帶；與歐陸的樹籬同一個做法
+  belts: { frame: BELT_FRAME, halfWidth: 9, hex: 0x2d3a22 },
 }
 
 /**

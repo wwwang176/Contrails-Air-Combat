@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
-  BELT_GROVE_HALF, BELT_ROAD_CLEAR, BELT_ROW_GAP, BELT_VILLAGE_CLEAR, createFloraBuffer, FLORA_STRIDE, FloraKind, steppeBeltFloraFor,
-  type FloraBuffer,
+  BELT_CHANCE, BELT_GROVE_HALF, BELT_ROAD_CLEAR, BELT_ROW_GAP, BELT_VILLAGE_CLEAR, createFloraBuffer, FLORA_STRIDE, FloraKind,
+  hash1, steppeBeltFloraFor, type FloraBuffer,
 } from '../../src/render/flora'
-import { regionAt, steppeRidgeGap, trackGap, trackWidthAt, villageDistance, type RegionSample } from '../../src/render/fields'
+import {
+  regionAt, steppeNearestEdge, steppeRidgeGap, trackGap, trackWidthAt, villageDistance, type RegionSample, type SteppeEdge,
+} from '../../src/render/fields'
 import { at, BELT_BOX, shelterbeltFade, toLocal } from '../../src/world/kursk'
 
 const FLAT = (): number => 0
@@ -101,6 +103,23 @@ describe('草原的防風林帶', () => {
       if (n >= 20) { dense++; break }
     }
     expect(dense).toBe(1)
+  })
+
+  /**
+   * 【遠近兩邊的判準要是同一個】植被只畫到 4.8～6 km，再遠由地面著色器把有林帶的田界畫成一條帶子
+   * （`SiteLayout.belts`，歐陸的樹籬也是這個做法）。著色器的判準是「最近那條田界的 `edgeKey` 再
+   * 雜湊一次小於 `BELT_CHANCE`」；這裡用 CPU 版的最近田界（`steppeNearestEdge`）驗每一棵樹都落在
+   * 過了這個判準的田界上 —— 種樹的線身分一改，這條就紅，而畫面上只是「遠處的帶子與近處的樹對不上」。
+   */
+  it('每一棵都在著色器也認定有林帶的田界上（最近田界的身分過了同一個判準）', () => {
+    const e: SteppeEdge = { gap: 0, key: 0 }
+    let ok = 0
+    for (const t of all) {
+      steppeNearestEdge(t.x, t.z, e)
+      if (hash1(e.key ^ 0x2be1) / 4294967296 < BELT_CHANCE) ok++
+    }
+    // 兩條田界的角落最近的可能是另一條，所以不是 100%
+    expect(ok / all.length).toBeGreaterThan(0.95)
   })
 
   it('戰場方框裡一棵都沒有，濃度也不是零的地方才有', () => {

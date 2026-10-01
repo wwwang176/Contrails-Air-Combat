@@ -6,7 +6,7 @@ import type { IslandDesc } from '../world/archipelago'
 import { baseHeight, farUpland, isInBeachClearing, isInRoadClearing } from '../world/leyte'
 import {
   edgeAt, fieldAt, isOpenParcel, isWoodField, onTrack, openWoodCover, regionAt, regionParams, regionSeed, splitCut,
-  steppeEdgeAt, steppeRegionParams,
+  BELT_CHANCE, steppeEdgeAt, steppeRegionParams,
   trackGap, trackWidthAt, valueNoise, villageDistance, FIELD_REACH, HEDGE_CHANCE, HEDGE_WIDTH, REGION_SPACING,
   TRACK_WARP_MAX, TRACK_WIDTH, TRACK_WIDTH_MAX, VILLAGE_CHANCE,
   VILLAGE_NEIGHBOUR, CONIFER_SHARE, OPEN_CONIFER_SHARE, OPEN_TREE_SCALE, OPEN_WOOD_DENSITY, OPEN_WOOD_GATE,
@@ -174,7 +174,7 @@ export function hash2(i: number, j: number): number {
   return (h ^ (h >>> 13)) >>> 0
 }
 
-function hash1(h: number): number {
+export function hash1(h: number): number {
   h = Math.imul(h ^ (h >>> 16), 0x7feb352d)
   h = Math.imul(h ^ (h >>> 15), 0x846ca68b)
   return (h ^ (h >>> 16)) >>> 0
@@ -376,10 +376,14 @@ export function openHedgeFloraFor(chance: number): FloraSource {
  * tile 切在哪裡無關（見檔頭的鐵律）。
  *
  * 【整條線同一個樹種】沿用 `speciesOf`：整排同種才讀得出防風林。
+ *
+ * 【線的身分就是田界的 `edgeKey`】橫線 `hash2(r, 0x9e37)`、縱線 `hash2(c ^ colSalt, 0x51ed)`，與
+ * 地面著色器、`fieldAt`、`steppeNearestEdge` 同一把鑰匙。遠處（植被圈外）的帶子由著色器依同一個
+ * 判準畫（`fields.ts` 的 `SiteLayout.belts`），歐陸的樹籬也是這個做法；鑰匙一改，遠近兩邊就對不上。
  */
 
-/** 一條田界有林帶的機率 */
-export const BELT_CHANCE = 0.4
+/** 一條田界有林帶的機率（`fields.ts`：地面著色器畫遠處的帶子讀同一個數） */
+export { BELT_CHANCE }
 /** 林帶分段的長度，m：缺口與濃度都以段為單位 */
 export const BELT_SEGMENT = 90
 /** 一段有樹的機率；其餘是缺口 */
@@ -546,7 +550,7 @@ const steppeBelts: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
     for (let r = rMin; r <= rMax + 1; r++) {
       const at = steppeEdgeAt(r, REG.cellH, 1)
       if (at < qzMin - margin || at > qzMax + margin) continue
-      plantBelt(1, at, qxMin, qxMax, hash2(r ^ rid, 0xbe17))
+      plantBelt(1, at, qxMin, qxMax, hash2(r, 0x9e37))
     }
     // 縱的田界：每一列各自抖動，所以在每條橫線上斷開
     for (let r = rMin; r <= rMax; r++) {
@@ -559,7 +563,7 @@ const steppeBelts: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
       for (let c = cMin; c <= cMax + 1; c++) {
         const at = steppeEdgeAt(c, REG.cellW, colSalt)
         if (at < qxMin - margin || at > qxMax + margin) continue
-        plantBelt(0, at, lo, hi, hash2((c ^ colSalt) ^ rid, 0xbe29))
+        plantBelt(0, at, lo, hi, hash2(c ^ colSalt, 0x51ed))
       }
     }
   }
