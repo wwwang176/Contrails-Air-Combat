@@ -65,6 +65,11 @@ export interface BattleScars {
   readonly tracks: readonly ScarLine[]
   /** 雷區：有向矩形，畫在履帶痕之下 */
   readonly minefields: readonly ScarRect[]
+  /**
+   * 彈坑特別密的地方：世界座標的中心、半徑（m）、中心的彈坑密度（0～1，往外漸弱到交戰帶的
+   * 密度）。**要落在交戰帶加漸弱帶（`fade`）以內**，外面的格子不會被問到
+   */
+  readonly craterPatches?: readonly { readonly x: number; readonly z: number; readonly r: number; readonly dense: number }[]
 }
 
 /** 雷區小點的格距與半徑，m。近層才看得到 */
@@ -218,6 +223,22 @@ export function scarsGlsl(s: BattleScars): string {
     }
   }
 `
+  const patches = s.craterPatches ?? []
+  // 沒有特別密的地方時，這兩行與沒有這個欄位之前逐字相同
+  const density = patches.length === 0
+    ? `        if (outside >= ${f(s.fade)}) continue;
+        float dens = mix(${s.dense.toFixed(4)}, ${s.sparse.toFixed(4)}, smoothstep(0.0, ${f(s.fade)}, outside));`
+    : `        float bump = 0.0;
+        for (int pk = 0; pk < ${patches.length}; pk++) {
+          float pd = distance(p, CRATER_PATCH[pk].xy);
+          bump = max(bump, CRATER_PATCH[pk].w * (1.0 - smoothstep(CRATER_PATCH[pk].z * 0.5, CRATER_PATCH[pk].z, pd)));
+        }
+        if (outside >= ${f(s.fade)} && bump <= 0.0) continue;
+        float dens = max(outside >= ${f(s.fade)} ? 0.0
+          : mix(${s.dense.toFixed(4)}, ${s.sparse.toFixed(4)}, smoothstep(0.0, ${f(s.fade)}, outside)), bump);`
+  const patchDecl = patches.length === 0 ? '' : `
+    const vec4 CRATER_PATCH[${patches.length}] = vec4[${patches.length}](${
+  patches.map((p) => `vec4(${f(p.x)}, ${f(p.z)}, ${f(p.r)}, ${p.dense.toFixed(4)})`).join(', ')});`
   return `
   // 【戰場的痕跡】燒田最底、再來履帶痕、壕溝、彈坑最上 —— 坑炸在溝與車轍上
   if (world.x > ${f(z.x0 - s.fade - 2000)} && world.x < ${f(z.x1 + s.fade + 2000)}
@@ -228,7 +249,7 @@ ${linesGlsl('TRENCHES', s.trenches, [14, 15])}
   // 彈坑：周圍 3 × 3 格的候選點。密度看候選點離交戰帶多遠
   if (world.x > ${f(z.x0 - s.fade - CRATER_GRID)} && world.x < ${f(z.x1 + s.fade + CRATER_GRID)}
       && world.y > ${f(z.z0 - s.fade - CRATER_GRID)} && world.y < ${f(z.z1 + s.fade + CRATER_GRID)}) {
-    ivec2 cc = ivec2(floor(world / ${f(CRATER_GRID)}));
+    ivec2 cc = ivec2(floor(world / ${f(CRATER_GRID)}));${patchDecl}
     for (int dj = -1; dj <= 1; dj++) {
       for (int di = -1; di <= 1; di++) {
         int gx = cc.x + di;
@@ -239,8 +260,7 @@ ${linesGlsl('TRENCHES', s.trenches, [14, 15])}
           + 0.7 * vec2(float(h & 0xffffu), float(h >> 16u)) / 65536.0) * ${f(CRATER_GRID)};
         vec2 out2 = max(vec2(${f(z.x0)}, ${f(z.z0)}) - p, p - vec2(${f(z.x1)}, ${f(z.z1)}));
         float outside = length(max(out2, 0.0));
-        if (outside >= ${f(s.fade)}) continue;
-        float dens = mix(${s.dense.toFixed(4)}, ${s.sparse.toFixed(4)}, smoothstep(0.0, ${f(s.fade)}, outside));
+${density}
         if (float(g & 0xffffu) / 65536.0 >= dens) continue;
         float r = ${f(CRATER_R[0])} + ${f(CRATER_R[1] - CRATER_R[0])} * float((g >> 16u) & 0xffu) / 255.0;
         vec2 d = world - p;

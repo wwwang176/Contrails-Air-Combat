@@ -40,6 +40,15 @@ describe('雷區的著色器', () => {
    * 烘圖時取樣間距是 √2 × `px`（`px` 是半足跡）。規則的小點與虛線的週期要大於取樣間距的兩倍，
    * 否則混疊成錯誤的低頻紋，烘進遠圖
    */
+  it('彈坑特別密的地方：沒給時與原本逐字相同，給了就多一段陣列與密度判斷', () => {
+    const plain = scarsGlsl({ ...BASE, minefields: [] })
+    expect(scarsGlsl({ ...BASE, minefields: [], craterPatches: [] })).toBe(plain)
+    const s = scarsGlsl({ ...BASE, minefields: [], craterPatches: [{ x: 0, z: 0, r: 300, dense: 0.8 }, { x: 500, z: 0, r: 200, dense: 0.6 }] })
+    expect(s).toContain('CRATER_PATCH[2]')
+    expect(s).toContain('bump')
+    expect(plain).not.toContain('bump')
+  })
+
   it('小點與虛線在取樣會混疊之前就全淡掉，近層則完整看得到', () => {
     expect(MINE_DOT_FADE[1] * 2 * Math.SQRT2).toBeLessThan(MINE_PITCH)
     expect(MINE_DASH_FADE[1] * 2 * Math.SQRT2).toBeLessThan(MINE_DASH)
