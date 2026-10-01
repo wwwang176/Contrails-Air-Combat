@@ -3708,6 +3708,22 @@ const menuReel: MenuReel = createMenuReel({
         lightGroundFire(groundFires, x + Math.cos(a) * r, y + 1, z + Math.sin(a) * r)
       }
     },
+    blast(x, y, z, size) {
+      // 炸彈那一份放大 `size` 倍（線性），當量是它的立方
+      const vis = BOMB_BLAST_SIZE * REEL_BOMB_SCALE * size
+      scaleBlast(LAND_BLAST, vis * vis * vis, SCALED_BLAST)
+      const seed = (reelBlastSeed = (reelBlastSeed + 229) | 0)
+      emitBlast(BLAST_POOLS, SCALED_BLAST, x, y, z, seed)
+      blastLights.flash(x, y, z, REEL_BOMB_SCALE * size, ctx.camera.position)
+      debris.burst(x, y, z, BLAST_DEBRIS_COLOR, seed, blastDebrisSpeed())
+      burstSparks(x, y, z)
+      const fires = Math.max(1, Math.round(size))
+      for (let k = 0; k < fires; k++) {
+        const r = fires === 1 ? 0 : 6 * size * Math.sqrt((k + 0.5) / fires)
+        const a = k * 2.39996
+        lightGroundFire(groundFires, x + Math.cos(a) * r, y, z + Math.sin(a) * r)
+      }
+    },
     clear() {
       wrecks.reset()
       resetPools()

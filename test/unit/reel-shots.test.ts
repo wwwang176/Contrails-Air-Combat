@@ -285,6 +285,10 @@ describe.each(shots.map((s) => [s.id, s] as const))(
       const killed = new Set<number>()
       for (const e of shot.events) {
         if (e.kind === 'flak') continue
+        if (e.kind === 'blast') {
+          expect(e.size).toBeGreaterThan(0)
+          continue
+        }
         if (e.kind === 'destroy') {
           expect(e.prop).toBeLessThan(shot.props?.length ?? 0)
           continue

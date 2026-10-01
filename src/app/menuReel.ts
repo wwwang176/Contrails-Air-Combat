@@ -71,6 +71,11 @@ export interface ReelFx {
   torpedoHit(x: number, z: number): void
   /** 地面物件炸毀：一團落地的火、留下燃燒的火點。`fires` 是幾處火點（油桶堆、油槽多一點） */
   groundKill(x: number, y: number, z: number, fires: number): void
+  /**
+   * 比一枚炸彈大的爆炸：二次爆炸、油槽殉爆。`size` 是相對一枚炸彈的線性倍率，
+   * 地面火點也照它的數目點
+   */
+  blast(x: number, y: number, z: number, size: number): void
   /** 炸彈落在船上：甲板高度的一團火（不掀水冠） */
   shipHit(x: number, y: number, z: number): void
   /** 船上的火點冒一朵火與黑煙（船火那一套煙柱） */
@@ -313,6 +318,8 @@ interface ShipFire {
   readonly local: Vector3
   timer: number
 }
+/** 殉爆的火球相對一枚炸彈的線性倍率 */
+const SECONDARY_SIZE = 2.5
 /** 炸毀後整片燒的：油桶堆、彈藥堆、油槽、儲氣槽 */
 const BURNS_LONG: ReadonlySet<string> = new Set(['fuelDump', 'bombDump', 'oilTank', 'gasHolder'])
 
@@ -573,6 +580,13 @@ export function createMenuReel(stage: ReelStage): MenuReel {
         if (g !== undefined) destroyProp(g)
         break
       }
+      case 'blast': {
+        V1.set(e.x, 0, e.z)
+        toWorld(V1)
+        const ground = stage.terrain().collisionHeightAt(V1.x, V1.z)
+        fx.blast(V1.x, ground + e.y, V1.z, e.size)
+        break
+      }
       case 'torpedo': {
         const a = actors[e.actor]
         if (a === undefined || a.model === null) break
@@ -684,7 +698,10 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     if (!g.alive) return
     g.alive = false
     g.hp = 0
-    fx.groundKill(g.position.x, g.position.y, g.position.z, BURNS_LONG.has(g.unit.id) ? 5 : 1)
+    const burns = BURNS_LONG.has(g.unit.id)
+    fx.groundKill(g.position.x, g.position.y, g.position.z, burns ? 5 : 1)
+    // 油槽、儲氣槽、油料與彈藥堆殉爆：在半高處多一團比炸彈大得多的火球
+    if (burns) fx.blast(g.position.x, (g.position.y + g.impactY) / 2, g.position.z, SECONDARY_SIZE)
   }
 
   /** 佈景建築合併成一顆網格，落在地形上。換段的暗場裡建一次 */
