@@ -604,8 +604,10 @@ function createInlandTerrain(
   dressing?: LandDressing,
 ): Terrain {
   // 【田圍著村】程序生成的地圖田只在村的周圍，其餘是空地與成團的樹林。有真實
-  // 地物的（洛伊納）不開 —— 那一帶是開墾到幾乎不剩空地的黃土平原
-  const open = dressing === undefined
+  // 地物的（洛伊納）不開 —— 那一帶是開墾到幾乎不剩空地的黃土平原。草原田（集體農場的
+  // 大田）整片都是田，也不開
+  const steppe = FIELD_COLORS[season].layout === 'steppe'
+  const open = dressing === undefined && !steppe
   const horizon = createFarHorizon(season, open)
   const ground = createFarmGround(farm.field, season, site, open)
   // 【田色烘成貼圖】地面 25 塊與遠景環一起換材質 —— 兩者本來共用同一支算式，
@@ -641,7 +643,8 @@ function createInlandTerrain(
   // 【空地的樹林門檻跟著季節】與地色（`openDeclGlsl`）讀同一份 `woodGate`
   const openWoods = openWoodFloraFor(FIELD_COLORS[season].woodGate)
   const openHedges = openHedgeFloraFor(FIELD_COLORS[season].hedgeChance)
-  let fields = (open ? [openHedges, openWoods] : [farmHedgeFlora, farmWoodFlora]).map(padClear)
+  // 【草原田的田裡沒有樹】田界是田埂、牧草地是草；樹只長在村裡（`steppeVillage.ts`）
+  let fields = (steppe ? [] : open ? [openHedges, openWoods] : [farmHedgeFlora, farmWoodFlora]).map(padClear)
   // 【建築：植被與烘圖是同一個散佈器】兩邊各包一份的話，遠處的屋頂色塊與近處的
   // 房子對不上。真實地物的建築已經避開河道；程序村沒有，要包河廊
   // 程序生成的地圖的村用洛伊納那一套生成器（`farmSettlements.ts`），蓋到植被圈伸得到

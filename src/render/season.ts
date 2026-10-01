@@ -65,6 +65,13 @@ export interface FieldColors {
    * 兩邊各讀各的
    */
   readonly hedgeChance: number
+  /**
+   * 田的格局。`european` 是中歐的小田塊、田界長樹籬；`steppe` 是俄國南部集體農場的大
+   * 田：大矩形、不對切、田界是淺色的田埂、沒有樹籬，一部分的田是不耕的牧草地
+   * （`fields.ts` 的 `STEPPE_LAYOUT`）。**`steppe` 時 `hedge` 是田埂的顏色**，`wood`
+   * 與 `hedgeChance` 不用
+   */
+  readonly layout: 'european' | 'steppe'
 }
 
 export interface FloraColors {
@@ -87,6 +94,7 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
     openAlt: 0x78754f,
     woodGate: [0.5, 0.62],
     hedgeChance: 0.92,
+    layout: 'european',
   },
   /**
    * 晚秋：收割後的麥茬赭 → 冬麥苗的淡綠；大半的田犁過了，露出深褐的土。
@@ -116,6 +124,7 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
     openAlt: 0x5f5a47,
     woodGate: [0.5, 0.62],
     hedgeChance: 0.92,
+    layout: 'european',
   },
   /**
    * 七月的俄國南部森林草原：麥子快熟了，整片是黃綠到麥金；集體農場的大田很少犁著
@@ -125,7 +134,8 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
   julyWheat: {
     palette: [0x6f7148, 0x7b7a4c, 0x878350, 0x938b55, 0x9e925a, 0xa8985e, 0xb09d62, 0xb6a167],
     ploughed: 0x6a5a45,
-    hedge: 0x2f3826,
+    // 田埂：被踩實曬乾的淺土色
+    hedge: 0xb8aa7c,
     track: 0xa39a80,
     wood: 0x34402b,
     ploughChance: 0.06,
@@ -133,7 +143,8 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
     open: 0x9c8f58,
     openAlt: 0x7f7c4c,
     woodGate: [0.7, 0.8],
-    hedgeChance: 0.06,
+    hedgeChance: 0,
+    layout: 'steppe',
   },
 }
 

@@ -812,6 +812,9 @@ export function fieldSurfaceColor(
   x: number, z: number, out: Color, season: Season = 'summer', open = false,
 ): Color {
   const c = FIELD_COLORS[season]
+  // 【草原田沒有 CPU 版】格寬與抖動是它自己的常數，而 `fieldAt` 讀的是中歐那一組。
+  // 執行期沒有任何呼叫者（植被不讀草原田的田界），所以明講不支援，不回一個靜靜地錯的色
+  if (c.layout === 'steppe') throw new Error('草原田（steppe）沒有 CPU 版的取色')
   regionAt(x, z, REG)
   if (onTrack(x, z, REG)) return out.setHex(c.track)
 
@@ -894,7 +897,8 @@ const CANDIDATE_LOOKUP_GLSL = `  uint candN = 15u;
  */
 export function fieldGlsl(season: Season, candidates = false, open = false): string {
   const base = fieldGlslBase(season, candidates)
-  if (!open) return base
+  // 【草原田沒有「空地」】整片都是田（大田、牧草地、田埂），沒有田圍著村那一套
+  if (!open || FIELD_COLORS[season].layout === 'steppe') return base
   // 【空地疊在條紋之後】空地沒有條紋、沒有樹籬；凹路照舊壓在上面
   const at = base.indexOf('  col = mix(col, mix(HEDGE_COLOR')
   const decl = base.indexOf('vec3 fieldColorAt(')
@@ -1055,27 +1059,46 @@ const OPEN_PARCEL_GLSL = `  vec2 pq = vec2((left + right) * 0.5, (bottom + top) 
   }
 `
 
+/**
+ * 草原田的格局：俄國南部集體農場的大田。與 `european` 共用「區塊 → 抖動的矩形格」的框架
+ * （凹路、村站址、菜園都掛在區塊上），差在：
+ *
+ * - 格寬 544～896 m、格長再乘 `aniso`（653～1,075 m），**不對切**
+ * - 每一條田界都是田埂（`HEDGE_CHANCE = 1`），寬 `ridge`，沒有樹籬；遠處仍然是田埂色
+ *   （不是樹冠色）
+ * - 「樹林田」換成牧草地（沒耕的草），比例 `pasture`；沒有條播紋
+ *
+ * 【著色器常數沿用 `european` 的名字】`fieldColorAt` 只有一份算式，兩種格局換的是這幾個
+ * 常數與牧草地那一行（`pastureGlsl`）。`european` 輸出的字串逐字不變。
+ */
+export const STEPPE_LAYOUT = {
+  spacing: 640, aniso: 1.2, spacingVar: [0.85, 1.4], edgeJitter: 0.14,
+  ridge: 8, pasture: 0.14,
+} as const
+
 function fieldGlslBase(season: Season, candidates: boolean): string {
   const c = FIELD_COLORS[season]
+  const steppe = c.layout === 'steppe'
+  const S = STEPPE_LAYOUT
   const glslPalette = c.palette.map((h) => '  ' + rgb(h)).join(',\n')
   return `
-const float FIELD_SPACING = ${FIELD_SPACING.toFixed(1)};
-const float FIELD_ANISO = ${FIELD_ANISO.toFixed(3)};
-const float EDGE_JITTER = ${EDGE_JITTER.toFixed(3)};
-const float SPLIT_CHANCE = ${SPLIT_CHANCE.toFixed(3)};
+const float FIELD_SPACING = ${(steppe ? S.spacing : FIELD_SPACING).toFixed(1)};
+const float FIELD_ANISO = ${(steppe ? S.aniso : FIELD_ANISO).toFixed(3)};
+const float EDGE_JITTER = ${(steppe ? S.edgeJitter : EDGE_JITTER).toFixed(3)};
+const float SPLIT_CHANCE = ${(steppe ? 0 : SPLIT_CHANCE).toFixed(3)};
 const float REGION_SPACING = ${REGION_SPACING.toFixed(1)};${candidates ? CANDIDATE_DECL_GLSL : ''}
-const float HEDGE_WIDTH = ${HEDGE_WIDTH.toFixed(1)};
-const float HEDGE_CHANCE = ${c.hedgeChance.toFixed(3)};
+const float HEDGE_WIDTH = ${(steppe ? S.ridge : HEDGE_WIDTH).toFixed(1)};
+const float HEDGE_CHANCE = ${(steppe ? 1 : c.hedgeChance).toFixed(3)};
 const float TRACK_WIDTH = ${TRACK_WIDTH.toFixed(1)};
 const float PLOUGH_CHANCE = ${c.ploughChance.toFixed(3)};
-const float WOOD_CHANCE = ${WOOD_CHANCE.toFixed(3)};
+const float WOOD_CHANCE = ${(steppe ? S.pasture : WOOD_CHANCE).toFixed(3)};
 const float STRIPE_PERIOD = ${STRIPE_PERIOD.toFixed(1)};
 const float STRIPE_AMP = ${STRIPE_AMP.toFixed(3)};
-const float SPACING_VAR_LO = ${FIELD_SPACING_VAR[0].toFixed(3)};
-const float SPACING_VAR_HI = ${FIELD_SPACING_VAR[1].toFixed(3)};
+const float SPACING_VAR_LO = ${(steppe ? S.spacingVar[0] : FIELD_SPACING_VAR[0]).toFixed(3)};
+const float SPACING_VAR_HI = ${(steppe ? S.spacingVar[1] : FIELD_SPACING_VAR[1]).toFixed(3)};
 const vec3 HEDGE_COLOR = ${rgb(c.hedge)};
-const vec3 HEDGE_FAR_COLOR = ${vec3Of(canopyColor(FLORA_COLORS[season].broadLeaf).multiplyScalar(HEDGE_FAR_SHADE))};
-const float HEDGE_FAR_GROW = ${HEDGE_FAR_GROW.toFixed(3)};
+const vec3 HEDGE_FAR_COLOR = ${steppe ? rgb(c.hedge) : vec3Of(canopyColor(FLORA_COLORS[season].broadLeaf).multiplyScalar(HEDGE_FAR_SHADE))};
+const float HEDGE_FAR_GROW = ${(steppe ? 1 : HEDGE_FAR_GROW).toFixed(3)};
 // 【遠處的樣子】1 = 植被圈外（樹籬的樹不畫了），樹籬畫成放寬的林冠色。呼叫端在
 // fieldColorAt 之前設；近處與內圈留 0，那裡有真的樹
 float fieldFar = 0.0;
@@ -1228,7 +1251,10 @@ ${candidates ? '  }\n' : ''}  uint rh = fieldHash1(rid);
   bool ploughed = float(fh & 0xffu) / 256.0 < PLOUGH_CHANCE;
   // 樹林田整塊一種樹（flora.ts 的 speciesOf，鍵是田的雜湊 ^ 0x77aa）
   bool woodCone = float(fieldHash1((fh ^ 0x77aau) ^ 0x5bd1u)) / 4294967296.0 < CONIFER_SHARE;
-  vec3 col = wood ? mix(WOOD_COLOR, woodCone ? CONE_FAR_COLOR : BROAD_FAR_COLOR, fieldFar) : PLOUGHED_COLOR;
+  vec3 col = ${steppe
+    // 【牧草地】沒耕的草：兩個草色逐塊漸變，不分遠近
+    ? `wood ? mix(${rgb(c.open)}, ${rgb(c.openAlt)}, float((fh >> 12u) & 0xffu) / 255.0) : PLOUGHED_COLOR`
+    : 'wood ? mix(WOOD_COLOR, woodCone ? CONE_FAR_COLOR : BROAD_FAR_COLOR, fieldFar) : PLOUGHED_COLOR'};
   if (!wood && !ploughed) {
     int t = clamp(tone + int((fh >> 8u) % 3u) - 1, 0, ${PALETTE_STEPS - 1});
     float k = 0.94 + (float((fh >> 16u) & 0xffu) / 255.0) * 0.12;
