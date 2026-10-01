@@ -20,6 +20,8 @@ import {
   type ReelEvent, type Shot,
 } from './reelShots'
 import { createBombs, createTorpedoes, type BombVisuals, type OrdnancePool } from '../render/bombs'
+import { createGroundModels, type GroundModels } from '../render/groundTargets'
+import { createGroundTarget, type GroundTarget } from '../world/groundTargets'
 
 /**
  * 主選單背景的短片放映機。分鏡在 `reelShots.ts`；這裡負責建／拆演員、推進時間、
@@ -51,6 +53,8 @@ export interface ReelFx {
   torpedoWake(slot: number, x: number, z: number, serial: number): void
   /** 魚雷打中船：水柱 */
   torpedoHit(x: number, z: number): void
+  /** 地面物件炸毀：一團落地的火、留下燃燒的火點。`fires` 是幾處火點（油桶堆、油槽多一點） */
+  groundKill(x: number, y: number, z: number, fires: number): void
   /** 清掉所有共用特效與殘骸池 */
   clear(): void
 }
@@ -201,6 +205,10 @@ const REEL_TORPEDOES = 8
 /** 發動機起火：一朵火的間隔，秒 */
 const FIRE_INTERVAL = 0.09
 const AIM = { x: 0, z: 0 }
+/** 炸彈落在地面物件命中盒外多少公尺內就算炸到 */
+const PROP_BLAST_REACH = 15
+/** 炸毀後整片燒的：油桶堆、彈藥堆、油槽、儲氣槽 */
+const BURNS_LONG: ReadonlySet<string> = new Set(['fuelDump', 'bombDump', 'oilTank', 'gasHolder'])
 
 const UP = new Vector3(0, 1, 0)
 const AIM_Q = new Quaternion()
@@ -244,6 +252,8 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   let ships: Ship[] = []
   let shipModels: ShipModels | null = null
   let shipWakes: ShipWakes | null = null
+  let props: GroundTarget[] = []
+  let groundModels: GroundModels | null = null
   let streams: AaStream[] = []
   const sources: MuzzleSource[] = []
   const positions: Vector3[] = []
@@ -281,6 +291,12 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       shipWakes = null
     }
     ships = []
+    if (groundModels !== null) {
+      group.remove(groundModels.object)
+      groundModels.dispose()
+      groundModels = null
+    }
+    props = []
     streams = []
     pendingBombs = []
     bombs.active.fill(0)
@@ -365,6 +381,21 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       group.add(shipWakes.object)
     }
 
+    const terrain = stage.terrain()
+    props = (next.props ?? []).map((p, k) => {
+      V1.set(p.x, 0, p.z)
+      toWorld(V1)
+      const g = createGroundTarget(k, p.id, 'red', V1.x, V1.z, p.heading + yaw)
+      // 落在地形上（與戰鬥的 `settleGroundTargets` 同一條）
+      g.position.y = terrain.collisionHeightAt(V1.x, V1.z)
+      g.spawn.y = g.position.y
+      return g
+    })
+    if (props.length > 0) {
+      groundModels = createGroundModels(props)
+      group.add(groundModels.object)
+    }
+
     subjectX = stage.subjectX()
     // 【從停下的狀態回來】暗場是藏著的；先以全黑出現、逼瀏覽器算一次版面，
     // 再寫 0 —— 同一幀裡又顯示又歸零的話過渡不會發生，畫面是直接跳亮
@@ -398,6 +429,11 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       case 'bomb':
         for (let k = 0; k < e.count; k++) pendingBombs.push({ at: e.at + k * e.interval, actor: e.actor })
         break
+      case 'destroy': {
+        const g = props[e.prop]
+        if (g !== undefined) destroyProp(g)
+        break
+      }
       case 'torpedo': {
         const a = actors[e.actor]
         if (a === undefined || a.model === null) break
@@ -461,6 +497,14 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     }
   }
 
+  /** 地面物件炸毀：換殘骸（`alive` false 由外觀池換材質）、爆一團、起火 */
+  function destroyProp(g: GroundTarget): void {
+    if (!g.alive) return
+    g.alive = false
+    g.hp = 0
+    fx.groundKill(g.position.x, g.position.y, g.position.z, BURNS_LONG.has(g.unit.id) ? 5 : 1)
+  }
+
   const RELEASE = createFlight()
   /** 這一架在 `time` 那一刻機腹投放點與速度（世界座標），寫進 `outP`、`outV` */
   function releasePose(a: Actor, time: number, outP: Vector3, outV: Vector3): void {
@@ -498,6 +542,12 @@ export function createMenuReel(stage: ReelStage): MenuReel {
         const water = terrain.waterAt(V1.x, V1.z) > -Infinity
         fx.bomb(V1.x, water ? 0 : ground, V1.z, water)
         bombs.active[i] = 0
+        // 落在地面物件旁邊就炸毀它
+        for (const g of props) {
+          if (!g.alive) continue
+          const reach = g.radius + PROP_BLAST_REACH
+          if ((g.position.x - V1.x) ** 2 + (g.position.z - V1.z) ** 2 < reach * reach) destroyProp(g)
+        }
         continue
       }
       bombAt(bombs.p0[i]!, bombs.v0[i]!, tau + 0.02, V2)
@@ -671,6 +721,8 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       shipWakes.bindOcean(terrain.oceanHeight)
       shipWakes.step(ships, dt, time, terrain.heightAt)
     }
+    // 地面物件：炸毀的換殘骸、停放飛機的槳照時間轉
+    groundModels?.update(props, camera.position, dt)
   }
 
   function placeCamera(): void {

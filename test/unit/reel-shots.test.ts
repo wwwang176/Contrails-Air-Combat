@@ -98,6 +98,15 @@ describe.each(shots.map((s) => [s.id, s] as const))(
           expect(ground(ship.x, ship.z), `船 ${k} t=${t.toFixed(1)}`).toBeLessThan(-2)
         }
       }
+      // 地面物件在陸地上（離海面至少 0.5 m）
+      ;(shot.props ?? []).forEach((p, k) => {
+        expect(ground(p.x, p.z), `地面物件 ${k}（${p.id}）`).toBeGreaterThan(0.5)
+      })
+    })
+
+    it('地面物件只放在島上或內陸的段', () => {
+      if ((shot.props ?? []).length === 0) return
+      expect(shot.site === 'island' || shot.terrain === 'farmland').toBe(true)
     })
 
     it('瞄準連射的期間，目標都在射手機首前方 6° 以內（曳光從機鼻往前打）', () => {
@@ -271,6 +280,10 @@ describe.each(shots.map((s) => [s.id, s] as const))(
       const killed = new Set<number>()
       for (const e of shot.events) {
         if (e.kind === 'flak') continue
+        if (e.kind === 'destroy') {
+          expect(e.prop).toBeLessThan(shot.props?.length ?? 0)
+          continue
+        }
         expect(e.actor).toBeGreaterThanOrEqual(0)
         expect(e.actor).toBeLessThan(n)
         if (e.kind === 'gunner') {
