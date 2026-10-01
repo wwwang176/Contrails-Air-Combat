@@ -3666,6 +3666,19 @@ const menuReel: MenuReel = createMenuReel({
       debris.burst(x, 0, z, BLAST_DEBRIS_COLOR, seed, blastDebrisSpeed())
       burstSparks(x, 0, z)
     },
+    shipHit(x, y, z) {
+      // 與 `emitBombBlasts` 打中船那一份同一套：空爆配方（甲板上不揚土、不掀水冠）
+      const vis = BOMB_BLAST_SIZE * REEL_BOMB_SCALE
+      scaleBlast(AIR_BLAST, vis * vis * vis, SCALED_BLAST)
+      const seed = (reelBlastSeed = (reelBlastSeed + 199) | 0)
+      emitBlast(BLAST_POOLS, SCALED_BLAST, x, y, z, seed)
+      blastLights.flash(x, y, z, REEL_BOMB_SCALE, ctx.camera.position)
+      debris.burst(x, y, z, BLAST_DEBRIS_COLOR, seed, blastDebrisSpeed())
+      burstSparks(x, y, z)
+    },
+    shipFire(x, y, z) {
+      emitFirePuff(x, y, z)
+    },
     groundKill(x, y, z, fires) {
       // 與 `emitGroundKills` 同一套：落地的火、閃光；火點沿黃金角撒在半徑 8 m 內
       emitBlast(BLAST_POOLS, LAND_BLAST, x, y, z, (reelBlastSeed = (reelBlastSeed + 97) | 0))
