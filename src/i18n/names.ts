@@ -21,6 +21,7 @@ const AIRCRAFT: Readonly<Record<string, MessageKey>> = {
   a6m5: 'name.aircraft.a6m5',
   b17g: 'name.aircraft.b17g',
   he111: 'name.aircraft.he111',
+  ju87: 'name.aircraft.ju87',
   g4m: 'name.aircraft.g4m',
 }
 
@@ -29,6 +30,7 @@ const WEAPON: Readonly<Record<string, MessageKey>> = {
   mk108: 'name.weapon.mk108',
   mg131: 'name.weapon.mg131',
   mg15: 'name.weapon.mg15',
+  mg17: 'name.weapon.mg17',
   type97: 'name.weapon.type97',
   'type99-2': 'name.weapon.type99-2',
   type92: 'name.weapon.type92',

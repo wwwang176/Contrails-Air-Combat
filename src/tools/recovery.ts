@@ -30,6 +30,7 @@ import { KI84 } from '../specs/ki84'
 import { B17G } from '../specs/b17g'
 import { HE111 } from '../specs/he111'
 import { G4M } from '../specs/g4m'
+import { JU87 } from '../specs/ju87'
 import type { AircraftSpec } from '../specs/types'
 
 const DEG = Math.PI / 180
@@ -41,7 +42,7 @@ const FRAME_DT = DT * STRIDE
 /** 兩架並排的橫向間距，m。只影響畫面，物理各跑各的 */
 const LANE = 40
 
-const SPECS: readonly AircraftSpec[] = [P51D, BF109K4, A6M5, F4F4, F6F5, KI84, B17G, HE111, G4M]
+const SPECS: readonly AircraftSpec[] = [P51D, BF109K4, A6M5, F4F4, F6F5, KI84, B17G, HE111, JU87, G4M]
 
 /** 每格欄位 */
 const F = { x: 0, y: 1, z: 2, qx: 3, qy: 4, qz: 5, qw: 6, needed: 7, takeover: 8, bank: 9, gamma: 10, n: 11, tas: 12 } as const

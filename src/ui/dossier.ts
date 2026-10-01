@@ -56,7 +56,7 @@ export interface Dossier {
  */
 export const SIDE_OF: Record<string, Campaign> = {
   p51d: 'allies', b17g: 'allies', f6f5: 'allies', f4f4: 'allies',
-  bf109k4: 'germany', he111: 'germany',
+  bf109k4: 'germany', he111: 'germany', ju87: 'germany',
   a6m5: 'japan', ki84: 'japan', g4m: 'japan',
 }
 
@@ -72,7 +72,7 @@ export const SIDE_OF: Record<string, Campaign> = {
  */
 export const HANGAR_ORDER: readonly string[] = [
   'p51d', 'f4f4', 'f6f5', 'b17g',
-  'bf109k4', 'he111',
+  'bf109k4', 'he111', 'ju87',
   'a6m5', 'ki84', 'g4m',
 ]
 
@@ -224,6 +224,7 @@ const STORY: Readonly<Record<string, MessageKey>> = {
   b17g: 'dossier.story.b17g',
   bf109k4: 'dossier.story.bf109k4',
   he111: 'dossier.story.he111',
+  ju87: 'dossier.story.ju87',
   a6m5: 'dossier.story.a6m5',
   ki84: 'dossier.story.ki84',
   g4m: 'dossier.story.g4m',
@@ -239,7 +240,8 @@ const STORY: Readonly<Record<string, MessageKey>> = {
  * 各句的依據（括號是同類名次）：P-51D 極速(1)、爬升(2)；F6F-5 防禦(1，是
  * P-51D 的 1.5 倍)；Bf 109 K-4 攻擊(1)、爬升(1)；A6M5 迴旋(1)、滾轉(1)；
  * Ki-84 攻擊(2，與第三名差一大截) 而且六項都在中段以上；B-17G 防禦(1，第
- * 二名的兩倍)、攻擊(1)；G4M 爬升(1)，其餘幾乎項項第二。
+ * 二名的兩倍)、攻擊(1)；G4M 爬升(1)，其餘幾乎項項第二；Ju 87 迴旋(1)、
+ * 滾轉(1)，極速、攻擊、防禦都是最後。
  *
  * 【為什麼不從數值條算】前四條是絕對刻度，轟炸機的極速擺在 800 km/h 的尺上
  * 還有五成，照「最長的那一條」取的話 He 111 會掛上「速度快」，而它是全場最
@@ -249,6 +251,7 @@ const STORY: Readonly<Record<string, MessageKey>> = {
 const STRENGTH: Readonly<Record<string, MessageKey>> = {
   p51d: 'dossier.strength.p51d', f4f4: 'dossier.strength.f4f4', f6f5: 'dossier.strength.f6f5',
   b17g: 'dossier.strength.b17g', bf109k4: 'dossier.strength.bf109k4', he111: 'dossier.strength.he111',
+  ju87: 'dossier.strength.ju87',
   a6m5: 'dossier.strength.a6m5', ki84: 'dossier.strength.ki84', g4m: 'dossier.strength.g4m',
 }
 

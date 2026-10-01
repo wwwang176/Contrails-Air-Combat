@@ -147,14 +147,26 @@ export const POOLS = {
 } as const satisfies Record<string, readonly string[]>
 export type Pool = keyof typeof POOLS
 
-/** 開火循環依射速合成。翼槍六挺 M2 的三個機種共用一個 */
+/**
+ * 開火循環依射速合成。翼槍六挺 M2 的三個機種共用一個。
+ *
+ * 【Ju 87 暫用雙聯 MG 15 的循環】兩挺翼內 MG 17 與 MG 15 是同一顆 7.92 mm 彈、
+ * 射速差一成；專屬的循環還沒做。
+ */
 const FIRE_OF: Record<string, string> = {
   p51d: 'fire-m2x6', f4f4: 'fire-m2x6', f6f5: 'fire-m2x6',
   bf109k4: 'fire-bf109k4', a6m5: 'fire-a6m5', ki84: 'fire-ki84',
+  ju87: 'turret-mg15x2',
 }
 
+/**
+ * 引擎聲借用別台的檔。**Ju 87 暫用 He 111 的**：同是 Jumo 211 系列（B-2 的
+ * 211 D 對 H-6 的 211 F），但那一份是雙發錄的；專屬的還沒做。
+ */
+const ENGINE_OF: Readonly<Record<string, string>> = { ju87: 'he111' }
+
 export function engineFile(specId: string): string {
-  return `engine-${specId}`
+  return `engine-${ENGINE_OF[specId] ?? specId}`
 }
 
 /** 沒有前射武器（轟炸機）回 null */

@@ -34,8 +34,15 @@ export interface Loadout {
  *              掛載                    枚數   單枚傷害   裝填   一趟總量
  *   B-17G      AN-M64 500 lb           10      9,000     20 s    90,000
  *   He 111     SC 250                   8      9,300     20 s    74,400
+ *   Ju 87      SC 500                   1     10,000     20 s    10,000
  *   G4M        九一式改三 航空魚雷      1     15,000     35 s    15,000
  * ```
+ *
+ * 【Ju 87 一趟一枚，單枚 10,000】機腹炸彈叉上的 SC 500。**不照當量**：照 He 111
+ * 的 SC 250（每公斤 37.2）會是 18,600，超過魚雷的 15,000 —— 而魚雷要是單發最
+ * 痛的（`stores.test.ts`）。取比 250 kg 級（He 111、Ki-84 的 9,300）略痛的
+ * 10,000。翼下另外四個 SC 50 的掛架沒有做：它的起飛重量 4,390 kg 是「只掛
+ * 500 kg」的狀態（`specs/ju87.ts`）。**起始值，由試飛裁定。**
  *
  * 【戰鬥機預設都不掛】零戰也一樣：護航瓜島那一天掛的是副油箱。掛彈的爆戦
  * 由需要它的任務卡指定（`MissionBattle.loadouts`，見 `A6M5_BOMB_LOADOUT`）。
@@ -55,6 +62,7 @@ export interface Loadout {
 export const LOADOUT_BY_AIRCRAFT: Readonly<Record<string, Loadout>> = {
   b17g: { kind: 'bomb', count: 10, damage: 9_000, reloadSeconds: 20 },
   he111: { kind: 'bomb', count: 8, damage: 9_300, reloadSeconds: 20 },
+  ju87: { kind: 'bomb', count: 1, damage: 10_000, reloadSeconds: 20 },
   g4m: { kind: 'torpedo', count: 1, damage: 15_000, reloadSeconds: 35 },
 }
 
