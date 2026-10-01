@@ -78,6 +78,28 @@ describe('草原街村', () => {
     expect(gardens.length).toBeLessThan(houses * 0.95)
   })
 
+  it('房子不是一個模子：屋脊長、面寬、樓高各自有變化，三檔都有', () => {
+    const buf = createFloraBuffer(200000)
+    steppeLayout(farmLaneVillages(HALF), () => false).flora(-HALF, -HALF, HALF, HALF, () => 0, buf)
+    const scales: number[] = []
+    const wides = new Set<number>()
+    const talls = new Set<number>()
+    for (let i = 0; i < buf.count; i++) {
+      if (buf.kind[i] !== FloraKind.House && buf.kind[i] !== FloraKind.SlateHouse) continue
+      scales.push(buf.data[i * 6 + 4]!)
+      wides.add(buf.shape[i * 2]!)
+      talls.add(buf.shape[i * 2 + 1]!)
+    }
+    expect(scales.length).toBeGreaterThan(1000)
+    const mean = scales.reduce((a, b) => a + b, 0) / scales.length
+    const sd = Math.sqrt(scales.reduce((a, b) => a + (b - mean) ** 2, 0) / scales.length)
+    expect(sd).toBeGreaterThan(0.1)
+    expect(scales.filter((s) => s < 1.15).length / scales.length).toBeGreaterThan(0.1)
+    expect(scales.filter((s) => s > 1.4).length / scales.length).toBeGreaterThan(0.05)
+    expect(wides.size).toBeGreaterThan(8)
+    expect(talls.size).toBeGreaterThan(8)
+  })
+
   it('其他季節沒有菜園、建築色是德國中部那一套', () => {
     expect(farmSettlements(HALF, 'summer').gardens).toHaveLength(0)
     expect(farmSettlements(HALF, 'lateAutumn').gardens).toHaveLength(0)

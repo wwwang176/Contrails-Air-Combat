@@ -90,6 +90,24 @@ const LOT_BRANCH = [18, 26] as const
 /** 一戶空著的機率：搬走的、留作空地的。街不是排得滿滿的，但俄國的村房子挨得近 */
 const LOT_EMPTY = 0.05
 /**
+ * 房子的大小：`scale` 是屋脊長（模型 z 軸進深 8 m 乘上它）、`wide` 是面寬倍率（模型 x 軸
+ * 11 m）、`tall` 是樓高倍率（模型 y 軸 5 m）。分三檔：小屋、一般、大屋，三個數各自再抽。
+ * 每棟都一樣的話，一排房子看起來像複製貼上。**要放的間距跟著 `scale` 走**（`HOUSE_ROOM`）
+ */
+const HOUSE_SIZE = {
+  small: [1.0, 1.15], mid: [1.15, 1.4], large: [1.4, 1.65], smallShare: 0.25, largeShare: 0.15,
+  wide: [0.42, 0.62], tall: [0.44, 0.58],
+} as const
+/** 一棟房子佔的半徑 = `HOUSE_ROOM` × `scale`，m（`scale` 1.2 時約 6 m，與相鄰兩棟的最小間距 12 m 相當） */
+const HOUSE_ROOM = 5
+
+function houseSize(r: () => number): { scale: number; wide: number; tall: number } {
+  const u = r()
+  const scale = u < HOUSE_SIZE.smallShare ? span(r, HOUSE_SIZE.small)
+    : u > 1 - HOUSE_SIZE.largeShare ? span(r, HOUSE_SIZE.large) : span(r, HOUSE_SIZE.mid)
+  return { scale, wide: span(r, HOUSE_SIZE.wide), tall: span(r, HOUSE_SIZE.tall) }
+}
+/**
  * 房子的中心離路心多遠，m。凹路半寬約 10 m（`TRACK_WIDTH` 20），房子前緣再留幾公尺；
  * 支路窄，離中心近一點
  */
@@ -254,6 +272,8 @@ function village(
   const rg = makeRand(nameHash(p.name) ^ 0x2545f491)
   // 【彈坑自己一條亂數流】與菜園共用的話，燒毀的比例一動，所有菜園跟著重排
   const rbl = makeRand(nameHash(p.name) ^ 0x68e31da4)
+  // 房子的大小也自己一條：改大小的範圍不會讓街與菜園的亂數位移
+  const rsz = makeRand(nameHash(p.name) ^ 0x3c6ef372)
   const pop = p.pop ?? 400
   const church = placeChurch(p, (x, z) => avoid(x, z) || keepOut(x, z), occ)
   if (church !== null) {
@@ -325,12 +345,14 @@ function village(
     // 半徑 4：只擋先蓋的村留下的菜園（同一個村的菜園最後才長，街與房子的間距已由 `occ` 管）
     if (keepOut(hx, hz) || !offTrack(hx, hz) || !hardOcc.free(hx, hz, 4)) return false
     const burned = rburn() < burnRate
-    // 屋脊長 9～11 m、牆寬 5.5～7 m、牆高約 3 m：模型 z 軸是進深（`BUILDING_DEPTH` 8）、
-    // x 軸是面寬（11），所以 `scale` 定長、`wide` 壓成窄的。燒毀的是焦黑的殼
-    const scale = 1.1 + rand() * 0.25
-    if (!place(out, occ, hx, hz, 6, ridgeAlong(ntx, ntz) + (rand() - 0.5) * 0.12, scale, rand(),
-      burned ? FloraKind.SlateHouse : FloraKind.House, 0.55, 0.55)) return false
-    hardOcc.add(hx, hz, 7)
+    // 大小見 `HOUSE_SIZE`：屋脊長 8～13 m、面寬 4.6～11 m、牆高 2.2～4.8 m，一般的約
+    // 10 × 7 m、牆高 3.3 m（模型 z 軸是進深、x 軸是面寬，所以 `scale` 定長、`wide` 壓成窄的）。
+    // 燒毀的是焦黑的殼
+    const sz = houseSize(rsz)
+    const room = HOUSE_ROOM * sz.scale
+    if (!place(out, occ, hx, hz, room, ridgeAlong(ntx, ntz) + (rand() - 0.5) * 0.12, sz.scale, rand(),
+      burned ? FloraKind.SlateHouse : FloraKind.House, sz.wide, sz.tall)) return false
+    hardOcc.add(hx, hz, room + 1)
     lots.push({ px, pz, nx: nnx, nz: nnz, tx: ntx, tz: ntz, width, burned })
     // 【被炸到的房子底下有一個彈坑】圖集一格裡坑佔四到八成，貼片 28～40 m 見方的話
     // 坑約 11～32 m，比 11 × 8 m 的房子大，坑緣與濺痕露在屋外。貼片小於房子的話
@@ -538,8 +560,10 @@ function hamlet(
     const rot = heading + Math.PI / 2 + (rand() - 0.5) * 0.4
     // 菜園與街在 `hardOcc` 裡：小聚落蓋在後面，不能蓋進村的菜園
     if (keepOut(hx, hz) || !offTrack(hx, hz) || !hardOcc.free(hx, hz, 7)) continue
-    if (!place(out, occ, hx, hz, 6, rot, 1.1 + rand() * 0.25, rand(), FloraKind.House, 0.55, 0.55)) continue
-    hardOcc.add(hx, hz, 7)
+    const sz = houseSize(rand)
+    const room = HOUSE_ROOM * sz.scale
+    if (!place(out, occ, hx, hz, room, rot, sz.scale, rand(), FloraKind.House, sz.wide, sz.tall)) continue
+    hardOcc.add(hx, hz, room + 1)
     for (let t = 0; t < 2 + Math.floor(rand() * 3); t++) {
       const ta = rand() * Math.PI * 2
       const td = 8 + rand() * 20
