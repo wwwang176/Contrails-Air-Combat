@@ -14,7 +14,8 @@ import { toLocal, type ObstacleKind, type ObstacleLine } from '../../../world/ku
  * `scenery`、`sceneryChunks.ts` 切成 1 km 的格各自剔除）。沒有命中盒，子彈與炸彈穿過去；沒有
  * 遠近層級，總量約 4 萬個三角形、建構 50 ms 上下。
  *
- * 【尺寸比實物放大】與壕溝同理：照實的一公尺上下，從投彈高度看不到。常數在 `OBSTACLE_SIZE`。
+ * 【放大的是占地，不是高度】照實的一公尺上下，從投彈高度看不到，所以占地放大；高度壓在
+ * 坦克（T-34 約 2.6 m）之下，從低空看才不會有比坦克還高的反坦克障礙。常數在 `OBSTACLE_SIZE`。
  *
  * 【埋地的零件不畫底面，懸空的零件畫封閉的盒體】反坦克樁的底面與地面共面，拉遠會閃（z-fight），
  * 所以埋進地面 `sink` 公尺、只畫頂面與側面；刺蝟與鐵絲網的長條是懸空的，從下面看得到，兩端
@@ -31,11 +32,11 @@ export const OBSTACLE_COLORS = {
 
 export const OBSTACLE_SIZE = {
   /** 反坦克樁：底寬、頂寬、高、同一排的間距、兩排之間的距離，m */
-  teeth: { base: 1.8, top: 0.8, height: 2.6, spacing: 4.2, rowGap: 9 },
-  /** 捷克刺蝟：長條的長與粗、間距，m */
-  hedgehog: { bar: 5.0, thick: 0.45, spacing: 14 },
+  teeth: { base: 2.2, top: 1.0, height: 1.1, spacing: 4.2, rowGap: 9 },
+  /** 捷克刺蝟：長條的長與粗、間距，m。立起來的高度是長 × sin 35° */
+  hedgehog: { bar: 2.8, thick: 0.28, spacing: 14 },
   /** 鐵絲網：圈與圈的間距、圈的半徑（菱形的半對角線）、短條的粗，m */
-  wire: { spacing: 3.2, radius: 1.1, thick: 0.16 },
+  wire: { spacing: 3.2, radius: 0.8, thick: 0.16 },
   /** 埋進地面的深度，m */
   sink: 0.25,
 } as const
