@@ -17,8 +17,9 @@ import type { AircraftSpec } from '../specs/types'
 import { createFlight, flightPose, openSeaOrigin, type Flight } from './reelFlight'
 import {
   BOMB_RELEASE_Y, bombAt, createReelCamera, pickIsland, reelShots, torpedoAt, torpedoEntry,
-  type ReelEvent, type Shot,
+  type ReelEvent, type ReelGround, type ReelPoint, type Shot,
 } from './reelShots'
+import type { SiteLayout } from '../render/fields'
 import { createBombs, createTorpedoes, type BombVisuals, type OrdnancePool } from '../render/bombs'
 import { createGroundModels, type GroundModels } from '../render/groundTargets'
 import { createGroundTarget, type GroundTarget } from '../world/groundTargets'
@@ -84,13 +85,25 @@ export interface ReelTerrain {
   waterAt(x: number, z: number): number
 }
 
+/**
+ * 地上要畫的廠區。`layout` 拿到新地形的山丘才算得出原點，所以是函式；`key` 一樣就
+ * 不必重建（同一段的廠區每次都一樣）
+ */
+export interface ReelSiteRequest {
+  readonly key: string
+  layout(hills: readonly IslandDesc[]): SiteLayout
+}
+
 export interface ReelStage {
   readonly scene: Scene
   readonly camera: PerspectiveCamera
   readonly fx: ReelFx
   terrain(): ReelTerrain
-  /** 換成這張地形（與現在的相同就不動）。換景的暗場裡呼叫 */
-  setTerrain(kind: 'archipelago' | 'farmland'): void
+  /**
+   * 換成這張地形（種類與廠區都與現在的相同就不動）。換景的暗場裡呼叫。
+   * `site` 只對 `'farmland'` 有意義
+   */
+  setTerrain(kind: 'archipelago' | 'farmland', site?: ReelSiteRequest): void
   setTimeOfDay(tod: TimeOfDay): void
   /** 全黑的那一層。opacity 由這裡寫，過渡時間在 CSS */
   readonly fade: HTMLElement
@@ -106,6 +119,8 @@ export interface ReelStage {
 export interface MenuReel {
   /** 推進一幀並擺好相機。沒在放就從暗場開一段新的 */
   update(dt: number, time: number): void
+  /** 這一段地上的物件（活著的與炸毀的都在）。冒白煙的是 `main.ts` 的事 */
+  readonly props: readonly GroundTarget[]
   /** 停下：拆演員、清特效、相機視角還原。下一次 `update` 從暗場重新開始 */
   stop(): void
   /** 版面變了（換頁、視窗縮放）：重量主角該落在哪 */
@@ -236,6 +251,33 @@ const SHIP_FIRE_INTERVAL = 0.3
 /** 一艘船最多幾處火點 —— 再多煙柱糊成一片，也多花粒子 */
 const SHIP_FIRES_PER_SHIP = 6
 
+/** 廠區道路與鐵路的預設寬，m（與洛伊納同一組） */
+const SITE_ROAD_WIDTH = 12
+const SITE_RAIL_WIDTH = 26
+
+/**
+ * 局部座標的廠區 → 地形著色器吃的 `SiteLayout`。局部轉世界是「繞 Y 轉 `yaw` 再平移到
+ * (ox, oz)」；`SiteLayout` 的世界轉局部是 `R_y(heading)`，所以 `heading = −yaw`。
+ * 道路與鐵路在 `SiteLayout` 裡是世界座標，逐點轉過去
+ */
+export function reelSiteLayout(g: ReelGround, ox: number, oz: number, yaw: number): SiteLayout {
+  const c = Math.cos(yaw)
+  const s = Math.sin(yaw)
+  const line = (pts: readonly ReelPoint[]): { x: number, z: number }[] =>
+    pts.map((p) => ({ x: ox + p.x * c + p.z * s, z: oz - p.x * s + p.z * c }))
+  return {
+    pivot: { x: ox, z: oz },
+    heading: -yaw,
+    pad: g.pad,
+    ...(g.patches === undefined ? {} : { patches: g.patches }),
+    ...(g.treeClear === undefined ? {} : { treeClear: g.treeClear }),
+    roads: (g.roads ?? []).map(line),
+    roadWidth: g.roadWidth ?? SITE_ROAD_WIDTH,
+    rails: (g.rails ?? []).map(line),
+    railWidth: g.railWidth ?? SITE_RAIL_WIDTH,
+  }
+}
+
 /** 魚雷的瞄點離船體多近算打中那一艘（測試要求瞄點在碰撞盒外擴 4 m 內） */
 const TORPEDO_SHIP_REACH = 6
 const LOCAL = new Vector3()
@@ -365,6 +407,23 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     fx.clear()
   }
 
+  /** 這一段的局部原點：島心，或讓動作圈整個落在開闊處（局部圓心轉到世界再往回推） */
+  function placeOrigin(next: Shot, islands: readonly IslandDesc[]): void {
+    const island = next.site === 'island' ? pickIsland(islands) : null
+    if (island !== null) {
+      ox = island.cx
+      oz = island.cz
+      return
+    }
+    const sea = openSeaOrigin(islands, next.clear.radius)
+    ox = 0
+    oz = 0
+    V1.set(next.clear.x, 0, next.clear.z)
+    toWorld(V1)
+    ox = sea.x - V1.x
+    oz = sea.z - V1.z
+  }
+
   function begin(next: Shot): void {
     teardown()
     shot = next
@@ -373,10 +432,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     fadingOut = false
     hitCount = 0
     if (group.parent === null) scene.add(group)
-    // 【先換地形再換時段】時段要套到新的那一張地形上
-    stage.setTerrain(next.terrain ?? 'archipelago')
-    stage.setTimeOfDay(next.timeOfDay)
-
+    // 【yaw 要在換地形之前定】廠區畫在地形上，轉到世界要用它
     if (next.faceSun) {
       paletteSunDir(paletteOf(next.timeOfDay), V1)
       yaw = Math.atan2(-V1.x, -V1.z)
@@ -384,21 +440,18 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       yaw = 0
     }
     frameQ.setFromAxisAngle(UP, yaw)
-    const island = next.site === 'island' ? pickIsland(stage.terrain().islands) : null
-    if (island !== null) {
-      // 局部原點就是島心
-      ox = island.cx
-      oz = island.cz
-    } else {
-      // 動作圈的圓心落在開闊海面上，原點再往回推那一段（局部圓心轉到世界）
-      const sea = openSeaOrigin(stage.terrain().islands, next.clear.radius)
-      ox = 0
-      oz = 0
-      V1.set(next.clear.x, 0, next.clear.z)
-      toWorld(V1)
-      ox = sea.x - V1.x
-      oz = sea.z - V1.z
-    }
+    // 【先換地形再換時段】時段要套到新的那一張地形上
+    const ground = next.ground
+    stage.setTerrain(next.terrain ?? 'archipelago', ground === undefined ? undefined : {
+      key: next.id,
+      layout: (hills) => {
+        placeOrigin(next, hills)
+        return reelSiteLayout(ground, ox, oz, yaw)
+      },
+    })
+    stage.setTimeOfDay(next.timeOfDay)
+    // 【地形沒重建時 layout 不會被叫】原點照樣要算；山丘相同，算出來的也相同
+    placeOrigin(next, stage.terrain().islands)
 
     next.planes.forEach((p, i) => {
       // 【配角不出場時仍佔著索引】事件表用索引指演員，抽掉一格會讓後面全部錯位
@@ -938,6 +991,8 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     },
 
     hold: false,
+
+    get props() { return props },
 
     update(dt, time) {
       if (shot === null) {
