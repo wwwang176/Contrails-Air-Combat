@@ -3644,8 +3644,10 @@ window.addEventListener('resize', () => menuReel.relayout())
 /** 選單期間的一幀：放短片、推進特效池 */
 function drawMenuBackground(frameSeconds: number): void {
   menuReel.update(frameSeconds, elapsed)
-  stepEffects(frameSeconds, elapsed)
-  spray.step(frameSeconds)
+  // 【定格時特效也停】只停短片的話，殘骸與煙照樣往下掉、往外散，截到的不是那一秒
+  const fx = menuReel.hold ? 0 : frameSeconds
+  stepEffects(fx, elapsed)
+  spray.step(fx)
   terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
   ctx.renderer.render(ctx.scene, ctx.camera)
 }
@@ -3958,7 +3960,8 @@ function frame(now: number) {
       ctx.renderer.render(ctx.scene, ctx.camera)
     }
   } else {
-    elapsed += frameSeconds
+    // 【短片定格時全域時間也停】海浪與火星讀的是它，照走的話截到的不是那一秒
+    if (screen === 'hangar' || !menuReel.hold) elapsed += frameSeconds
     // 【展示場還沒建好就照畫海天】進機庫的第一幀有可能落在 `onAircraft`
     // 之前，那一幀畫成黑的會閃一下。**這一幀不放短片** —— 放的話它會從暗場重新開一段
     if (screen === 'hangar') {
@@ -4086,10 +4089,11 @@ if (initialRecoveryFailure !== null) {
 
 /**
  * 主選單短片的**量測出口**：不給參數回目前放到哪；給 `(段名, 秒)` 就跳過去，
- * 事件從頭重放到那一刻。截圖驗收分鏡用。
+ * 事件從頭重放到那一刻。`hold` = 跳過去之後定格（截圖驗收分鏡用）。
  */
-;(window as unknown as Record<string, unknown>)['__reel'] = (shot?: string, at = 0) => {
+;(window as unknown as Record<string, unknown>)['__reel'] = (shot?: string, at = 0, hold = false) => {
   if (shot !== undefined) {
+    menuReel.hold = hold
     menuReel.seek(shot, at, (dt) => {
       elapsed += dt
       stepEffects(dt, elapsed)

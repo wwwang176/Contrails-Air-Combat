@@ -11,6 +11,25 @@ function killedBy(shot: Shot, actor: number, t: number): boolean {
   return shot.events.some((e) => e.kind === 'kill' && e.actor === actor && e.at <= t)
 }
 
+/**
+ * 這一點是不是在第 k 艘船的正上方：船體每一個碰撞盒的俯視投影外擴 8 m。
+ * 船的桅杆與煙囪在盒外，所以在這個範圍裡的東西要高過 55 m
+ */
+function overShip(shot: Shot, k: number, t: number, p: Vector3): boolean {
+  const s = shot.ships[k]!
+  shipAt(shot, k, t, ship0)
+  // 世界 → 艦體：繞 Y 轉 −heading
+  const dx = p.x - ship0.x
+  const dz = p.z - ship0.z
+  const c = Math.cos(s.heading)
+  const n = Math.sin(s.heading)
+  const lx = dx * c - dz * n
+  const lz = dx * n + dz * c
+  return SHIP_CLASSES[s.cls].hull.some((b) =>
+    Math.abs(lx - b.center.x) < b.half.x + 8 && Math.abs(lz - b.center.z) < b.half.z + 8)
+}
+const ship0 = new Vector3()
+
 function shipAt(shot: Shot, k: number, t: number, out: Vector3): Vector3 {
   const s = shot.ships[k]!
   return out.set(s.x - Math.sin(s.heading) * s.speed * t, 0, s.z - Math.cos(s.heading) * s.speed * t)
@@ -64,9 +83,7 @@ describe.each(shots.map((s) => [s.id + (s.id === 'home' ? `:${s.planes[0]!.spec.
         shot.camera(t, cam)
         expect(cam.position.y, `t=${t.toFixed(1)}`).toBeGreaterThanOrEqual(6)
         for (let k = 0; k < shot.ships.length; k++) {
-          shipAt(shot, k, t, ship)
-          const r = SHIP_CLASSES[shot.ships[k]!.cls].radius
-          if (Math.hypot(cam.position.x - ship.x, cam.position.z - ship.z) < r) {
+          if (overShip(shot, k, t, cam.position)) {
             expect(cam.position.y, `經過船 ${k}，t=${t.toFixed(1)}`).toBeGreaterThan(55)
           }
         }
@@ -80,9 +97,7 @@ describe.each(shots.map((s) => [s.id + (s.id === 'home' ? `:${s.planes[0]!.spec.
           p.path(t, a)
           expect(a.y, `#${i} t=${t.toFixed(1)}`).toBeGreaterThanOrEqual(15)
           for (let k = 0; k < shot.ships.length; k++) {
-            shipAt(shot, k, t, ship)
-            const r = SHIP_CLASSES[shot.ships[k]!.cls].radius
-            if (Math.hypot(a.x - ship.x, a.z - ship.z) < r) {
+            if (overShip(shot, k, t, a)) {
               expect(a.y, `#${i} 飛過船 ${k}，t=${t.toFixed(1)}`).toBeGreaterThan(55)
             }
           }
@@ -105,23 +120,46 @@ describe.each(shots.map((s) => [s.id + (s.id === 'home' ? `:${s.planes[0]!.spec.
       }
     })
 
-    it('主角在它的時間窗裡都在畫面內（16:9 與 4:3）', () => {
+    it('剪接表照時間排、第一刀從 0 開始', () => {
+      expect(shot.cuts[0]!.from).toBe(0)
+      for (let k = 1; k < shot.cuts.length; k++) {
+        expect(shot.cuts[k]!.from).toBeGreaterThan(shot.cuts[k - 1]!.from)
+      }
+    })
+
+    it('每一刀拍的那一架都在畫面內（16:9 與 4:3）', () => {
       for (const aspect of [16 / 9, 4 / 3]) {
         const c = new PerspectiveCamera(50, aspect, 1, 100000)
-        for (const t of times) {
-          if (t < shot.hero.from || t > shot.hero.to) continue
-          shot.camera(t, cam)
-          c.fov = cam.fov
-          c.updateProjectionMatrix()
-          c.position.copy(cam.position)
-          c.lookAt(cam.target)
-          c.updateMatrixWorld()
-          shot.planes[shot.hero.actor]!.path(t, a)
-          a.project(c)
-          expect(Math.abs(a.x), `aspect ${aspect.toFixed(2)} t=${t.toFixed(1)}`).toBeLessThan(0.95)
-          expect(Math.abs(a.y), `aspect ${aspect.toFixed(2)} t=${t.toFixed(1)}`).toBeLessThan(0.95)
-          expect(a.z, `在鏡頭後面 t=${t.toFixed(1)}`).toBeLessThan(1)
-        }
+        shot.cuts.forEach((cut, k) => {
+          if (cut.subject === null) return
+          const end = shot.cuts[k + 1]?.from ?? shot.duration
+          for (const t of times) {
+            if (t < cut.from || t >= end || killedBy(shot, cut.subject, t)) continue
+            shot.camera(t, cam)
+            c.fov = cam.fov
+            c.updateProjectionMatrix()
+            c.position.copy(cam.position)
+            c.up.copy(cam.up)
+            c.lookAt(cam.target)
+            c.updateMatrixWorld()
+            shot.planes[cut.subject]!.path(t, a)
+            a.project(c)
+            const where = `第 ${k + 1} 刀 aspect ${aspect.toFixed(2)} t=${t.toFixed(1)}`
+            expect(Math.abs(a.x), where).toBeLessThan(0.95)
+            expect(Math.abs(a.y), where).toBeLessThan(0.95)
+            expect(a.z, `在鏡頭後面 ${where}`).toBeLessThan(1)
+          }
+        })
+      }
+    })
+
+    it('鏡頭不鑽進任何一架飛機（離機身中心至少 6 m）', () => {
+      for (const t of times) {
+        shot.camera(t, cam)
+        shot.planes.forEach((p, i) => {
+          if (killedBy(shot, i, t)) return
+          expect(p.path(t, a).distanceTo(cam.position), `#${i} t=${t.toFixed(1)}`).toBeGreaterThan(6)
+        })
       }
     })
   },
