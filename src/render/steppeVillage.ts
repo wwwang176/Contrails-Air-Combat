@@ -64,8 +64,15 @@ export interface Blast {
   readonly rot: number
 }
 
-/** 菜園的色：馬鈴薯與蔬菜的深綠、向日葵的黃綠、剛翻過的裸土 */
-const GARDEN_COLORS = [0x727548, 0x7b7c4c, 0x85804f, 0x7a6b4a] as const
+/** 菜園的色：馬鈴薯與蔬菜的深綠、向日葵的黃綠、乾草的黃、剛翻過的裸土 */
+const GARDEN_COLORS = [0x6f7545, 0x7b7c4c, 0x85804f, 0x7a6b4a, 0x8a8a52, 0x65703f, 0x93844f] as const
+/** 每條菜園的明暗再抖動的範圍（乘數） */
+const GARDEN_SHADE = [0.9, 1.1] as const
+
+function shade(hex: number, k: number): number {
+  const ch = (s: number): number => Math.min(255, Math.max(0, Math.round(((hex >> s) & 255) * k)))
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0)
+}
 /** 支路的顏色：乾的黃土，與凹路同色（`season.ts` 的 `track`） */
 const STREET_COLOR = 0xa39a80
 
@@ -77,9 +84,11 @@ const STREET_COLOR = 0xa39a80
  */
 const STREET_LENGTH = { base: 900, perPop: 2.0 } as const
 /** 一戶沿路的寬，m */
-const LOT = [21, 32] as const
-/** 支路上的一戶寬，m（比主路略窄） */
-const LOT_BRANCH = [23, 34] as const
+const LOT = [17, 25] as const
+/** 支路上的一戶寬，m（比主路略寬一點） */
+const LOT_BRANCH = [18, 26] as const
+/** 一戶空著的機率：搬走的、留作空地的。街不是排得滿滿的，但俄國的村房子挨得近 */
+const LOT_EMPTY = 0.05
 /**
  * 房子的中心離路心多遠，m。凹路半寬約 10 m（`TRACK_WIDTH` 20），房子前緣再留幾公尺；
  * 支路窄，離中心近一點
@@ -89,15 +98,24 @@ const HOUSE_OFFSET_BRANCH = [12, 15] as const
 /** 凹路的帶寬：`trackGap` 是離路心的兩倍。小於下限在路上、大於上限路已經轉走了 */
 const GAP_NEAR = 8
 const GAP_FAR = 80
-/** 菜園：離路心多遠起算、長度、寬佔一戶的比例 */
-const GARDEN = { from: 40, length: [90, 170], share: 0.86 } as const
+/**
+ * 菜園：離路心多遠起算、寬佔一戶的比例（每戶各抽）、沒有菜園的戶的比例、整條相對於街的垂直
+ * 方向偏幾弧度（總幅）、有兩種作物的比例。長度分三檔：短、中、長，比例 `LENGTH_SHARE`。
+ * 每戶都一樣的話，從空中看是一排整齊的條紋
+ */
+const GARDEN = {
+  from: [32, 52], share: [0.62, 0.95], none: 0.12, skew: 0.28, twoCrops: 0.3,
+} as const
+const GARDEN_LENGTH = { short: [50, 85], mid: [90, 170], long: [170, 260] } as const
+/** 短與長各佔多少，其餘是中 */
+const LENGTH_SHARE = { short: 0.15, long: 0.15 } as const
 
 /** 支路：骨架每一步多長，m；半寬 m；兩條路的中心線至少隔多遠，m */
 const BRANCH = { step: 20, half: 3.5, apart: 40 } as const
 /** 支路的長度：`BASE + rand × (SPAN + pop × PER_POP)`，m */
 const BRANCH_LENGTH = { base: 150, span: 150, perPop: 0.5 } as const
 /** 主路上相鄰兩條支路起點的間距，m */
-const BRANCH_GAP = [85, 170] as const
+const BRANCH_GAP = [60, 120] as const
 /**
  * 路心離田埂線多近算「疊在一起」，m：支路半寬 3.5 加田埂半寬 4，再留一點。沿著田埂走的支路
  * 與田埂重疊成一條線，看起來像田埂延伸成路。垂直穿過田埂時一步（20 m）的五個取樣點最多
@@ -105,7 +123,7 @@ const BRANCH_GAP = [85, 170] as const
  */
 export const RIDGE_CLEAR = 6.5
 /** 一個村最多幾條路（支路與岔路合計）。村的大小有上限，載入時間也有 */
-const BRANCH_MAX = 110
+const BRANCH_MAX = 150
 /** 一條支路上每一步長出岔路的機率，與岔路的長度，m */
 const SUB_CHANCE = 0.16
 const SUB_LENGTH = [70, 190] as const
@@ -361,8 +379,7 @@ function village(
       const pz = v.siteZ + tz * mid
       const hx = px + nx * off
       const hz = pz + nz * off
-      // 【空一戶的機率】街不是排得滿滿的 —— 搬走的、留作空地的
-      if (rand() < 0.1) continue
+      if (rand() < LOT_EMPTY) continue
       if (!besideStreet(hx, hz)) continue
       house(hx, hz, tx, tz, nx * side, nz * side, Math.abs(off) - HOUSE_OFFSET[0], lot, px, pz)
     }
@@ -398,7 +415,7 @@ function village(
         const pz = a[1] + (c[1] - a[1]) * f
         const snx = -stz * side
         const snz = stx * side
-        if (rand() < 0.1) continue
+        if (rand() < LOT_EMPTY) continue
         const off = span(rand, HOUSE_OFFSET_BRANCH)
         house(px + snx * off, pz + snz * off, stx, stz, snx, snz, off - HOUSE_OFFSET_BRANCH[0], lot, px, pz)
       }
@@ -418,30 +435,49 @@ function village(
     for (let k = 0; k < sheds; k++) {
       const ax = cx + nx * side * (k * 24 - 12)
       const az = cz + nz * side * (k * 24 - 12)
-      if (!keepOut(ax, az) && offTrack(ax, az) && place(out, occ, ax, az, 12, rot, 1.0, rand(), FloraKind.TarBarn, 0.45, 0.7)) {
+      if (!keepOut(ax, az) && offTrack(ax, az) && hardOcc.free(ax, az, 12)
+        && place(out, occ, ax, az, 12, rot, 1.0, rand(), FloraKind.TarBarn, 0.45, 0.7)) {
         hardOcc.add(ax, az, 14)
       }
     }
     const ox = cx - tx * 40
     const oz = cz - tz * 40
-    if (!keepOut(ox, oz) && offTrack(ox, oz) && place(out, occ, ox, oz, 7, rot, 1.1, rand(), FloraKind.House, 0.6, 0.75)) {
+    if (!keepOut(ox, oz) && offTrack(ox, oz) && hardOcc.free(ox, oz, 7)
+      && place(out, occ, ox, oz, 7, rot, 1.1, rand(), FloraKind.House, 0.6, 0.75)) {
       hardOcc.add(ox, oz, 9)
     }
   }
 
   // ── 四、菜園：所有房子、街與場部都放好之後 ──────────
   for (const lot of lots) {
-    let gl = span(rg, GARDEN.length)
-    const hw = lot.width * GARDEN.share / 2
-    const x0 = lot.px + lot.nx * GARDEN.from
-    const z0 = lot.pz + lot.nz * GARDEN.from
-    const colour = GARDEN_COLORS[Math.floor(rg() * GARDEN_COLORS.length)]!
+    // 【每一條都不一樣】有的戶沒有菜園；整條相對於街的垂直方向偏一點，寬窄、起點、長短、
+    // 作物與明暗各自抽。軸與橫向一起轉，所以仍是矩形
+    if (rg() < GARDEN.none) continue
+    const sk = (rg() - 0.5) * GARDEN.skew
+    const cs = Math.cos(sk)
+    const sn = Math.sin(sk)
+    const dx = lot.nx * cs - lot.nz * sn
+    const dz = lot.nx * sn + lot.nz * cs
+    const ex = lot.tx * cs - lot.tz * sn
+    const ez = lot.tx * sn + lot.tz * cs
+    const u = rg()
+    let gl = u < LENGTH_SHARE.short ? span(rg, GARDEN_LENGTH.short)
+      : u > 1 - LENGTH_SHARE.long ? span(rg, GARDEN_LENGTH.long) : span(rg, GARDEN_LENGTH.mid)
+    const hw = lot.width * span(rg, GARDEN.share) / 2
+    const from = span(rg, GARDEN.from)
+    const x0 = lot.px + lot.nx * from
+    const z0 = lot.pz + lot.nz * from
+    const crop = (): number => shade(GARDEN_COLORS[Math.floor(rg() * GARDEN_COLORS.length)]!, span(rg, GARDEN_SHADE))
+    const colour = crop()
+    const colour2 = crop()
+    const split = rg() < GARDEN.twoCrops
+    const splitAt = 0.4 + rg() * 0.2
     // 【遇到東西就截斷】凹路、不准建築的地方、房子與街（佔位）、別的菜園
     const blocked = (d: number): boolean => {
-      const cx = x0 + lot.nx * d
-      const cz = z0 + lot.nz * d
-      if (!offTrack(cx, cz) || !offTrack(cx + lot.tx * hw, cz + lot.tz * hw) || !offTrack(cx - lot.tx * hw, cz - lot.tz * hw)) return true
-      if (keepOut(cx, cz) || keepOut(cx + lot.tx * hw, cz + lot.tz * hw) || keepOut(cx - lot.tx * hw, cz - lot.tz * hw)) return true
+      const cx = x0 + dx * d
+      const cz = z0 + dz * d
+      if (!offTrack(cx, cz) || !offTrack(cx + ex * hw, cz + ez * hw) || !offTrack(cx - ex * hw, cz - ez * hw)) return true
+      if (keepOut(cx, cz) || keepOut(cx + ex * hw, cz + ez * hw) || keepOut(cx - ex * hw, cz - ez * hw)) return true
       return !hardOcc.free(cx, cz, hw * 0.85)
     }
     // 每 8 m 查一次，**最後一點也要查**（`gl` 不一定是 8 的倍數）。園子停在最後一個查過
@@ -457,17 +493,24 @@ function village(
       if (at >= gl) break
     }
     if (gl < 45) continue
-    for (let d = 0; d <= gl; d += 12) hardOcc.add(x0 + lot.nx * d, z0 + lot.nz * d, hw * 0.85)
-    const x1 = x0 + lot.nx * gl
-    const z1 = z0 + lot.nz * gl
-    const corner = (cx: number, cz: number, a: number): readonly [number, number] => [cx + lot.tx * a, cz + lot.tz * a]
-    out.gardens.push({
-      x: (x0 + x1) / 2, z: (z0 + z1) / 2,
-      ring: [corner(x0, z0, -hw), corner(x0, z0, hw), corner(x1, z1, hw), corner(x1, z1, -hw)],
-      color: colour,
-    })
+    for (let d = 0; d <= gl; d += 12) hardOcc.add(x0 + dx * d, z0 + dz * d, hw * 0.85)
+    const corner = (d: number, a: number): readonly [number, number] => [x0 + dx * d + ex * a, z0 + dz * d + ez * a]
+    /** 從離起點 `d0` 到 `d1` 的一條：四個角繞行 */
+    const strip = (d0: number, d1: number, color: number): void => {
+      out.gardens.push({
+        x: x0 + dx * (d0 + d1) / 2, z: z0 + dz * (d0 + d1) / 2,
+        ring: [corner(d0, -hw), corner(d0, hw), corner(d1, hw), corner(d1, -hw)],
+        color,
+      })
+    }
+    // 兩種作物：前半與後半各一條，接縫在中間偏一點的地方。太短就不分
+    if (split && gl >= 100) {
+      strip(0, gl * splitAt, colour)
+      strip(gl * splitAt, gl, colour2)
+    } else {
+      strip(0, gl, colour)
+    }
   }
-
 }
 
 const place = (

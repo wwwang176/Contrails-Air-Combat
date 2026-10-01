@@ -57,6 +57,27 @@ describe('草原街村', () => {
     }
   })
 
+  it('菜園不是一排整齊的條紋：長短、顏色、兩種作物都有變化，不是每一戶都有', () => {
+    const { gardens } = farmSettlements(HALF, 'julyWheat')
+    const lens = gardens.map((g) => Math.hypot(g.ring[3]![0] - g.ring[0]![0], g.ring[3]![1] - g.ring[0]![1]))
+    const mean = lens.reduce((a, b) => a + b, 0) / lens.length
+    const sd = Math.sqrt(lens.reduce((a, b) => a + (b - mean) ** 2, 0) / lens.length)
+    expect(sd).toBeGreaterThan(30)
+    // 長的常被房子、支路與別的菜園截短，所以比例低於抽籤的 15%
+    expect(lens.filter((l) => l < 85).length / lens.length).toBeGreaterThan(0.05)
+    expect(lens.filter((l) => l > 170).length / lens.length).toBeGreaterThan(0.03)
+    expect(new Set(gardens.map((g) => g.color)).size).toBeGreaterThan(40)
+    // 兩種作物：一條的終點邊正好是另一條的起點邊
+    const key = (p: readonly [number, number], q: readonly [number, number]): string =>
+      `${Math.round((p[0] + q[0]) * 50)},${Math.round((p[1] + q[1]) * 50)}`
+    const starts = new Set(gardens.map((g) => key(g.ring[0]!, g.ring[1]!)))
+    const joined = gardens.filter((g) => starts.has(key(g.ring[2]!, g.ring[3]!))).length
+    expect(joined / gardens.length).toBeGreaterThan(0.1)
+    // 有的戶沒有菜園：菜園數遠少於房子數
+    const houses = placements().filter((p) => p.kind === FloraKind.House || p.kind === FloraKind.SlateHouse).length
+    expect(gardens.length).toBeLessThan(houses * 0.95)
+  })
+
   it('其他季節沒有菜園、建築色是德國中部那一套', () => {
     expect(farmSettlements(HALF, 'summer').gardens).toHaveLength(0)
     expect(farmSettlements(HALF, 'lateAutumn').gardens).toHaveLength(0)
@@ -208,6 +229,11 @@ describe('戰場上的村', () => {
       const gz = Math.round(z / 70) * 70
       return Math.hypot(x - gx, z - gz) < 20
     }
+    const deep16 = (x: number, z: number): boolean => {
+      const gx = Math.round(x / 70) * 70
+      const gz = Math.round(z / 70) * 70
+      return Math.hypot(x - gx, z - gz) < 16
+    }
     const dotted = steppeLayout(farmLaneVillages(HALF), () => false, near20, burnRateOf)
     expect(dotted.gardens.length).toBeGreaterThan(20)
     let bad = 0
@@ -221,21 +247,32 @@ describe('戰場上的村', () => {
           [a![0] + (d![0] - a![0]) * f, a![1] + (d![1] - a![1]) * f],
           [b![0] + (c![0] - b![0]) * f, b![1] + (c![1] - b![1]) * f],
         ]
-        if (pts.some(([x, z]) => near20(x, z))) { bad++; break }
+        if (pts.some(([x, z]) => deep16(x, z))) { bad++; break }
       }
     }
-    // 圓只有 20 m 半徑，長邊上 4 m 一查會碰到的圓，生成器 8 m 一查的漏不掉
+    // 【只算進得夠深的】邊線剛好擦過圓緣時弦不到 8 m，會落在生成器兩次查點之間。進圓緣 4 m
+    // 以上（離圓心不到 16 m）的弦至少 24 m，生成器 8 m 一查的漏不掉
     expect(bad).toBe(0)
   })
 
+  /** 兩種作物的菜園是接在一起的兩條：只留每一戶最後的那一條（終點才是被查過的那一點） */
+  const terminalStrips = <T extends { ring: readonly (readonly [number, number])[] }>(gardens: readonly T[]): T[] => {
+    const key = (p: readonly [number, number], q: readonly [number, number]): string =>
+      `${Math.round((p[0] + q[0]) * 50)},${Math.round((p[1] + q[1]) * 50)}`
+    const starts = new Set(gardens.map((g) => key(g.ring[0]!, g.ring[1]!)))
+    return gardens.filter((g) => !starts.has(key(g.ring[2]!, g.ring[3]!)))
+  }
+
   it('菜園的終點也要查：在每個菜園原本的終點放一個小禁區，重新生成後終點不在禁區內', () => {
     const base = steppeLayout(farmLaneVillages(HALF), () => false, battleKeepOut, burnRateOf)
-    const ends = base.gardens.slice(0, 80).map((g) => [(g.ring[2]![0] + g.ring[3]![0]) / 2, (g.ring[2]![1] + g.ring[3]![1]) / 2])
+    const ends = terminalStrips(base.gardens).slice(0, 80)
+      .map((g) => [(g.ring[2]![0] + g.ring[3]![0]) / 2, (g.ring[2]![1] + g.ring[3]![1]) / 2])
     const inEnd = (x: number, z: number): boolean => ends.some(([ex, ez]) => Math.hypot(x - ex!, z - ez!) < 3)
     const again = steppeLayout(farmLaneVillages(HALF), () => false, (x, z) => battleKeepOut(x, z) || inEnd(x, z), burnRateOf)
-    expect(again.gardens.length).toBeGreaterThan(80)
+    const terminal = terminalStrips(again.gardens)
+    expect(terminal.length).toBeGreaterThan(80)
     let bad = 0
-    for (const g of again.gardens) {
+    for (const g of terminal) {
       if (inEnd((g.ring[2]![0] + g.ring[3]![0]) / 2, (g.ring[2]![1] + g.ring[3]![1]) / 2)) bad++
     }
     expect(bad).toBe(0)
@@ -282,10 +319,25 @@ describe('戰場上的村', () => {
     // 院子裡的棚子與果樹本來就在屋後，菜園跟它們疊在一起是對的；其餘的建築不行
     const buildings = all.filter((p) => p.kind === FloraKind.House || p.kind === FloraKind.SlateHouse
       || p.kind === FloraKind.Church || p.kind === FloraKind.TarBarn)
+    // 依 120 m 的格分桶，不然 12,000 個菜園各掃一遍兩三萬棟要二十秒
+    const CELL = 120
+    const grid = new Map<string, typeof buildings>()
+    for (const p of buildings) {
+      const k = `${Math.floor(p.x / CELL)},${Math.floor(p.z / CELL)}`
+      const list = grid.get(k)
+      if (list === undefined) grid.set(k, [p])
+      else list.push(p)
+    }
     let bad = 0
     for (const g of layout.gardens) {
-      for (const p of buildings) {
-        if (Math.abs(p.x - g.x) < 120 && Math.abs(p.z - g.z) < 120 && inside(g, p.x, p.z)) bad++
+      const ci = Math.floor(g.x / CELL)
+      const cj = Math.floor(g.z / CELL)
+      for (let j = cj - 1; j <= cj + 1; j++) {
+        for (let i = ci - 1; i <= ci + 1; i++) {
+          for (const p of grid.get(`${i},${j}`) ?? []) {
+            if (Math.abs(p.x - g.x) < CELL && Math.abs(p.z - g.z) < CELL && inside(g, p.x, p.z)) bad++
+          }
+        }
       }
     }
     expect(bad).toBe(0)

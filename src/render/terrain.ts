@@ -542,11 +542,11 @@ function createAschTerrain(gfx?: TerrainGfx): Terrain {
 
 /**
  * 草原街村的建築池。街村沿著凹路拉得很長，還帶著不規則的分支，一個視野裡的房子比德國的
- * 團狀村多得多：戰場的南北軸與兩側實測同時最多約 2,230 棟房屋、320 棟棚子、120 棟燒毀的房子
+ * 團狀村多得多：戰場的南北軸與兩側實測同時最多約 3,540 棟房屋、320 棟棚子、190 棟燒毀的房子
  * （農地預設 320／190／60，超出的部分由 `stats.overflow` 靜靜丟掉）。留 1.5～2 倍的餘裕。
  * 一格實例 152 byte。
  */
-export const STEPPE_CAPACITY = { house: 3600, barn: 700, houseSlate: 300 } as const
+export const STEPPE_CAPACITY = { house: 5400, barn: 700, houseSlate: 400 } as const
 
 /**
  * 庫斯克：沒有墊面、不畫路（路是區塊交界的凹路），交戰帶疊上彈坑、燒田、履帶痕與壕溝
