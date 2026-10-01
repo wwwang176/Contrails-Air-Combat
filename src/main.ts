@@ -3709,12 +3709,22 @@ const menuReel: MenuReel = createMenuReel({
       }
     },
     blast(x, y, z, size) {
-      // 炸彈那一份放大 `size` 倍（線性），當量是它的立方
-      const vis = BOMB_BLAST_SIZE * REEL_BOMB_SCALE * size
+      // 【一群炸彈大小的火球疊成一大團，不是把一團放大】單團放大到好幾倍時，發光粒子
+      // 也跟著放大，火球外圍會畫出一圈彩虹似的色帶，整團讀成一片橘色的煙塵罩。
+      // 團數 ∝ 體積（size³，上限 `REEL_BLAST_LUMPS`），撒在半徑 ∝ size 的半球裡
+      const vis = BOMB_BLAST_SIZE * REEL_BOMB_SCALE * REEL_BLAST_LUMP
       scaleBlast(LAND_BLAST, vis * vis * vis, SCALED_BLAST)
-      const seed = (reelBlastSeed = (reelBlastSeed + 229) | 0)
-      emitBlast(BLAST_POOLS, SCALED_BLAST, x, y, z, seed)
-      blastLights.flash(x, y, z, REEL_BOMB_SCALE * size, ctx.camera.position)
+      const lumps = Math.min(REEL_BLAST_LUMPS, Math.max(1, Math.round(size * size * size)))
+      const reach = REEL_BLAST_SPREAD * (size - 1)
+      for (let k = 0; k < lumps; k++) {
+        const seed = (reelBlastSeed = (reelBlastSeed + 229) | 0)
+        const a = k * 2.39996
+        const r = lumps === 1 ? 0 : reach * Math.sqrt((k + 0.5) / lumps)
+        const h = reach * 0.8 * hash01(seed)
+        emitBlast(BLAST_POOLS, SCALED_BLAST, x + Math.cos(a) * r, y + h, z + Math.sin(a) * r, seed)
+      }
+      const seed = reelBlastSeed
+      blastLights.flash(x, y, z, REEL_BOMB_SCALE * Math.min(size, REEL_FLASH_MAX), ctx.camera.position)
       debris.burst(x, y, z, BLAST_DEBRIS_COLOR, seed, blastDebrisSpeed())
       burstSparks(x, y, z)
       const fires = Math.max(1, Math.round(size))
@@ -3733,6 +3743,12 @@ const menuReel: MenuReel = createMenuReel({
 
 /** 短片的炸彈相對基準彈的尺度（`blastScaleOf` 的那個尺度）。一串十幾枚，太大會糊成一片 */
 const REEL_BOMB_SCALE = 0.8
+/** 導演指定的大爆炸，閃光最多放大到一枚炸彈的幾倍 */
+const REEL_FLASH_MAX = 1.5
+/** 大爆炸裡每一團相對一枚炸彈的線性倍率、最多幾團、`size` 每多 1 往外撒幾公尺 */
+const REEL_BLAST_LUMP = 1.2
+const REEL_BLAST_LUMPS = 24
+const REEL_BLAST_SPREAD = 9
 /** 魚雷入水的水花：水面爆炸配方的當量倍率 —— 只是一個小水柱，不是爆炸 */
 const REEL_TORPEDO_SPLASH = 0.004
 /** 短片的爆炸種子，每一團推一格 */
