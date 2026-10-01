@@ -41,6 +41,12 @@ export interface ReelFx {
    */
   kill(model: AircraftModel, spec: AircraftSpec, vx: number, vy: number, vz: number,
     seed: number, blast: boolean): void
+  /**
+   * 第 `seat` 架這一幀的兩個翼尖（世界座標）與過載。凝結尾的座位要穩定 —— 同一架每幀
+   * 同一個號碼，否則白線會從別架的翼尖接過來
+   */
+  vortex(seat: number, loadFactor: number,
+    lx: number, ly: number, lz: number, rx: number, ry: number, rz: number): void
   /** 機槍彈打中機身：遊戲那一套命中火花。**呼叫完就清空**，不要留著事件 */
   hits(events: ImpactEvents): void
   /** 一朵高砲黑雲 */
@@ -740,6 +746,11 @@ export function createMenuReel(stage: ReelStage): MenuReel {
         }
       }
       a.smokeFrom.copy(V1)
+      // 翼尖凝結尾：與戰鬥同一條規則，過載夠大才拉出白線
+      const tip = a.model.wingTip
+      V1.set(-tip.x, tip.y, tip.z).applyQuaternion(a.quaternion).add(a.position)
+      V2.set(tip.x, tip.y, tip.z).applyQuaternion(a.quaternion).add(a.position)
+      fx.vortex(i, a.flight.loadFactor, V1.x, V1.y, V1.z, V2.x, V2.y, V2.z)
       stepGuns(a, i, dt)
     }
   }
