@@ -14,10 +14,9 @@ import type { IslandDesc } from '../world/archipelago'
 import type { TimeOfDay } from '../world/timeOfDay'
 import { mountDirection } from '../weapons/types'
 import type { AircraftSpec } from '../specs/types'
-import { t as tr } from '../i18n'
 import { createFlight, flightPose, openSeaOrigin, type Flight } from './reelFlight'
 import {
-  BOMB_RELEASE_Y, bombAt, createReelCamera, pickIsland, reelShots, torpedoAt, torpedoEntry,
+  BOMB_RELEASE_Y, bombAt, createReelCamera, pickIsland, REEL_MAX_AIM, reelShots, torpedoAt, torpedoEntry,
   type ReelEvent, type Shot,
 } from './reelShots'
 import { createBombs, createTorpedoes, type BombVisuals, type OrdnancePool } from '../render/bombs'
@@ -77,8 +76,6 @@ export interface ReelStage {
   setTimeOfDay(tod: TimeOfDay): void
   /** 全黑的那一層。opacity 由這裡寫，過渡時間在 CSS */
   readonly fade: HTMLElement
-  /** 右下角的地點與年月 */
-  readonly caption: HTMLElement
   /**
    * 主角該落在畫面寬度的第幾成。左邊是選單，主角要在右邊空出來的那一塊。
    * 每換一段量一次。
@@ -206,6 +203,8 @@ const FIRE_INTERVAL = 0.09
 const AIM = { x: 0, z: 0 }
 
 const UP = new Vector3(0, 1, 0)
+const AIM_Q = new Quaternion()
+const IDENTITY_Q = new Quaternion()
 const V1 = new Vector3()
 const V2 = new Vector3()
 const V3 = new Vector3()
@@ -367,8 +366,6 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     }
 
     subjectX = stage.subjectX()
-    stage.caption.textContent = tr(next.captionKey)
-    stage.caption.classList.add('on')
     // 【從停下的狀態回來】暗場是藏著的；先以全黑出現、逼瀏覽器算一次版面，
     // 再寫 0 —— 同一幀裡又顯示又歸零的話過渡不會發生，畫面是直接跳亮
     if (stage.fade.hidden) {
@@ -603,14 +600,18 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       a.cooldowns[i] = 60 / weapon.roundsPerMinute
       a.muzzleFlash[i] = FLASH_SECONDS
       V1.copy(mounts[i]!.position).applyQuaternion(a.quaternion).add(a.position)
+      mountDirection(a.spec.battery, i, V2).applyQuaternion(a.quaternion)
       const target = a.burstTarget >= 0 ? actors[a.burstTarget] : undefined
       if (target !== undefined && target.model !== null) {
         // 【瞄準連射】彈 = 方向 × 初速 + 射手的機速，要在 τ 秒後與目標碰頭：
-        // 瞄點 = 目標 + (目標速度 − 射手速度)·τ，τ 取直線距離 ÷ 初速
+        // 瞄點 = 目標 + (目標速度 − 射手速度)·τ，τ 取直線距離 ÷ 初速。
+        // 偏開機首方向不超過 `REEL_MAX_AIM` —— 再多就是曳光從機翼斜著射出去
         const tau = V1.distanceTo(target.position) / weapon.muzzleVelocity
-        V2.copy(target.velocity).sub(a.velocity).multiplyScalar(tau).add(target.position).sub(V1).normalize()
-      } else {
-        mountDirection(a.spec.battery, i, V2).applyQuaternion(a.quaternion)
+        V3.copy(target.velocity).sub(a.velocity).multiplyScalar(tau).add(target.position).sub(V1).normalize()
+        const off = V2.angleTo(V3)
+        AIM_Q.setFromUnitVectors(V2, V3)
+        if (off > REEL_MAX_AIM) AIM_Q.slerp(IDENTITY_Q, 1 - REEL_MAX_AIM / off)
+        V2.applyQuaternion(AIM_Q)
       }
       V2.multiplyScalar(weapon.muzzleVelocity).add(a.velocity)
       projectiles.spawn(V1.x, V1.y, V1.z, V2.x, V2.y, V2.z, 0, 0, 0, PROJECTILE_LIFETIME, weapon.caliber)
@@ -740,7 +741,6 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       if (!fadingOut && t >= s.duration - REEL_FADE) {
         fadingOut = true
         stage.fade.style.opacity = '1'
-        stage.caption.classList.remove('on')
       }
       if (t >= s.duration) {
         index = (index + 1) % shots.length
@@ -760,7 +760,6 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       camera.clearViewOffset()
       // 【暗場要藏起來，不是留著全黑】它蓋在畫布上 —— 留著的話機庫與戰鬥整片黑
       stage.fade.hidden = true
-      stage.caption.classList.remove('on')
     },
 
     relayout() {

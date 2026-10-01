@@ -246,11 +246,6 @@ export const en: Record<MessageKey, string> = {
   'role.bomber': 'Bomber',
 
   'campaign.pick': 'Choose a side',
-  'reel.fleet': 'Philippine Sea, June 1944',
-  'reel.stream': 'Over Berlin, March 1944',
-  'reel.dogfight': 'Over the North Sea, November 1944',
-  'reel.strike': 'Off Rennell Island, January 1943',
-  'reel.raid': 'Over Malta, April 1942',
   'campaign.allies': 'USA',
   'campaign.germany': 'Germany',
   'campaign.japan': 'Japan',

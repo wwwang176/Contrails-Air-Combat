@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { PerspectiveCamera, Quaternion, Vector3 } from 'three'
 import {
-  BOMB_RELEASE_Y, createReelCamera, pickIsland, rampedOffset, reelShots, TORPEDO_SPEED, torpedoAt, torpedoEntry,
+  BOMB_RELEASE_Y, createReelCamera, pickIsland, rampedOffset, REEL_MAX_AIM, reelShots, TORPEDO_SPEED, torpedoAt,
+  torpedoEntry,
   type Shot,
 } from '../../src/app/reelShots'
 import { createArchipelago } from '../../src/world/archipelago'
@@ -95,6 +96,26 @@ describe.each(shots.map((s) => [s.id, s] as const))(
         for (let k = 0; k < shot.ships.length; k++) {
           shipAt(shot, k, t, ship)
           expect(ground(ship.x, ship.z), `船 ${k} t=${t.toFixed(1)}`).toBeLessThan(-2)
+        }
+      }
+    })
+
+    it('瞄準連射的期間，目標都在射手機首前方 6° 以內（曳光從機鼻往前打）', () => {
+      const shooter = createFlight()
+      const nose = new Vector3()
+      const toTarget = new Vector3()
+      const limit = REEL_MAX_AIM + (1 * Math.PI) / 180
+      for (const e of shot.events) {
+        if (e.kind !== 'burst' || e.target === undefined) continue
+        for (let t = e.at; t <= e.at + e.seconds + 1e-9; t += 0.05) {
+          if (killedBy(shot, e.target, t) || killedBy(shot, e.actor, t)) continue
+          flightPose(shot.planes[e.actor]!.path, t, shooter)
+          nose.set(0, 0, -1).applyQuaternion(shooter.quaternion)
+          shot.planes[e.target]!.path(t, a)
+          toTarget.subVectors(a, shooter.position)
+          const deg = (nose.angleTo(toTarget) * 180) / Math.PI
+          expect(nose.angleTo(toTarget), `#${e.actor} 打 #${e.target}，t=${t.toFixed(2)}，偏 ${deg.toFixed(1)}°`)
+            .toBeLessThanOrEqual(limit)
         }
       }
     })

@@ -3603,7 +3603,6 @@ const menuReel: MenuReel = createMenuReel({
     setMenuTimeOfDay(tod)
   },
   fade: document.getElementById('reel-fade') as HTMLElement,
-  caption: document.getElementById('reel-caption') as HTMLElement,
   subjectX() {
     // 主角落在選單右緣與畫面右緣的中間。量不到（選單藏著）就置中
     const rows = document.querySelector('#menu .rows')
