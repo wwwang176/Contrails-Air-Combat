@@ -99,8 +99,10 @@ const PROP_SPIN = 55
 /** 防空曳光的射速（每艘），發/秒；初速 m/s */
 const AA_RATE = 14
 const AA_SPEED = 850
-/** 曳光池容量。戰鬥機連射加兩艘船的防空 */
-const REEL_PROJECTILES = 512
+/** 曳光池容量。幾架戰鬥機連射、轟炸機的機槍手加兩艘船的防空 */
+const REEL_PROJECTILES = 1024
+/** 一段最多幾架飛機。槍焰池照它建；`reel-shots.test.ts` 守這一條 */
+export const REEL_MAX_PLANES = 16
 
 interface Actor {
   readonly spec: AircraftSpec
@@ -123,8 +125,12 @@ interface Actor {
   readonly velocity: Vector3
 }
 
+/** 一道持續的曳光：從一艘船（`ship`）或一架飛機的機槍手（`shooter`）打向 `actor` */
 interface AaStream {
+  /** 打的那艘船；−1 = 是飛機的機槍手 */
   ship: number
+  /** 打的那一架；−1 = 是船 */
+  shooter: number
   actor: number
   until: number
   miss: number
@@ -146,7 +152,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   group.name = 'menuReel'
   const projectiles = new Projectiles(REEL_PROJECTILES)
   const tracers: Tracers = createTracers(REEL_PROJECTILES)
-  const muzzles: Muzzles<MuzzleSource> = createMuzzles(12)
+  const muzzles: Muzzles<MuzzleSource> = createMuzzles(REEL_MAX_PLANES)
   group.add(tracers.object, muzzles.object)
   const restFov = camera.fov
 
@@ -328,7 +334,16 @@ export function createMenuReel(stage: ReelStage): MenuReel {
         break
       }
       case 'aa':
-        streams.push({ ship: e.ship, actor: e.actor, until: e.at + e.seconds, miss: e.miss, timer: 0, seed: e.ship * 1000 + e.actor * 97 })
+        streams.push({
+          ship: e.ship, shooter: -1, actor: e.actor, until: e.at + e.seconds, miss: e.miss, timer: 0,
+          seed: e.ship * 1000 + e.actor * 97,
+        })
+        break
+      case 'gunner':
+        streams.push({
+          ship: -1, shooter: e.actor, actor: e.target, until: e.at + e.seconds, miss: e.miss, timer: 0,
+          seed: 50000 + e.actor * 1000 + e.target * 97,
+        })
         break
     }
   }
@@ -398,27 +413,42 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     }
   }
 
-  /** 船上的防空：從甲板上隨機一點朝目標的前置點打，瞄點偏開 `miss` 公尺 */
+  /**
+   * 持續的曳光：船上的防空從甲板上隨機一點、機槍手從機身上隨機一點，朝目標的前置點打，
+   * 瞄點偏開 `miss` 公尺
+   */
   function stepStreams(dt: number): void {
     const rate = stage.light ? AA_RATE / 2 : AA_RATE
     for (const s of streams) {
       if (t > s.until) continue
-      const ship = ships[s.ship]
+      const ship = s.ship >= 0 ? ships[s.ship] : undefined
+      const shooter = s.shooter >= 0 ? actors[s.shooter] : undefined
       const a = actors[s.actor]
-      if (ship === undefined || a === undefined || a.model === null) continue
+      if (a === undefined || a.model === null) continue
+      if (ship === undefined && (shooter === undefined || shooter.model === null)) continue
       s.timer -= dt
       while (s.timer <= 0) {
         s.timer += 1 / rate
         const k = s.seed++
-        const half = SHIP_CLASSES[ship.cls.id].hull[0]!.half.z
-        V1.set((hash01(k * 3) * 2 - 1) * 6, ship.impactY + 4, (hash01(k * 3 + 1) * 2 - 1) * half * 0.7)
-          .applyQuaternion(ship.orientation).add(ship.position)
+        if (ship !== undefined) {
+          // 甲板上隨機一點
+          const half = SHIP_CLASSES[ship.cls.id].hull[0]!.half.z
+          V1.set((hash01(k * 3) * 2 - 1) * 6, ship.impactY + 4, (hash01(k * 3 + 1) * 2 - 1) * half * 0.7)
+            .applyQuaternion(ship.orientation).add(ship.position)
+        } else {
+          // 機身上隨機一個砲塔位置：沿機身前後、略高略低
+          const len = shooter!.spec.wing.span * 0.3
+          V1.set((hash01(k * 3) * 2 - 1) * 1.2, (hash01(k * 3 + 1) * 2 - 1) * 1.2, (hash01(k * 11 + 5) * 2 - 1) * len)
+            .applyQuaternion(shooter!.quaternion).add(shooter!.position)
+        }
         const range = V1.distanceTo(a.position)
         V2.copy(a.position).addScaledVector(a.velocity, range / AA_SPEED)
         V3.set(hash01(k * 3 + 2) * 2 - 1, hash01(k * 5 + 7) * 2 - 1, hash01(k * 7 + 3) * 2 - 1)
         V2.addScaledVector(V3, s.miss)
         V2.sub(V1).normalize().multiplyScalar(AA_SPEED)
-        projectiles.spawn(V1.x, V1.y, V1.z, V2.x, V2.y, V2.z, 0, 0, 0, PROJECTILE_LIFETIME, 40)
+        // 機槍手的彈要加上自己的機速
+        if (shooter !== undefined) V2.add(shooter.velocity)
+        projectiles.spawn(V1.x, V1.y, V1.z, V2.x, V2.y, V2.z, 0, 0, 0, PROJECTILE_LIFETIME, ship !== undefined ? 40 : 13)
       }
     }
   }
