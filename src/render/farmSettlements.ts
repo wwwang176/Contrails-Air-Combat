@@ -111,17 +111,24 @@ export interface Settlements {
  * 村與小聚落。
  *
  * @param season 七月麥田（`julyWheat`）是俄國南部的大村；其餘是德國中部的團狀村與綠地村
- * @param war 戰場：不准蓋房子的地方，與各村房子燒毀的比例（`world/kursk.ts`）。只有草原村讀它
+ * @param war 戰場：不准蓋房子的地方、各村房子燒毀的比例、哪個村是大村（`world/kursk.ts`）。
+ *            只有草原村讀它；不是大村的畫成小村
  */
 export function farmSettlements(
   half: number, season: Season = 'summer',
-  war?: { readonly keepOut: (x: number, z: number) => boolean; readonly burnRate: (name: string) => number },
+  war?: {
+    readonly keepOut: (x: number, z: number) => boolean
+    readonly burnRate: (name: string) => number
+    readonly large?: (name: string) => boolean
+  },
 ): Settlements {
   const onLane = (x: number, z: number): boolean => {
     regionAt(x, z, REG)
     return trackGap(x, z, REG) < trackWidthAt(x, z) + LANE_CLEAR
   }
-  if (season === 'julyWheat') return steppeLayout(farmLaneVillages(half), onLane, war?.keepOut, war?.burnRate)
+  if (season === 'julyWheat') {
+    return steppeLayout(farmLaneVillages(half), onLane, war?.keepOut, war?.burnRate, war?.large)
+  }
   // 團狀村與綠地村各半：由站址座標的雜湊挑（`eastOfSaale` 在這裡只是村形的開關）
   const angerdorf = (x: number, z: number): boolean => (mix(Math.imul(Math.round(x), 73856093) ^ Math.round(z)) & 1) === 0
   return {

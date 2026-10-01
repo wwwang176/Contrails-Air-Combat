@@ -7,7 +7,7 @@ import { churchRoom } from '../../src/render/settlements'
 import { regionAt, steppeRidgeGap, trackGap, trackWidthAt } from '../../src/render/fields'
 import { STEPPE_CAPACITY } from '../../src/render/terrain'
 import { createVegetation } from '../../src/render/vegetation'
-import { at, battleKeepOut, burnRateOf, VILLAGE, VILLAGE_NAME } from '../../src/world/kursk'
+import { at, battleKeepOut, burnRateOf, isLargeVillage, VILLAGE, VILLAGE_NAME } from '../../src/world/kursk'
 
 /**
  * 草原街村：房子沿凹路兩列、屋後垂直於街的菜園、只有七月麥田這個季節才用。
@@ -194,7 +194,8 @@ describe('戰場上的村', () => {
    * 整片消失。鏡頭放在戰場的南北軸與兩側：村的上空、南邊出生點一帶、北邊蘇軍後方
    */
   it('戰場的南北軸與兩側各處都不溢位', () => {
-    const v = createVegetation([farmSettlements(20000, 'julyWheat', war).flora], () => 0, {
+    // 地形實際用的設定：只有戰場的村是大村
+    const v = createVegetation([farmSettlements(20000, 'julyWheat', { ...war, large: isLargeVillage }).flora], () => 0, {
       season: 'julyWheat', capacity: STEPPE_CAPACITY,
     })
     for (const lx of [-2000, 0, 2000]) {
@@ -448,6 +449,54 @@ describe('草原田的田埂距離（CPU 版）', () => {
       }
     }
     expect(hit).toBeGreaterThanOrEqual(3)
+  })
+})
+
+describe('戰場以外的村很小', () => {
+  const all8 = farmLaneVillages(HALF)
+  const bigName = VILLAGE_NAME
+  const mix = steppeLayout(all8, () => false, battleKeepOut, burnRateOf, (n) => n === bigName)
+  const allLarge = steppeLayout(all8, () => false, battleKeepOut, burnRateOf)
+  const read = (l: ReturnType<typeof steppeLayout>): { x: number; z: number; kind: number }[] => {
+    const b = createFloraBuffer(300000)
+    l.flora(-HALF - 3000, -HALF - 3000, HALF + 3000, HALF + 3000, () => 0, b)
+    const out: { x: number; z: number; kind: number }[] = []
+    for (let i = 0; i < b.count; i++) out.push({ x: b.data[i * 6]!, z: b.data[i * 6 + 2]!, kind: b.kind[i]! })
+    return out
+  }
+  const houseKinds = (k: number): boolean => k === FloraKind.House || k === FloraKind.SlateHouse
+  const mixAll = read(mix)
+  const largeAll = read(allLarge)
+  const near = (list: typeof mixAll, x: number, z: number, r: number): typeof mixAll =>
+    list.filter((p) => houseKinds(p.kind) && Math.hypot(p.x - x, p.z - z) < r)
+
+  it('戰場的村維持原來的大小：同一個位置、同一批房子', () => {
+    const a = near(mixAll, VILLAGE.x, VILLAGE.z, 1700)
+    const b = near(largeAll, VILLAGE.x, VILLAGE.z, 1700)
+    expect(a.length).toBeGreaterThan(300)
+    expect(a).toEqual(b)
+  })
+
+  it('其他的村每個只有幾十戶，主街與支路都很短', () => {
+    const others = all8.filter((v) => v.place.kind === 'village' && v.place.name !== bigName)
+    expect(others.length).toBeGreaterThanOrEqual(5)
+    for (const v of others) {
+      const n = near(mixAll, v.siteX, v.siteZ, 600).length
+      expect(n, v.place.name).toBeLessThan(110)
+    }
+    // 街的折點離站址不超過主路半長（420 / 2）加一條支路（130）再加一點
+    for (const s of mix.streets) {
+      for (const [x, z] of s.points) {
+        const owner = others.find((v) => Math.hypot(x - v.siteX, z - v.siteZ) < 500)
+        if (owner === undefined) continue
+        expect(Math.hypot(x - owner.siteX, z - owner.siteZ)).toBeLessThan(420)
+      }
+    }
+  })
+
+  it('整張圖的房子少很多', () => {
+    const total = (l: typeof mixAll): number => l.filter((p) => houseKinds(p.kind)).length
+    expect(total(mixAll)).toBeLessThan(total(largeAll) * 0.5)
   })
 })
 

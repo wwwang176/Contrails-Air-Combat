@@ -83,6 +83,15 @@ const STREET_COLOR = 0xa39a80
  * 人，換算成主路約 1.2～2.7 km
  */
 const STREET_LENGTH = { base: 900, perPop: 2.0 } as const
+/**
+ * 【小村】戰場的那一個村以外的村：主路 240～420 m、人口小到不長場部也少有教堂，支路最多六條、
+ * 各 60～130 m、不再分岔。遠處的村不該都長成一條一兩公里的長街，從高空看一個模子
+ */
+const SMALL_STREET = [240, 420] as const
+const SMALL_POP = 100
+const SMALL_BRANCH_LENGTH = [60, 130] as const
+const SMALL_BRANCH_GAP = [120, 200] as const
+const SMALL_BRANCH_MAX = 6
 /** 一戶沿路的寬，m */
 const LOT = [17, 25] as const
 /** 支路上的一戶寬，m（比主路略寬一點） */
@@ -263,7 +272,7 @@ class Skeleton {
 /** 一個村 */
 function village(
   v: LaneVillage, avoid: (x: number, z: number) => boolean, keepOut: (x: number, z: number) => boolean,
-  burnRate: number, occ: Occupancy, hardOcc: Occupancy, out: Out,
+  burnRate: number, large: boolean, occ: Occupancy, hardOcc: Occupancy, out: Out,
 ): void {
   const p = v.place
   const rand = makeRand(nameHash(p.name))
@@ -274,8 +283,8 @@ function village(
   const rbl = makeRand(nameHash(p.name) ^ 0x68e31da4)
   // 房子的大小也自己一條：改大小的範圍不會讓街與菜園的亂數位移
   const rsz = makeRand(nameHash(p.name) ^ 0x3c6ef372)
-  const pop = p.pop ?? 400
-  const church = placeChurch(p, (x, z) => avoid(x, z) || keepOut(x, z), occ)
+  const pop = large ? (p.pop ?? 400) : SMALL_POP
+  const church = placeChurch(large ? p : { ...p, pop }, (x, z) => avoid(x, z) || keepOut(x, z), occ)
   if (church !== null) {
     out.placements.push(church)
     hardOcc.add(church.x, church.z, churchRoom(church.scale))
@@ -285,7 +294,7 @@ function village(
   // 往左的單位法線
   const nx = -tz
   const nz = tx
-  const length = STREET_LENGTH.base + pop * STREET_LENGTH.perPop
+  const length = large ? STREET_LENGTH.base + pop * STREET_LENGTH.perPop : span(rb, SMALL_STREET)
   const rot = ridgeAlong(tx, tz)
 
   // ── 一、支路的骨架 ───────────────────────────────
@@ -293,8 +302,8 @@ function village(
   // 不會被擋；站在街上的會被擋
   const skeleton = new Skeleton()
   const branches: Branch[] = []
-  const grow =(sx: number, sz: number, ang0: number, maxLen: number, parent: number, depth: number): void => {
-    if (branches.length >= BRANCH_MAX) return
+  const grow = (sx: number, sz: number, ang0: number, maxLen: number, parent: number, depth: number): void => {
+    if (branches.length >= (large ? BRANCH_MAX : SMALL_BRANCH_MAX)) return
     const b: Branch = { id: branches.length, pts: [[sx, sz]] }
     branches.push(b)
     let ang = ang0
@@ -314,21 +323,25 @@ function village(
       skeleton.add(x, z, b.id, step, sx, sz)
       occ.add(x, z, 5)
       hardOcc.add(x, z, 6)
-      if (depth < 2 && step >= 3 && rb() < SUB_CHANCE && maxLen - step * BRANCH.step >= SUB_LENGTH[0]) {
+      if (large && depth < 2 && step >= 3 && rb() < SUB_CHANCE && maxLen - step * BRANCH.step >= SUB_LENGTH[0]) {
         const side = rb() < 0.5 ? 1 : -1
         grow(x, z, ang + side * (0.9 + rb() * 0.6), span(rb, SUB_LENGTH), b.id, depth + 1)
       }
     }
   }
   const halfLen = length / 2
-  for (let s = -halfLen + span(rb, BRANCH_GAP) * 0.5; s < halfLen; s += span(rb, BRANCH_GAP)) {
+  const gap = large ? BRANCH_GAP : SMALL_BRANCH_GAP
+  for (let s = -halfLen + span(rb, gap) * 0.5; s < halfLen; s += span(rb, gap)) {
     const sx = v.siteX + tx * s
     const sz = v.siteZ + tz * s
     if (!onRoad(sx, sz) || keepOut(sx, sz)) continue
     for (const side of [1, -1]) {
       if (rb() < 0.12) continue
       const a = Math.atan2(nz * side, nx * side) + (rb() - 0.5) * 0.4
-      grow(sx, sz, a, BRANCH_LENGTH.base + rb() * (BRANCH_LENGTH.span + pop * BRANCH_LENGTH.perPop), -1, 0)
+      const len = large
+        ? BRANCH_LENGTH.base + rb() * (BRANCH_LENGTH.span + pop * BRANCH_LENGTH.perPop)
+        : span(rb, SMALL_BRANCH_LENGTH)
+      grow(sx, sz, a, len, -1, 0)
     }
   }
   for (const b of branches) {
@@ -583,6 +596,7 @@ function bucketKey(i: number, j: number): number {
 
 const NONE: readonly Placement[] = []
 const NO_KEEP_OUT = (): boolean => false
+const ALL_LARGE = (): boolean => true
 /** 沒有戰場時，每個村零星燒毀的房子比例 */
 const SPORADIC_BURN = (): number => 0.04
 
@@ -593,11 +607,13 @@ const SPORADIC_BURN = (): number => 0.04
  * @param avoid 教堂不蓋的地方（凹路）
  * @param keepOut 房子、樹、支路與菜園都不准的地方（戰場的單位與壕溝，`world/kursk.ts`）
  * @param burnRate 這個村的房子燒毀的比例，依村名
+ * @param large 這個村是不是大村（依村名）。不是的話畫成小村（`SMALL_STREET`）；預設全部是大村
  */
 export function steppeLayout(
   villages: readonly LaneVillage[], avoid: (x: number, z: number) => boolean,
   keepOut: (x: number, z: number) => boolean = NO_KEEP_OUT,
   burnRate: (name: string) => number = SPORADIC_BURN,
+  large: (name: string) => boolean = ALL_LARGE,
 ): {
   flora: FloraSource; gardens: readonly GardenStrip[]; streets: readonly StreetRibbon[]; blasts: readonly Blast[]
 } {
@@ -607,7 +623,7 @@ export function steppeLayout(
   const hardOcc = new Occupancy()
   for (const v of villages) {
     if (v.place.kind === 'hamlet') hamlet(v, keepOut, occ, hardOcc, out)
-    else village(v, avoid, keepOut, burnRate(v.place.name), occ, hardOcc, out)
+    else village(v, avoid, keepOut, burnRate(v.place.name), large(v.place.name), occ, hardOcc, out)
   }
   const buckets = new Map<number, Placement[]>()
   for (const b of out.placements) {

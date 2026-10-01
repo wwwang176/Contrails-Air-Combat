@@ -42,7 +42,7 @@ import {
   ROAD_WIDTH as ASCH_ROAD_WIDTH, ROADS as ASCH_ROADS,
 } from '../world/asch'
 import {
-  battleKeepOut, burnRateOf, createKursk, MINEFIELDS, SCAR_ZONE, SCORCH, TRACKS, TRENCHES,
+  battleKeepOut, burnRateOf, createKursk, isLargeVillage, MINEFIELDS, SCAR_ZONE, SCORCH, TRACKS, TRENCHES,
 } from '../world/kursk'
 import { preloadScarAtlas } from './battleScars'
 import type { HeightFieldData } from '../world/heightfield'
@@ -541,12 +541,12 @@ function createAschTerrain(gfx?: TerrainGfx): Terrain {
 }
 
 /**
- * 草原街村的建築池。街村沿著凹路拉得很長，還帶著不規則的分支，一個視野裡的房子比德國的
- * 團狀村多得多：戰場的南北軸與兩側實測同時最多約 3,540 棟房屋、320 棟棚子、190 棟燒毀的房子
- * （農地預設 320／190／60，超出的部分由 `stats.overflow` 靜靜丟掉）。留 1.5～2 倍的餘裕。
- * 一格實例 152 byte。
+ * 草原街村的建築池。戰場那一個村是沿著凹路拉得很長、帶著不規則分支的大村（600 m 內約 260
+ * 棟）；其餘的村只有幾十戶。戰場的南北軸與兩側實測同時最多約 460 棟房屋、40 棟棚子、120 棟
+ * 燒毀的房子（農地預設 320／190／60，超出的部分由 `stats.overflow` 靜靜丟掉）。留約 2 倍的
+ * 餘裕。一格實例 152 byte。
  */
-export const STEPPE_CAPACITY = { house: 5400, barn: 700, houseSlate: 400 } as const
+export const STEPPE_CAPACITY = { house: 900, barn: 120, houseSlate: 250 } as const
 
 /**
  * 庫斯克：沒有墊面、不畫路（路是區塊交界的凹路），交戰帶疊上彈坑、燒田、履帶痕與壕溝
@@ -658,7 +658,8 @@ function createInlandTerrain(
   // 的地方
   const villageReach = farm.field.cell * (farm.field.size - 1) / 2 + FLORA_RADIUS + 1000
   const villages = dressing === undefined
-    ? farmSettlements(villageReach, season, steppe ? { keepOut: battleKeepOut, burnRate: burnRateOf } : undefined)
+    ? farmSettlements(villageReach, season, steppe
+      ? { keepOut: battleKeepOut, burnRate: burnRateOf, large: isLargeVillage } : undefined)
     : null
   let buildings = padClear(villages === null ? dressing!.buildings : villages.flora)
   // 【不長樹的範圍】地圖列出它有的範圍，載入時各合成一張遮罩（`keepOutMask.ts`）。
