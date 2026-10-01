@@ -35,7 +35,7 @@ export const OBSTACLE_SIZE = {
   /** 捷克刺蝟：長條的長與粗、間距，m */
   hedgehog: { bar: 5.0, thick: 0.45, spacing: 14 },
   /** 鐵絲網：圈與圈的間距、圈的半徑（菱形的半對角線）、短條的粗，m */
-  wire: { spacing: 2.8, radius: 1.1, thick: 0.16 },
+  wire: { spacing: 3.2, radius: 1.1, thick: 0.16 },
   /** 埋進地面的深度，m */
   sink: 0.25,
 } as const
