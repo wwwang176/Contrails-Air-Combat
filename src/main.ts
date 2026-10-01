@@ -56,7 +56,7 @@ import {
 import { createGroundModels, type GroundModels } from './render/groundTargets'
 import { createSearchlights, makeGlareTexture, type Searchlights } from './render/searchlights'
 import { groundModelUrls, preloadGroundModels } from './render/geometry/ground'
-import { settleGroundTargets } from './world/groundTargets'
+import { settleGroundTargets, type GroundTarget } from './world/groundTargets'
 import {
   balloonHills, settleBalloons, syncBalloonHills, type BalloonHillSet,
 } from './world/balloons'
@@ -185,7 +185,7 @@ import {
   readSeenTutorials, tutorialsFor, unseenTutorials, type Tutorial,
 } from './ui/tutorials'
 import { nextScreen, type Screen } from './ui/screens'
-import { createMenuReel, type MenuReel } from './app/menuReel'
+import { createMenuReel, type MenuReel, type ReelSiteRequest } from './app/menuReel'
 import { createShowcase, type Showcase } from './app/showcase'
 import { PLANT_STACKS } from './world/leuna'
 import { assetUrl } from './core/asset'
@@ -226,6 +226,8 @@ function blockForRecoveryWorker(failure: RecoveryFailure): void {
  * 重跑」的鑰匙的一部分，而有波次的「重新開始」不重建地形卻要重印那一行。
  */
 let terrainKind: Parameters<typeof createTerrain>[0] = 'archipelago'
+/** 選單短片畫在農地上的廠區是哪一段的；null = 沒有廠區。戰鬥的地形一律是 null */
+let terrainSiteKey: string | null = null
 /**
  * 建地形時給的 GPU 資源。**每次建都重讀檔位** —— 內圈半徑跟著玩家目前選的
  * 畫質走，換檔位時另由 `onQuality` 直接調現有地形的
@@ -1138,7 +1140,7 @@ let steamSeed = 0
  * 【這裡不配置記憶體】每幀跑。`PLANT_STACKS` 是模組常數而且已經是世界
  * 座標，迴圈裡沒有 `new`、沒有換算。
  */
-function emitPlantSteam(frameSeconds: number): void {
+function emitPlantSteam(frameSeconds: number, targets: readonly GroundTarget[]): void {
   steamAccum += frameSeconds * STEAM_PER_SECOND
   const n = Math.floor(steamAccum)
   if (n <= 0) return
@@ -1155,7 +1157,7 @@ function emitPlantSteam(frameSeconds: number): void {
       }
     }
   }
-  for (const t of world.groundTargets) {
+  for (const t of targets) {
     if (!t.alive) continue
     const id = t.unit.id
     if (id !== 'chimney' && id !== 'coolingTower') continue
@@ -1449,12 +1451,14 @@ function clearBattleScenery(): void {
  * 選單短片要的地形：與現在的不同才重建。短片每換一段都叫它（在暗場裡），
  * 所以從戰鬥回到選單也由它換回來
  */
-function setMenuTerrain(kind: 'archipelago' | 'farmland'): void {
-  if (terrainKind === kind) return
+function setMenuTerrain(kind: 'archipelago' | 'farmland', site?: ReelSiteRequest): void {
+  const siteKey = site?.key ?? null
+  if (terrainKind === kind && terrainSiteKey === siteKey) return
   terrainKind = kind
+  terrainSiteKey = siteKey
   ctx.scene.remove(terrain.object)
   terrain.dispose()
-  terrain = createTerrain(terrainKind, terrainGfx())
+  terrain = createTerrain(terrainKind, terrainGfx(), site?.layout)
   ctx.scene.add(terrain.object)
 }
 
@@ -1664,6 +1668,7 @@ function buildBattleTerrain(): void {
   // 3. 地形重建。種類沒變也重建 —— 那條路徑因此每一場都在走，不是一條
   //    等著被第一次使用的死碼（M10 spec §5.3）
   terrainKind = battleTerrainKind()
+  terrainSiteKey = null
   ctx.scene.remove(terrain.object)
   terrain.dispose()
   terrain = createTerrain(terrainKind, terrainGfx())
@@ -3046,7 +3051,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   updateFireCrowd(fireCrowd, groundFires, shipFires, world.ships, worldSeconds)
   stepShipFires(shipFires, world.ships, worldSeconds, emitFirePuff, fireCrowd.ship)
   stepGroundFires(groundFires, worldSeconds, emitFirePuff, fireCrowd.ground)
-  emitPlantSteam(worldSeconds)
+  emitPlantSteam(worldSeconds, world.groundTargets)
   emitFlareSmoke(worldSeconds)
   // 【槍焰用內插姿態】它是一個狀態而不是一個瞬間，所以位置在這裡重算 ——
   // 用物理位置的話槍焰會相對機身抖動一個子步的位移（M7 spec §2.1）
@@ -3748,6 +3753,8 @@ function drawMenuBackground(frameSeconds: number): void {
   stepEffects(fx, elapsed)
   spray.step(fx)
   vortex.step(fx)
+  // 短片地上的煙囪與冷卻塔冒白煙（炸毀的就停）
+  emitPlantSteam(fx, menuReel.props)
   // 短片投下的炸彈點的地面火、魚雷的航跡
   stepGroundFires(groundFires, fx, emitFirePuff, fireCrowd.ground)
   wakes.bindOcean(terrain.oceanHeight)

@@ -38,6 +38,36 @@ export interface ReelProp {
   readonly heading: number
 }
 
+/** 局部座標的軸對齊矩形，m */
+export interface ReelRect {
+  readonly x0: number
+  readonly z0: number
+  readonly x1: number
+  readonly z1: number
+}
+
+/** 局部座標的一點 */
+export interface ReelPoint {
+  readonly x: number
+  readonly z: number
+}
+
+/** 地上畫的廠區，見 `Shot.ground`。顏色是 0xRRGGBB */
+export interface ReelGround {
+  /** 水泥墊面 */
+  readonly pad: ReelRect
+  /** 壓在墊面上的鋪面：調車場的碴石、空地的裸土 */
+  readonly patches?: readonly (ReelRect & { readonly hex: number })[]
+  /** 墊面外一圈不長樹，m */
+  readonly treeClear?: number
+  /** 道路折線；一路延伸出去的話端點拉遠一點，畫面上才不會斷在田中間 */
+  readonly roads?: readonly (readonly ReelPoint[])[]
+  readonly roadWidth?: number
+  /** 鐵路折線（碴石帶） */
+  readonly rails?: readonly (readonly ReelPoint[])[]
+  readonly railWidth?: number
+}
+
 /** 船：等速直線。`heading` 與 `createShip` 同一個約定：前進方向 (−sin h, 0, −cos h) */
 export interface ReelShip {
   readonly cls: ShipClassId
@@ -148,6 +178,12 @@ export interface Shot {
    * 換景的暗場裡重建地形（約半秒到一秒，藏在黑畫面裡），`clear` 圓躲的是那張地形的山丘
    */
   readonly terrain?: 'archipelago' | 'farmland'
+  /**
+   * 地上畫一塊廠區（只有 `'farmland'` 的段用得到）：水泥墊面、碴石／裸土的鋪面、道路、
+   * 鐵路，墊面外一圈不長樹。全部是**局部座標**，執行時跟著原點與 `yaw` 轉到世界。
+   * 它是地形著色器畫的，不是模型 —— 換地形的暗場裡一起建好
+   */
+  readonly ground?: ReelGround
   /**
    * 整段動作落在哪一個圓裡（局部座標的圓心、半徑 m）。`'sea'` 的段，執行時這個圓整個
    * 要是開闊的海 —— 只看原點的話，一路往前飛四公里的纏鬥會把殘骸丟在島上。

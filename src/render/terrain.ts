@@ -234,8 +234,15 @@ export async function preloadTerrainScenery(kind: TerrainKind): Promise<void> {
   else if (kind === 'poltava') await preloadAirfieldScenery()
 }
 
-export function createTerrain(kind: TerrainKind, gfx?: TerrainGfx): Terrain {
-  if (kind === 'farmland') return createFarmlandTerrain(gfx)
+/**
+ * @param farmSite 只對 `'farmland'` 有效：拿到這張農地的山丘之後給一塊廠區（選單短片用 ——
+ *   原點要避開山丘，所以廠區要等高度場生成之後才定得下來）
+ */
+export function createTerrain(
+  kind: TerrainKind, gfx?: TerrainGfx,
+  farmSite?: (hills: readonly IslandDesc[]) => SiteLayout,
+): Terrain {
+  if (kind === 'farmland') return createFarmlandTerrain(gfx, farmSite)
   if (kind === 'autumnFarmland') return createAutumnFarmlandTerrain(gfx)
   if (kind === 'leuna') return createLeunaTerrain(gfx)
   if (kind === 'poltava') return createPoltavaTerrain(gfx)
@@ -434,8 +441,11 @@ function createArchipelagoTerrain(): Terrain {
   }
 }
 
-function createFarmlandTerrain(gfx?: TerrainGfx): Terrain {
-  return createInlandTerrain(createFarmland(), 'summer', undefined, undefined, gfx)
+function createFarmlandTerrain(
+  gfx?: TerrainGfx, farmSite?: (hills: readonly IslandDesc[]) => SiteLayout,
+): Terrain {
+  const farm = createFarmland()
+  return createInlandTerrain(farm, 'summer', farmSite?.(farm.hills), undefined, gfx)
 }
 
 /** 碴石：調車場的街廓 */
