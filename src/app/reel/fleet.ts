@@ -2,7 +2,8 @@ import { Vector3 } from 'three'
 import { F6F5 } from '../../specs/f6f5'
 import { F4F4 } from '../../specs/f4f4'
 import {
-  body, bodyUp, edit, rampedOffset, shipAt, wingman, type Cut, type Path, type ReelPlane, type ReelShip, type Shot,
+  body, bodyUp, edit, rampedOffset, shipAt, wingman,
+  type Cut, type Path, type ReelCamera, type ReelPlane, type ReelShip, type Shot,
 } from './kit'
 
 // ── 艦隊 ───────────────────────────────────────────────────
@@ -15,7 +16,7 @@ import {
 //   5.5–8.5 掛在 H 長機左翼尖回看座艙：壓坡度盤旋，座艙後面是整個輪形陣
 //   8.5–11  艦尾後方的海面：低空四機從背後追上來，從鏡頭頂上呼嘯而過
 //   11–13   左舷艦艏、略高於甲板，順著飛行甲板往艦艉看：低空四機貼著左舷迎面衝來
-//   13–16.5 貼著海面看橫越的驅逐艦衝過來，航艦在它後面，P 兩架在高空
+//   13–16.5 貼著海面看前出的驅逐艦衝過來，航艦在它後面，P 兩架在高空
 //   16.5–19.5 掛在 P 僚機的垂尾後面往前看：長機與航艦都在俯衝線的前下方
 //   19.5–22 艦艏前方的海面：P 兩架拉平、越過艦島朝鏡頭頂上衝來
 //   22–25   H 僚機的右肩後：長機在右前方，整個艦隊在下面轉
@@ -28,8 +29,11 @@ const S2 = new Vector3()
 const FLEET_SPEED = 9
 /** 航艦。艦體座標：艦艏 z −133、艦島在右舷 x 9.5…16.5、z −28…+7、頂 41.6 */
 const ESSEX: ReelShip = { cls: 'essex', x: 0, z: 0, heading: 0, speed: FLEET_SPEED }
-/** 從右舷前方斜切過艦隊前方的驅逐艦。艦艏在艦體 z −57 */
-const DD_CROSS: ReelShip = { cls: 'fletcher', x: 260, z: -300, heading: 0.45, speed: 15 }
+/**
+ * 右舷前方加速前出的驅逐艦：與艦隊同航向、快 4 m/s，一路超到航艦前面。艦艏在艦體 z −57。
+ * 航向與艦隊不同的話，從空中看就是一艘船走歪了
+ */
+const DD_SPRINT: ReelShip = { cls: 'fletcher', x: 240, z: -300, heading: 0, speed: 13 }
 
 /** 船上一點（艦體座標：x 右舷、z 艦艉）在第 `t` 秒的世界座標 */
 function onShip(s: ReelShip, t: number, lx: number, ly: number, lz: number, out: Vector3): Vector3 {
@@ -54,6 +58,44 @@ function aimBetween(from: Vector3, a: Vector3, b: Vector3, w: number, out: Vecto
   return out.copy(from).add(AIM_A).add(AIM_B)
 }
 
+const SH_F = new Vector3()
+const SH_R = new Vector3()
+const SH_U = new Vector3()
+/** 三個不成倍數的慢頻率（Hz）疊起來的振幅；均方根是 √(Σa²/2) = 0.70 */
+const SWAY_A = [0.8, 0.5, 0.3] as const
+const SWAY_HZ = [0.37, 0.83, 1.31] as const
+const SWAY_RMS = 0.70
+/** 一軸的手持慢晃，均方根 1（無單位） */
+function sway(t: number, seed: number): number {
+  let s = 0
+  for (let k = 0; k < 3; k++) s += SWAY_A[k]! * Math.sin(2 * Math.PI * SWAY_HZ[k]! * t + seed * (k + 1.7))
+  return s / SWAY_RMS
+}
+
+/**
+ * 手持晃動：把視線轉開一個小角度（偏航＋俯仰），**量的是角度不是公尺** —— 同樣晃 1 m，
+ * 8 m 外的主角是 7°、500 m 外的遠景看不出來。`deg` 是視線方向的均方根晃動，度；
+ * `kickAt` 起再疊一下 3.5 Hz、0.18 秒衰減的抖動，峰值 `kickDeg`（擦身而過那一瞬間）。
+ * 注視點沿著與視線垂直的方向挪，鏡頭位置不動 —— 位置一動，貼在旁邊的飛機會跟著跳
+ */
+function handheld(out: ReelCamera, t: number, deg: number, seed: number, kickAt = -1, kickDeg = 0): void {
+  SH_F.subVectors(out.target, out.position)
+  const d = SH_F.length()
+  SH_F.multiplyScalar(1 / d)
+  SH_R.crossVectors(SH_F, out.up).normalize()
+  SH_U.crossVectors(SH_R, SH_F)
+  const axis = (deg * Math.PI / 180) / Math.SQRT2
+  let yaw = axis * sway(t, seed)
+  let pitch = axis * sway(t, seed + 3.1)
+  const u = t - kickAt
+  if (kickAt >= 0 && u > 0) {
+    const k = (kickDeg * Math.PI / 180) * Math.exp(-u / 0.18) * Math.sin(2 * Math.PI * 3.5 * u)
+    yaw += 0.6 * k
+    pitch += k
+  }
+  out.target.addScaledVector(SH_R, d * Math.tan(yaw)).addScaledVector(SH_U, d * Math.tan(pitch))
+}
+
 // ── 低空四機（L）：左梯隊，貼著 30 m 從艦尾追上來 ──
 //
 // 12.5 秒與航艦的艦島並排。航艦艦體外擴 8 m 到 x −22，再往外的海面上才能低於桅杆，
@@ -64,6 +106,8 @@ const lowLead: Path = (t, out) => {
   out.y += rampedOffset(t, 14, 2, 7) - rampedOffset(t, 18, 2, 7)
   return out
 }
+/** 長機從艦尾後方那個海面機位頭頂掠過的秒數 */
+const PASS_OVER = 9.35
 const LOW_2 = wingman(lowLead, -16, 1, 12, 0.3)
 const LOW_3 = wingman(lowLead, -32, 0, 24, 1.1)
 const LOW_4 = wingman(lowLead, -48, 2, 36, 2.0)
@@ -137,6 +181,8 @@ const CUTS: readonly Cut[] = [
       onShip(ESSEX, t, 30, 6.5, -178 + 4 * t, out.position)
       onShip(ESSEX, t, -2, 13, -122, out.target)
       out.fov = 44
+      // 貼著海面的小艇感：慢晃，不搶艦艏的戲
+      handheld(out, t, 0.25, 1.0)
     },
   },
   {
@@ -145,6 +191,7 @@ const CUTS: readonly Cut[] = [
       onShip(ESSEX, t, 34, 7, 22, out.position)
       onShip(ESSEX, t, 4, 52, -26, out.target)
       out.fov = 55
+      handheld(out, t, 0.2, 2.0)
     },
   },
   {
@@ -156,6 +203,8 @@ const CUTS: readonly Cut[] = [
       body(highLead, t, 30, 12, -2, false, out.target)
       bodyUp(highLead, t, out.up)
       out.fov = 64
+      // 掛在機身上：機身本來就不抖，只留一點氣流的感覺。再大的話 8 m 外的座艙就在晃
+      handheld(out, t, 0.08, 3.0)
     },
   },
   {
@@ -164,8 +213,11 @@ const CUTS: readonly Cut[] = [
       // 釘在梯隊的正下方：長機在右上 25 m、#2 幾乎正頂上，9.4 秒掠過之後鏡頭轉身
       // 目送它們飛向航艦與太陽
       out.position.set(-58, 7, 250)
-      lowLead(t, out.target)
+      // 跟不上：注視點晚 0.07 秒，掠過頭頂那一下長機往畫面左邊衝；9.35 秒掠過時抖一下。
+      // 最近點只有 33 m，晚 0.12 秒長機就滑到選單邊上，晚 0.2 秒整架甩出畫面
+      lowLead(t - 0.07, out.target)
       out.fov = 54
+      handheld(out, t, 0.35, 4.0, PASS_OVER, 1.0)
     },
   },
   {
@@ -179,15 +231,17 @@ const CUTS: readonly Cut[] = [
       lowLead(t, S2)
       aimBetween(out.position, S1, S2, 0.5, out.target)
       out.fov = 50
+      handheld(out, t, 0.3, 5.0)
     },
   },
   {
     from: 13, subject: null,
     camera(t, out) {
       // 釘在海上：驅逐艦第 16 秒艦艏經過鏡頭旁 20 m
-      onShip(DD_CROSS, 16, 20, 6.5, -60, out.position)
-      onShip(DD_CROSS, t, 0, 6, -40, out.target)
+      onShip(DD_SPRINT, 16, 20, 6.5, -60, out.position)
+      onShip(DD_SPRINT, t, 0, 6, -40, out.target)
       out.fov = 46
+      handheld(out, t, 0.3, 6.0)
     },
   },
   {
@@ -200,14 +254,17 @@ const CUTS: readonly Cut[] = [
       aimBetween(out.position, S1, S2, 0.4, out.target)
       bodyUp(PASS_2, t, out.up)
       out.fov = 50
+      handheld(out, t, 0.1, 7.0)
     },
   },
   {
     from: 19.5, subject: P0,
     camera(t, out) {
       onShip(ESSEX, t, 40, 8, -200, out.position)
-      passLead(t, out.target)
+      // 跟不上：拉平往鏡頭衝的那一段，注視點晚 0.15 秒
+      passLead(t - 0.15, out.target)
       out.fov = 50
+      handheld(out, t, 0.35, 8.0)
     },
   },
   {
@@ -220,6 +277,7 @@ const CUTS: readonly Cut[] = [
       aimBetween(out.position, S1, S2, 0.5, out.target)
       bodyUp(HIGH_2, t, out.up)
       out.fov = 56
+      handheld(out, t, 0.1, 9.0)
     },
   },
   {
@@ -230,6 +288,8 @@ const CUTS: readonly Cut[] = [
       body(lowLead, t, -60, 13, 66, true, out.position)
       body(lowLead, t, -26, 0, 20, true, out.target)
       out.fov = 40
+      // 跟拍機的機上晃動
+      handheld(out, t, 0.25, 10.0)
     },
   },
   {
@@ -238,6 +298,8 @@ const CUTS: readonly Cut[] = [
       onShip(ESSEX, t, -260, 140, 620, out.position)
       onShip(ESSEX, t, 60, 30, -520, out.target)
       out.fov = 40
+      // 收尾的大遠景要穩
+      handheld(out, t, 0.08, 11.0)
     },
   },
 ]
@@ -265,7 +327,7 @@ export const FLEET: Shot = {
   planes: PLANES,
   ships: [
     ESSEX,
-    DD_CROSS,
+    DD_SPRINT,
     { cls: 'wichita', x: -400, z: 120, heading: 0, speed: FLEET_SPEED },
     { cls: 'fletcher', x: 380, z: 260, heading: 0, speed: FLEET_SPEED },
     { cls: 'fletcher', x: -300, z: -700, heading: 0, speed: FLEET_SPEED },
