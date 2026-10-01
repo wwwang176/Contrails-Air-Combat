@@ -72,18 +72,23 @@ export interface BattleScars {
   readonly craterPatches?: readonly { readonly x: number; readonly z: number; readonly r: number; readonly dense: number }[]
 }
 
-/** 雷區小點的格距與半徑，m。近層才看得到 */
-export const MINE_PITCH = 16
-export const MINE_DOT_R = 2.2
-/** 雷區邊緣虛線的線寬（半寬）與虛線一段的長度，m */
-export const MINE_EDGE_HALF = 2
+/**
+ * 雷區的坑：沿著列每隔 `MINE_PITCH` 一個，列與列隔 `MINE_ROW`，相鄰兩列錯開半個坑距；坑的
+ * 半徑 `MINE_DOT_R`。單位 m，近層才看得到
+ */
+export const MINE_PITCH = 10
+export const MINE_ROW = 16
+export const MINE_DOT_R = 1.6
+/** 雷區邊緣虛線（鐵絲網與樁）的線寬（半寬）與虛線一段的長度，m */
+export const MINE_EDGE_HALF = 1.2
 export const MINE_DASH = 12
 /**
- * 小點與虛線依像素半足跡 `px`（m）淡出：`px` 到下限開始淡、到上限全沒了（smoothstep）。
- * **上限要小於 週期 ÷ (2√2)**：烘圖時取樣間距是 √2 × `px`，超過週期的一半，規則的小點與虛線
- * 就混疊成錯誤的低頻紋，烘進遠圖。遠層（`FIELD_CLIP_FAR`）的 `px` 約 5.2 m，要在它之下全淡掉
+ * 坑與虛線依像素半足跡 `px`（m）淡出：`px` 到下限開始淡、到上限全沒了（smoothstep）。
+ * **上限要小於 最短的週期 ÷ (2√2)**（坑距 `MINE_PITCH`、虛線 `MINE_DASH`）：烘圖時取樣間距是
+ * √2 × `px`，超過週期的一半，規則的坑與虛線就混疊成錯誤的低頻紋，烘進遠圖。遠層
+ * （`FIELD_CLIP_FAR`）的 `px` 約 5.2 m，要在它之下全淡掉
  */
-export const MINE_DOT_FADE = [MINE_PITCH * 0.1, MINE_PITCH * 0.28] as const
+export const MINE_DOT_FADE = [MINE_PITCH * 0.15, MINE_PITCH * 0.28] as const
 export const MINE_DASH_FADE = [MINE_DASH * 0.12, MINE_DASH * 0.3] as const
 
 /** 彈坑候選點的格距，m。坑的半徑上限要小於它，3 × 3 格才看得到所有蓋到這一點的坑 */
@@ -196,8 +201,9 @@ export function scarsGlsl(s: BattleScars): string {
       col = mix(col, t.rgb, t.a);
     }
   }`
-  const mines = s.minefields.length === 0 ? '' : `  // 雷區：在燒田之上、履帶痕之下。有向矩形裡翻土的淡色塊（遠近都看得到）、規則的小點與
-  // 邊緣的虛線（依像素足跡淡出，見 \`MINE_DOT_FADE\`）
+  const mines = s.minefields.length === 0 ? '' : `  // 雷區：在燒田之上、履帶痕之下。有向矩形裡成列的坑（沿長邊排，相鄰兩列錯開半個坑距）與邊緣
+  // 的虛線（鐵絲網與樁），依像素足跡淡出，見 \`MINE_DOT_FADE\`。**沒有底色**：實物埋得淺、蓋回
+  // 草皮，空照上看得到的是一排排的坑與外圍的鐵絲網，不是一整片
   {
     const vec4 MINES_A[${s.minefields.length}] = vec4[${s.minefields.length}](${
   s.minefields.map((m) => `vec4(${f(m.x)}, ${f(m.z)}, ${f(m.hu)}, ${f(m.hv)})`).join(', ')});
@@ -211,10 +217,12 @@ export function scarsGlsl(s: BattleScars): string {
       float ev = MINES_A[i].w - abs(v);
       if (eu <= 0.0 || ev <= 0.0) continue;
       float e = min(eu, ev);
-      col = mix(col, vec3(0.62, 0.53, 0.37), 0.26);
       float dotFade = 1.0 - smoothstep(${f(MINE_DOT_FADE[0])}, ${f(MINE_DOT_FADE[1])}, px);
-      vec2 g = fract(vec2(u, v) / ${f(MINE_PITCH)}) - 0.5;
-      float dd = length(g) * ${f(MINE_PITCH)};
+      // q.x 橫過列、q.y 沿著列（列沿長邊）
+      vec2 q = MINES_A[i].w >= MINES_A[i].z ? vec2(u, v) : vec2(v, u);
+      float row = floor(q.x / ${f(MINE_ROW)});
+      vec2 g = fract(vec2(q.x / ${f(MINE_ROW)}, q.y / ${f(MINE_PITCH)} + 0.5 * mod(row, 2.0))) - 0.5;
+      float dd = length(g * vec2(${f(MINE_ROW)}, ${f(MINE_PITCH)}));
       float dotA = (1.0 - smoothstep(${f(MINE_DOT_R * 0.7)}, ${f(MINE_DOT_R * 1.2)}, dd)) * dotFade;
       col = mix(col, vec3(0.16, 0.14, 0.11), 0.7 * dotA);
       float along = eu < ev ? v : u;

@@ -49,6 +49,18 @@ describe('雷區的著色器', () => {
     expect(plain).not.toContain('bump')
   })
 
+  /**
+   * 【雷區沒有底色】實物埋得淺、蓋回草皮，空照看得到的是成列的坑與外圍的鐵絲網。那一層半透明的淡褐
+   * 底色（`vec3(0.62, 0.53, 0.37)`）讓雷區看起來像一塊白斑。
+   */
+  it('雷區是成列交錯的坑，沒有整片的底色', () => {
+    const s = scarsGlsl({ ...BASE, minefields: [RECT(0)] })
+    expect(s).not.toContain('vec3(0.62, 0.53, 0.37)')
+    // 相鄰兩列錯開半個坑距、列沿長邊排
+    expect(s).toContain('mod(row, 2.0)')
+    expect(s).toContain('MINES_A[i].w >= MINES_A[i].z')
+  })
+
   it('小點與虛線在取樣會混疊之前就全淡掉，近層則完整看得到', () => {
     expect(MINE_DOT_FADE[1] * 2 * Math.SQRT2).toBeLessThan(MINE_PITCH)
     expect(MINE_DASH_FADE[1] * 2 * Math.SQRT2).toBeLessThan(MINE_DASH)
