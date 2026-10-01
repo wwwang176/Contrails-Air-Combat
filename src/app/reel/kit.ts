@@ -147,6 +147,15 @@ export type ReelEvent =
   }
   /** 第 `prop` 個地面物件在這一刻炸毀（換殘骸、爆一團、起火） */
   | { readonly at: number, readonly kind: 'destroy', readonly prop: number }
+  /**
+   * 導演指定的一團爆炸：局部座標 (x, z)、離地 `y` m，`size` 是相對一枚炸彈的線性倍率
+   * （1 = 一枚炸彈的火球，3 = 三倍直徑）。陸上的配方，帶閃光、碎片、火星與 `size` 處地面火。
+   * 二次爆炸、油槽殉爆這種「比炸彈還大」的畫面用它；不會炸毀任何物件（要炸毀用 `destroy`）
+   */
+  | {
+    readonly at: number, readonly kind: 'blast',
+    readonly x: number, readonly y: number, readonly z: number, readonly size: number
+  }
 
 export interface ReelCamera {
   readonly position: Vector3
