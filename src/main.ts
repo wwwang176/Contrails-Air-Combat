@@ -22,7 +22,7 @@ import {
   blastGainDb, blastRate, damageGainDb, dopplerRate, engineRate, hitFeedback, shakeGainDb,
   hitRate, shakeInterval, windParams,
 } from './audio/curves'
-import { DAY_PALETTES, applyTimeOfDay } from './render/timeOfDay'
+import { DAY_PALETTES, applyTimeOfDay, type TimeOfDay } from './render/timeOfDay'
 import { FAR_LAND_NAME } from './render/leyteGround'
 import { flatSeaCrashPolicy } from './world/seaCrash'
 import { arenaKills, createArenaState, stepArena } from './world/arena'
@@ -3597,8 +3597,7 @@ const menuReel: MenuReel = createMenuReel({
   camera: ctx.camera,
   terrain: () => terrain,
   setTimeOfDay(tod) {
-    applyTimeOfDay(ctx, terrain, tod)
-    syncFireSmokeLighting()
+    setMenuTimeOfDay(tod)
   },
   fade: document.getElementById('reel-fade') as HTMLElement,
   caption: document.getElementById('reel-caption') as HTMLElement,
@@ -3632,12 +3631,73 @@ const menuReel: MenuReel = createMenuReel({
     smoke(x, y, z, vx, vy, vz) {
       wreckFireSmoke.emit(x, y, z, vx, vy, vz, REEL_SMOKE_SIZE)
     },
+    fire(x, y, z) {
+      emitWreckFirePuff(x, y, z)
+    },
+    bomb(x, y, z, water) {
+      // 與 `emitBombBlasts` 同一套：配方依落點、放大到基準彈的尺度、閃光、碎片；
+      // 落在陸上的噴火星、點一處地面火
+      const vis = BOMB_BLAST_SIZE * REEL_BOMB_SCALE
+      scaleBlast(water ? WATER_BLAST : LAND_BLAST, vis * vis * vis, SCALED_BLAST)
+      const seed = (reelBlastSeed = (reelBlastSeed + 197) | 0)
+      emitBlast(BLAST_POOLS, SCALED_BLAST, x, y, z, seed)
+      blastLights.flash(x, y, z, REEL_BOMB_SCALE, ctx.camera.position)
+      debris.burst(x, y, z, BLAST_DEBRIS_COLOR, seed, blastDebrisSpeed())
+      if (!water) {
+        burstSparks(x, y, z)
+        lightGroundFire(groundFires, x, y, z)
+      }
+    },
+    torpedoSplash(x, z) {
+      scaleBlast(WATER_BLAST, REEL_TORPEDO_SPLASH, SCALED_BLAST)
+      emitBlast(BLAST_POOLS, SCALED_BLAST, x, 0, z, (reelBlastSeed = (reelBlastSeed + 211) | 0))
+    },
+    torpedoWake(slot, x, z, serial) {
+      wakes.emit(slot, x, z, serial)
+    },
+    torpedoHit(x, z) {
+      // 與 `emitTorpedoBlasts` 同一套，尺度取基準
+      scaleBlast(TORPEDO_BLAST, 1, SCALED_BLAST)
+      const seed = (reelBlastSeed = (reelBlastSeed + 223) | 0)
+      emitBlast(BLAST_POOLS, SCALED_BLAST, x, 0, z, seed)
+      blastLights.flash(x, 0, z, 1, ctx.camera.position)
+      debris.burst(x, 0, z, BLAST_DEBRIS_COLOR, seed, blastDebrisSpeed())
+      burstSparks(x, 0, z)
+    },
     clear() {
       wrecks.reset()
       resetPools()
     },
   },
 })
+
+/** 短片的炸彈相對基準彈的尺度（`blastScaleOf` 的那個尺度）。一串十幾枚，太大會糊成一片 */
+const REEL_BOMB_SCALE = 0.8
+/** 魚雷入水的水花：水面爆炸配方的當量倍率 —— 只是一個小水柱，不是爆炸 */
+const REEL_TORPEDO_SPLASH = 0.004
+/** 短片的爆炸種子，每一團推一格 */
+let reelBlastSeed = 0
+
+/**
+ * 選單期間的時段與天氣。雷雨的段要有雨與閃電；換到別的時段就收掉 ——
+ * 留著的話機庫裡也在下雨
+ */
+function setMenuTimeOfDay(tod: TimeOfDay): void {
+  applyTimeOfDay(ctx, terrain, tod)
+  syncFireSmokeLighting()
+  if (tod === 'storm' && storm === null) {
+    storm = createStorm()
+    rain = createRain()
+    ctx.scene.add(rain.object)
+  } else if (tod !== 'storm' && storm !== null) {
+    storm = null
+    if (rain !== null) {
+      ctx.scene.remove(rain.object)
+      rain.dispose()
+      rain = null
+    }
+  }
+}
 
 window.addEventListener('resize', () => menuReel.relayout())
 
@@ -3648,7 +3708,15 @@ function drawMenuBackground(frameSeconds: number): void {
   const fx = menuReel.hold ? 0 : frameSeconds
   stepEffects(fx, elapsed)
   spray.step(fx)
+  // 短片投下的炸彈點的地面火、魚雷的航跡
+  stepGroundFires(groundFires, fx, emitFirePuff, fireCrowd.ground)
+  wakes.bindOcean(terrain.oceanHeight)
+  wakes.step(fx, elapsed, terrain.heightAt)
   terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
+  if (storm !== null) {
+    applyFlash(ctx.lights, ctx.sky, DAY_PALETTES.storm, stepStorm(storm, fx, playThunder))
+  }
+  if (rain !== null) rain.update(ctx.camera.position, fx, frameSeconds, false, rainGroundAt)
   ctx.renderer.render(ctx.scene, ctx.camera)
 }
 
@@ -3716,10 +3784,7 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     // 特效池一起清 —— 機庫不推進那些池，留著的黑雲會凍在天上
     if (screen === 'hangar' || screen === 'battle') menuReel.stop()
     // 【機庫一律正午】短片換過時段，停在黃昏的話機庫的飛機是剪影
-    if (screen === 'hangar' && from !== 'hangar') {
-      applyTimeOfDay(ctx, terrain, 'noon')
-      syncFireSmokeLighting()
-    }
+    if (screen === 'hangar' && from !== 'hangar') setMenuTimeOfDay('noon')
     // 【`fight` 一律重建】不管是從設定頁進來還是結算的「再打一場」
     if (event === 'fight' && screen === 'battle') {
       // 【先鎖指標再載入】瀏覽器只准在點擊的當下要指標鎖定；等載入完再要會被拒絕

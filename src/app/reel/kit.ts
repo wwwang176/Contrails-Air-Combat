@@ -35,10 +35,22 @@ export interface ReelShip {
 }
 
 export type ReelEvent =
-  /** 這一架的固定機槍連射 `seconds` 秒 */
-  | { readonly at: number, readonly kind: 'burst', readonly actor: number, readonly seconds: number }
-  /** 這一架開始拖煙，到被擊落或這一段結束 */
-  | { readonly at: number, readonly kind: 'smoke', readonly actor: number }
+  /**
+   * 這一架的固定機槍連射 `seconds` 秒。給了 `target` 的話彈道收向那一架的前置點
+   * （槍口仍在機翼與機鼻上）—— 追擊者的機首不一定對著目標，不給的話曳光沿機首直直打出去
+   */
+  | {
+    readonly at: number, readonly kind: 'burst', readonly actor: number, readonly seconds: number,
+    readonly target?: number
+  }
+  /**
+   * 這一架開始拖煙，到被擊落或這一段結束。`engine` 是第幾具發動機冒（預設第一具）；
+   * `fire` 同時冒火 —— 發動機起火的近景要它，只有煙的話看不出是在燒
+   */
+  | {
+    readonly at: number, readonly kind: 'smoke', readonly actor: number,
+    readonly engine?: number, readonly fire?: boolean
+  }
   /** 這一架交給殘骸池。`blast` = 空中爆炸那一團火 */
   | { readonly at: number, readonly kind: 'kill', readonly actor: number, readonly blast: boolean }
   /** 一朵高砲黑雲，局部座標 */
@@ -55,6 +67,22 @@ export type ReelEvent =
   | {
     readonly at: number, readonly kind: 'gunner', readonly actor: number, readonly target: number,
     readonly seconds: number, readonly miss: number
+  }
+  /**
+   * 這一架投一串炸彈：`count` 枚、每隔 `interval` 秒一枚。落到地面或海面就爆
+   * （陸上揚土起火、海上掀水柱）。彈道是 `bombAt`
+   */
+  | {
+    readonly at: number, readonly kind: 'bomb', readonly actor: number,
+    readonly count: number, readonly interval: number
+  }
+  /**
+   * 這一架投一枚魚雷，入水後朝 `aim`（局部座標的海面一點）直跑。`hit` = 跑到那一點時
+   * 炸起水柱（打中船）；否則就是跑過去。軌跡是 `torpedoAt`，`interceptShip` 算得出瞄點
+   */
+  | {
+    readonly at: number, readonly kind: 'torpedo', readonly actor: number,
+    readonly aim: { readonly x: number, readonly z: number }, readonly hit: boolean
   }
 
 export interface ReelCamera {
@@ -95,8 +123,15 @@ export interface Shot {
   /** 局部 −Z 轉到太陽的水平方位 */
   readonly faceSun: boolean
   /**
-   * 整段動作落在哪一個圓裡（局部座標的圓心、半徑 m）。執行時這個圓整個要是開闊的
-   * 海 —— 只看原點的話，一路往前飛四公里的纏鬥會把殘骸丟在島上
+   * 取景在哪：`'sea'`（預設）找一塊開闊的海；`'island'` 把局部原點放在群島最大那座島
+   * （`pickIsland`）的島心，局部座標就是相對島心 —— 轟炸島上目標的段用它。
+   * 島的地形高度由 `createArchipelago()` 的 `field.sample` 給，測試照它查鏡頭與飛機離地多高
+   */
+  readonly site?: 'sea' | 'island'
+  /**
+   * 整段動作落在哪一個圓裡（局部座標的圓心、半徑 m）。`'sea'` 的段，執行時這個圓整個
+   * 要是開闊的海 —— 只看原點的話，一路往前飛四公里的纏鬥會把殘骸丟在島上。
+   * `'island'` 的段不檢查有沒有島（本來就在島上）
    */
   readonly clear: { readonly x: number, readonly z: number, readonly radius: number }
   readonly planes: readonly ReelPlane[]
@@ -130,8 +165,21 @@ export function rampedOffset(t: number, t0: number, d: number, a: number): numbe
   return a * d * d * 0.15 + a * d * 0.5 * r + 0.5 * a * r * r
 }
 
-/** 殘骸的線性阻力係數，1/s。與 `render/wrecks.ts` 同一條式子 */
-const WRECK_K = 9.81 / WRECK_TERMINAL
+/**
+ * 線性阻力加重力的拋體，從 `p`、`v` 出發 `tau` 秒後在哪（解析解）。`terminal` 是終端速度。
+ * 不夾在地面 —— 呼叫端自己判斷落地。
+ */
+export function ballisticAt(
+  p: Vector3, v: Vector3, tau: number, terminal: number, out: Vector3,
+): Vector3 {
+  const k = 9.81 / terminal
+  const e = (1 - Math.exp(-k * tau)) / k
+  return out.set(
+    p.x + v.x * e,
+    p.y - terminal * tau + (v.y + terminal) * e,
+    p.z + v.z * e,
+  )
+}
 
 /**
  * 殘骸交出去 `tau` 秒後在哪。`render/wrecks.ts` 的積分是線性阻力加重力，
@@ -139,15 +187,86 @@ const WRECK_K = 9.81 / WRECK_TERMINAL
  * `p`、`v` 是交出去那一刻的位置與速度（`velocityAt` 算得出來）。
  */
 export function wreckAt(p: Vector3, v: Vector3, tau: number, out: Vector3): Vector3 {
-  const e = (1 - Math.exp(-WRECK_K * tau)) / WRECK_K
-  const vt = 9.81 / WRECK_K
-  out.set(
-    p.x + v.x * e,
-    p.y - vt * tau + (v.y + vt) * e,
-    p.z + v.z * e,
-  )
+  ballisticAt(p, v, tau, WRECK_TERMINAL, out)
   if (out.y < 0) out.y = 0
   return out
+}
+
+/** 炸彈的終端速度，m/s。短片裡的炸彈走 `bombAt`，不走遊戲的二次阻力 */
+export const BOMB_TERMINAL = 260
+/** 炸彈從機腹哪裡掉出來：機體座標 */
+export const BOMB_RELEASE_Y = -1.5
+
+/** 投下 `tau` 秒後的炸彈位置。`p`、`v` 是投下那一刻（機腹的點與飛機的速度） */
+export function bombAt(p: Vector3, v: Vector3, tau: number, out: Vector3): Vector3 {
+  return ballisticAt(p, v, tau, BOMB_TERMINAL, out)
+}
+
+/** 魚雷在空中的終端速度（幾乎不受阻），水中的航速 m/s，跑的深度 m */
+const TORPEDO_AIR_TERMINAL = 400
+export const TORPEDO_SPEED = 22
+export const TORPEDO_DEPTH = -1
+
+const ENTRY = new Vector3()
+
+/** 魚雷投下後幾秒入水：空中那一段的 y 降到 0 的時刻（二分法） */
+export function torpedoEntry(p: Vector3, v: Vector3): number {
+  let lo = 0
+  let hi = 30
+  for (let k = 0; k < 40; k++) {
+    const mid = (lo + hi) / 2
+    if (ballisticAt(p, v, mid, TORPEDO_AIR_TERMINAL, ENTRY).y > 0) lo = mid
+    else hi = mid
+  }
+  return hi
+}
+
+/**
+ * 魚雷投下 `tau` 秒後在哪，寫進 `out`。回傳階段：0 空中、1 水中、2 已經跑到 `aim`。
+ * 入水之後朝 `aim` 直線跑，深度 `TORPEDO_DEPTH`、航速 `TORPEDO_SPEED`。
+ * `entry` 是 `torpedoEntry(p, v)` —— 呼叫端算一次存著，不要每幀二分。
+ */
+export function torpedoAt(
+  p: Vector3, v: Vector3, entry: number, aim: { readonly x: number, readonly z: number },
+  tau: number, out: Vector3,
+): 0 | 1 | 2 {
+  if (tau < entry) {
+    ballisticAt(p, v, tau, TORPEDO_AIR_TERMINAL, out)
+    return 0
+  }
+  ballisticAt(p, v, entry, TORPEDO_AIR_TERMINAL, ENTRY)
+  const dx = aim.x - ENTRY.x
+  const dz = aim.z - ENTRY.z
+  const len = Math.hypot(dx, dz)
+  const run = (tau - entry) * TORPEDO_SPEED
+  if (len < 1e-6 || run >= len) {
+    out.set(aim.x, TORPEDO_DEPTH, aim.z)
+    return 2
+  }
+  return (out.set(ENTRY.x + (dx / len) * run, TORPEDO_DEPTH, ENTRY.z + (dz / len) * run), 1)
+}
+
+/**
+ * 魚雷要瞄哪一點才會跟船撞上：從 `from`（入水點）、`t0`（入水的秒數）出發，
+ * 照船的航速與魚雷航速解前置點，寫進 `out`（y = 0）。疊代幾次就收斂
+ */
+export function interceptShip(s: ReelShip, from: Vector3, t0: number, out: Vector3): Vector3 {
+  shipAt(s, t0, out)
+  for (let k = 0; k < 8; k++) {
+    const run = Math.hypot(out.x - from.x, out.z - from.z) / TORPEDO_SPEED
+    shipAt(s, t0 + run, out)
+  }
+  return out
+}
+
+/**
+ * `'island'` 的段把原點放在哪一座島：群島裡最大的那一座。執行時與測試都用這一支，
+ * 兩邊才是同一座
+ */
+export function pickIsland<T extends { readonly outerRadius: number }>(islands: readonly T[]): T | null {
+  let best: T | null = null
+  for (const s of islands) if (best === null || s.outerRadius > best.outerRadius) best = s
+  return best
 }
 
 /** 路徑在 `t` 的速度（中央差分），寫進 `out` */

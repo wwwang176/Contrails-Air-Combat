@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { PerspectiveCamera, Quaternion, Vector3 } from 'three'
-import { createReelCamera, rampedOffset, reelShots, type Shot } from '../../src/app/reelShots'
+import {
+  BOMB_RELEASE_Y, createReelCamera, pickIsland, rampedOffset, reelShots, TORPEDO_SPEED, torpedoAt, torpedoEntry,
+  type Shot,
+} from '../../src/app/reelShots'
+import { createArchipelago } from '../../src/world/archipelago'
 import { createFlight, flightPose } from '../../src/app/reelFlight'
 import { REEL_MAX_PLANES } from '../../src/app/menuReel'
 import { SHIP_CLASSES } from '../../src/world/ships'
 
 const STEP = 0.1
-const shots = [...reelShots(0.2), reelShots(0.8)[4]!]
+const shots = reelShots()
 
 /** 這一架在 `t` 已經交給殘骸池了嗎 */
 function killedBy(shot: Shot, actor: number, t: number): boolean {
@@ -18,6 +22,11 @@ function killedBy(shot: Shot, actor: number, t: number): boolean {
  * 船的桅杆與煙囪在盒外，所以在這個範圍裡的東西要高過 55 m
  */
 function overShip(shot: Shot, k: number, t: number, p: Vector3): boolean {
+  return overShipBy(shot, k, t, p, 8)
+}
+
+/** 同上，外擴 `margin` 公尺 */
+function overShipBy(shot: Shot, k: number, t: number, p: Vector3, margin: number): boolean {
   const s = shot.ships[k]!
   shipAt(shot, k, t, ship0)
   // 世界 → 艦體：繞 Y 轉 −heading
@@ -28,8 +37,12 @@ function overShip(shot: Shot, k: number, t: number, p: Vector3): boolean {
   const lx = dx * c - dz * n
   const lz = dx * n + dz * c
   return SHIP_CLASSES[s.cls].hull.some((b) =>
-    Math.abs(lx - b.center.x) < b.half.x + 8 && Math.abs(lz - b.center.z) < b.half.z + 8)
+    Math.abs(lx - b.center.x) < b.half.x + margin && Math.abs(lz - b.center.z) < b.half.z + margin)
 }
+
+/** `'island'` 的段取景的那座島：執行時用同一支 `pickIsland` 挑 */
+const archipelago = createArchipelago()
+const island = pickIsland(archipelago.islands)!
 const ship0 = new Vector3()
 
 function shipAt(shot: Shot, k: number, t: number, out: Vector3): Vector3 {
@@ -48,7 +61,7 @@ describe('rampedOffset：平順加上去的加速度', () => {
   })
 })
 
-describe.each(shots.map((s) => [s.id + (s.id === 'home' ? `:${s.planes[0]!.spec.id}` : ''), s] as const))(
+describe.each(shots.map((s) => [s.id, s] as const))(
   '分鏡 %s',
   (_name, shot) => {
     const cam = createReelCamera()
@@ -63,6 +76,47 @@ describe.each(shots.map((s) => [s.id + (s.id === 'home' ? `:${s.planes[0]!.spec.
         expect(shot.events[k]!.at).toBeGreaterThanOrEqual(shot.events[k - 1]!.at)
       }
       for (const e of shot.events) expect(e.at).toBeLessThan(shot.duration)
+    })
+
+    it('島上取景：鏡頭離地至少 5 m、飛機至少 30 m、船停在水深 2 m 以上的海面', () => {
+      if (shot.site !== 'island') return
+      // 局部座標相對島心，執行時不轉 —— 轉了的話這裡的地形對不上
+      expect(shot.faceSun).toBe(false)
+      const ground = (x: number, z: number): number => archipelago.field.sample(island.cx + x, island.cz + z)
+      for (const t of times) {
+        shot.camera(t, cam)
+        expect(cam.position.y - ground(cam.position.x, cam.position.z), `鏡頭 t=${t.toFixed(1)}`)
+          .toBeGreaterThanOrEqual(5)
+        shot.planes.forEach((p, i) => {
+          if (killedBy(shot, i, t)) return
+          p.path(t, a)
+          expect(a.y - ground(a.x, a.z), `#${i} t=${t.toFixed(1)}`).toBeGreaterThanOrEqual(30)
+        })
+        for (let k = 0; k < shot.ships.length; k++) {
+          shipAt(shot, k, t, ship)
+          expect(ground(ship.x, ship.z), `船 ${k} t=${t.toFixed(1)}`).toBeLessThan(-2)
+        }
+      }
+    })
+
+    it('打中的魚雷跑到瞄點時撞在船身上，而且在片長之內', () => {
+      const pose = createFlight()
+      const p0 = new Vector3()
+      const v0 = new Vector3()
+      const at = new Vector3()
+      for (const e of shot.events) {
+        if (e.kind !== 'torpedo' || !e.hit) continue
+        flightPose(shot.planes[e.actor]!.path, e.at, pose)
+        p0.set(0, BOMB_RELEASE_Y, 0).applyQuaternion(pose.quaternion).add(pose.position)
+        v0.copy(pose.velocity)
+        const entry = torpedoEntry(p0, v0)
+        torpedoAt(p0, v0, entry, e.aim, entry, at)
+        const arrive = e.at + entry + Math.hypot(e.aim.x - at.x, e.aim.z - at.z) / TORPEDO_SPEED
+        expect(arrive, `#${e.actor} 在 ${e.at} 秒投的魚雷`).toBeLessThan(shot.duration)
+        const struck = shot.ships.some((_, k) =>
+          overShipBy(shot, k, arrive, at.set(e.aim.x, 0, e.aim.z), 4))
+        expect(struck, `#${e.actor} 在 ${e.at} 秒投的魚雷到瞄點時沒有船`).toBe(true)
+      }
     })
 
     it('飛機、船與鏡頭整段都在宣告的開闊海面圓內', () => {

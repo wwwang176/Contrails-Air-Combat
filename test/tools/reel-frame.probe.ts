@@ -11,7 +11,7 @@ import { createReelCamera, reelShots } from '../../src/app/reelShots'
 const args = process.argv.slice(2).filter((a) => a !== '--')
 const id = args[0] ?? 'stream'
 const times = args.slice(1).map(Number)
-const shot = reelShots(0.2).find((s) => s.id === id)
+const shot = reelShots().find((s) => s.id === id)
 if (shot === undefined) throw new Error(`沒有這一段：${id}`)
 const cam = createReelCamera()
 const c = new PerspectiveCamera(50, 16 / 9, 1, 1e5)
