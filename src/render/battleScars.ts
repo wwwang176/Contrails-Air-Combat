@@ -17,6 +17,10 @@ import { assetUrl } from '../core/asset'
  *   14～15  壕溝（同上）
  * ```
  *
+ * 【雷區是程序式畫的，不用圖集】有向矩形內一片淡色的翻土、規則排列的小點、邊緣的虛線。
+ * 圖集 16 格已經用滿；小點與虛線依像素足跡淡出（`scarsGlsl` 的 `MINES`），遠圖裡只剩色塊，
+ * 不會在烘進遠層貼圖時閃爍。
+ *
  * 【彈坑是程序散佈的】`CRATER_GRID` 一格一個候選點，雜湊定位置、大小、方向、變體，
  * 照「離交戰帶多遠」的密度決定有沒有 —— 與空地的樹（`openTreesOver`）同一套。每個
  * 像素只看周圍 3 × 3 格，幾百個坑不必逐一跑。
@@ -28,6 +32,20 @@ export interface ScarLine {
   readonly points: readonly { readonly x: number; readonly z: number }[]
   /** 寬，m —— 圖集一格的橫向就是這個寬；沿線每走一個寬重複一次 */
   readonly width: number
+}
+
+/**
+ * 一塊有向矩形：中心（世界座標）、橫向軸與縱深軸（單位向量，互相垂直）、橫向半寬與縱深半長，m
+ */
+export interface ScarRect {
+  readonly x: number
+  readonly z: number
+  readonly ux: number
+  readonly uz: number
+  readonly vx: number
+  readonly vz: number
+  readonly hu: number
+  readonly hv: number
 }
 
 export interface BattleScars {
@@ -45,7 +63,16 @@ export interface BattleScars {
   readonly scorch: readonly { readonly x: number; readonly z: number; readonly r: number }[]
   readonly trenches: readonly ScarLine[]
   readonly tracks: readonly ScarLine[]
+  /** 雷區：有向矩形，畫在履帶痕之下 */
+  readonly minefields: readonly ScarRect[]
 }
+
+/** 雷區小點的格距與半徑，m。近層才看得到，像素足跡超過格距的三成就淡掉 */
+export const MINE_PITCH = 16
+export const MINE_DOT_R = 2.2
+/** 雷區邊緣虛線的線寬（半寬）與虛線一段的長度，m */
+export const MINE_EDGE_HALF = 2
+export const MINE_DASH = 12
 
 /** 彈坑候選點的格距，m。坑的半徑上限要小於它，3 × 3 格才看得到所有蓋到這一點的坑 */
 export const CRATER_GRID = 24
@@ -157,11 +184,38 @@ export function scarsGlsl(s: BattleScars): string {
       col = mix(col, t.rgb, t.a);
     }
   }`
+  const mines = s.minefields.length === 0 ? '' : `
+  // 雷區：有向矩形裡。翻土的淡色塊（遠近都看得到）、規則的小點與邊緣的虛線（依像素足跡淡出）
+  {
+    const vec4 MINES_A[${s.minefields.length}] = vec4[${s.minefields.length}](${
+  s.minefields.map((m) => `vec4(${f(m.x)}, ${f(m.z)}, ${f(m.hu)}, ${f(m.hv)})`).join(', ')});
+    const vec4 MINES_B[${s.minefields.length}] = vec4[${s.minefields.length}](${
+  s.minefields.map((m) => `vec4(${m.ux.toFixed(5)}, ${m.uz.toFixed(5)}, ${m.vx.toFixed(5)}, ${m.vz.toFixed(5)})`).join(', ')});
+    for (int i = 0; i < ${s.minefields.length}; i++) {
+      vec2 d = world - MINES_A[i].xy;
+      float u = dot(d, MINES_B[i].xy);
+      float v = dot(d, MINES_B[i].zw);
+      float eu = MINES_A[i].z - abs(u);
+      float ev = MINES_A[i].w - abs(v);
+      if (eu <= 0.0 || ev <= 0.0) continue;
+      float e = min(eu, ev);
+      col = mix(col, vec3(0.62, 0.53, 0.37), 0.26);
+      float dotFade = 1.0 - smoothstep(${f(MINE_PITCH * 0.15)}, ${f(MINE_PITCH * 0.45)}, px);
+      vec2 g = fract(vec2(u, v) / ${f(MINE_PITCH)}) - 0.5;
+      float dd = length(g) * ${f(MINE_PITCH)};
+      float dotA = (1.0 - smoothstep(${f(MINE_DOT_R * 0.7)}, ${f(MINE_DOT_R * 1.2)}, dd)) * dotFade;
+      col = mix(col, vec3(0.16, 0.14, 0.11), 0.7 * dotA);
+      float along = eu < ev ? v : u;
+      float dash = mix(0.5, step(0.5, fract(along / ${f(MINE_DASH)})), 1.0 - smoothstep(${f(MINE_DASH * 0.3)}, ${f(MINE_DASH)}, px));
+      col = mix(col, vec3(0.2, 0.17, 0.12), 0.75 * dash * bandCoverage(e, ${f(MINE_EDGE_HALF)}, px));
+    }
+  }`
   return `
-  // 【戰場的痕跡】燒田最底、再來履帶痕、壕溝、彈坑最上 —— 坑炸在溝與車轍上
+  // 【戰場的痕跡】燒田最底、雷區、履帶痕、壕溝、彈坑最上 —— 坑炸在溝與車轍上
   if (world.x > ${f(z.x0 - s.fade - 2000)} && world.x < ${f(z.x1 + s.fade + 2000)}
       && world.y > ${f(z.z0 - s.fade - 2000)} && world.y < ${f(z.z1 + s.fade + 2000)}) {
 ${scorch}
+${mines}
 ${linesGlsl('TRACKS', s.tracks, [12, 13])}
 ${linesGlsl('TRENCHES', s.trenches, [14, 15])}
   // 彈坑：周圍 3 × 3 格的候選點。密度看候選點離交戰帶多遠

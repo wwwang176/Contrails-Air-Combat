@@ -10,8 +10,8 @@ import { GROUND_FLAK_SPEC } from '../../world/shipGuns'
 import { JU87 } from '../../specs/ju87'
 import {
   ARTILLERY_ZONE, AT_GUNS, COLUMN_GAP, COLUMN_SPEED, COLUMN_TURN_RADIUS, FRONT_T34, FRONT_T34_SCRIPTED,
-  GERMAN_INFANTRY, KURSK_SMOKES, PANZER_ROUTE_EAST, PANZER_ROUTE_WEST, SOVIET_FLAK, SOVIET_INFANTRY,
-  SOVIET_TRUCKS, STALLED_PANZERS, T34_ROUTE, WRECK_PANZERS, WRECK_T34,
+  GERMAN_INFANTRY, KURSK_SMOKES, PANZER_ROUTE_A, PANZER_ROUTE_B, SOVIET_FLAK, SOVIET_INFANTRY,
+  SOVIET_TRUCKS, STALLED_PANZERS, T34_RESERVE_EAST, T34_RESERVE_WEST, WRECK_PANZERS, WRECK_T34,
 } from '../../world/kursk'
 import { POLTAVA_GROUND } from './shared'
 import type { GroundEntry, MissionCard, MissionTrigger } from './types'
@@ -222,32 +222,38 @@ export const GERMANY: readonly MissionCard[] = [
       altitude: 2000,
       ground: KURSK_GROUND,
       /**
-       * 【兩路德軍開場就在、蘇軍反擊縱隊藏著】三支同一個觸發出發。蘇軍那一支出發前
-       * 不在場上 —— 第一段先炸掉它們的話，第二段一開始就達成了
+       * 【兩路德軍開場就在、蘇軍預備隊藏著】四支同一個觸發出發。德軍兩支都走路（A 在斜路、
+       * B 在南路跟在後面）；蘇軍兩支出發前不在場上、從村北沿村的東西外側南下 —— 第一段先炸掉
+       * 它們的話，第二段一開始就達成了
        */
       columns: [
         {
-          team: 'blue', route: PANZER_ROUTE_WEST, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
-          gap: COLUMN_GAP, units: ['panzer4', 'panzer4', 'tiger', 'panzer4', 'panzer4'],
+          team: 'blue', route: PANZER_ROUTE_A, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
+          gap: COLUMN_GAP, units: ['panzer4', 'panzer4', 'tiger', 'panzer4', 'panzer4', 'panzer4'],
           depart: KURSK_BREAKTHROUGH,
         },
         {
-          team: 'blue', route: PANZER_ROUTE_EAST, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
-          gap: COLUMN_GAP, units: ['panzer4', 'tiger', 'panzer4', 'panzer4', 'panzer4'],
+          team: 'blue', route: PANZER_ROUTE_B, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
+          gap: COLUMN_GAP, units: ['panzer4', 'tiger', 'panzer4', 'panzer4', 'panzer4', 'panzer4'],
           depart: KURSK_BREAKTHROUGH,
         },
         {
-          team: 'red', route: T34_ROUTE, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
-          gap: COLUMN_GAP, units: ['tank', 'tank', 'tank', 'tank', 'tank', 'tank'],
+          team: 'red', route: T34_RESERVE_WEST, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
+          gap: COLUMN_GAP, units: ['tank', 'tank', 'tank', 'tank', 'tank'],
+          depart: KURSK_BREAKTHROUGH, hidden: true,
+        },
+        {
+          team: 'red', route: T34_RESERVE_EAST, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
+          gap: COLUMN_GAP, units: ['tank', 'tank', 'tank', 'tank', 'tank'],
           depart: KURSK_BREAKTHROUGH, hidden: true,
         },
       ],
-      // 【第一段：反坦克砲全毀】防空、步兵、第一線的 T-34 打得掉但不算
+      // 【第一段：反坦克砲全毀】防空、步兵、半埋的 T-34 打得掉但不算
       destroyCount: AT_GUNS.length, destroyUnit: 'atGun',
-      // 【第二段：反擊的 T-34 炸掉 4 輛】**起始值，由試飛裁定**
+      // 【第二段：反擊的預備隊 T-34 炸掉 5 輛】**起始值，由試飛裁定**
       retarget: {
         when: KURSK_BREAKTHROUGH, messageKey: 'mission.germany-m4.retarget',
-        destroyCount: 4, destroyUnit: 'tank',
+        destroyCount: 5, destroyUnit: 'tank',
       },
       theater: {
         shooters: ['panzer4', 'tiger', 'tank', 'tankDug', 'atGun', 'infantry'],

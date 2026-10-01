@@ -42,7 +42,7 @@ import {
   ROAD_WIDTH as ASCH_ROAD_WIDTH, ROADS as ASCH_ROADS,
 } from '../world/asch'
 import {
-  battleKeepOut, burnRateOf, createKursk, SCAR_ZONE, SCORCH, TRACKS, TRENCHES,
+  battleKeepOut, burnRateOf, createKursk, MINEFIELDS, SCAR_ZONE, SCORCH, TRACKS, TRENCHES,
 } from '../world/kursk'
 import { preloadScarAtlas } from './battleScars'
 import type { HeightFieldData } from '../world/heightfield'
@@ -559,7 +559,7 @@ export const KURSK_SITE: SiteLayout = {
   roadWidth: 0,
   scars: {
     zone: SCAR_ZONE, fade: 700, dense: 0.3, sparse: 0.03,
-    scorch: SCORCH, trenches: TRENCHES, tracks: TRACKS,
+    scorch: SCORCH, trenches: TRENCHES, tracks: TRACKS, minefields: MINEFIELDS,
   },
 }
 
