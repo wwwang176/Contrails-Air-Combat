@@ -21,6 +21,8 @@ for (const t of times) {
   c.fov = cam.fov
   c.updateProjectionMatrix()
   c.position.copy(cam.position)
+  // 跟著機身滾轉的鏡頭（肩後、掛在機上的），上方不是世界上方
+  c.up.copy(cam.up)
   c.lookAt(cam.target)
   c.updateMatrixWorld()
   console.log(`t=${t}`)
