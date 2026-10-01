@@ -152,6 +152,8 @@ export interface GroundBattle {
   readonly objects: readonly Object3D[]
   /** 開場到現在打了幾發（坦克與步兵合計）。量測用 */
   readonly shots: number
+  /** 其中瞄準點就是目標、會爆出火光的（命中）有幾發。量測用 */
+  readonly hitShots: number
   /**
    * @param time 世界秒數（`world.time`），排程吃它
    * @param frameDt 這一幀世界前進了多少秒，粒子與曳光吃它
@@ -216,6 +218,7 @@ export function createGroundBattle(
   let artilleryClock = 0
   let lastTime = -1
   let shots = 0
+  let hitShots = 0
 
   function fire(
     pool: ShellPool, ox: number, oy: number, oz: number,
@@ -227,6 +230,7 @@ export function createGroundBattle(
     const d = Math.hypot(dx, dy, dz)
     if (d < 1) return
     shots++
+    if (hit) hitShots++
     const i = pool.cursor
     pool.cursor = (i + 1) % pool.capacity
     pool.x[i] = ox
@@ -313,6 +317,7 @@ export function createGroundBattle(
   return {
     objects: [flash.object, gunSmoke.object, dust.object, shellTracers.object, bulletTracers.object],
     get shots() { return shots },
+    get hitShots() { return hitShots },
 
     update(targets, time, frameDt, groundAt) {
       if (trackClock.length !== targets.length) {
@@ -412,6 +417,7 @@ export function createGroundBattle(
       dust.reset()
       lastTime = -1
       shots = 0
+      hitShots = 0
       burnClock = 0
       artilleryClock = 0
       trackClock.fill(0)

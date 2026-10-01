@@ -265,7 +265,7 @@ export const GERMANY: readonly MissionCard[] = [
         when: KURSK_BREAKTHROUGH, messageKey: 'mission.germany-m4.retarget',
         destroyCount: 8, destroyUnit: 'tank',
       },
-      // 【節奏】一台平均 4 秒一發（原本 7 秒看起來太慢）；步兵的班也一樣。砲兵的彈著 1.6 秒一柱
+      // 【節奏】一台平均 4 秒一發，步兵的班也一樣；再慢從空中看起來像沒在交火。砲兵的彈著 1.6 秒一柱
       theater: {
         shooters: ['panzer4', 'tiger', 'tank', 'tankDug', 'atGun', 'infantry'],
         period: 4,

@@ -147,7 +147,10 @@ export function steppeRavineFloraFor(ravines: readonly Ravine[]): FloraSource {
         const len = s1 - s0
         const dx = (b.x - a.x) / len
         const dz = (b.z - a.z) / len
-        for (const [spacing, bush] of [[RAVINE_TREE_SPACING, false], [RAVINE_BUSH_SPACING, true]] as const) {
+        // 【兩輪用索引不用陣列】這支每補一格 tile 就跑一次，陣列字面值每次都配置
+        for (let pass = 0; pass < 2; pass++) {
+          const bush = pass === 1
+          const spacing = bush ? RAVINE_BUSH_SPACING : RAVINE_TREE_SPACING
           const k0 = Math.floor(s0 / spacing) - 1
           const k1 = Math.floor(s1 / spacing) + 1
           for (let k = k0; k <= k1; k++) {

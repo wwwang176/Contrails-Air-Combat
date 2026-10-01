@@ -139,6 +139,18 @@ describe('劇本打掉前的最後一發', () => {
     gb.dispose()
   })
 
+  /** 【必中】補的這一發是這一台被打掉的畫面，打偏的話看起來是砲彈落在旁邊、車自己爆掉 */
+  it('補的那一發必中：瞄準點就是被打掉的那一台', () => {
+    const attacker = createGroundTarget(0, 'tank', 'blue', 0, 0, 0)
+    const victim = createGroundTarget(1, 'tank', 'red', 900, 0, 0)
+    victim.killAt = 30
+    const gb = createGroundBattle(theater as never, () => {})
+    run([attacker, victim], 0, 31, gb)
+    expect(gb.shots).toBe(1)
+    expect(gb.hitShots).toBe(1)
+    gb.dispose()
+  })
+
   it('射程外沒有人補；開場殘骸（killAt 0）不補；沒排定的（Infinity）不補', () => {
     const far = createGroundBattle(theater as never, () => {})
     const a = createGroundTarget(0, 'tank', 'blue', 0, 0, 0)

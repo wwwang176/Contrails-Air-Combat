@@ -20,6 +20,13 @@ describe('庫斯克的遠處林帶', () => {
     expect(glsl).toContain('fieldFar > 0.35')
   })
 
+  /** 【凹路壓過林帶】近處的樹離路緣至少 10 m；遠處的帶子蓋在路上的話，遠近切換時路面會變色 */
+  it('帶子的濃度扣掉凹路的覆蓋：凹路壓過林帶，與樹籬同一個優先序', () => {
+    const at = glsl.indexOf('// 防風林帶（遠處）')
+    const belt = glsl.slice(at, glsl.indexOf('\n  }', at))
+    expect(belt).toContain('(1.0 - bandCoverage(trackGap(world, s1, s2), trackWidthAt(world), px))')
+  })
+
   it('戰場方框與漸增距離是 world/kursk.ts 的 BELT_FRAME 那一組數', () => {
     for (const v of [BELT_FRAME.ox, BELT_FRAME.oz, BELT_FRAME.rx, BELT_FRAME.rz, BELT_FRAME.fx, BELT_FRAME.fz,
       BELT_FRAME.half, BELT_FRAME.north, BELT_FRAME.south, BELT_FRAME.ramp]) {

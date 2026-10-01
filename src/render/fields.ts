@@ -1955,7 +1955,11 @@ function beltsGlsl(b: SiteBelts): string {
     float boz = max(0.0, max(blz - ${n(f.south)}, ${n(f.north)} - blz));
     float bt = clamp(sqrt(box * box + boz * boz) / ${n(f.ramp)}, 0.0, 1.0);
     float beltFade = bt * bt * (3.0 - 2.0 * bt) * smoothstep(0.35, 0.9, fieldFar);
-    col = mix(col, ${rgb(b.hex)}, bandCoverage(best, ${n(b.halfWidth)}, px) * beltFade);
+    // 凹路壓過林帶（與樹籬同一個優先序）：近處的樹離路緣至少 BELT_ROAD_CLEAR，帶子蓋在路上的話
+    // 遠近切換時路面會變色
+    float beltCover = bandCoverage(best, ${n(b.halfWidth)}, px) * beltFade
+      * (1.0 - bandCoverage(trackGap(world, s1, s2), trackWidthAt(world), px));
+    col = mix(col, ${rgb(b.hex)}, beltCover);
   }`
 }
 
