@@ -1073,7 +1073,7 @@ const OPEN_PARCEL_GLSL = `  vec2 pq = vec2((left + right) * 0.5, (bottom + top) 
  */
 export const STEPPE_LAYOUT = {
   spacing: 640, aniso: 1.2, spacingVar: [0.85, 1.4], edgeJitter: 0.14,
-  ridge: 8, pasture: 0.14,
+  ridge: 8, pasture: 0.26,
 } as const
 
 const STEPPE_REG: RegionSample = {
@@ -1081,8 +1081,25 @@ const STEPPE_REG: RegionSample = {
 }
 
 /** 草原田第 `k` 條格線的位置，m：`edgeAt` 換成草原的抖動量 */
-function steppeEdgeAt(k: number, cell: number, salt: number): number {
+export function steppeEdgeAt(k: number, cell: number, salt: number): number {
   return (k + (hash2(k, salt) / 4294967296 - 0.5) * 2 * STEPPE_LAYOUT.edgeJitter) * cell
+}
+
+/**
+ * 草原田一個區塊的格局：走向 `angle`、格寬 `cellW`、格長 `cellH`，就地寫進 `out`
+ * （只動 `id`、`angle`、`cellW`、`cellH`）。
+ *
+ * 【與 `european` 的 `regionParams` 不同】走向與格寬的範圍都不一樣。`steppeRidgeGap` 與草原的
+ * 防風林（`flora.ts`）讀這一份，林帶才會落在畫出來的田埂上。
+ */
+export function steppeRegionParams(id: number, out: RegionSample): void {
+  const rh = hash1(id)
+  out.id = id
+  out.angle = 0.35 + ((rh & 0xffff) / 65536 - 0.5) * 0.5
+  const scale = STEPPE_LAYOUT.spacingVar[0]
+    + ((rh >>> 16) / 65536) * (STEPPE_LAYOUT.spacingVar[1] - STEPPE_LAYOUT.spacingVar[0])
+  out.cellW = STEPPE_LAYOUT.spacing * scale
+  out.cellH = out.cellW * STEPPE_LAYOUT.aniso
 }
 
 /**
@@ -1094,12 +1111,8 @@ function steppeEdgeAt(k: number, cell: number, salt: number): number {
  */
 export function steppeRidgeGap(x: number, z: number): number {
   regionAt(x, z, STEPPE_REG)
-  const rh = hash1(STEPPE_REG.id)
-  const angle = 0.35 + ((rh & 0xffff) / 65536 - 0.5) * 0.5
-  const scale = STEPPE_LAYOUT.spacingVar[0]
-    + ((rh >>> 16) / 65536) * (STEPPE_LAYOUT.spacingVar[1] - STEPPE_LAYOUT.spacingVar[0])
-  const cellW = STEPPE_LAYOUT.spacing * scale
-  const cellH = cellW * STEPPE_LAYOUT.aniso
+  steppeRegionParams(STEPPE_REG.id, STEPPE_REG)
+  const { angle, cellW, cellH } = STEPPE_REG
   const cos = Math.cos(-angle)
   const sin = Math.sin(-angle)
   const qx = x * cos - z * sin

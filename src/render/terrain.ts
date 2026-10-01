@@ -19,7 +19,8 @@ import {
 } from './vegetation'
 import {
   createIslandFlora, createLeyteFlora, farmHedgeFlora, farmWoodFlora,
-  islandCanopyCover, leyteCanopyCoarse, leyteFarCover, openHedgeFloraFor, openWoodFloraFor, type FloraSource,
+  islandCanopyCover, leyteCanopyCoarse, leyteFarCover, openHedgeFloraFor, openWoodFloraFor, steppeBeltFloraFor,
+  type FloraSource,
 } from './flora'
 import { requestLeyteCanopy } from './canopyBake'
 import { createLeyteGround } from './leyteGround'
@@ -43,6 +44,7 @@ import {
 } from '../world/asch'
 import {
   battleKeepOut, burnRateOf, CRATER_PATCHES, createKursk, isLargeVillage, MINEFIELDS, OBSTACLES, SCAR_ZONE, SCORCH,
+  shelterbeltFade,
   TRACKS, TRENCHES,
 } from '../world/kursk'
 import { buildObstacles } from './geometry/ground/obstacles'
@@ -50,6 +52,10 @@ import { preloadScarAtlas } from './battleScars'
 import type { HeightFieldData } from '../world/heightfield'
 import { FIELD_COLORS, type Season } from './season'
 import type { SiteLayout } from './fields'
+import {
+  buildRavineFords, buildRavineStripes, ravineKeepOutFor, steppeRavineFloraFor,
+} from './steppeRavines'
+import { RAVINES } from '../world/kurskRavines'
 import { excluding } from './floraExclude'
 import { bakeKeepOut, corridorZone, excludingZones, type KeepOutZone } from './keepOutMask'
 import {
@@ -550,6 +556,13 @@ function createAschTerrain(gfx?: TerrainGfx): Terrain {
  */
 export const STEPPE_CAPACITY = { house: 900, barn: 120, houseSlate: 250 } as const
 
+const RAVINE_KEEP_OUT = ravineKeepOutFor(RAVINES)
+/**
+ * 庫斯克的村的禁區：戰場（單位、壕溝、縱隊路線）與沖溝。村的房子、菜園與支路都讓開。
+ * 地形與測試用同一支，測的才是遊戲實際蓋出來的村。
+ */
+export const kurskVillageKeepOut = (x: number, z: number): boolean => battleKeepOut(x, z) || RAVINE_KEEP_OUT(x, z)
+
 /**
  * 庫斯克：沒有墊面、不畫路（路是區塊交界的凹路），交戰帶疊上彈坑、燒田、履帶痕與壕溝
  *
@@ -660,8 +673,10 @@ function createInlandTerrain(
   // 【空地的樹林門檻跟著季節】與地色（`openDeclGlsl`）讀同一份 `woodGate`
   const openWoods = openWoodFloraFor(FIELD_COLORS[season].woodGate)
   const openHedges = openHedgeFloraFor(FIELD_COLORS[season].hedgeChance)
-  // 【草原田的田裡沒有樹】田界是田埂、牧草地是草；樹只長在村裡（`steppeVillage.ts`）
-  let fields = (steppe ? [] : open ? [openHedges, openWoods] : [farmHedgeFlora, farmWoodFlora]).map(padClear)
+  // 【草原田的田裡沒有樹】田界是田埂、牧草地是草；樹只長在村裡（`steppeVillage.ts`）、田界的
+  // 防風林帶（`steppeBeltFloraFor`）與沖溝（`steppeRavineFloraFor`）。地色不畫林子，所以不必與地色對
+  let fields = (steppe ? [steppeBeltFloraFor(shelterbeltFade), steppeRavineFloraFor(RAVINES)]
+    : open ? [openHedges, openWoods] : [farmHedgeFlora, farmWoodFlora]).map(padClear)
   // 【建築：植被與烘圖是同一個散佈器】兩邊各包一份的話，遠處的屋頂色塊與近處的
   // 房子對不上。真實地物的建築已經避開河道；程序村沒有，要包河廊
   // 程序生成的地圖的村用洛伊納那一套生成器（`farmSettlements.ts`），蓋到植被圈伸得到
@@ -669,7 +684,7 @@ function createInlandTerrain(
   const villageReach = farm.field.cell * (farm.field.size - 1) / 2 + FLORA_RADIUS + 1000
   const villages = dressing === undefined
     ? farmSettlements(villageReach, season, steppe
-      ? { keepOut: battleKeepOut, burnRate: burnRateOf, large: isLargeVillage } : undefined)
+      ? { keepOut: kurskVillageKeepOut, burnRate: burnRateOf, large: isLargeVillage } : undefined)
     : null
   let buildings = padClear(villages === null ? dressing!.buildings : villages.flora)
   // 【不長樹的範圍】地圖列出它有的範圍，載入時各合成一張遮罩（`keepOutMask.ts`）。
@@ -717,6 +732,11 @@ function createInlandTerrain(
     for (const m of dressing?.baked ?? []) {
       clipmap.addOverlay(m.geometry, true)
       clipmap.replaces(m)
+    }
+    // 草原的沖溝：不透明的溝帶蓋掉底下的田與路，再把凹路穿過溝的地方補回去（渡口）。先進
+    // `villageGeometry`，下面那一圈照次序烘，所以在最底（村的菜園與支路壓過它）
+    if (steppe && villages !== null) {
+      villageGeometry.push(buildRavineStripes(RAVINES), buildRavineFords(RAVINES))
     }
     // 草原大村：屋後的長條菜園、支路的土路帶、燒毀房子底下的彈坑，平貼在地上烘進近圖。
     // 【次序】菜園在最底、支路壓過它、彈坑最上（被炸到的房子連路一起炸掉一角）

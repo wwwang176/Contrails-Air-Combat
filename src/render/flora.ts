@@ -6,6 +6,7 @@ import type { IslandDesc } from '../world/archipelago'
 import { baseHeight, farUpland, isInBeachClearing, isInRoadClearing } from '../world/leyte'
 import {
   edgeAt, fieldAt, isOpenParcel, isWoodField, onTrack, openWoodCover, regionAt, regionParams, regionSeed, splitCut,
+  steppeEdgeAt, steppeRegionParams,
   trackGap, trackWidthAt, valueNoise, villageDistance, FIELD_REACH, HEDGE_CHANCE, HEDGE_WIDTH, REGION_SPACING,
   TRACK_WARP_MAX, TRACK_WIDTH, TRACK_WIDTH_MAX, VILLAGE_CHANCE,
   VILLAGE_NEIGHBOUR, CONIFER_SHARE, OPEN_CONIFER_SHARE, OPEN_TREE_SCALE, OPEN_WOOD_DENSITY, OPEN_WOOD_GATE,
@@ -360,6 +361,218 @@ export function openHedgeFloraFor(chance: number): FloraSource {
     winOpen = true
     winHedge = chance
     hedges(x0, z0, x1, z1, heightAt, out)
+  }
+}
+
+/**
+ * ── 草原的防風林帶 ─────────────────────────────────────────
+ *
+ * 俄國南部森林草原的田界上，有一條條人工種的林帶；`steppe` 格局的田裡沒有別的樹。林帶沿
+ * **田埂**種（位置讀 `steppeEdgeAt` 與 `steppeRegionParams`，與畫在地上的田埂同一份），所以樹落在
+ * 田埂上，不會跑進田裡。
+ *
+ * 【分三層決定】一條田界有沒有林帶（`BELT_CHANCE`）→ 這條線上每 `BELT_SEGMENT` m 一段有沒有
+ * （缺口）與濃度（`fade`）→ 段裡每棵樹的位置。**都只由沿線的全域座標與線的身分決定**，與
+ * tile 切在哪裡無關（見檔頭的鐵律）。
+ *
+ * 【整條線同一個樹種】沿用 `speciesOf`：整排同種才讀得出防風林。
+ */
+
+/** 一條田界有林帶的機率 */
+export const BELT_CHANCE = 0.4
+/** 林帶分段的長度，m：缺口與濃度都以段為單位 */
+export const BELT_SEGMENT = 90
+/** 一段有樹的機率；其餘是缺口 */
+export const BELT_SEGMENT_KEEP = 0.85
+/** 三排交錯的沿線間距，m：同一排每隔兩棵，所以一排的間距是這個的三倍 */
+export const BELT_TREE_SPACING = 3.5
+/** 相鄰兩排之間的距離，m */
+export const BELT_ROW_GAP = 5
+/** 林帶的樹縮放：人工林帶的樹不老，比野生的矮（1.0 是 30 m） */
+export const BELT_TREE_SCALE = [0.45, 0.7] as const
+/** 樹離村的站址至少多遠，m：村的房子與菜園自己種樹，林帶不蓋上去 */
+export const BELT_VILLAGE_CLEAR = 500
+/** 樹離凹路的路緣至少多遠，m：縱隊走路，樹冠（半徑 4～6 m）不蓋到路面 */
+export const BELT_ROAD_CLEAR = 10
+/** 側向抖動的半幅，m */
+const BELT_SIDE_JITTER = 1.2
+/**
+ * 有林帶的段裡有多少比例長成小樹林：這一段不種三排的帶，改成一團橢圓形的林子（兩端窄、
+ * 中間寬），隨機散佈、枝葉交疊，從空中讀起來是一塊林地而不是一條線
+ */
+export const BELT_GROVE_CHANCE = 0.14
+/** 小樹林裡沿線的候選間距，m（側向隨機，所以 90 m 長的一段約 60 棵） */
+export const BELT_GROVE_SPACING = 1.5
+/** 小樹林最寬處的半寬，m */
+export const BELT_GROVE_HALF = 14
+/** 小樹林的樹縮放：自然長大的，比人工林帶高 */
+export const BELT_GROVE_SCALE = [0.5, 0.85] as const
+/** 小樹林裡針葉樹的比例，逐段決定 */
+const BELT_GROVE_CONE = 0.25
+
+let beltFade: (x: number, z: number) => number = () => 1
+
+/**
+ * 林帶某一段的狀態：0 缺口、1 三排的林帶、2 小樹林。**只由這一段的身分與段中心的濃度
+ * 決定**，與 tile 切在哪裡無關
+ */
+function beltSegment(axis: number, at: number, seg: number, lineKey: number): number {
+  const tc = (seg + 0.5) * BELT_SEGMENT
+  const cx = axis === 0 ? at : tc
+  const cz = axis === 0 ? tc : at
+  const fade = beltFade(cx * winCos - cz * winSin, cx * winSin + cz * winCos)
+  if (fade <= 0 || hash2(seg, lineKey ^ 0x5e61) / 4294967296 >= BELT_SEGMENT_KEEP * fade) return 0
+  return hash2(seg, lineKey ^ 0x9a07) / 4294967296 < BELT_GROVE_CHANCE ? 2 : 1
+}
+
+/**
+ * 這一點能不能種樹：在這一格 tile 裡、屬於我正在走的那一區、不壓在凹路上、離村夠遠
+ *
+ * 【驗證比的是「我正在走的那一區」】同 `walkLine`
+ */
+function beltSpotOk(x: number, z: number): boolean {
+  if (x < winX0 || x >= winX1 || z < winZ0 || z >= winZ1) return false
+  regionAt(x, z, AT)
+  if (AT.id !== winRid) return false
+  if (trackGap(x, z, AT) < trackWidthAt(x, z) + BELT_ROAD_CLEAR) return false
+  return villageDistance(x, z) >= BELT_VILLAGE_CLEAR
+}
+
+/**
+ * 沿一條田界種一條林帶，其中幾段長成小樹林。`axis`、`at`、`lo`、`hi` 同 `walkLine`；
+ * `lineKey` 是這條線的身分
+ */
+function plantBelt(axis: number, at: number, lo: number, hi: number, lineKey: number): void {
+  if (hi <= lo) return
+  if (hash1(lineKey ^ 0x2be1) / 4294967296 >= BELT_CHANCE) return
+  const kind = speciesOf(lineKey)
+  const m0 = Math.floor(lo / BELT_TREE_SPACING) - 1
+  const m1 = Math.floor(hi / BELT_TREE_SPACING) + 1
+  for (let m = m0; m <= m1; m++) {
+    const h = hash2(m, lineKey)
+    const t = (m + 0.5 + ((h / 4294967296) - 0.5) * 2 * ALONG_JITTER) * BELT_TREE_SPACING
+    if (t < lo || t >= hi) continue
+    if (beltSegment(axis, at, Math.floor(t / BELT_SEGMENT), lineKey) !== 1) continue
+
+    const g = hash1(h)
+    const row = (((m % 3) + 3) % 3) - 1
+    const side = row * BELT_ROW_GAP + ((g / 4294967296) - 0.5) * 2 * BELT_SIDE_JITTER
+    const x = (axis === 0 ? at + side : t) * winCos - (axis === 0 ? t : at + side) * winSin
+    const z = (axis === 0 ? at + side : t) * winSin + (axis === 0 ? t : at + side) * winCos
+    if (!beltSpotOk(x, z)) continue
+
+    const g2 = hash1(g)
+    const g3 = hash1(g2)
+    pushFlora(
+      winOut, x, winHeight(x, z), z, (g2 / 4294967296) * Math.PI * 2,
+      BELT_TREE_SCALE[0] + (g3 / 4294967296) * (BELT_TREE_SCALE[1] - BELT_TREE_SCALE[0]),
+      (hash1(g3) & 0xff) / 255, kind,
+    )
+  }
+
+  // 小樹林：候選點沿線密排，側向在橢圓形的範圍裡隨機取
+  const n0 = Math.floor(lo / BELT_GROVE_SPACING) - 1
+  const n1 = Math.floor(hi / BELT_GROVE_SPACING) + 1
+  for (let n = n0; n <= n1; n++) {
+    const h = hash2(n, lineKey ^ 0x6e07)
+    const t = (n + 0.5 + ((h / 4294967296) - 0.5) * 2 * ALONG_JITTER) * BELT_GROVE_SPACING
+    if (t < lo || t >= hi) continue
+    const seg = Math.floor(t / BELT_SEGMENT)
+    if (beltSegment(axis, at, seg, lineKey) !== 2) continue
+
+    const g = hash1(h)
+    // 橢圓：沿段的位置 0..1，兩端 0、中間 1；側向在 ±半寬 裡均勻取，超出就不種
+    const along = t / BELT_SEGMENT - seg
+    const lens = 1 - (2 * along - 1) * (2 * along - 1)
+    const half = BELT_GROVE_HALF * (0.35 + 0.65 * lens)
+    const side = ((g / 4294967296) * 2 - 1) * BELT_GROVE_HALF
+    if (Math.abs(side) > half) continue
+    const x = (axis === 0 ? at + side : t) * winCos - (axis === 0 ? t : at + side) * winSin
+    const z = (axis === 0 ? at + side : t) * winSin + (axis === 0 ? t : at + side) * winCos
+    if (!beltSpotOk(x, z)) continue
+
+    const g2 = hash1(g)
+    const g3 = hash1(g2)
+    pushFlora(
+      winOut, x, winHeight(x, z), z, (g2 / 4294967296) * Math.PI * 2,
+      BELT_GROVE_SCALE[0] + (g3 / 4294967296) * (BELT_GROVE_SCALE[1] - BELT_GROVE_SCALE[0]),
+      (hash1(g3) & 0xff) / 255,
+      hash2(seg, lineKey ^ 0x3c11) / 4294967296 < BELT_GROVE_CONE ? FloraKind.ConeTree : FloraKind.BroadTree,
+    )
+  }
+}
+
+const steppeBelts: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
+  winX0 = x0
+  winZ0 = z0
+  winX1 = x1
+  winZ1 = z1
+  winHeight = heightAt
+  winOut = out
+  const margin = Math.max(BELT_ROW_GAP + BELT_SIDE_JITTER, BELT_GROVE_HALF)
+
+  candidateRegions(x0, z0, x1, z1)
+  for (let ci = 0; ci < candCount; ci++) {
+    // 【一定要 >>> 0】理由同 `hedges`
+    const rid = CAND_ID[ci]! >>> 0
+    steppeRegionParams(rid, REG)
+    winRid = rid
+    const cs = Math.cos(-REG.angle)
+    const sn = Math.sin(-REG.angle)
+    winCos = Math.cos(REG.angle)
+    winSin = Math.sin(REG.angle)
+
+    let qxMin = Infinity
+    let qxMax = -Infinity
+    let qzMin = Infinity
+    let qzMax = -Infinity
+    for (let i = 0; i < 4; i++) {
+      const x = (i & 1) === 0 ? x0 : x1
+      const z = (i & 2) === 0 ? z0 : z1
+      const qx = x * cs - z * sn
+      const qz = x * sn + z * cs
+      if (qx < qxMin) qxMin = qx
+      if (qx > qxMax) qxMax = qx
+      if (qz < qzMin) qzMin = qz
+      if (qz > qzMax) qzMax = qz
+    }
+
+    const rMin = Math.floor(qzMin / REG.cellH) - 1
+    const rMax = Math.floor(qzMax / REG.cellH) + 1
+    const cMin = Math.floor(qxMin / REG.cellW) - 1
+    const cMax = Math.floor(qxMax / REG.cellW) + 1
+
+    // 橫的田界：一整條，沿 qx 走
+    for (let r = rMin; r <= rMax + 1; r++) {
+      const at = steppeEdgeAt(r, REG.cellH, 1)
+      if (at < qzMin - margin || at > qzMax + margin) continue
+      plantBelt(1, at, qxMin, qxMax, hash2(r ^ rid, 0xbe17))
+    }
+    // 縱的田界：每一列各自抖動，所以在每條橫線上斷開
+    for (let r = rMin; r <= rMax; r++) {
+      const bottom = steppeEdgeAt(r, REG.cellH, 1)
+      const top = steppeEdgeAt(r + 1, REG.cellH, 1)
+      if (top < qzMin || bottom > qzMax) continue
+      const lo = Math.max(bottom, qzMin)
+      const hi = Math.min(top, qzMax)
+      const colSalt = (r * 2 + 1) | 0
+      for (let c = cMin; c <= cMax + 1; c++) {
+        const at = steppeEdgeAt(c, REG.cellW, colSalt)
+        if (at < qxMin - margin || at > qxMax + margin) continue
+        plantBelt(0, at, lo, hi, hash2((c ^ colSalt) ^ rid, 0xbe29))
+      }
+    }
+  }
+}
+
+/**
+ * 草原的防風林帶。`fade(x, z)` 是各處的濃度，0（沒有）～1（照 `BELT_SEGMENT_KEEP`）：
+ * 戰場本身不種，往外漸增。
+ */
+export function steppeBeltFloraFor(fade: (x: number, z: number) => number): FloraSource {
+  return (x0, z0, x1, z1, heightAt, out) => {
+    beltFade = fade
+    steppeBelts(x0, z0, x1, z1, heightAt, out)
   }
 }
 

@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { farmLaneVillages, farmSettlements } from '../../src/render/farmSettlements'
-import { createFloraBuffer, FloraKind } from '../../src/render/flora'
+import { createFloraBuffer, FloraKind, steppeBeltFloraFor } from '../../src/render/flora'
 import { buildingColors } from '../../src/render/floraShapes'
 import { buildBlasts, RIDGE_CLEAR, steppeLayout } from '../../src/render/steppeVillage'
 import { churchRoom } from '../../src/render/settlements'
+import { steppeRavineFloraFor } from '../../src/render/steppeRavines'
+import { RAVINES } from '../../src/world/kurskRavines'
 import { regionAt, steppeRidgeGap, trackGap, trackWidthAt } from '../../src/render/fields'
-import { STEPPE_CAPACITY } from '../../src/render/terrain'
+import { kurskVillageKeepOut, STEPPE_CAPACITY } from '../../src/render/terrain'
 import { createVegetation } from '../../src/render/vegetation'
-import { at, battleKeepOut, burnRateOf, isLargeVillage, VILLAGE, VILLAGE_NAME } from '../../src/world/kursk'
+import {
+  at, battleKeepOut, burnRateOf, isLargeVillage, shelterbeltFade, VILLAGE, VILLAGE_NAME,
+} from '../../src/world/kursk'
 
 /**
  * 草原街村：房子沿凹路兩列、屋後垂直於街的菜園、只有七月麥田這個季節才用。
@@ -191,14 +195,19 @@ describe('戰場上的村', () => {
 
   /**
    * 【用正式的來源與容量實跑植被引擎】池子溢位時超出的部分被靜靜丟掉，症狀是近處的房子
-   * 整片消失。鏡頭放在戰場的南北軸與兩側：村的上空、南邊出生點一帶、北邊蘇軍後方
+   * 整片消失。鏡頭放在戰場的南北軸與兩側：村的上空、南邊出生點一帶、北邊蘇軍後方；
+   * 兩側拉到 ±4 km，防風林帶在方框之外才長滿
    */
   it('戰場的南北軸與兩側各處都不溢位', () => {
-    // 地形實際用的設定：只有戰場的村是大村
-    const v = createVegetation([farmSettlements(20000, 'julyWheat', { ...war, large: isLargeVillage }).flora], () => 0, {
+    // 地形實際用的設定：只有戰場的村是大村，田界有防風林帶
+    const v = createVegetation([
+      farmSettlements(20000, 'julyWheat', { ...war, keepOut: kurskVillageKeepOut, large: isLargeVillage }).flora,
+      steppeBeltFloraFor(shelterbeltFade),
+      steppeRavineFloraFor(RAVINES),
+    ], () => 0, {
       season: 'julyWheat', capacity: STEPPE_CAPACITY,
     })
-    for (const lx of [-2000, 0, 2000]) {
+    for (const lx of [-4000, -2000, 0, 2000, 4000]) {
       for (const lz of [-2500, -1000, 0, 1000, 2500, 4000, 5500]) {
         const c = at(lx, lz)
         v.update(c.x, c.z)

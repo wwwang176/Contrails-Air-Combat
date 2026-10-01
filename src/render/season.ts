@@ -128,8 +128,8 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
   },
   /**
    * 七月的俄國南部森林草原：麥子快熟了，整片是黃綠到麥金；集體農場的大田很少犁著
-   * 空著。樹林只剩零星幾團（門檻拉高），樹多半長在沖溝裡 —— 不像中歐那樣一片片林子。
-   * 德 M4 庫斯克用
+   * 空著。`steppe` 格局沒有空地長樹林那一套，所以 `woodGate` 在這裡不起作用；樹只長在村裡
+   * 與田界的防風林帶（`flora.ts` 的 `steppeBeltFloraFor`）。德 M4 庫斯克用
    */
   julyWheat: {
     palette: [0x566a3a, 0x667441, 0x777e48, 0x87884f, 0x989256, 0xa89c5e, 0xb9a665, 0xc9b06c],
