@@ -247,7 +247,7 @@ export const en: Record<MessageKey, string> = {
 
   'campaign.pick': 'Choose a side',
   'reel.fleet': 'Philippine Sea, June 1944',
-  'reel.stream': 'Over the German Bight, March 1944',
+  'reel.stream': 'Over Berlin, March 1944',
   'reel.dogfight': 'Over the North Sea, November 1944',
   'reel.strike': 'Off Rennell Island, January 1943',
   'reel.raid': 'Over Malta, April 1942',

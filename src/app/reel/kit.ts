@@ -129,6 +129,11 @@ export interface Shot {
    */
   readonly site?: 'sea' | 'island'
   /**
+   * 這一段用哪一張地形。省略 = 群島（`'archipelago'`）。內陸的段給 `'farmland'`：
+   * 換景的暗場裡重建地形（約半秒到一秒，藏在黑畫面裡），`clear` 圓躲的是那張地形的山丘
+   */
+  readonly terrain?: 'archipelago' | 'farmland'
+  /**
    * 整段動作落在哪一個圓裡（局部座標的圓心、半徑 m）。`'sea'` 的段，執行時這個圓整個
    * 要是開闊的海 —— 只看原點的話，一路往前飛四公里的纏鬥會把殘骸丟在島上。
    * `'island'` 的段不檢查有沒有島（本來就在島上）
