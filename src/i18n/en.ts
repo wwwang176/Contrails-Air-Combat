@@ -245,6 +245,7 @@ export const en: Record<MessageKey, string> = {
   'role.fighter': 'Fighter',
   'role.bomber': 'Bomber',
 
+  'campaign.pick': 'Choose a side',
   'campaign.allies': 'USA',
   'campaign.germany': 'Germany',
   'campaign.japan': 'Japan',

@@ -165,8 +165,27 @@
       .cover::after { content: ''; position: absolute; left: 22px; top: -1px; width: 8px; height: 8px;
         border-radius: 50%; background: rgba(0,0,0,.5); box-shadow: 30px 0 0 rgba(0,0,0,.5); }
 
-      /* ①b 主選單 ／ ①c 陣營：直式卡 */
+      /* ①b 主選單：三條橫幅疊在中間。
+         【形狀與陣營頁刻意不同】陣營頁是三張直卡；兩層都用直卡的話，玩家只剩
+         返回鍵分得出自己在第幾層 */
+      .menu-title { margin-bottom: 6px; text-align: center; text-shadow: 0 2px 10px rgba(0,0,0,.6); }
+      .rows { display: flex; flex-direction: column; gap: 14px; width: min(600px, 100%); }
+      .menurow { position: relative; display: grid; grid-template-columns: 210px 1fr auto;
+        align-items: center; gap: 0 22px; padding: 8px 24px 8px 8px; text-align: left; }
+      .menurow .photo { height: 118px; }
+      .menurow .txt { display: flex; flex-direction: column; }
+      .menurow .t { font: 700 22px/1.2 var(--f-body); }
+      .menurow .d { margin-top: 5px; font-size: 13px; }
+      .menurow::after { content: '›'; font-size: 30px; line-height: 1; color: var(--paper-dim); }
+      .menurow:hover::after { color: var(--sel); }
+      .menurow:hover .photo img { filter: grayscale(.7) sepia(.06) contrast(1.08) brightness(1); }
+
+      /* ①c 陣營：直式卡 */
       .cards { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; }
+      /* 這一頁在哪一層：「任務模式 › 選擇陣營」，簡報頁接著寫「任務模式 › 德軍」 */
+      .trail { margin: 0 0 12px; font-size: 13px; letter-spacing: .06em; color: var(--dim); }
+      .trail b { color: var(--strong); }
+      .camphead .trail { margin: 0 0 2px; font-size: 12px; }
       .tallcard { position: relative; width: 322px; padding: 0 0 18px; text-align: left;
         display: flex; flex-direction: column; background: var(--card); }
       .tallcard .photo { height: 292px; margin: 10px 10px 14px; }
@@ -542,11 +561,20 @@
         .ask { min-width: 0; padding: 14px 22px 16px; gap: 12px; }
         .ask h2 { font-size: 18px; }
 
-        /* 主選單、陣營：三張卡一排，照片的高度跟著畫面高 */
+        /* 主選單：標題收掉，三條橫幅的高度跟著畫面高（扣掉頁首 46、頁尾 10、兩道間距） */
+        .menu-title { display: none; }
+        .rows { gap: 8px; width: min(520px, calc(100vw - 24px)); }
+        .menurow { grid-template-columns: 150px 1fr auto; gap: 0 16px; padding: 6px 18px 6px 6px; }
+        .menurow .photo { height: min(96px, calc((100vh - 92px) / 3 - 14px)); height: min(96px, calc((100dvh - 92px) / 3 - 14px)); }
+        .menurow .t { font-size: 18px; }
+        .menurow .d { margin-top: 2px; font-size: 12px; }
+        /* 陣營：三張卡一排，照片的高度跟著畫面高 */
         .cards { flex-wrap: nowrap; gap: 12px; }
         .tallcard, #campaign .tallcard { width: min(250px, calc((100vw - 48px) / 3)); padding-bottom: 10px; }
         .tallcard .photo { margin: 8px; height: min(234px, calc(100vh - 130px)); height: min(234px, calc(100dvh - 130px)); }
-        #campaign .tallcard .photo { height: calc(100vh - 190px); height: calc(100dvh - 190px); }
+        /* 【扣 214】頁首、路徑那一行、卡片下半的三行字 */
+        .trail { margin: 0 0 6px; font-size: 12px; }
+        #campaign .tallcard .photo { height: calc(100vh - 214px); height: calc(100dvh - 214px); }
         .tallcard .t { margin: 0 12px; font-size: 16px; }
         .tallcard .d { margin: 3px 12px 0; font-size: 11.5px; line-height: 1.45; }
         .tallcard .m { margin: 6px 12px 0; padding-top: 5px; font-size: 10px; line-height: 1.45; }
@@ -735,21 +763,22 @@
       <!-- 暫停時重看教學。只在暫停選單開著、這一場有卡可看時出現（ui/menu.ts） -->
       <button id="help" class="gear help" data-act="help" hidden data-i18n="pause.tutorial">教學</button>
       <section id="menu" class="screen" style="--v:.50" hidden>
-        <div class="cards">
-          <button class="tallcard paperbit" data-act="mission">
+        <h1 class="menu-title">CONTRAILS AIR: COMBAT</h1>
+        <div class="rows">
+          <button class="menurow paperbit" data-act="mission">
             <span class="photo"><i class="tape tl"></i><img src="/ui/mission.jpg" alt=""></span>
-            <span class="t" data-i18n="menu.mission">任務模式</span>
-            <span class="d" data-i18n="menu.mission.sub">參與史實戰役</span>
+            <span class="txt"><span class="t" data-i18n="menu.mission">任務模式</span>
+              <span class="d" data-i18n="menu.mission.sub">參與史實戰役</span></span>
           </button>
-          <button class="tallcard paperbit" data-act="skirmish">
-            <span class="photo"><i class="tape br"></i><img src="/ui/skirmish.jpg" alt=""></span>
-            <span class="t" data-i18n="menu.skirmish">遭遇戰</span>
-            <span class="d" data-i18n="menu.skirmish.sub">建立自己的戰役</span>
+          <button class="menurow paperbit" data-act="skirmish">
+            <span class="photo"><i class="tape tl"></i><img src="/ui/skirmish.jpg" alt=""></span>
+            <span class="txt"><span class="t" data-i18n="menu.skirmish">遭遇戰</span>
+              <span class="d" data-i18n="menu.skirmish.sub">建立自己的戰役</span></span>
           </button>
-          <button class="tallcard paperbit" data-act="hangar">
+          <button class="menurow paperbit" data-act="hangar">
             <span class="photo"><i class="tape tl"></i><img src="/ui/hangar.jpg" alt=""></span>
-            <span class="t" data-i18n="menu.hangar">機庫</span>
-            <span class="d" data-i18n="menu.hangar.sub">檢視每一架飛機</span>
+            <span class="txt"><span class="t" data-i18n="menu.hangar">機庫</span>
+              <span class="d" data-i18n="menu.hangar.sub">檢視每一架飛機</span></span>
           </button>
         </div>
       </section>
@@ -771,6 +800,7 @@
       <section id="campaign" class="screen" style="--v:.60" hidden>
         <div class="pane">
           <button class="back" data-act="back" data-i18n="back.menu">主選單</button>
+          <div class="trail"><span data-i18n="menu.mission">任務模式</span> › <b data-i18n="campaign.pick">選擇陣營</b></div>
           <div class="cards" id="campaign-cards"></div>
         </div>
       </section>
@@ -782,6 +812,7 @@
           <div class="brief">
             <div class="left">
               <div class="camphead">
+                <div class="trail"><span data-i18n="menu.mission">任務模式</span> ›</div>
                 <div class="cn" id="camp-name"></div>
               </div>
               <div class="route" id="route"></div>

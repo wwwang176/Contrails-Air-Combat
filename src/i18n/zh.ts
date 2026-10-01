@@ -247,6 +247,7 @@ export const zh = {
   'role.fighter': '戰鬥機',
   'role.bomber': '轟炸機',
 
+  'campaign.pick': '選擇陣營',
   'campaign.allies': '美軍',
   'campaign.germany': '德軍',
   'campaign.japan': '日軍',
