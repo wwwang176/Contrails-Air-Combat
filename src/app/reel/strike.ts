@@ -235,12 +235,6 @@ LEFT_AIM.x -= 45
 LEFT_AIM.z += 6
 const T_LEFT_HIT = LEFT_DROP.at + LEFT_DROP.entry
   + Math.hypot(LEFT_AIM.x - LEFT_DROP.splash.x, LEFT_AIM.z - LEFT_DROP.splash.z) / TORPEDO_SPEED
-/**
- * 命中之後船上冒的兩團黑煙與火光（借高砲黑雲來畫），貼在命中點上方。
- * 水柱本身只沖到桅杆一半、一秒多就散，少了這兩團命中看起來太輕
- */
-const HIT_SMOKE_A = new Vector3(HIT.x - 4, 14, HIT.z - 6)
-const HIT_SMOKE_B = new Vector3(LEFT_AIM.x + 3, 12, LEFT_AIM.z - 7)
 
 const W2_AT = T_DROP + WAVE2_LAG
 const W2_DROP = drop(wave2, W2_AT)
@@ -477,8 +471,6 @@ export const STRIKE: Shot = {
     { at: AA_KILL, kind: 'kill', actor: AA_HIT, blast: true },
     { at: T_DROP, kind: 'torpedo', actor: 0, aim: HIT, hit: true },
     { at: LEFT_DROP.at, kind: 'torpedo', actor: 1, aim: LEFT_AIM, hit: true },
-    { at: T_HIT + 0.15, kind: 'flak', x: HIT_SMOKE_A.x, y: HIT_SMOKE_A.y, z: HIT_SMOKE_A.z },
-    { at: T_LEFT_HIT + 0.15, kind: 'flak', x: HIT_SMOKE_B.x, y: HIT_SMOKE_B.y, z: HIT_SMOKE_B.z },
     { at: 9, kind: 'aa', ship: 2, actor: 0, seconds: 10, miss: 40 },
     { at: 9, kind: 'aa', ship: 3, actor: 5, seconds: 14, miss: 40 },
     { at: 10, kind: 'aa', ship: 2, actor: FIGHTER_HIT, seconds: 6, miss: 25 },
