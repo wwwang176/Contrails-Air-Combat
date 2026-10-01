@@ -207,6 +207,8 @@ const REEL_TORPEDOES = 8
 /** 發動機起火：一朵火的間隔，秒 */
 const FIRE_INTERVAL = 0.09
 const AIM = { x: 0, z: 0 }
+/** 換頁時主角從舊位置滑到新位置要幾秒 */
+const SUBJECT_SLIDE = 0.6
 /** 炸彈落在地面物件命中盒外多少公尺內就算炸到 */
 const PROP_BLAST_REACH = 15
 /** 炸彈落在船體碰撞盒外多少公尺內算打中船（甲板上爆、留火點），m */
@@ -258,7 +260,14 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   let t = 0
   let cursor = 0
   let fadingOut = false
+  /**
+   * 主角現在落在畫面寬度的第幾成。換頁或縮放時改的是 `subjectGoal`，這裡用
+   * `SUBJECT_SLIDE` 秒前後放慢滑過去 —— 直接寫進來的話整個畫面在一幀內橫移兩成寬
+   */
   let subjectX = 0.5
+  let subjectGoal = 0.5
+  let slideFrom = 0.5
+  let slideAge = SUBJECT_SLIDE
 
   /** 局部 → 世界：繞 Y 轉 `yaw`，再平移到 (ox, oz) */
   let ox = 0
@@ -416,7 +425,9 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       group.add(groundModels.object)
     }
 
-    subjectX = stage.subjectX()
+    // 【換段時直接到位】暗場蓋著，看不到跳
+    subjectGoal = subjectX = stage.subjectX()
+    slideAge = SUBJECT_SLIDE
     // 【從停下的狀態回來】暗場是藏著的；先以全黑出現、逼瀏覽器算一次版面，
     // 再寫 0 —— 同一幀裡又顯示又歸零的話過渡不會發生，畫面是直接跳亮
     if (stage.fade.hidden) {
@@ -813,6 +824,14 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     }
   }
 
+  /** 主角位置往 `subjectGoal` 滑一幀（smoothstep，起停都放慢） */
+  function slideSubject(dt: number): void {
+    if (slideAge >= SUBJECT_SLIDE) return
+    slideAge = Math.min(SUBJECT_SLIDE, slideAge + dt)
+    const k = slideAge / SUBJECT_SLIDE
+    subjectX = slideFrom + (subjectGoal - slideFrom) * k * k * (3 - 2 * k)
+  }
+
   let propRotation = 0
 
   function advance(dt: number, time: number): void {
@@ -853,6 +872,8 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       if (shot === null) {
         begin(shots[index]!)
       }
+      // 定格時也照牆鐘滑完 —— 版面換了，主角的位置不該跟著畫面一起停住
+      slideSubject(dt)
       advance(this.hold ? 0 : dt, time)
       const s = shot!
       if (!fadingOut && t >= s.duration - REEL_FADE) {
@@ -880,7 +901,11 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     },
 
     relayout() {
-      subjectX = stage.subjectX()
+      const goal = stage.subjectX()
+      if (goal === subjectGoal) return
+      subjectGoal = goal
+      slideFrom = subjectX
+      slideAge = 0
     },
 
     seek(shotId, at, stepFx) {
