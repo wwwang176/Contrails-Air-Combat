@@ -16,7 +16,7 @@ import { mountDirection } from '../weapons/types'
 import type { AircraftSpec } from '../specs/types'
 import { createFlight, flightPose, openSeaOrigin, type Flight } from './reelFlight'
 import {
-  BOMB_RELEASE_Y, bombAt, createReelCamera, pickIsland, REEL_MAX_AIM, reelShots, torpedoAt, torpedoEntry,
+  BOMB_RELEASE_Y, bombAt, createReelCamera, pickIsland, reelShots, torpedoAt, torpedoEntry,
   type ReelEvent, type Shot,
 } from './reelShots'
 import { createBombs, createTorpedoes, type BombVisuals, type OrdnancePool } from '../render/bombs'
@@ -142,8 +142,6 @@ interface Actor {
   readonly smokeFrom: Vector3
   /** 這一架還在連射幾秒 */
   burstLeft: number
-  /** 連射瞄哪一架；−1 = 沿機首直直打 */
-  burstTarget: number
   readonly cooldowns: Float32Array
   readonly muzzleFlash: Float32Array
   readonly flight: Flight
@@ -211,8 +209,6 @@ const PROP_BLAST_REACH = 15
 const BURNS_LONG: ReadonlySet<string> = new Set(['fuelDump', 'bombDump', 'oilTank', 'gasHolder'])
 
 const UP = new Vector3(0, 1, 0)
-const AIM_Q = new Quaternion()
-const IDENTITY_Q = new Quaternion()
 const V1 = new Vector3()
 const V2 = new Vector3()
 const V3 = new Vector3()
@@ -359,7 +355,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       const a: Actor = {
         spec: p.spec, path: p.path, model, lod, usingLod: false,
         smoking: false, smokeTimer: 0, smokeEngine: 0, burning: false, fireTimer: 0,
-        smokeFrom: new Vector3(), burstLeft: 0, burstTarget: -1,
+        smokeFrom: new Vector3(), burstLeft: 0,
         cooldowns: new Float32Array(mounts), muzzleFlash: new Float32Array(mounts),
         flight: createFlight(), position: new Vector3(), quaternion: new Quaternion(), velocity: new Vector3(),
       }
@@ -411,10 +407,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     switch (e.kind) {
       case 'burst': {
         const a = actors[e.actor]
-        if (a !== undefined) {
-          a.burstLeft = e.seconds
-          a.burstTarget = e.target ?? -1
-        }
+        if (a !== undefined) a.burstLeft = e.seconds
         break
       }
       case 'smoke': {
@@ -650,19 +643,8 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       a.cooldowns[i] = 60 / weapon.roundsPerMinute
       a.muzzleFlash[i] = FLASH_SECONDS
       V1.copy(mounts[i]!.position).applyQuaternion(a.quaternion).add(a.position)
+      // 【曳光沿機槍的實際方向，不修正】要打中是導演的事：把飛機飛到機首對著目標的位置
       mountDirection(a.spec.battery, i, V2).applyQuaternion(a.quaternion)
-      const target = a.burstTarget >= 0 ? actors[a.burstTarget] : undefined
-      if (target !== undefined && target.model !== null) {
-        // 【瞄準連射】彈 = 方向 × 初速 + 射手的機速，要在 τ 秒後與目標碰頭：
-        // 瞄點 = 目標 + (目標速度 − 射手速度)·τ，τ 取直線距離 ÷ 初速。
-        // 偏開機首方向不超過 `REEL_MAX_AIM` —— 再多就是曳光從機翼斜著射出去
-        const tau = V1.distanceTo(target.position) / weapon.muzzleVelocity
-        V3.copy(target.velocity).sub(a.velocity).multiplyScalar(tau).add(target.position).sub(V1).normalize()
-        const off = V2.angleTo(V3)
-        AIM_Q.setFromUnitVectors(V2, V3)
-        if (off > REEL_MAX_AIM) AIM_Q.slerp(IDENTITY_Q, 1 - REEL_MAX_AIM / off)
-        V2.applyQuaternion(AIM_Q)
-      }
       V2.multiplyScalar(weapon.muzzleVelocity).add(a.velocity)
       projectiles.spawn(V1.x, V1.y, V1.z, V2.x, V2.y, V2.z, 0, 0, 0, PROJECTILE_LIFETIME, weapon.caliber)
     }

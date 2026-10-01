@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { PerspectiveCamera, Quaternion, Vector3 } from 'three'
 import {
-  BOMB_RELEASE_Y, createReelCamera, pickIsland, rampedOffset, REEL_MAX_AIM, reelShots, TORPEDO_SPEED, torpedoAt,
-  torpedoEntry,
+  BOMB_RELEASE_Y, createReelCamera, pickIsland, rampedOffset, reelShots, TORPEDO_SPEED, torpedoAt, torpedoEntry,
   type Shot,
 } from '../../src/app/reelShots'
 import { createArchipelago } from '../../src/world/archipelago'
@@ -109,22 +108,28 @@ describe.each(shots.map((s) => [s.id, s] as const))(
       expect(shot.site === 'island' || shot.terrain === 'farmland').toBe(true)
     })
 
-    it('瞄準連射的期間，目標都在射手機首前方 6° 以內（曳光從機鼻往前打）', () => {
+    it('標了目標的連射，開火的每一刻機首正前方那條線都穿過目標的機身', () => {
       const shooter = createFlight()
       const nose = new Vector3()
       const toTarget = new Vector3()
-      const limit = REEL_MAX_AIM + (1 * Math.PI) / 180
       for (const e of shot.events) {
         if (e.kind !== 'burst' || e.target === undefined) continue
+        // 【半翼展的三分之一】機身與內側發動機的範圍 —— 用整個半翼展的話擦到翼尖也算打中，
+        // 畫面上就是曳光從目標旁邊飛過去
+        const halfSpan = shot.planes[e.target]!.spec.wing.span / 6
         for (let t = e.at; t <= e.at + e.seconds + 1e-9; t += 0.05) {
           if (killedBy(shot, e.target, t) || killedBy(shot, e.actor, t)) continue
           flightPose(shot.planes[e.actor]!.path, t, shooter)
           nose.set(0, 0, -1).applyQuaternion(shooter.quaternion)
           shot.planes[e.target]!.path(t, a)
           toTarget.subVectors(a, shooter.position)
-          const deg = (nose.angleTo(toTarget) * 180) / Math.PI
-          expect(nose.angleTo(toTarget), `#${e.actor} 打 #${e.target}，t=${t.toFixed(2)}，偏 ${deg.toFixed(1)}°`)
-            .toBeLessThanOrEqual(limit)
+          const ahead = toTarget.dot(nose)
+          // 目標中心到機首那條線的垂直距離
+          const miss = toTarget.addScaledVector(nose, -ahead).length()
+          const where = `#${e.actor} 打 #${e.target}，t=${t.toFixed(2)}`
+          expect(ahead, `${where}：目標不在前方`).toBeGreaterThan(0)
+          expect(miss, `${where}：機首那條線離目標中心 ${miss.toFixed(1)} m（上限 ${halfSpan.toFixed(1)} m）`)
+            .toBeLessThanOrEqual(halfSpan)
         }
       }
     })

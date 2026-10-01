@@ -49,8 +49,10 @@ export interface ReelShip {
 
 export type ReelEvent =
   /**
-   * 這一架的固定機槍連射 `seconds` 秒。給了 `target` 的話彈道收向那一架的前置點
-   * （槍口仍在機翼與機鼻上）—— 追擊者的機首不一定對著目標，不給的話曳光沿機首直直打出去
+   * 這一架的固定機槍連射 `seconds` 秒。**曳光一律沿機槍的實際方向打出去，放映機不修正。**
+   * `target` 宣告這一段連射要打中哪一架：`reel-shots.test.ts` 要求開火的每一刻，機首正前方
+   * 那條線都穿過目標的機身（離目標中心不超過它半翼展的三分之一、目標在前方）—— 要打中就得把
+   * 飛機飛到正確的射擊位置上，不是讓彈道去轉彎
    */
   | {
     readonly at: number, readonly kind: 'burst', readonly actor: number, readonly seconds: number,
@@ -184,13 +186,6 @@ export function rampedOffset(t: number, t0: number, d: number, a: number): numbe
   const r = tau - d
   return a * d * d * 0.15 + a * d * 0.5 * r + 0.5 * a * r * r
 }
-
-/**
- * 瞄準連射最多把彈道從機首方向偏開幾度（rad）。曳光要看得出是從機鼻往前打出去的；
- * 目標不在機首前方這個角度裡的話，彈道停在錐面上 —— 打不中，畫面上也不會斜著射。
- * `reel-shots.test.ts` 要求每一段瞄準連射的期間，目標都在機首前方這個角度（加 1°）裡
- */
-export const REEL_MAX_AIM = (5 * Math.PI) / 180
 
 /**
  * 線性阻力加重力的拋體，從 `p`、`v` 出發 `tau` 秒後在哪（解析解）。`terminal` 是終端速度。
