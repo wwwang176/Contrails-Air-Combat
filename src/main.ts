@@ -3683,6 +3683,10 @@ const menuReel: MenuReel = createMenuReel({
       debris.burst(x, y, z, BLAST_DEBRIS_COLOR, seed, blastDebrisSpeed())
       burstSparks(x, y, z)
     },
+    hits(events) {
+      const c = ctx.camera.position
+      sparks.emit(events, c.x, c.y, c.z)
+    },
     shipFire(x, y, z) {
       emitFirePuff(x, y, z)
     },
