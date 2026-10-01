@@ -75,8 +75,14 @@ export interface MenuReel {
   stop(): void
   /** 版面變了（換頁、視窗縮放）：重量主角該落在哪 */
   relayout(): void
-  /** 放到第幾段的哪一秒。量測與截圖用 */
-  readonly status: { readonly shot: string | null, readonly t: number }
+  /** 定格：時間不走，畫面照畫。截圖驗收用 —— 跳到某一秒之後截到的就是那一秒 */
+  hold: boolean
+  /** 放到第幾段的哪一秒、鏡頭在哪看哪。量測與截圖用（每次讀都配置，不要在幀迴圈裡讀） */
+  readonly status: {
+    readonly shot: string | null, readonly t: number
+    readonly camera: number[], readonly target: number[], readonly up: number[]
+    readonly facing: number[], readonly lens: number[]
+  }
   /**
    * 直接跳到某一段的某一秒（截圖驗收用）。事件從頭重放到那一刻，每一小步之後
    * 呼叫 `stepFx` —— 共用的特效池不跟著推進的話，一路放出來的黑雲全擠在出生那一刻
@@ -442,7 +448,8 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       camera.updateProjectionMatrix()
     }
     camera.position.copy(cam.position)
-    camera.up.set(0, 1, 0)
+    // 肩後、槍口那幾個鏡頭的上方跟著機身歪；局部座標的方向也要轉到世界
+    camera.up.copy(cam.up).applyQuaternion(frameQ)
     camera.lookAt(cam.target)
     // 【主角讓到右邊】左邊是選單。**平移投影，不是平移相機** —— 平移相機會有視差：
     // 照注視點的距離算出來的位移，對貼在鏡頭前的那一架是好幾倍，整架被推出畫面
@@ -477,14 +484,23 @@ export function createMenuReel(stage: ReelStage): MenuReel {
 
   return {
     get status() {
-      return { shot: shot?.id ?? null, t }
+      return {
+        shot: shot?.id ?? null, t,
+        camera: camera.position.toArray().map(Math.round),
+        target: cam.target.toArray().map(Math.round),
+        up: camera.up.toArray().map((v) => Math.round(v * 100) / 100),
+        facing: camera.getWorldDirection(new Vector3()).toArray().map((v) => Math.round(v * 100) / 100),
+        lens: [camera.near, camera.far, camera.fov, camera.aspect, camera.view?.offsetX ?? 0],
+      }
     },
+
+    hold: false,
 
     update(dt, time) {
       if (shot === null) {
         begin(shots[index]!)
       }
-      advance(dt, time)
+      advance(this.hold ? 0 : dt, time)
       const s = shot!
       if (!fadingOut && t >= s.duration - REEL_FADE) {
         fadingOut = true
@@ -504,6 +520,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       shot = null
       scene.remove(group)
       camera.fov = restFov
+      camera.up.set(0, 1, 0)
       // 【視窗位移要拿掉】戰鬥與機庫用同一台相機
       camera.clearViewOffset()
       // 【暗場要藏起來，不是留著全黑】它蓋在畫布上 —— 留著的話機庫與戰鬥整片黑
