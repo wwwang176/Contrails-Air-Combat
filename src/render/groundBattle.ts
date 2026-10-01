@@ -12,7 +12,7 @@ import { FIRE_SECONDS, type FirePuffFn } from './shipFires'
  * # 地面戰的戲
  *
  * 德 M4 的下面一直在打：坦克與反坦克砲互射、步兵開槍、砲兵的彈著揚起塵土、
- * 殘骸與農舍燒著不熄、移動的坦克拖著塵土。**純畫面，不進模擬** —— 誰打中誰
+ * 農舍的煙柱整場不熄、殘骸燒到熄、移動的坦克拖著塵土。**純畫面，不進模擬** —— 誰打中誰
  * 不改任何單位的血量（照劇本被打掉的那幾台由模擬自己處理，`GroundEntry.killAt`）。
  *
  * ```
@@ -53,10 +53,16 @@ const TRACK_DUST_EVERY = 0.35
 export const BURN_EVERY = 0.3
 
 /**
- * 殘骸整場冒煙的單位：只有坦克。砲位、步兵、卡車也冒的話火點多到幾十處，
+ * 殘骸冒煙的單位：只有坦克。砲位、步兵、卡車也冒的話火點多到幾十處，
  * 而地面火的池子是照一次轟炸的量訂的
  */
 export const BURNS: ReadonlySet<GroundUnitId> = new Set<GroundUnitId>(['panzer4', 'tiger', 'tank', 'tankDug'])
+
+/**
+ * 殘骸在地面火（`FIRE_SECONDS`）之後再冒煙多久，s。到了就不再補煙，已經噴出去的煙自己散盡：
+ * 一輛燒毀的戰車悶燒幾分鐘就熄，不是整場一直冒；整場的煙柱數也有上限。**起始值，由試飛裁定。**
+ */
+export const WRECK_SMOKE_SECONDS = 150
 
 /** 戲裡同時在飛的曳光彈上限 */
 const SHELL_CAPACITY = 256
@@ -395,7 +401,8 @@ export function createGroundBattle(
           const t = targets[s]!
           if (t.alive || t.dormant || t.arrived || !BURNS.has(t.unit.id)) continue
           if (diedAt[s]! < 0) diedAt[s] = t.scripted ? t.killAt : time
-          if (time - diedAt[s]! < FIRE_SECONDS) continue
+          const since = time - diedAt[s]!
+          if (since < FIRE_SECONDS || since >= FIRE_SECONDS + WRECK_SMOKE_SECONDS) continue
           burn(t.position.x, t.position.y, t.position.z)
         }
       }

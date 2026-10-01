@@ -7,8 +7,9 @@ import { assemble, cyl } from './parts'
  *
  * 尺寸是**幾何算出來的**，`ground-units.test.ts` 對 `real*` 的容差是 5%。
  */
-const MAN_R = 0.25
-const MAN_H = 1.8
+const MAN_R = 0.2
+/** 交戰中的步兵半蹲：站直的 1.8 m 圓柱從空中讀成一根根樁子 */
+const MAN_H = 1.4
 /** 每一個人在班裡的位置，m。x 成對對稱 */
 const SPOTS = [
   { x: -3, z: 0 }, { x: 3, z: 0 },

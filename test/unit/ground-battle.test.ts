@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  BURN_EVERY, BURNS, createGroundBattle, nearestEnemy, shotTimesBetween, SHOT_JITTER,
+  BURN_EVERY, BURNS, createGroundBattle, nearestEnemy, shotTimesBetween, SHOT_JITTER, WRECK_SMOKE_SECONDS,
 } from '../../src/render/groundBattle'
+import { FIRE_SECONDS } from '../../src/render/shipFires'
 import { BLAST_PACE, FIRE_BLAST } from '../../src/render/blast'
 import { FIRE_CHUNK_CAPACITY, FIRE_CHUNK_LIFE } from '../../src/render/chunks'
 import { createGroundTarget } from '../../src/world/groundTargets'
@@ -110,6 +111,29 @@ describe('用真的卡片開打', () => {
     }
     expect(at(tank)).toBeGreaterThan(0)
     expect(at(gun)).toBe(0)
+    gb.dispose()
+  })
+
+  /** 【殘骸的煙會熄】地面火之後再冒 `WRECK_SMOKE_SECONDS` 秒就不再補煙；整場一直冒的話煙柱只增不減 */
+  it('殘骸的煙在 FIRE_SECONDS + WRECK_SMOKE_SECONDS 之後不再補', () => {
+    const card = MISSIONS.germany.find((c) => c.id === 'germany-m4') as ReadyMissionCard
+    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
+    const burns: { x: number; z: number }[] = []
+    const gb = createGroundBattle({ ...card.battle.theater!, smokes: [] }, (x, _y, z) => burns.push({ x, z }))
+    const flat = (): number => 0
+    const tank = b.world.groundTargets.find((t) => t.unit.id === 'tankDug' && t.killAt === Infinity)!
+    tank.alive = false
+    const at = (): number => burns.filter((p) => p.x === tank.position.x && p.z === tank.position.z).length
+    const end = FIRE_SECONDS + WRECK_SMOKE_SECONDS
+    let during = 0
+    for (let s = 0; s < (end + 30) * 10; s++) {
+      b.world.time += 0.1
+      gb.update(b.world.groundTargets, b.world.time, 0.1, flat)
+      if (s === (end - 5) * 10) during = at()
+    }
+    // 熄之前的最後幾秒還在冒，熄了之後一朵都沒有多
+    expect(during).toBeGreaterThan(0)
+    expect(at()).toBeLessThanOrEqual(during + Math.ceil(5 / BURN_EVERY) + 1)
     gb.dispose()
   })
 })

@@ -952,6 +952,10 @@ function emitGroundKills(events: ImpactEvents): void {
   const d = events.data
   for (let e = 0; e < events.count; e++) {
     const o = e * IMPACT_STRIDE
+    const t = world.groundTargets[d[o + 3]!]
+    // 【人死不爆炸】火球、震動、閃光與煙柱都略過：機槍掃倒一個班只是人不見了。
+    // 炸彈的爆炸是彈自己的落點事件放的，不在這裡
+    if (t !== undefined && t.unit.personnel === true) continue
     // 【炸彈擊毀不放第二次爆炸】`nz` = 1 表示這一筆是爆風打的，那一顆的
     // 落點事件已經在 `emitBombBlasts` 放過火球與碎片；子彈擊毀沒有落點
     // 事件，這裡才放一團
@@ -965,8 +969,7 @@ function emitGroundKills(events: ImpactEvents): void {
       blastLights.flash(d[o]!, d[o + 1]!, d[o + 2]!, GROUND_KILL_SHAKE, ctx.camera.position)
     }
     // 【原地掛煙柱】燒 60 秒，與船火同一套參數
-    const t = world.groundTargets[d[o + 3]!]
-    const top = t === undefined ? 0 : t.impactY - t.position.y
+    const top =t === undefined ? 0 : t.impactY - t.position.y
     // 【油桶堆整片燒】一個火點在 28 × 18 m 的堆上只是一角冒煙；其餘一個
     const n = t !== undefined && t.unit.id === 'fuelDump' ? 6 : 1
     // 【散在腳印上】六個火點沿黃金角撒在半徑 8 m 內 —— 純裝飾
@@ -2215,6 +2218,8 @@ function queueAudioCues(): void {
   const g = world.groundKillEvents
   for (let e = 0; e < g.count; e++) {
     const o = e * IMPACT_STRIDE
+    // 【人死沒有爆炸聲】與畫面同一條（`emitGroundKills`）
+    if (world.groundTargets[g.data[o + 3]!]?.unit.personnel === true) continue
     if (g.data[o + 5]! === 0) pushCue(cues, CUE.Blast, g.data[o]!, g.data[o + 1]!, g.data[o + 2]!)
   }
   const b = world.bombEvents
