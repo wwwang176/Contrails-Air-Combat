@@ -42,6 +42,19 @@ describe('flightPose：路徑 → 姿態', () => {
     const right = new Vector3(1, 0, 0).applyQuaternion(f.quaternion)
     expect(right.y).toBeGreaterThan(0)
   })
+
+  it('過載：平飛是 1，等速水平圓周是 √(1 + (v²/(r·g))²)', () => {
+    const level = createFlight()
+    flightPose((t, out) => out.set(0, 300, -100 * t), 5, level)
+    expect(level.loadFactor).toBeCloseTo(1, 4)
+
+    const r = 400
+    const v = 150
+    const w = v / r
+    const turn = createFlight()
+    flightPose((t, out) => out.set(r * Math.cos(w * t), 500, -r * Math.sin(w * t)), 3, turn)
+    expect(turn.loadFactor).toBeCloseTo(Math.hypot(1, (v * v) / (r * G)), 2)
+  })
 })
 
 describe('openSeaOrigin：找一塊開闊的海', () => {

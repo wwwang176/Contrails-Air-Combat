@@ -17,10 +17,12 @@ export interface Flight {
   /** m/s */
   readonly velocity: Vector3
   readonly quaternion: Quaternion
+  /** 過載，G：升力方向上的「加速度 + 重力」除以 g。平飛是 1 */
+  loadFactor: number
 }
 
 export function createFlight(): Flight {
-  return { position: new Vector3(), velocity: new Vector3(), quaternion: new Quaternion() }
+  return { position: new Vector3(), velocity: new Vector3(), quaternion: new Quaternion(), loadFactor: 1 }
 }
 
 const G = 9.81
@@ -63,6 +65,7 @@ export function flightPose(path: Path, t: number, out: Flight): Flight {
   FWD.copy(out.velocity).multiplyScalar(1 / speed)
   UP.set(ACC.x, ACC.y + G, ACC.z)
   UP.addScaledVector(FWD, -UP.dot(FWD))
+  out.loadFactor = UP.length() / G
   // 【垂直俯衝或爬升時升力方向退化】拿世界的水平面補一個上方
   if (UP.lengthSq() < 1e-9) UP.set(0, 0, 1).addScaledVector(FWD, -FWD.z)
   UP.normalize()

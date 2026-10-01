@@ -3683,6 +3683,9 @@ const menuReel: MenuReel = createMenuReel({
       debris.burst(x, y, z, BLAST_DEBRIS_COLOR, seed, blastDebrisSpeed())
       burstSparks(x, y, z)
     },
+    vortex(seat, loadFactor, lx, ly, lz, rx, ry, rz) {
+      vortex.emit(seat, loadFactor, lx, ly, lz, rx, ry, rz)
+    },
     hits(events) {
       const c = ctx.camera.position
       sparks.emit(events, c.x, c.y, c.z)
@@ -3744,6 +3747,7 @@ function drawMenuBackground(frameSeconds: number): void {
   const fx = menuReel.hold ? 0 : frameSeconds
   stepEffects(fx, elapsed)
   spray.step(fx)
+  vortex.step(fx)
   // 短片投下的炸彈點的地面火、魚雷的航跡
   stepGroundFires(groundFires, fx, emitFirePuff, fireCrowd.ground)
   wakes.bindOcean(terrain.oceanHeight)
@@ -4199,6 +4203,7 @@ if (initialRecoveryFailure !== null) {
       elapsed += dt
       stepEffects(dt, elapsed)
       spray.step(dt)
+      vortex.step(dt)
     })
   }
   return menuReel.status
