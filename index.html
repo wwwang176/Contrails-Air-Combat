@@ -182,10 +182,10 @@
 
       /* ①c 陣營：直式卡 */
       .cards { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; }
-      /* 這一頁在哪一層：「任務模式 › 選擇陣營」，簡報頁接著寫「任務模式 › 德軍」 */
+      /* 這一頁在哪一層：「任務模式 › 選擇陣營」、「任務模式 › 德軍 › 梅澤堡上空」。
+         兩頁都在返回鍵與內容之間的同一個位置 */
       .trail { margin: 0 0 12px; font-size: 13px; letter-spacing: .06em; color: var(--dim); }
       .trail b { color: var(--strong); }
-      .camphead .trail { margin: 0 0 2px; font-size: 12px; }
       .tallcard { position: relative; width: 322px; padding: 0 0 18px; text-align: left;
         display: flex; flex-direction: column; background: var(--card); }
       .tallcard .photo { height: 292px; margin: 10px 10px 14px; }
@@ -580,8 +580,9 @@
         .tallcard .m { margin: 6px 12px 0; padding-top: 5px; font-size: 10px; line-height: 1.45; }
 
         /* 簡報：兩欄照舊，整塊填滿畫面高，兩欄各自捲；出擊鈕黏在右下 */
+        /* 【扣 82】頁首 46、路徑那一行 26、頁尾 10 */
         .brief { grid-template-columns: 200px 1fr; width: calc(100vw - 24px); box-sizing: border-box;
-          height: calc(100vh - 56px); height: calc(100dvh - 56px); }
+          height: calc(100vh - 82px); height: calc(100dvh - 82px); }
         .brief > .left { padding: 10px; overflow-y: auto; }
         .brief > .right { min-height: 0; padding: 12px 16px; overflow-y: auto; }
         .brief h2 { font-size: 16px; }
@@ -809,10 +810,10 @@
       <section id="mission" class="screen" style="--v:.70" hidden>
         <div class="pane">
           <button class="back" data-act="back" data-i18n="back.campaign">陣營</button>
+          <div class="trail" id="mission-trail"></div>
           <div class="brief">
             <div class="left">
               <div class="camphead">
-                <div class="trail"><span data-i18n="menu.mission">任務模式</span> ›</div>
                 <div class="cn" id="camp-name"></div>
               </div>
               <div class="route" id="route"></div>
