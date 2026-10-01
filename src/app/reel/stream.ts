@@ -475,6 +475,13 @@ export const STREAM: Shot = {
   clear: { x: 105, z: -2341, radius: 4400 },
   planes: PLANES,
   props: PROPS,
+  decor: [
+    { kind: 'hall', x: -170, z: -1640, heading: 0 },
+    { kind: 'warehouse', x: -100, z: -1640, heading: 0 },
+    { kind: 'office', x: -40, z: -1640, heading: 0 },
+    { kind: 'pipeRack', x: 30, z: -1640, heading: 0 },
+    { kind: 'tanks', x: 100, z: -1640, heading: 0 },
+  ],
   ships: [],
   cuts: CUTS,
   camera: edit(CUTS),
