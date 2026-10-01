@@ -4,14 +4,15 @@ import { Color } from 'three'
  * # 季節
  *
  * 田區的地色與樹冠色由季節決定。**農地與群島恆為夏季**；洛伊納
- * （`world/leuna.ts`）是 1944 年 11 月的晚秋。色值都是起始值，拿眼睛校。
+ * （`world/leuna.ts`）是 1944 年 11 月的晚秋；庫斯克（`world/kursk.ts`）是 1943 年
+ * 7 月的麥田。色值都是起始值，拿眼睛校。
  *
  * 【為什麼是一張查表而不是散在各檔的常數】`fields.ts` 把色值烘進 GLSL
  * 字串、`floraShapes.ts` 把色值寫進頂點色 —— 兩邊都在模組載入時就做完了。
  * 換季節要在建構期給參數，而參數的來源只能有一份。
  */
-export type Season = 'summer' | 'lateAutumn'
-export const SEASONS: readonly Season[] = ['summer', 'lateAutumn']
+export type Season = 'summer' | 'lateAutumn' | 'julyWheat'
+export const SEASONS: readonly Season[] = ['summer', 'lateAutumn', 'julyWheat']
 
 /**
  * 林子從空中看的顏色 = 樹冠色 × 這個倍率（線性值；畫面上約 0.85 倍）：樹冠的
@@ -52,6 +53,12 @@ export interface FieldColors {
    */
   readonly open: number
   readonly openAlt: number
+  /**
+   * 空地長樹林的雜訊門檻（`fields.ts` 的 `openWoodCover`）：雜訊低於下限沒有樹、
+   * 高於上限整片是林。**地色與植被讀同一份** —— 兩邊各訂各的話，地上畫的林子與
+   * 長出來的樹就對不上
+   */
+  readonly woodGate: readonly [number, number]
 }
 
 export interface FloraColors {
@@ -72,6 +79,7 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
     // 牧草地的橄欖綠與荒地、休耕地的枯黃
     open: 0x626b43,
     openAlt: 0x78754f,
+    woodGate: [0.5, 0.62],
   },
   /**
    * 晚秋：收割後的麥茬赭 → 冬麥苗的淡綠；大半的田犁過了，露出深褐的土。
@@ -99,6 +107,24 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
     // 十一月的枯草與濕地的深褐
     open: 0x6e6a4a,
     openAlt: 0x5f5a47,
+    woodGate: [0.5, 0.62],
+  },
+  /**
+   * 七月的俄國南部森林草原：麥子快熟了，整片是黃綠到麥金；集體農場的大田很少犁著
+   * 空著。樹林只剩零星幾團（門檻拉高），樹多半長在沖溝裡 —— 不像中歐那樣一片片林子。
+   * 德 M4 庫斯克用
+   */
+  julyWheat: {
+    palette: [0x6f7148, 0x7b7a4c, 0x878350, 0x938b55, 0x9e925a, 0xa8985e, 0xb09d62, 0xb6a167],
+    ploughed: 0x6a5a45,
+    hedge: 0x2f3826,
+    track: 0xa39a80,
+    wood: 0x34402b,
+    ploughChance: 0.06,
+    // 快熟的麥與乾草原的麥金，黑麥與牧草的黃綠
+    open: 0x9c8f58,
+    openAlt: 0x7f7c4c,
+    woodGate: [0.7, 0.8],
   },
 }
 
@@ -106,4 +132,6 @@ export const FLORA_COLORS: Readonly<Record<Season, FloraColors>> = {
   summer: { broadLeaf: 0x3f5233, conifer: 0x2f4530, bushLeaf: 0x33452c },
   // 闊葉樹落葉：樹冠是枯枝的褐灰（形狀不動，只換色）；針葉略暗；灌木褐
   lateAutumn: { broadLeaf: 0x5a4a3c, conifer: 0x2b3d2c, bushLeaf: 0x4d3f30 },
+  // 盛夏乾熱：比夏季略黃、略淺
+  julyWheat: { broadLeaf: 0x46562f, conifer: 0x30452e, bushLeaf: 0x3d4b2c },
 }

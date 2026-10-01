@@ -19,7 +19,7 @@
 import { chromium } from 'playwright'
 import { fieldGlsl, fieldGlslWithSite } from '../../src/render/fields'
 import { SEASONS } from '../../src/render/season'
-import { LEUNA_SITE } from '../../src/render/terrain'
+import { KURSK_SITE, LEUNA_SITE } from '../../src/render/terrain'
 
 async function main(): Promise<void> {
   const browser = await chromium.launch({ headless: false })
@@ -68,6 +68,15 @@ async function main(): Promise<void> {
         console.log(`  open 的 fieldGlslWithSite('${season}', 候選表 ${String(cand)}) 編譯通過`)
       }
     }
+    // 【庫斯克那一份】沒有墊面、土路、戰場痕跡（圖集取樣、彈坑的 3 × 3 格迴圈、
+    // 壕溝與履帶痕的線段表），田圍著村、查候選表
+    const kurskLog = await compile(page, fieldGlslWithSite('julyWheat', KURSK_SITE, true, true))
+    if (kurskLog.trim() !== '') {
+      console.error('  庫斯克的 fieldGlslWithSite 編譯失敗：')
+      console.error(kurskLog)
+      throw new Error('GLSL 編譯失敗')
+    }
+    console.log('  庫斯克的 fieldGlslWithSite 編譯通過')
   } finally {
     await browser.close()
   }

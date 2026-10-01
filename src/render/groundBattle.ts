@@ -344,9 +344,10 @@ export function createGroundBattle(
           const x = art.x0 + hash01(seed * 3 + 1) * (art.x1 - art.x0)
           const z = art.z0 + hash01(seed * 3 + 2) * (art.z1 - art.z0)
           const y = groundAt(x, z)
-          flash.emit(x, y + 1, z, 0, 0, 0, 2)
-          for (let k = 0; k < 4; k++) {
-            dust.emit(x, y + 1, z, (hash01(seed + k) - 0.5) * 6, 6 + k * 2, (hash01(seed + k + 9) - 0.5) * 6, 1)
+          // 【比照實比例大】從 1.5～2 km 往下看要讀得出是一柱土
+          flash.emit(x, y + 1, z, 0, 0, 0, 3)
+          for (let k = 0; k < 6; k++) {
+            dust.emit(x, y + 1, z, (hash01(seed + k) - 0.5) * 8, 8 + k * 3, (hash01(seed + k + 9) - 0.5) * 8, 2.2)
           }
         }
       }

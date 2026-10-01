@@ -154,7 +154,7 @@ describe('遠景環不帶廠區那一層', () => {
     expect(worst(LEUNA_SITE.roads)).toBeLessThan(half)
     expect(worst(LEUNA_SITE.rails ?? [])).toBeLessThan(half)
     const pivot = LEUNA_SITE.pivot ?? { x: 0, z: 0 }
-    const pad = LEUNA_SITE.pad
+    const pad = LEUNA_SITE.pad!
     const reach = Math.hypot(pivot.x, pivot.z)
       + Math.max(Math.abs(pad.x0), Math.abs(pad.x1), Math.abs(pad.z0), Math.abs(pad.z1))
     expect(reach).toBeLessThan(half)

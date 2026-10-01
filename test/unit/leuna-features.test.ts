@@ -229,9 +229,10 @@ describe('植被池不溢位', () => {
    */
   it('最密的四處都不溢位', () => {
     const site = LEUNA_SITE
+    const pad = site.pad!
     const clear = site.treeClear ?? 0
     const padClear = (s: FloraSource): FloraSource => excluding(s, {
-      x0: site.pad.x0 - clear, x1: site.pad.x1 + clear, z0: site.pad.z0 - clear, z1: site.pad.z1 + clear,
+      x0: pad.x0 - clear, x1: pad.x1 + clear, z0: pad.z0 - clear, z1: pad.z1 + clear,
       pivot: site.pivot!, heading: site.heading!,
     })
     const fields: FloraSource[] = [farmHedgeFlora, farmWoodFlora].map(padClear).map((f) => excludingZones(f, fieldOut))

@@ -1,6 +1,7 @@
 import { Color } from 'three'
 import { canopyColor, FIELD_COLORS, FLORA_COLORS, PALETTE_STEPS, type FieldColors, type Season } from './season'
 import { BROAD_CROWN_R, CONE_CROWN_R } from './floraShapes'
+import { scarsGlsl, SCARS_DECL, SCARS_FN, type BattleScars } from './battleScars'
 
 /**
  * 諾曼第式的 Bocage 地景：**每一塊田都被樹籬完整圍起來。**
@@ -771,10 +772,16 @@ export function isOpenParcel(f: FieldSample): boolean {
   return open
 }
 
-/** 空地上樹林的覆蓋率，0～1。放置與地色共用 */
-export function openWoodCover(x: number, z: number): number {
+/**
+ * 空地上樹林的覆蓋率，0～1。放置與地色共用
+ *
+ * @param gate 雜訊門檻，季節的 `woodGate`。兩邊要傳同一份
+ */
+export function openWoodCover(
+  x: number, z: number, gate: readonly [number, number] = OPEN_WOOD_GATE,
+): number {
   const n = 0.65 * valueNoise(x, z, OPEN_WOOD_CELL[0], 0x6a11) + 0.35 * valueNoise(x, z, OPEN_WOOD_CELL[1], 0x3b57)
-  const t = Math.min(1, Math.max(0, (n - OPEN_WOOD_GATE[0]) / (OPEN_WOOD_GATE[1] - OPEN_WOOD_GATE[0])))
+  const t = Math.min(1, Math.max(0, (n - gate[0]) / (gate[1] - gate[0])))
   return t * t * (3 - 2 * t)
 }
 
@@ -782,7 +789,7 @@ export function openWoodCover(x: number, z: number): number {
 function openColor(x: number, z: number, out: Color, c: FieldColors): Color {
   const k = valueNoise(x, z, OPEN_TONE_CELL, 0x1f7e)
   out.setHex(c.open).lerp(OPEN_ALT.setHex(c.openAlt), k)
-  return out.lerp(OPEN_ALT.setHex(c.wood), openWoodCover(x, z))
+  return out.lerp(OPEN_ALT.setHex(c.wood), openWoodCover(x, z, c.woodGate))
 }
 const OPEN_ALT = new Color()
 
@@ -958,7 +965,7 @@ float openWoodNoise(vec2 w) {
 }
 
 float openWoodCover(vec2 w) {
-  return smoothstep(${OPEN_WOOD_GATE[0].toFixed(3)}, ${OPEN_WOOD_GATE[1].toFixed(3)}, openWoodNoise(w));
+  return smoothstep(${c.woodGate[0].toFixed(3)}, ${c.woodGate[1].toFixed(3)}, openWoodNoise(w));
 }
 
 vec3 openColorAt(vec2 w) {
@@ -976,8 +983,8 @@ const float OPEN_TREE_SCALE_HI = ${OPEN_TREE_SCALE[1].toFixed(3)};
 const float OPEN_CONIFER_SHARE = ${OPEN_CONIFER_SHARE.toFixed(3)};
 const float BROAD_CROWN_R = ${BROAD_CROWN_R.toFixed(1)};
 const float CONE_CROWN_R = ${CONE_CROWN_R.toFixed(1)};
-const float OPEN_WOOD_GATE_LO = ${OPEN_WOOD_GATE[0].toFixed(3)};
-const float OPEN_WOOD_GATE_HI = ${OPEN_WOOD_GATE[1].toFixed(3)};
+const float OPEN_WOOD_GATE_LO = ${c.woodGate[0].toFixed(3)};
+const float OPEN_WOOD_GATE_HI = ${c.woodGate[1].toFixed(3)};
 const float OPEN_WOOD_NEAR_MARGIN = ${OPEN_WOOD_NEAR_MARGIN.toFixed(5)};
 const float OPEN_DOT_AA = ${OPEN_DOT_AA.toFixed(1)};
 const float OPEN_DOT_REACH = ${OPEN_DOT_REACH.toFixed(1)};
@@ -1285,8 +1292,11 @@ export interface SiteLayout {
   readonly pivot?: { readonly x: number; readonly z: number }
   /** 局部系相對世界的旋轉，弧度。省略或 0 時局部＝世界 */
   readonly heading?: number
-  /** 墊面矩形，廠區局部座標 */
-  readonly pad: { readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number }
+  /**
+   * 墊面矩形，廠區局部座標。**省略 = 沒有墊面**：庫斯克只有道路與戰場的痕跡，
+   * 地面照樣是田
+   */
+  readonly pad?: { readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number }
   /**
    * 墊面的顏色。**省略 = 混凝土**（廠區）。機場的墊面是草地，只有跑道與
    * 停機坪是鋼板 —— 那兩塊走 `patches`。
@@ -1338,6 +1348,13 @@ export interface SiteLayout {
   readonly rails?: readonly (readonly { readonly x: number; readonly z: number }[])[]
   /** 碴石帶的寬，m */
   readonly railWidth?: number
+  /** 路面的顏色。**省略 = 柏油**（廠區、機場）；土路給土色 */
+  readonly roadHex?: number
+  /**
+   * 疊在田上的戰場痕跡：彈坑、燒田、履帶痕、壕溝（`battleScars.ts`）。畫在道路之前。
+   * 只有畫面 —— `siteSurfaceColor` 不算它
+   */
+  readonly scars?: BattleScars
 }
 
 const CONCRETE = 0x8d8a82
@@ -1430,15 +1447,18 @@ const BAND = 220
  * 起伏的深度。**兩側加起來不得吃掉整塊墊面** —— 咬得比半邊長還深的話，
  * 小一點的墊面會整片消失，而它在畫面上只是「這一關的廠區不見了」。
  */
-function edgeBite(pad: SiteLayout['pad']): number {
+/** 一塊墊面矩形，廠區局部座標 */
+type PadRect = NonNullable<SiteLayout['pad']>
+
+function edgeBite(pad: PadRect): number {
   return Math.min(EDGE_BITE, (pad.x1 - pad.x0) * 0.08, (pad.z1 - pad.z0) * 0.08)
 }
 
-function coarseBite(pad: SiteLayout['pad']): number {
+function coarseBite(pad: PadRect): number {
   return Math.min(COARSE_BITE, (pad.x1 - pad.x0) * 0.11, (pad.z1 - pad.z0) * 0.11)
 }
 
-function fineBite(pad: SiteLayout['pad']): number {
+function fineBite(pad: PadRect): number {
   return Math.min(FINE_BITE, (pad.x1 - pad.x0) * 0.05, (pad.z1 - pad.z0) * 0.05)
 }
 
@@ -1457,7 +1477,7 @@ function edgeNoise(t: number, cell: number, salt: number): number {
  * **GLSL 與 CPU 兩份要算出同一個答案** —— 分家的話畫面上的廠界與取樣到的
  * 顏色差一整條邊，而那只有在小地圖與畫面並排時才看得出來。
  */
-function padDistance(x: number, z: number, pad: SiteLayout['pad']): number {
+function padDistance(x: number, z: number, pad: PadRect): number {
   const b = edgeBite(pad)
   const c = coarseBite(pad)
   const f = fineBite(pad)
@@ -1507,7 +1527,9 @@ function padDistance(x: number, z: number, pad: SiteLayout['pad']): number {
  * 【為什麼要這個】墊面那一段的算式每個像素都跑，而投彈高度整片畫面有七成
  * 是田。少了這個外接矩形，4 km 俯視的幀時間從 0.8 ms 變成 2.2 ms。
  */
-function siteBounds(site: SiteLayout): { x0: number; z0: number; x1: number; z1: number } {
+function siteBounds(
+  site: SiteLayout & { readonly pad: PadRect },
+): { x0: number; z0: number; x1: number; z1: number } {
   const local = {
     x0: site.pad.x0 - BAND, x1: site.pad.x1 + BAND,
     z0: site.pad.z0 - BAND, z1: site.pad.z1 + BAND,
@@ -1626,7 +1648,7 @@ ${rail.map((s) => `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, `
    * 逐項對應**：三層咬痕、四個斜切角、外推的裙邊。主墊面與每一塊附加的
    * 墊面（`padLobes`）各叫一次。
    */
-  const padBlock = (rect: SiteLayout['pad'], name: string): string => {
+  const padBlock = (rect: PadRect, name: string): string => {
     const B = edgeBite(rect).toFixed(1)
     const C = coarseBite(rect).toFixed(1)
     const F = fineBite(rect).toFixed(1)
@@ -1687,9 +1709,12 @@ ${rs.map((p) => `  ${rgb(p.hex)}`).join(',\n')}
     'siteCol = $ * siteGrime * padDark;')
   const outpostGlsl = rectsGlsl('OUTPOSTS', site.outposts ?? [],
     'col = $ * siteGrime;')
-  const near = siteBounds(site)
   const rb = roadBounds(site)
-  return `
+  // 【沒有墊面就整段不產生】衛星設施與附加墊面都依附墊面
+  const pad = site.pad
+  const padSection = pad === undefined ? '' : (() => {
+    const near = siteBounds({ ...site, pad })
+    return `
   // 【先用外接矩形擋掉】底下這一段是每個像素都跑的，而投彈高度整片畫面有
   // 七成是田 —— 少了這個測試，4 km 俯視的幀時間從 0.8 ms 變成 2.2 ms。
   // 道路留在外面：連外那兩條一路畫到地圖邊緣
@@ -1720,7 +1745,7 @@ ${rs.map((p) => `  ${rgb(p.hex)}`).join(',\n')}
   // 高度看下去就是一把尺，而廠區是幾十年間一塊一塊擴出來的
   //
   // 【與 padDistance() 逐項對應】負的在墊面內、正的在外面
-${padBlock(site.pad, 'padD')}
+${padBlock(pad, 'padD')}
 ${lobes}
 
   // 【靠邊處壓暗】高空最刺眼的是水泥與田的亮度階梯。越靠外越髒越舊，順便
@@ -1735,7 +1760,11 @@ ${patchGlsl}
   // 過渡帶了
   col = mix(siteCol, col, clamp(padD / max(px, 0.25) * 0.5 + 0.5, 0.0, 1.0));
 ${outpostGlsl}
-  }
+  }`
+  })()
+  // 【戰場的痕跡畫在道路之前】土路從彈坑區穿過，路面壓在坑上
+  const scarSection = site.scars === undefined ? '' : scarsGlsl(site.scars)
+  return `${padSection}${scarSection}
   // 【道路與鐵路自己一個外接矩形】底下這 ${rail.length + segs.length} 段點線距離是每個像素都跑的，
   // 而連外道路一路畫到圖邊 —— 墊面那個矩形擋不住它們，得自己算一個。
   // 見 roadBounds()：留的邊界要蓋得住抗鋸齒帶，否則路的外緣會沿著矩形邊
@@ -1755,7 +1784,7 @@ ${list}
     float t = clamp(dot(world - a, ab) / max(dot(ab, ab), 1.0e-6), 0.0, 1.0);
     roadD = min(roadD, length(world - (a + ab * t)));
   }
-  col = mix(col, ${rgb(ASPHALT)}, bandCoverage(roadD, ${(site.roadWidth / 2).toFixed(1)}, px));
+  col = mix(col, ${rgb(site.roadHex ?? ASPHALT)}, bandCoverage(roadD, ${(site.roadWidth / 2).toFixed(1)}, px));
   }`
 }
 
@@ -1764,7 +1793,9 @@ export function fieldGlslWithSite(season: Season, site?: SiteLayout, candidates 
   const base = fieldGlsl(season, candidates, open)
   if (site === undefined) return base
   const at = base.lastIndexOf('  return col;')
-  return base.slice(0, at) + siteGlsl(site) + '\n' + base.slice(at)
+  // 【戰場的痕跡要一個貼圖與一支取樣函式】放在整段最前面（頂層）
+  const head = site.scars === undefined ? '' : SCARS_DECL + SCARS_FN
+  return head + base.slice(0, at) + siteGlsl(site) + '\n' + base.slice(at)
 }
 
 /**
@@ -1776,15 +1807,20 @@ export function siteSurfaceColor(
 ): Color {
   if (site !== undefined) {
     for (const s of segmentsOf(site.roads)) {
-      if (segmentDistance(x, z, s.ax, s.az, s.bx, s.bz) < site.roadWidth / 2) return out.setHex(ASPHALT)
+      if (segmentDistance(x, z, s.ax, s.az, s.bx, s.bz) < site.roadWidth / 2) {
+        return out.setHex(site.roadHex ?? ASPHALT)
+      }
     }
     for (const s of segmentsOf(site.rails ?? [])) {
       if (segmentDistance(x, z, s.ax, s.az, s.bx, s.bz) < (site.railWidth ?? 24) / 2) {
         return out.setHex(BALLAST)
       }
     }
+    // 【沒有墊面就是田】與 `siteGlsl` 一樣整段不算
+    const pad = site.pad
+    if (pad === undefined) return fieldSurfaceColor(x, z, out, season, open)
     // 【與 `siteGlsl` 一樣先擋外接矩形】次序與早退的條件都要一致
-    const near = siteBounds(site)
+    const near = siteBounds({ ...site, pad })
     if (x <= near.x0 || x >= near.x1 || z <= near.z0 || z >= near.z1) {
       return fieldSurfaceColor(x, z, out, season, open)
     }
@@ -1802,7 +1838,7 @@ export function siteSurfaceColor(
     }
     // 【邊界是硬的】著色器那邊只有一像素的柔化，而它是為了抗鋸齒；取樣沒有
     // 像素，直接切
-    let d = padDistance(lx, lz, site.pad)
+    let d = padDistance(lx, lz, pad)
     for (const l of site.padLobes ?? []) d = Math.min(d, padDistance(lx, lz, l))
     if (d < 0) {
       // 【與 `siteGlsl` 逐項對應】墊面 → 鋪面 → 壓暗，次序一致

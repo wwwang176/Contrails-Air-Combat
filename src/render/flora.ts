@@ -8,8 +8,8 @@ import {
   edgeAt, fieldAt, isOpenParcel, isWoodField, onTrack, openWoodCover, regionAt, regionParams, regionSeed, splitCut,
   trackGap, trackWidthAt, valueNoise, villageDistance, FIELD_REACH, HEDGE_CHANCE, HEDGE_WIDTH, REGION_SPACING,
   TRACK_WARP_MAX, TRACK_WIDTH, TRACK_WIDTH_MAX, VILLAGE_CHANCE,
-  VILLAGE_NEIGHBOUR, CONIFER_SHARE, OPEN_CONIFER_SHARE, OPEN_TREE_SCALE, OPEN_WOOD_DENSITY, WOOD_GRID,
-  type FieldSample, type RegionSample, type SplitCut, type Vec2,
+  VILLAGE_NEIGHBOUR, CONIFER_SHARE, OPEN_CONIFER_SHARE, OPEN_TREE_SCALE, OPEN_WOOD_DENSITY, OPEN_WOOD_GATE,
+  WOOD_GRID, type FieldSample, type RegionSample, type SplitCut, type Vec2,
 } from './fields'
 
 /**
@@ -447,7 +447,18 @@ export const farmWoodFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
  * 松林，針葉多一點
  */
 export const openWoodFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
-  woods(true, x0, z0, x1, z1, heightAt, out)
+  woods(true, x0, z0, x1, z1, heightAt, out, OPEN_WOOD_GATE)
+}
+
+/**
+ * 同 `openWoodFlora`，空地長樹林的門檻由季節給（`FieldColors.woodGate`）。**與地色
+ * 傳同一份**，地上畫的林子才對得上長出來的樹
+ */
+export function openWoodFloraFor(gate: readonly [number, number]): FloraSource {
+  if (gate[0] === OPEN_WOOD_GATE[0] && gate[1] === OPEN_WOOD_GATE[1]) return openWoodFlora
+  return (x0, z0, x1, z1, heightAt, out) => {
+    woods(true, x0, z0, x1, z1, heightAt, out, gate)
+  }
 }
 
 /**
@@ -533,11 +544,12 @@ function tileLandUse(x0: number, z0: number, x1: number, z1: number): number {
 /** 空地上的一個候選點：照 `openWoodCover` 決定長不長 */
 function openTree(
   x: number, z: number, g: number, heightAt: (x: number, z: number) => number, out: FloraBuffer,
+  gate: readonly [number, number],
 ): void {
   const g2 = hash1(g)
   // 覆蓋率不超過 1：雜湊已經在密度上限之上的點不必算覆蓋率（兩層雜訊）
   const u = (g2 & 0xffff) / 65536
-  if (u >= OPEN_WOOD_DENSITY || u >= openWoodCover(x, z) * OPEN_WOOD_DENSITY) return
+  if (u >= OPEN_WOOD_DENSITY || u >= openWoodCover(x, z, gate) * OPEN_WOOD_DENSITY) return
   const g3 = hash1(g2)
   pushFlora(
     out, x, heightAt(x, z), z, (g3 / 4294967296) * Math.PI * 2,
@@ -550,6 +562,7 @@ function openTree(
 function woods(
   open: boolean, x0: number, z0: number, x1: number, z1: number,
   heightAt: (x: number, z: number) => number, out: FloraBuffer,
+  gate: readonly [number, number] = OPEN_WOOD_GATE,
 ): void {
   // 【整格先判斷】逐點找區塊、找田是這一支的大宗（一格 244 點），而大多數的格用不到：
   // 田裡的樹林只長在樹林田，整格沒有樹林田就整格跳過；整格都是空地的話不必找田
@@ -582,14 +595,14 @@ function woods(
           regionAt(x, z, AT)
           if (onTrack(x, z, AT)) continue
         }
-        openTree(x, z, g, heightAt, out)
+        openTree(x, z, g, heightAt, out, gate)
         continue
       }
       regionAt(x, z, AT)
       if (onTrack(x, z, AT)) continue
       fieldAt(x, z, AT, FLD)
       if (open && isOpenParcel(FLD)) {
-        openTree(x, z, g, heightAt, out)
+        openTree(x, z, g, heightAt, out, gate)
         continue
       }
       if (!isWoodField(FLD.id)) continue

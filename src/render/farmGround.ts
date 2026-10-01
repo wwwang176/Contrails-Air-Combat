@@ -9,6 +9,7 @@ import {
 } from './fields'
 import type { Season } from './season'
 import type { HeightFieldData } from '../world/heightfield'
+import { SCAR_ATLAS } from './battleScars'
 
 /**
  * 把農地的高度場切成 low-poly 的地面。
@@ -101,6 +102,7 @@ export function applyFields(
       shader.uniforms['uRegionCand'] = { value: candidates.texture }
       shader.uniforms['uRegionCandRect'] = { value: new Vector4(t.gx0, t.gz0, t.blocksX, t.blocksZ) }
     }
+    if (site?.scars !== undefined) shader.uniforms['uScarAtlas'] = SCAR_ATLAS
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
 varying vec3 vFarmWorld;`)
@@ -120,7 +122,8 @@ diffuseColor.rgb = fieldColorAt(vFarmWorld.xz);`)
   // 晚秋的地形，three 會重用夏季的程式 —— 畫面還是綠的，而且不報錯
   // 【有沒有廠區、查不查候選表、田圍不圍著村也要進 key】都是另一份字串
   material.customProgramCacheKey = () => 'farm-fields:' + season
-    + (site === undefined ? '' : ':site') + (candidates === undefined ? '' : ':cand') + (open ? ':open' : '')
+    + (site === undefined ? '' : ':site') + (site?.scars === undefined ? '' : ':scars')
+    + (candidates === undefined ? '' : ':cand') + (open ? ':open' : '')
 }
 
 /** `open`：田只圍著村，其餘是空地（`fields.ts` 的 `FIELD_REACH`） */

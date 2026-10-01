@@ -18,7 +18,7 @@ import {
 } from './vegetation'
 import {
   createIslandFlora, createLeyteFlora, farmHedgeFlora, farmWoodFlora,
-  islandCanopyCover, leyteCanopyCoarse, leyteFarCover, openHedgeFlora, openWoodFlora, type FloraSource,
+  islandCanopyCover, leyteCanopyCoarse, leyteFarCover, openHedgeFlora, openWoodFloraFor, type FloraSource,
 } from './flora'
 import { requestLeyteCanopy } from './canopyBake'
 import { createLeyteGround } from './leyteGround'
@@ -41,11 +41,11 @@ import {
   ROAD_WIDTH as ASCH_ROAD_WIDTH, ROADS as ASCH_ROADS,
 } from '../world/asch'
 import {
-  BATTLE_CENTER as KURSK_CENTER, CHURNED_EARTH, createKursk, KURSK_PAD, KURSK_ROAD_WIDTH, KURSK_ROADS,
-  KURSK_TREE_CLEAR,
+  createKursk, DIRT_ROAD, KURSK_ROAD_WIDTH, KURSK_ROADS, SCAR_ZONE, SCORCH, TRACKS, TRENCHES,
 } from '../world/kursk'
+import { preloadScarAtlas } from './battleScars'
 import type { HeightFieldData } from '../world/heightfield'
-import type { Season } from './season'
+import { FIELD_COLORS, type Season } from './season'
 import type { SiteLayout } from './fields'
 import { excluding } from './floraExclude'
 import { bakeKeepOut, corridorZone, excludingZones, type KeepOutZone } from './keepOutMask'
@@ -234,6 +234,9 @@ function floraRings(x: number, z: number, cx: number, cz: number): string[] {
 export async function preloadTerrainScenery(kind: TerrainKind): Promise<void> {
   if (kind === 'leuna') await Promise.all([preloadPlantScenery(), preloadLeunaRivers(), preloadLeunaFeatures()])
   else if (kind === 'poltava') await preloadAirfieldScenery()
+  // 【戰場痕跡的圖集要先到】田色在建地形的那一刻就烘進貼圖，那時圖集是空的話取樣
+  // 全是透明，彈坑、壕溝一個都烘不進去
+  else if (kind === 'kursk') await preloadScarAtlas()
 }
 
 export function createTerrain(kind: TerrainKind, gfx?: TerrainGfx): Terrain {
@@ -536,19 +539,25 @@ function createAschTerrain(gfx?: TerrainGfx): Terrain {
   return createInlandTerrain(createAsch(), 'lateAutumn', ASCH_SITE, undefined, gfx)
 }
 
-/** 庫斯克的交戰帶（裸土）與三條土路 */
+/**
+ * 庫斯克：沒有墊面，地面照樣是麥田；三條土路，交戰帶疊上彈坑、燒田、履帶痕與壕溝
+ *
+ * 【彈坑的密度】交戰帶裡一格（24 m）三成有坑，往外 700 m 內降到三分。**起始值，
+ * 拿眼睛校**
+ */
 export const KURSK_SITE: SiteLayout = {
-  pivot: { x: KURSK_CENTER.x, z: KURSK_CENTER.z },
-  pad: KURSK_PAD,
-  padHex: CHURNED_EARTH,
-  treeClear: KURSK_TREE_CLEAR,
   roads: KURSK_ROADS,
   roadWidth: KURSK_ROAD_WIDTH,
+  roadHex: DIRT_ROAD,
+  scars: {
+    zone: SCAR_ZONE, fade: 700, dense: 0.3, sparse: 0.03,
+    scorch: SCORCH, trenches: TRENCHES, tracks: TRACKS,
+  },
 }
 
-/** 庫斯克：農地的算繪路徑、手擺的緩丘、夏季、交戰帶，沒有佈景 */
+/** 庫斯克：農地的算繪路徑、手擺的緩丘、七月的麥田、戰場的痕跡，沒有佈景 */
 function createKurskTerrain(gfx?: TerrainGfx): Terrain {
-  return createInlandTerrain(createKursk(), 'summer', KURSK_SITE, undefined, gfx)
+  return createInlandTerrain(createKursk(), 'julyWheat', KURSK_SITE, undefined, gfx)
 }
 
 /**
@@ -615,16 +624,22 @@ function createInlandTerrain(
   const solid = outsideZero(farm.field)
   // 【廠區的墊面不長樹】把三個散佈器包一層矩形排除，主墊面與每一塊附加的
   // 墊面各包一層；農地不包，行為不變。墊面是廠區局部座標，樞紐與朝向要一起傳
+  //
+  // 【戰場的交戰帶不清樹】只清植被的話，地色（`openColorAt`）與遠景的樹點照樣畫著
+  // 林子，近處卻沒有樹 —— 兩邊對不上。七月的門檻下交戰帶裡本來就幾乎沒有林子
   const clear = site?.treeClear ?? 0
-  const padClear = (s: FloraSource): FloraSource => (site === undefined
-    ? s
-    : [site.pad, ...(site.padLobes ?? [])].reduce((src, r) => excluding(src, {
-      x0: r.x0 - clear, x1: r.x1 + clear,
-      z0: r.z0 - clear, z1: r.z1 + clear,
-      ...(site.pivot === undefined ? {} : { pivot: site.pivot }),
-      ...(site.heading === undefined ? {} : { heading: site.heading }),
-    }), s))
-  let fields = (open ? [openHedgeFlora, openWoodFlora] : [farmHedgeFlora, farmWoodFlora]).map(padClear)
+  const pads = site === undefined ? [] : [
+    ...(site.pad === undefined ? [] : [site.pad]), ...(site.padLobes ?? []),
+  ].map((r) => ({
+    x0: r.x0 - clear, x1: r.x1 + clear,
+    z0: r.z0 - clear, z1: r.z1 + clear,
+    ...(site.pivot === undefined ? {} : { pivot: site.pivot }),
+    ...(site.heading === undefined ? {} : { heading: site.heading }),
+  }))
+  const padClear = (s: FloraSource): FloraSource => pads.reduce((src, r) => excluding(src, r), s)
+  // 【空地的樹林門檻跟著季節】與地色（`openDeclGlsl`）讀同一份 `woodGate`
+  const openWoods = openWoodFloraFor(FIELD_COLORS[season].woodGate)
+  let fields = (open ? [openHedgeFlora, openWoods] : [farmHedgeFlora, farmWoodFlora]).map(padClear)
   // 【建築：植被與烘圖是同一個散佈器】兩邊各包一份的話，遠處的屋頂色塊與近處的
   // 房子對不上。真實地物的建築已經避開河道；程序村沒有，要包河廊
   // 程序生成的地圖的村用洛伊納那一套生成器（`farmSettlements.ts`），蓋到植被圈伸得到

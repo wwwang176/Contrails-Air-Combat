@@ -4,6 +4,7 @@ import {
   type BufferGeometry, type DataTexture, type WebGLProgramParametersWithUniforms, type WebGLRenderer,
 } from 'three'
 import { fieldGlslWithSite, type RegionCandidates, type SiteLayout } from './fields'
+import { SCAR_ATLAS } from './battleScars'
 import type { Season } from './season'
 
 /**
@@ -247,10 +248,16 @@ let instances = 0
 export function createFieldClipmap(renderer: WebGLRenderer, opts: FieldClipmapOptions): FieldClipmap {
   const cand = opts.candidates
   const glsl = fieldGlslWithSite(opts.season, opts.site, cand !== undefined, opts.open ?? false)
-  /** 候選表的兩個 uniform；烘圖材質與地面材質各掛一份同樣的 */
-  const candUniforms = (): Record<string, { value: unknown }> => (cand === undefined ? {} : {
-    uRegionCand: { value: cand.texture },
-    uRegionCandRect: { value: new Vector4(cand.table.gx0, cand.table.gz0, cand.table.blocksX, cand.table.blocksZ) },
+  /**
+   * 候選表的兩個 uniform，加上戰場痕跡的圖集（有的話）；烘圖材質與地面材質各掛一份
+   * 同樣的。圖集是共用的物件（`SCAR_ATLAS`）—— 進場前已經載好
+   */
+  const candUniforms = (): Record<string, { value: unknown }> => ({
+    ...(cand === undefined ? {} : {
+      uRegionCand: { value: cand.texture },
+      uRegionCandRect: { value: new Vector4(cand.table.gx0, cand.table.gz0, cand.table.blocksX, cand.table.blocksZ) },
+    }),
+    ...(opts.site?.scars === undefined ? {} : { uScarAtlas: SCAR_ATLAS }),
   })
   const anisotropy = renderer.capabilities.getMaxAnisotropy()
   const level = (spec: ClipLevelSpec): Level => {
