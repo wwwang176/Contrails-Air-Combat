@@ -3666,6 +3666,16 @@ const menuReel: MenuReel = createMenuReel({
       debris.burst(x, 0, z, BLAST_DEBRIS_COLOR, seed, blastDebrisSpeed())
       burstSparks(x, 0, z)
     },
+    groundKill(x, y, z, fires) {
+      // 與 `emitGroundKills` 同一套：落地的火、閃光；火點沿黃金角撒在半徑 8 m 內
+      emitBlast(BLAST_POOLS, LAND_BLAST, x, y, z, (reelBlastSeed = (reelBlastSeed + 97) | 0))
+      blastLights.flash(x, y, z, GROUND_KILL_SHAKE, ctx.camera.position)
+      for (let k = 0; k < fires; k++) {
+        const r = fires === 1 ? 0 : 8 * Math.sqrt((k + 0.5) / fires)
+        const a = k * 2.39996
+        lightGroundFire(groundFires, x + Math.cos(a) * r, y + 1, z + Math.sin(a) * r)
+      }
+    },
     clear() {
       wrecks.reset()
       resetPools()

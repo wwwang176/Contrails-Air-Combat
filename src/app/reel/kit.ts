@@ -2,6 +2,7 @@ import { Vector3 } from 'three'
 import type { AircraftSpec } from '../../specs/types'
 import type { TimeOfDay } from '../../world/timeOfDay'
 import type { ShipClassId } from '../../world/ships'
+import type { GroundUnitId } from '../../render/geometry/ground'
 import { hash01 } from '../../render/scatter'
 import { WRECK_TERMINAL } from '../../render/wrecks'
 import { createFlight, flightPose, type Path } from '../reelFlight'
@@ -15,13 +16,26 @@ import { createFlight, flightPose, type Path } from '../reelFlight'
  * 開闊的海上，`faceSun` 的段再繞 Y 轉到局部 −Z 朝太陽的方位。
  */
 
-export type { Path }
+export type { Path, GroundUnitId }
 
 export interface ReelPlane {
   readonly spec: AircraftSpec
   readonly path: Path
   /** 配角：觸控裝置上不出場 */
   readonly extra?: boolean
+}
+
+/**
+ * 地上的物件：油廠的油槽／冷卻塔／鍋爐房、機場停放的飛機與油桶堆、高砲陣地、火車、
+ * 戰車卡車……（`GroundUnitId`，模型開場就載好了）。局部座標，執行時落在地形上；
+ * `heading` 與船同一個約定。**只放在陸地上** —— `'island'` 的段測試會查。
+ * 炸彈落在它旁邊（命中盒外擴 15 m）就炸毀：換殘骸、爆一團、起火；也可以用 `destroy` 事件指定
+ */
+export interface ReelProp {
+  readonly id: GroundUnitId
+  readonly x: number
+  readonly z: number
+  readonly heading: number
 }
 
 /** 船：等速直線。`heading` 與 `createShip` 同一個約定：前進方向 (−sin h, 0, −cos h) */
@@ -83,6 +97,8 @@ export type ReelEvent =
     readonly at: number, readonly kind: 'torpedo', readonly actor: number,
     readonly aim: { readonly x: number, readonly z: number }, readonly hit: boolean
   }
+  /** 第 `prop` 個地面物件在這一刻炸毀（換殘骸、爆一團、起火） */
+  | { readonly at: number, readonly kind: 'destroy', readonly prop: number }
 
 export interface ReelCamera {
   readonly position: Vector3
@@ -138,6 +154,8 @@ export interface Shot {
   readonly clear: { readonly x: number, readonly z: number, readonly radius: number }
   readonly planes: readonly ReelPlane[]
   readonly ships: readonly ReelShip[]
+  /** 地上的物件（省略 = 沒有）。見 `ReelProp` */
+  readonly props?: readonly ReelProp[]
   /** 依 `from` 排序，第一刀從 0 開始 */
   readonly cuts: readonly Cut[]
   /** 照剪接表取這一刻的鏡頭 */
