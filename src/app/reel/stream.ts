@@ -4,7 +4,7 @@ import { P51D } from '../../specs/p51d'
 import { BF109K4 } from '../../specs/bf109k4'
 import {
   BOMB_RELEASE_Y, barrage, body, bodyUp, bombAt, edit, rampedOffset, timeline, velocityAt, wingman,
-  type Cut, type Path, type ReelPlane, type ReelProp, type Shot,
+  type Cut, type Path, type ReelDecor, type ReelPlane, type ReelProp, type Shot,
 } from './kit'
 
 // ── 轟炸機流 ───────────────────────────────────────────────
@@ -14,8 +14,8 @@ import {
 // 任務完成之後才脫隊、被高砲炸開。
 //
 // 地形（局部座標）：整個 `clear` 圓是平地（離地 0 m）。村子的中心在 (−40, −1760)；
-// 油廠在它南邊，x −250…250、z −1270…−1540：西北是槽區、中間是動力區（鍋爐房、
-// 氣櫃、一排煙囪）、東邊是冷卻塔與調車場，外圍一圈高砲。炸彈串落在廠區中間。
+// 油廠在它東南邊，x 30…930、z −1500…−870：西北是槽區、正中間是動力區（鍋爐房、
+// 氣櫃、一排煙囪）、南邊兩排廠房、東邊是冷卻塔、倉庫與調車場，外圍一圈高砲。炸彈串落在正中間。
 //
 // 刀表（每一刀在主軸上的作用）：
 //   0.0–2.4   長機右翼外側的發動機特寫，四周高砲炸開：編隊在投彈航線上
@@ -25,8 +25,9 @@ import {
 //   6.5–7.6   右僚機機背上往前看：109 從頭上 25 m 呼嘯而過（震一下），發動機冒煙
 //   7.6–9.0   右僚機右後上方跟拍（手持）：冒煙的發動機竄出火，它仍守在隊形裡
 //   9.0–10.6  長機上方砲塔、長焦：第二架 109 迎面撲來開火，機槍手迎著它打
-//   10.6–11.5 第二架 109 肩後：長機在機首前放大、火花打在它身上，猛然拉起
-//   11.5–14.0 長機機鼻往前下方看：油廠進到瞄準線上，黑雲四起
+//   10.6–11.9 低空組長機的上方砲塔往前上方看：第二架 109 迎面撲向長機、火花打在長機身上，
+//             最後一刻從長機頭上拉起掠過
+//   11.9–14.0 長機機鼻往前下方看：油廠進到瞄準線上，黑雲四起
 //   14.0–16.4 長機機腹下：彈艙打開，炸彈一枚枚落下
 //   16.4–18.8 編隊後上方往下俯看：每一架機腹下拖出一串炸彈，往下方的油廠落下去
 //   18.8–21.6 長機右腰窗（手持）：投完彈的右僚機脫隊，20.9 秒被高砲直接命中炸開
@@ -81,10 +82,12 @@ const STREAM_SPEED = 75
 const STREAM_ALT = 600
 /**
  * 長機第 0 秒在哪。投彈時刻與油廠的位置都綁著它：從 600 m 投下的炸彈落地要 11.9 秒、
- * 往前拋 720 m，長機 14.2 秒投下的第一枚落在 z −1350（動力區的北緣）
+ * 往前拋 720 m，長機 14.2 秒投下的第一枚落在 (450, −1112)，一串掃到 z −1287 ——
+ * 廠區的正中間
  */
-const STREAM_Z0 = 434
-const streamLead: Path = (t, out) => out.set(0, STREAM_ALT, STREAM_Z0 - STREAM_SPEED * t)
+const STREAM_X0 = 450
+const STREAM_Z0 = 671
+const streamLead: Path = (t, out) => out.set(STREAM_X0, STREAM_ALT, STREAM_Z0 - STREAM_SPEED * t)
 
 /** 長機組：長機、左僚機、右僚機（中彈的那一架） */
 const leftWing = wingman(streamLead, -38, -7, 26, 0.9)
@@ -159,7 +162,7 @@ function diveOn(target: Path, fireAt: number, side: number): Path {
 /** 第一架：撲向右僚機 */
 const FIRE_1 = 5.0
 const PASS_1 = FIRE_1 + PASS_AFTER
-const bandit = diveOn(crippledBase, FIRE_1, 1)
+const bandit = diveOn(crippledBase, FIRE_1, -1)
 const BANDIT = 9
 /** 第二架：撲向長機，打中左外側發動機 */
 const FIRE_2 = 10.0
@@ -190,7 +193,7 @@ const LAST_V = velocityAt(streamLead, LAST_DROP, new Vector3())
 const LAST_BOMB = new Vector3()
 
 /** 油廠的中心：鏡頭的注視點 */
-const PLANT = new Vector3(-10, 0, -1400)
+const PLANT = new Vector3(450, 0, -1200)
 
 /** 右僚機被高砲直接命中的那一朵：炸開那一刻在它的左前上方 */
 const DIRECT_HIT = crippled(KILL_AT - 0.05, new Vector3()).add(new Vector3(-5, 4, -7))
@@ -273,22 +276,22 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 10.6, subject: 0, mount: BANDIT_2,
+    from: 10.6, subject: 0, mount: LOW_LEAD,
     camera(t, out) {
-      // 第二架 109 的肩後（同第一架的機位）：長機在機首前從 300 m 放大到整個機翼橫跨畫面，
-      // 火花打在它身上；10.55 秒停火猛然拉起，長機往畫面下緣滑。
-      // 【注視點往長機偏一點】拉起之後機首離開長機，只看機首線的話長機掉出下緣。
-      // 掛在機上、跟著機身滾轉，不晃
-      body(bandit2, t, 0.5, 2.2, 7.0, false, out.position)
+      // 低空組長機的上方砲塔往右前上方看：長機在前上方 140 m，第二架 109 從它正前方
+      // 衝來、火花打在長機身上，11.69 秒猛然拉起從長機頭上掠過、翼尖拖著凝結尾。
+      // 攻擊者與被攻擊者同框，從後方第三者的位置看。掛在機上，只留 0.1° 的慢晃
+      body(lowLead, t, 1.0, 3.1, -0.5, false, out.position)
       streamLead(t, S1)
-      body(bandit2, t, 0, 0.6, -300, false, S2)
-      aimBetween(out.position, S1, S2, 0.7, out.target)
-      bodyUp(bandit2, t, out.up)
-      out.fov = 50
+      bandit2(t, S2)
+      aimBetween(out.position, S1, S2, 0.3, out.target)
+      shake(t, 0.15, 20, out.target)
+      bodyUp(lowLead, t, out.up)
+      out.fov = 36
     },
   },
   {
-    from: 11.5, subject: null, mount: 0,
+    from: 11.9, subject: null, mount: 0,
     camera(t, out) {
       // 長機機鼻正前方 1.8 m（投彈手的位置）往前下方看：油廠在前下方的田裡，越來越近，
       // 黑雲在前方炸開。鏡頭離機鼻再近就進了測試的螺旋槳盤範圍
@@ -353,9 +356,9 @@ const CUTS: readonly Cut[] = [
   {
     from: 25.9, subject: null,
     camera(t, out) {
-      // 地面，油廠東南邊的田上 80 m（再低廠區就躲在林緣後面）：炸彈串一串串落進廠區、
+      // 地面，廠區東南角外的田上 90 m（再低廠區就躲在林緣後面）：炸彈串一串串落進廠區、
       // 一座座炸開起火。手持 0.25° 上下，第一串落地時震一下
-      out.position.set(430, 80, -1050)
+      out.position.set(1080, 90, -760)
       shake(t, 0.6, 7, out.position)
       streamLead(t, S1)
       aimBetween(out.position, PLANT, S1, 0.12, out.target)
@@ -393,55 +396,91 @@ const PLANES: readonly ReelPlane[] = [
 ]
 
 /**
- * 油廠：西北槽區、西南堆場、中間動力區、東邊冷卻塔與調車場，外圍一圈重高砲，
- * 佔地約 600 × 360 m、60 件（每件一個繪製呼叫）。
- * 長機組與低空組的炸彈串落在 x −115…80、z −1315…−1525，炸掉動力區全部與槽區東排；
- * 前導組炸掉南邊那座冷卻塔與水塔。槽區西半、堆場、北邊兩座冷卻塔與東邊兩根煙囪、
- * 調車場與高砲陣地留著 —— 炸中了，也看得出廠很大。炸彈落在命中盒外擴 15 m 內就炸毀起火
+ * 油廠：佔地約 950 × 630 m（x 30…930、z −1500…−870），村子在它西北角外。
+ * 可炸的物件 60 件（每件一個繪製呼叫）撐住會冒火冒煙的部分，廠房、倉庫、辦公樓、
+ * 管架與小槽組用佈景建築（`DECOR`，整批一個繪製呼叫）鋪出規模。
+ *
+ * 炸彈串落在 x 340…625、z −1085…−1385（廠區正中間）：炸掉動力區、中東的槽組、
+ * 幾棟北排廠房與管架；西北槽區、南排廠房、東邊的冷卻塔、倉庫、調車場與高砲陣地
+ * 留著 —— 從投彈視角看得出炸中了一大片、但廠還很大。冷卻塔與煙囪活著時冒白汽，
+ * 燒著的氣櫃與油槽冒黑煙，兩種並存。炸彈落在命中盒外擴 15 m 內就炸毀起火
  */
 const PROPS: readonly ReelProp[] = [
-  // 槽區（西北，裸土的防溢堤裡）：四排三列的油槽（直徑 25 m）、南邊兩座油桶堆
-  ...[-230, -190, -150, -110].flatMap((x) => [-1290, -1330, -1370].map((z) => ({ id: 'oilTank' as const, x, z, heading: 0 }))),
-  { id: 'fuelDump', x: -200, z: -1395, heading: 0 },
-  { id: 'fuelDump', x: -150, z: -1395, heading: 0 },
-  // 西南的堆場（裸土）：油桶堆與彈藥堆
-  { id: 'fuelDump', x: -230, z: -1490, heading: 0 },
-  { id: 'fuelDump', x: -190, z: -1490, heading: 0 },
-  { id: 'bombDump', x: -230, z: -1520, heading: 0 },
-  { id: 'bombDump', x: -160, z: -1515, heading: 0 },
-  // 動力區（中間）：兩座氣櫃、兩棟鍋爐房、一排四根煙囪（中間留廠內大路）
-  { id: 'gasHolder', x: -55, z: -1385, heading: 0 },
-  { id: 'gasHolder', x: -55, z: -1470, heading: 0 },
-  { id: 'boilerHouse', x: 5, z: -1395, heading: 0 },
-  { id: 'boilerHouse', x: 5, z: -1465, heading: 0 },
-  ...[-1375, -1395, -1455, -1475].map((z) => ({ id: 'chimney' as const, x: 55, z, heading: 0 })),
-  // 東邊：三座冷卻塔、兩根煙囪、兩座水塔。炸彈串碰不到冷卻塔北邊兩座與這兩根煙囪 ——
-  // 炸後畫面裡還有白色蒸汽，與燒著的槽區、氣櫃冒的黑煙並存
-  { id: 'coolingTower', x: 115, z: -1310, heading: 0 },
-  { id: 'coolingTower', x: 115, z: -1360, heading: 0 },
-  { id: 'coolingTower', x: 115, z: -1455, heading: 0 },
-  { id: 'chimney', x: 160, z: -1340, heading: 0 },
-  { id: 'chimney', x: 160, z: -1365, heading: 0 },
-  { id: 'hydroTower', x: 165, z: -1295, heading: 0 },
-  { id: 'hydroTower', x: 165, z: -1515, heading: 0 },
-  // 調車場（東，碴石）：兩條線上停三列車
-  { id: 'locomotive', x: 210, z: -1290, heading: 0 },
-  { id: 'tender', x: 210, z: -1302, heading: 0 },
-  ...[-1312, -1322, -1332, -1342, -1352, -1362].map((z) => ({ id: 'boxcar' as const, x: 210, z, heading: 0 })),
-  ...[-1430, -1440, -1450, -1460].map((z) => ({ id: 'boxcar' as const, x: 210, z, heading: 0 })),
-  { id: 'locomotive', x: 226, z: -1400, heading: 0 },
-  { id: 'tender', x: 226, z: -1412, heading: 0 },
-  ...[-1423, -1434, -1445, -1456].map((z) => ({ id: 'flatcar' as const, x: 226, z, heading: 0 })),
+  // 西北槽區（裸土的防溢堤裡）：油槽兩排四座、旁邊兩座油桶堆
+  ...[60, 100, 140, 180].flatMap((x) => [-1470, -1430].map((z) => ({ id: 'oilTank' as const, x, z, heading: 0 }))),
+  { id: 'fuelDump', x: 60, z: -1385, heading: 0 },
+  { id: 'fuelDump', x: 110, z: -1385, heading: 0 },
+  // 中東的槽組（裸土）：前導組的炸彈落在這裡，冒黑煙
+  ...[600, 640].flatMap((x) => [-1340, -1380].map((z) => ({ id: 'oilTank' as const, x, z, heading: 0 }))),
+  // 南邊的堆場（裸土）：油桶堆與彈藥堆
+  { id: 'fuelDump', x: 60, z: -940, heading: 0 },
+  { id: 'fuelDump', x: 110, z: -940, heading: 0 },
+  { id: 'bombDump', x: 165, z: -940, heading: 0 },
+  { id: 'bombDump', x: 215, z: -940, heading: 0 },
+  // 動力區（正中間）：兩座氣櫃、兩棟鍋爐房、一排四根煙囪
+  { id: 'gasHolder', x: 380, z: -1290, heading: 0 },
+  { id: 'gasHolder', x: 380, z: -1200, heading: 0 },
+  { id: 'boilerHouse', x: 460, z: -1285, heading: 0 },
+  { id: 'boilerHouse', x: 460, z: -1195, heading: 0 },
+  ...[-1300, -1265, -1220, -1185].map((z) => ({ id: 'chimney' as const, x: 520, z, heading: 0 })),
+  // 東邊：三座冷卻塔、兩根煙囪、兩座水塔，炸彈串碰不到
+  { id: 'coolingTower', x: 740, z: -1330, heading: 0 },
+  { id: 'coolingTower', x: 740, z: -1270, heading: 0 },
+  { id: 'coolingTower', x: 740, z: -1210, heading: 0 },
+  { id: 'chimney', x: 790, z: -1300, heading: 0 },
+  { id: 'chimney', x: 790, z: -1240, heading: 0 },
+  { id: 'hydroTower', x: 865, z: -1470, heading: 0 },
+  { id: 'hydroTower', x: 865, z: -1050, heading: 0 },
+  // 調車場（最東，碴石）：兩條線上停三列車
+  { id: 'locomotive', x: 897, z: -1450, heading: 0 },
+  { id: 'tender', x: 897, z: -1438, heading: 0 },
+  ...[-1428, -1418, -1408, -1398, -1388, -1378].map((z) => ({ id: 'boxcar' as const, x: 897, z, heading: 0 })),
+  { id: 'locomotive', x: 913, z: -1250, heading: 0 },
+  { id: 'tender', x: 913, z: -1238, heading: 0 },
+  ...[-1227, -1216, -1205, -1194].map((z) => ({ id: 'flatcar' as const, x: 913, z, heading: 0 })),
+  ...[-1100, -1090, -1080, -1070].map((z) => ({ id: 'boxcar' as const, x: 897, z, heading: 0 })),
   // 外圍一圈重高砲陣地與調車場邊的一門輕高砲
-  { id: 'flakHeavy', x: -300, z: -1310, heading: 0.8 },
-  { id: 'flakHeavy', x: -300, z: -1500, heading: 2.3 },
-  { id: 'flakHeavy', x: -130, z: -1585, heading: 2.8 },
-  { id: 'flakHeavy', x: 90, z: -1585, heading: 3.4 },
-  { id: 'flakHeavy', x: 300, z: -1500, heading: 4.0 },
-  { id: 'flakHeavy', x: 300, z: -1300, heading: 5.2 },
-  { id: 'flakHeavy', x: 110, z: -1225, heading: 5.8 },
-  { id: 'flakHeavy', x: -160, z: -1225, heading: 0.3 },
-  { id: 'flakLight', x: 260, z: -1400, heading: 4.5 },
+  { id: 'flakHeavy', x: -40, z: -1450, heading: 0.8 },
+  { id: 'flakHeavy', x: -50, z: -1150, heading: 1.6 },
+  { id: 'flakHeavy', x: -30, z: -860, heading: 2.3 },
+  { id: 'flakHeavy', x: 360, z: -820, heading: 3.0 },
+  { id: 'flakHeavy', x: 640, z: -820, heading: 3.5 },
+  { id: 'flakHeavy', x: 985, z: -900, heading: 4.0 },
+  { id: 'flakHeavy', x: 990, z: -1320, heading: 4.8 },
+  { id: 'flakHeavy', x: 560, z: -1580, heading: 5.8 },
+  { id: 'flakLight', x: 850, z: -1010, heading: 4.5 },
+]
+
+/** 東西向擺的管架：長邊沿 X */
+const EW = Math.PI / 2
+
+/**
+ * 佈景建築：南邊兩排廠房（中間是廠內大路）、東邊一排倉庫、西邊辦公區、北緣一排倉庫，
+ * 管架把槽區、動力區與冷卻塔串起來。長邊沿 Z，`EW` 的那幾件轉成東西向
+ */
+const DECOR: readonly ReelDecor[] = [
+  // 南邊兩排廠房（30 × 60 m，南北向），南北大路（x 300）兩側
+  ...[40, 120, 200, 380, 460, 540, 620, 700, 780].flatMap((x) => [-1060, -900].map((z) => ({ kind: 'hall' as const, x, z, heading: 0 }))),
+  // 東邊一排倉庫，靠著調車場
+  ...[-1390, -1320, -1250, -1180, -1110].map((z) => ({ kind: 'warehouse' as const, x: 830, z, heading: 0 })),
+  // 北緣一排倉庫（東西向）
+  ...[400, 480, 560, 640, 720, 800].map((x) => ({ kind: 'warehouse' as const, x, z: -1535, heading: EW })),
+  // 東西大路北側一排辦公樓（東西向）
+  ...[40, 120, 200, 380, 460, 540, 620, 700, 780].map((x) => ({ kind: 'office' as const, x, z: -1008, heading: EW })),
+  // 西邊辦公區、兩棟廠房與兩棟倉庫
+  ...[40, 100].flatMap((x) => [-1300, -1240].map((z) => ({ kind: 'office' as const, x, z, heading: 0 }))),
+  { kind: 'hall', x: 180, z: -1290, heading: 0 },
+  { kind: 'hall', x: 260, z: -1290, heading: 0 },
+  { kind: 'warehouse', x: 120, z: -1160, heading: EW },
+  { kind: 'warehouse', x: 220, z: -1160, heading: EW },
+  // 西北角：槽區北邊三棟倉庫（東西向）
+  ...[60, 140, 220].map((x) => ({ kind: 'warehouse' as const, x, z: -1535, heading: EW })),
+  // 小槽組：槽區東邊與北緣
+  ...[240, 330, 560, 640, 720].map((x) => ({ kind: 'tanks' as const, x, z: -1475, heading: 0 })),
+  // 管架：北邊一條東西向的主管線，兩條南北向的支線接動力區與冷卻塔
+  ...[290, 410, 530, 650, 770].map((x) => ({ kind: 'pipeRack' as const, x, z: -1420, heading: EW })),
+  { kind: 'pipeRack', x: 560, z: -1230, heading: 0 },
+  { kind: 'pipeRack', x: 690, z: -1300, heading: 0 },
 ]
 
 export const STREAM: Shot = {
@@ -450,38 +489,33 @@ export const STREAM: Shot = {
   timeOfDay: 'noon',
   faceSun: false,
   terrain: 'farmland',
-  // 水泥墊面貼著物件；槽區與西南堆場是裸土、調車場是碴石。廠內一條東西大路串起
-  // 槽區、動力區、冷卻塔與調車場，一條南北路從北門接到村子（中心 (−40, −1760)）、
-  // 從南門往南拉出去；西門接上廠區西北角外那條斜穿田野的凹路。鐵路南北貫穿調車場
+  // 水泥墊面貼著物件；槽區、中東槽組與南邊堆場是裸土、調車場是碴石。廠內一條東西大路
+  // （z −980，兩排廠房之間）、一條南北大路（x 300），南北路往北接村子（中心 (−40, −1760)）、
+  // 往南拉出去；東西路往西接上廠區西邊那條斜穿田野的凹路。鐵路南北貫穿調車場
   ground: {
     // 【矩形比物件的範圍內縮約 80 m】墊面的不規則邊往矩形外鋪出去好幾十公尺；照物件的
     // 範圍給的話，四周多出一大圈空灰
-    pad: { x0: -165, z0: -1460, x1: 165, z1: -1350 },
+    pad: { x0: 110, z0: -1420, x1: 850, z1: -950 },
     patches: [
-      { x0: -250, z0: -1412, x1: -94, z1: -1276, hex: 0x6b5f4e },
-      { x0: -250, z0: -1536, x1: -140, z1: -1478, hex: 0x6b5f4e },
-      { x0: 197, z0: -1536, x1: 246, z1: -1276, hex: 0x5f5a52 },
+      { x0: 35, z0: -1495, x1: 205, z1: -1405, hex: 0x6b5f4e },
+      { x0: 580, z0: -1400, x1: 660, z1: -1320, hex: 0x6b5f4e },
+      { x0: 35, z0: -965, x1: 240, z1: -915, hex: 0x6b5f4e },
+      { x0: 880, z0: -1485, x1: 935, z1: -1040, hex: 0x5f5a52 },
     ],
     treeClear: 60,
     roads: [
-      [{ x: -272, z: -1436 }, { x: -255, z: -1428 }, { x: 197, z: -1428 }],
-      [{ x: -200, z: -500 }, { x: -120, z: -1000 }, { x: -88, z: -1272 }, { x: -88, z: -1540 },
-        { x: -70, z: -1630 }, { x: -45, z: -1705 }],
+      [{ x: -385, z: -1300 }, { x: -200, z: -1150 }, { x: -20, z: -980 }, { x: 880, z: -980 }],
+      [{ x: 260, z: -500 }, { x: 300, z: -860 }, { x: 300, z: -1530 }, { x: 150, z: -1580 },
+        { x: 20, z: -1630 }, { x: -30, z: -1665 }],
     ],
-    rails: [[{ x: 218, z: -4500 }, { x: 218, z: 1500 }]],
+    rails: [[{ x: 905, z: -4500 }, { x: 905, z: 1500 }]],
   },
   // 半徑決定執行時落在農地的哪裡（`openSeaOrigin` 躲山丘）：3,750～4,500 m 落在
   // (12990, 7500)，村子就在圓心的 (−145, +581)。改了半徑，村子就不在油廠北邊
   clear: { x: 105, z: -2341, radius: 4400 },
   planes: PLANES,
   props: PROPS,
-  decor: [
-    { kind: 'hall', x: -170, z: -1640, heading: 0 },
-    { kind: 'warehouse', x: -100, z: -1640, heading: 0 },
-    { kind: 'office', x: -40, z: -1640, heading: 0 },
-    { kind: 'pipeRack', x: 30, z: -1640, heading: 0 },
-    { kind: 'tanks', x: 100, z: -1640, heading: 0 },
-  ],
+  decor: DECOR,
   ships: [],
   cuts: CUTS,
   camera: edit(CUTS),
