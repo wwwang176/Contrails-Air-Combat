@@ -86,7 +86,7 @@ export interface ReelStage {
   readonly fade: HTMLElement
   /**
    * 主角該落在畫面寬度的第幾成。左邊是選單，主角要在右邊空出來的那一塊。
-   * 每換一段量一次。
+   * 每換一段、每次 `relayout` 量一次。
    */
   subjectX(): number
   /** 觸控裝置：配角不出場、黑雲與防空減半 */

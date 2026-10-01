@@ -3591,6 +3591,11 @@ const REEL_SMOKE_SIZE = 0.32
 /** 短片的高砲：一朵雲走與戰鬥同一條路（黑雲池 + 爆點小火球 + 閃光） */
 const REEL_BURSTS = createBursts(1)
 
+const landingScreen = document.getElementById('landing') as HTMLElement
+const menuRows = document.querySelector('#menu .rows') as HTMLElement
+/** 選單頁的主角位置（畫面寬度的成數）；主選單每次重量，量到之前用這個值 */
+let reelSubjectRight = 0.7
+
 /**
  * 主選單背景的短片（`app/menuReel.ts`）。選單類畫面都在放；進機庫與戰鬥時停下。
  */
@@ -3604,10 +3609,12 @@ const menuReel: MenuReel = createMenuReel({
   },
   fade: document.getElementById('reel-fade') as HTMLElement,
   subjectX() {
-    // 主角落在選單右緣與畫面右緣的中間。量不到（選單藏著）就置中
-    const rows = document.querySelector('#menu .rows')
-    const right = rows?.getBoundingClientRect().right ?? 0
-    return right > 0 && window.innerWidth > 0 ? (right + window.innerWidth) / 2 / window.innerWidth : 0.5
+    // 開始畫面置中；其他選單頁一律落在主選單橫幅右緣與畫面右緣的中間。
+    // 橫幅只在主選單量得到，其他頁沿用上一次量到的值 —— 換頁時主角才不會動
+    if (!landingScreen.hidden) return 0.5
+    const right = menuRows.getBoundingClientRect().right
+    if (right > 0 && window.innerWidth > 0) reelSubjectRight = (right + window.innerWidth) / 2 / window.innerWidth
+    return reelSubjectRight
   },
   light: window.matchMedia('(pointer: coarse)').matches,
   fx: {
@@ -3830,7 +3837,7 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     }
     menu.show(screen)
     menu.setPaused(false)
-    // 【換頁之後重量】主選單的主角讓到選單右邊，其他頁置中
+    // 【換頁之後重量】開始畫面置中，其他選單頁讓到右邊
     menuReel.relayout()
   },
   onSetup(next) {
