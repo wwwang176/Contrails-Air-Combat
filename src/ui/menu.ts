@@ -355,6 +355,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   const el = {
     campaignCards: q('campaign-cards'),
     campName: q('camp-name'),
+    missionTrail: q('mission-trail'),
     route: q('route'),
     brief: q('brief'),
     presets: q('sk-presets'),
@@ -519,6 +520,8 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     const list = MISSIONS[campaign]
     const k = picked[campaign]
     el.campName.textContent = campaignLabel(campaign)
+    el.missionTrail.innerHTML = `${escapeHtml(t('menu.mission'))} › ${escapeHtml(campaignLabel(campaign))}`
+      + ` › <b>${escapeHtml(t(list[k]!.titleKey))}</b>`
     el.route.innerHTML = ''
     list.forEach((m, i) => {
       const ready = m.battle !== null
