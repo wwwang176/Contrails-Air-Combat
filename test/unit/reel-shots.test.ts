@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { PerspectiveCamera, Vector3 } from 'three'
+import { PerspectiveCamera, Quaternion, Vector3 } from 'three'
 import { createReelCamera, rampedOffset, reelShots, type Shot } from '../../src/app/reelShots'
+import { createFlight, flightPose } from '../../src/app/reelFlight'
+import { REEL_MAX_PLANES } from '../../src/app/menuReel'
 import { SHIP_CLASSES } from '../../src/world/ships'
 
 const STEP = 0.1
@@ -153,13 +155,62 @@ describe.each(shots.map((s) => [s.id + (s.id === 'home' ? `:${s.planes[0]!.spec.
       }
     })
 
-    it('鏡頭不鑽進任何一架飛機（離機身中心至少 6 m）', () => {
-      for (const t of times) {
-        shot.camera(t, cam)
-        shot.planes.forEach((p, i) => {
-          if (killedBy(shot, i, t)) return
-          expect(p.path(t, a).distanceTo(cam.position), `#${i} t=${t.toFixed(1)}`).toBeGreaterThan(6)
-        })
+    it('鏡頭不鑽進任何一架飛機：掛在它身上的不進命中盒與螺旋槳，其餘離機身中心至少 6 m', () => {
+      const pose = createFlight()
+      const local = new Vector3()
+      const inv = new Quaternion()
+      shot.cuts.forEach((cut, k) => {
+        const end = shot.cuts[k + 1]?.from ?? shot.duration
+        for (const t of times) {
+          if (t < cut.from || t >= end) continue
+          shot.camera(t, cam)
+          shot.planes.forEach((p, i) => {
+            if (killedBy(shot, i, t)) return
+            const where = `第 ${k + 1} 刀 #${i} t=${t.toFixed(1)}`
+            if (cut.mount !== i) {
+              expect(p.path(t, a).distanceTo(cam.position), where).toBeGreaterThan(6)
+              return
+            }
+            // 鏡頭轉到這一架的機體座標
+            flightPose(p.path, t, pose)
+            inv.copy(pose.quaternion).invert()
+            local.copy(cam.position).sub(pose.position).applyQuaternion(inv)
+            for (const box of p.spec.hitBoxes) {
+              const inside = Math.abs(local.x - box.center.x) < box.half.x + 0.5
+                && Math.abs(local.y - box.center.y) < box.half.y + 0.5
+                && Math.abs(local.z - box.center.z) < box.half.z + 0.5
+              expect(inside, `在命中盒（${box.part}）裡 ${where}`).toBe(false)
+            }
+            // 機首前方的螺旋槳盤：命中盒最前緣再往前 1.5 m、半徑 2.2 m 的圓柱
+            const nose = Math.min(...p.spec.hitBoxes.map((b) => b.center.z - b.half.z))
+            const inProp = local.z < nose + 0.5 && local.z > nose - 1.5 && Math.hypot(local.x, local.y) < 2.2
+            expect(inProp, `在螺旋槳盤裡 ${where}`).toBe(false)
+          })
+        }
+      })
+    })
+
+    it('飛機不超過放映機的上限；事件指到的演員都存在，同一架只擊落一次', () => {
+      expect(shot.planes.length).toBeLessThanOrEqual(REEL_MAX_PLANES)
+      const n = shot.planes.length
+      const killed = new Set<number>()
+      for (const e of shot.events) {
+        if (e.kind === 'flak') continue
+        expect(e.actor).toBeGreaterThanOrEqual(0)
+        expect(e.actor).toBeLessThan(n)
+        if (e.kind === 'gunner') {
+          expect(e.target).toBeLessThan(n)
+          expect(e.target).not.toBe(e.actor)
+        }
+        if (e.kind === 'aa') expect(e.ship).toBeLessThan(shot.ships.length)
+        if (e.kind === 'kill') {
+          expect(killed.has(e.actor), `#${e.actor} 被擊落兩次`).toBe(false)
+          killed.add(e.actor)
+        }
+      }
+      for (const c of shot.cuts) {
+        if (c.subject !== null) expect(c.subject).toBeLessThan(n)
+        if (c.mount !== undefined) expect(c.mount).toBeLessThan(n)
       }
     })
   },
