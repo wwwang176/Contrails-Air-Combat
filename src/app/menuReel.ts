@@ -55,6 +55,10 @@ export interface ReelFx {
   torpedoHit(x: number, z: number): void
   /** 地面物件炸毀：一團落地的火、留下燃燒的火點。`fires` 是幾處火點（油桶堆、油槽多一點） */
   groundKill(x: number, y: number, z: number, fires: number): void
+  /** 炸彈落在船上：甲板高度的一團火（不掀水冠） */
+  shipHit(x: number, y: number, z: number): void
+  /** 船上的火點冒一朵火與黑煙（船火那一套煙柱） */
+  shipFire(x: number, y: number, z: number): void
   /** 清掉所有共用特效與殘骸池 */
   clear(): void
 }
@@ -205,6 +209,24 @@ const FIRE_INTERVAL = 0.09
 const AIM = { x: 0, z: 0 }
 /** 炸彈落在地面物件命中盒外多少公尺內就算炸到 */
 const PROP_BLAST_REACH = 15
+/** 炸彈落在船體碰撞盒外多少公尺內算打中船（甲板上爆、留火點），m */
+const SHIP_HIT_REACH = 2
+/** 船上火點冒一朵的間隔，秒（與戰鬥的 `FIRE_PUFF` 同一個節奏） */
+const SHIP_FIRE_INTERVAL = 0.3
+/** 一艘船最多幾處火點 —— 再多煙柱糊成一片，也多花粒子 */
+const SHIP_FIRES_PER_SHIP = 6
+
+/** 魚雷的瞄點離船體多近算打中那一艘（測試要求瞄點在碰撞盒外擴 4 m 內） */
+const TORPEDO_SHIP_REACH = 6
+const LOCAL = new Vector3()
+const INV_Q = new Quaternion()
+
+/** 船上的一處火：位置記在艦體座標，跟著船走 */
+interface ShipFire {
+  readonly ship: number
+  readonly local: Vector3
+  timer: number
+}
 /** 炸毀後整片燒的：油桶堆、彈藥堆、油槽、儲氣槽 */
 const BURNS_LONG: ReadonlySet<string> = new Set(['fuelDump', 'bombDump', 'oilTank', 'gasHolder'])
 
@@ -250,6 +272,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   let shipWakes: ShipWakes | null = null
   let props: GroundTarget[] = []
   let groundModels: GroundModels | null = null
+  let shipFires: ShipFire[] = []
   let streams: AaStream[] = []
   const sources: MuzzleSource[] = []
   const positions: Vector3[] = []
@@ -293,6 +316,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       groundModels = null
     }
     props = []
+    shipFires = []
     streams = []
     pendingBombs = []
     bombs.active.fill(0)
@@ -490,6 +514,44 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     }
   }
 
+  /**
+   * 這一點在哪一艘船的船體上（俯視：碰撞盒外擴 `reach` m）。沒有回 −1。
+   * 只看水平 —— 呼叫端自己判斷高度
+   */
+  function shipUnder(p: Vector3, reach = SHIP_HIT_REACH): number {
+    for (let k = 0; k < ships.length; k++) {
+      const s = ships[k]!
+      LOCAL.copy(p).sub(s.position).applyQuaternion(INV_Q.copy(s.orientation).invert())
+      for (const b of s.cls.hull) {
+        if (Math.abs(LOCAL.x - b.center.x) < b.half.x + reach
+          && Math.abs(LOCAL.z - b.center.z) < b.half.z + reach) return k
+      }
+    }
+    return -1
+  }
+
+  /** 第 `k` 艘船在世界座標 `p` 那裡起火：記成艦體座標，之後跟著船走 */
+  function igniteShip(k: number, p: Vector3): void {
+    let n = 0
+    for (const f of shipFires) if (f.ship === k) n++
+    if (n >= SHIP_FIRES_PER_SHIP) return
+    const s = ships[k]!
+    const local = p.clone().sub(s.position).applyQuaternion(INV_Q.copy(s.orientation).invert())
+    shipFires.push({ ship: k, local, timer: 0 })
+  }
+
+  /** 船上的火點：每 `SHIP_FIRE_INTERVAL` 秒在它現在的位置冒一朵 */
+  function stepShipFires(dt: number): void {
+    for (const f of shipFires) {
+      f.timer -= dt
+      if (f.timer > 0) continue
+      f.timer += SHIP_FIRE_INTERVAL
+      const s = ships[f.ship]!
+      V1.copy(f.local).applyQuaternion(s.orientation).add(s.position)
+      fx.shipFire(V1.x, V1.y, V1.z)
+    }
+  }
+
   /** 地面物件炸毀：換殘骸（`alive` false 由外觀池換材質）、爆一團、起火 */
   function destroyProp(g: GroundTarget): void {
     if (!g.alive) return
@@ -530,6 +592,15 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       if (bombs.active[i] === 0) continue
       const tau = t - bombs.t0[i]!
       bombAt(bombs.p0[i]!, bombs.v0[i]!, tau, V1)
+      // 【先看有沒有打中船】船不是地形：落在船上要在甲板高度爆，不是掉到海面掀水柱
+      const k = shipUnder(V1)
+      if (k >= 0 && V1.y <= ships[k]!.impactY) {
+        V1.y = ships[k]!.impactY
+        fx.shipHit(V1.x, V1.y, V1.z)
+        igniteShip(k, V1)
+        bombs.active[i] = 0
+        continue
+      }
       const ground = terrain.collisionHeightAt(V1.x, V1.z)
       if (V1.y <= ground) {
         const water = terrain.waterAt(V1.x, V1.z) > -Infinity
@@ -555,7 +626,18 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       if (phase >= 1 && torpedoes.phase[i] === 0) fx.torpedoSplash(V1.x, V1.z)
       torpedoes.phase[i] = phase
       if (phase === 2) {
-        if (torpedoes.hit[i] === 1) fx.torpedoHit(AIM.x, AIM.z)
+        if (torpedoes.hit[i] === 1) {
+          fx.torpedoHit(AIM.x, AIM.z)
+          // 打中的那艘：命中那一側的船舷水線上方留一處火、甲板上再一處
+          V1.set(AIM.x, 0, AIM.z)
+          const k = shipUnder(V1, TORPEDO_SHIP_REACH)
+          if (k >= 0) {
+            V1.y = 4
+            igniteShip(k, V1)
+            V1.y = ships[k]!.impactY
+            igniteShip(k, V1)
+          }
+        }
         torpedoes.active[i] = 0
         continue
       }
@@ -747,6 +829,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     stepStreams(dt)
     stepShips(dt, time)
     stepOrdnance()
+    stepShipFires(dt)
     projectiles.step(dt)
     tracers.update(projectiles)
     muzzles.update(sources, positions, quaternions)
