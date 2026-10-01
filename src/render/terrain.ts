@@ -42,9 +42,10 @@ import {
   ROAD_WIDTH as ASCH_ROAD_WIDTH, ROADS as ASCH_ROADS,
 } from '../world/asch'
 import {
-  battleKeepOut, burnRateOf, CRATER_PATCHES, createKursk, isLargeVillage, MINEFIELDS, SCAR_ZONE, SCORCH, TRACKS,
-  TRENCHES,
+  battleKeepOut, burnRateOf, CRATER_PATCHES, createKursk, isLargeVillage, MINEFIELDS, OBSTACLES, SCAR_ZONE, SCORCH,
+  TRACKS, TRENCHES,
 } from '../world/kursk'
+import { buildObstacles } from './geometry/ground/obstacles'
 import { preloadScarAtlas } from './battleScars'
 import type { HeightFieldData } from '../world/heightfield'
 import { FIELD_COLORS, type Season } from './season'
@@ -565,9 +566,16 @@ export const KURSK_SITE: SiteLayout = {
   },
 }
 
-/** 庫斯克：農地的算繪路徑、手擺的緩丘、七月的麥田、戰場的痕跡，沒有佈景 */
+/**
+ * 庫斯克：農地的算繪路徑、手擺的緩丘、七月的麥田、戰場的痕跡，加上立體的障礙物（反坦克樁、
+ * 捷克刺蝟、鐵絲網）當佈景。高度場只建一次，障礙物貼著同一份地面
+ */
 function createKurskTerrain(gfx?: TerrainGfx): Terrain {
-  return createInlandTerrain(createKursk(), 'julyWheat', KURSK_SITE, undefined, gfx)
+  const kursk = createKursk()
+  const solid = outsideZero(kursk.field)
+  return createInlandTerrain(
+    kursk, 'julyWheat', KURSK_SITE, () => buildObstacles(OBSTACLES, (x, z) => solid.sample(x, z)), gfx,
+  )
 }
 
 /**
