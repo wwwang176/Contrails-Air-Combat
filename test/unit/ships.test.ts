@@ -95,6 +95,10 @@ describe('deckHeightOf', () => {
    * 所以取到的是甲板。拿它當「整艘船的最高點」用的話，標記會插在艦橋中間。
    * 真正的最高點問的是模型 —— `render/ships.ts` 的 `shipModelTop`。
    */
+  it('LST 取戰車甲板 6.67，艉樓不算（它蓋住中線、但只占艉部一段）', () => {
+    expect(deckHeightOf(SHIP_CLASSES.lst)).toBeCloseTo(6.67, 9)
+  })
+
   it('取蓋住中線的盒頂，艦島不算', () => {
     for (const id of ['fletcher', 'wichita', 'essex'] as const) {
       const cls = SHIP_CLASSES[id]
