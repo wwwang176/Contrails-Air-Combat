@@ -52,7 +52,7 @@ export function endLook(state: InputState): void {
  * 【只有掛得了彈的飛機能按】`bombCapable` 由 `main.ts` 在換飛機時寫入
  * —— 輸入層對飛機一無所知（見 `attachInput` 的檔頭）
  * 【死亡鏡頭下也不作用】那條相機分支完全不看視線，進去就把死亡鏡頭蓋掉
- * 【掛彈的戰鬥機：直接投彈】不切視角，見 `InputState.bombRelease`
+ * 【掛彈的戰鬥機與 Ju 87：直接投彈】不切視角，見 `InputState.bombRelease`
  * 【`repeat` 為真不連投】作業系統的自動重複只算第一次
  */
 export function pressBomb(state: InputState, repeat = false): void {

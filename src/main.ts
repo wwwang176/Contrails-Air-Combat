@@ -674,7 +674,7 @@ let playerLoadout: Loadout | null = null
  * 【換到不能投彈的飛機要強制退出】少了這一條，重生成戰鬥機之後相機會卡在
  * 一個沒有 `bombPoint` 的模式裡。
  *
- * 【有瞄具的走投彈視角，沒有的是掛彈戰鬥機】見 `InputState.bombRelease`
+ * 【有瞄具的走投彈視角，沒有的直接投彈（掛彈戰鬥機、Ju 87）】見 `InputState.bombRelease`
  */
 function syncBombLoad(): void {
   const m = visuals.get(player)!.model
@@ -1524,7 +1524,7 @@ function enterBattle(): void {
  */
 /** 這一場玩家那架飛機的全部教學卡。機種與掛載在 `startWorld` 之後才定 */
 function playerTutorials(): Tutorial[] {
-  return tutorialsFor(player.aircraft.spec.role, playerLoadout?.kind ?? null)
+  return tutorialsFor(player.aircraft.spec.role, playerLoadout?.kind ?? null, input.bombRelease)
 }
 
 /** 進戰鬥、重新開始時世界的聲音從靜音淡入的長度，s */

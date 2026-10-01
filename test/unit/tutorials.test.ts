@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import {
-  BOMB_TUTORIAL, FIGHTER_BOMB_TUTORIAL, FIGHTER_TUTORIAL, TORPEDO_TUTORIAL, markTutorialSeen, readSeenTutorials,
+  BOMB_TUTORIAL, DIRECT_BOMB_TUTORIAL, FIGHTER_TUTORIAL, TORPEDO_TUTORIAL, markTutorialSeen, readSeenTutorials,
   tutorialsFor, unseenTutorials, type Tutorial,
 } from '../../src/ui/tutorials'
 import { zh } from '../../src/i18n/zh'
@@ -16,15 +16,20 @@ const srcOf = (name: string): string =>
 
 describe('哪一架飛機看哪幾張卡', () => {
   it('戰鬥機看空戰；轟炸機只看投彈或投雷', () => {
-    expect(tutorialsFor('fighter', null)).toEqual([FIGHTER_TUTORIAL])
-    expect(tutorialsFor('bomber', 'bomb')).toEqual([BOMB_TUTORIAL])
-    expect(tutorialsFor('bomber', 'torpedo')).toEqual([TORPEDO_TUTORIAL])
-    expect(tutorialsFor('bomber', null)).toEqual([])
+    expect(tutorialsFor('fighter', null, false)).toEqual([FIGHTER_TUTORIAL])
+    expect(tutorialsFor('bomber', 'bomb', false)).toEqual([BOMB_TUTORIAL])
+    expect(tutorialsFor('bomber', 'torpedo', false)).toEqual([TORPEDO_TUTORIAL])
+    expect(tutorialsFor('bomber', null, false)).toEqual([])
   })
 
-  /** 【掛彈的戰鬥機兩張都看】先學飛、再學投 —— 投的是戰鬥機那一張，沒有瞄準視角 */
-  it('掛彈的戰鬥機先看空戰、再看戰鬥機的投彈', () => {
-    expect(tutorialsFor('fighter', 'bomb')).toEqual([FIGHTER_TUTORIAL, FIGHTER_BOMB_TUTORIAL])
+  /** 【掛彈的戰鬥機兩張都看】先學飛、再學投 —— 投的是直接投彈那一張，沒有瞄準視角 */
+  it('掛彈的戰鬥機先看空戰、再看直接投彈', () => {
+    expect(tutorialsFor('fighter', 'bomb', true)).toEqual([FIGHTER_TUTORIAL, DIRECT_BOMB_TUTORIAL])
+  })
+
+  /** 【看操作方式不看 role】Ju 87 是轟炸機但沒有瞄準視角：給它瞄準視角那張會教出按了沒反應的 B */
+  it('直接投彈的轟炸機（Ju 87）看直接投彈那張，不看空戰、也不看瞄準視角', () => {
+    expect(tutorialsFor('bomber', 'bomb', true)).toEqual([DIRECT_BOMB_TUTORIAL])
   })
 })
 
@@ -41,11 +46,11 @@ describe('每張卡只自動出現一次', () => {
   afterEach(() => { delete (globalThis as Record<string, unknown>)['localStorage'] })
 
   it('看過的卡記下來，下一場只剩沒看過的', () => {
-    const all = tutorialsFor('fighter', 'bomb')
+    const all = tutorialsFor('fighter', 'bomb', true)
     expect(unseenTutorials(all, readSeenTutorials())).toEqual(all)
     markTutorialSeen(FIGHTER_TUTORIAL.id)
-    expect(unseenTutorials(all, readSeenTutorials())).toEqual([FIGHTER_BOMB_TUTORIAL])
-    markTutorialSeen(FIGHTER_BOMB_TUTORIAL.id)
+    expect(unseenTutorials(all, readSeenTutorials())).toEqual([DIRECT_BOMB_TUTORIAL])
+    markTutorialSeen(DIRECT_BOMB_TUTORIAL.id)
     expect(unseenTutorials(all, readSeenTutorials())).toEqual([])
   })
 
@@ -68,7 +73,7 @@ describe('每張卡只自動出現一次', () => {
 })
 
 describe('教學卡的內容', () => {
-  const all: Tutorial[] = [FIGHTER_TUTORIAL, TORPEDO_TUTORIAL, BOMB_TUTORIAL, FIGHTER_BOMB_TUTORIAL]
+  const all: Tutorial[] = [FIGHTER_TUTORIAL, TORPEDO_TUTORIAL, BOMB_TUTORIAL, DIRECT_BOMB_TUTORIAL]
 
   it('每張卡的 id 都不同 —— 撞了的話看過一張等於看過兩張', () => {
     expect(new Set(all.map((t) => t.id)).size).toBe(all.length)

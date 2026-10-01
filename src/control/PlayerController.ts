@@ -31,7 +31,7 @@ export class PlayerController implements Controller {
     // 子彈玩家根本看不到，而彈藥是真的在消耗
     out.firing = this.input.firing && this.input.viewMode !== 'bomb'
     // 【投彈與 AI 同一格】`World.releaseBombs` 讀它，彈艙的推進與投放全在物理步。
-    // 兩個來源：轟炸機在投彈視角下按左鍵、掛彈的戰鬥機按 B（`InputState.bombTaps`）
+    // 兩個來源：有瞄具的轟炸機在投彈視角下按左鍵、直接投彈的機種按 B（`InputState.bombTaps`）
     const held = this.input.firing && this.input.viewMode === 'bomb'
     const tapped = this.input.bombTaps !== this.bombTapsSeen
     this.bombTapsSeen = this.input.bombTaps

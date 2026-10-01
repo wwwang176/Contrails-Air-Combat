@@ -135,10 +135,12 @@ export const BOMB_TUTORIAL: Tutorial = {
 }
 
 /**
- * 掛彈戰鬥機的投彈。**沒有瞄準視角** —— B 直接投，落點圈留在一般視角裡。
- * 圖沿用轟炸機那一張的落點圈與彈艙格子。
+ * 直接投彈（掛彈戰鬥機、Ju 87）。**沒有瞄準視角** —— B 直接投，落點圈留在
+ * 一般視角裡。圖沿用轟炸機那一張的落點圈與彈艙格子。
+ *
+ * 【id 不隨名稱改】它是存進 `localStorage` 的鍵，改了的話看過的人會再看一次。
  */
-export const FIGHTER_BOMB_TUTORIAL: Tutorial = {
+export const DIRECT_BOMB_TUTORIAL: Tutorial = {
   id: 'fighterBomb',
   titleKey: 'tutorial.bomb.title',
   panels: [
@@ -158,16 +160,17 @@ export const FIGHTER_BOMB_TUTORIAL: Tutorial = {
 
 /**
  * 這架飛機的全部教學卡，依序。戰鬥機先看空戰；有掛載再看那一種的卡。
- * 轟炸機只看投彈或投雷 —— 它不靠前射機槍打仗。戰鬥機掛彈的操作與轟炸機
- * 不同（沒有瞄準視角），所以是另一張卡。
+ * 轟炸機只看投彈或投雷 —— 它不靠前射機槍打仗。直接投彈的機種（沒有
+ * 瞄準視角）操作與有瞄具的轟炸機不同，所以是另一張卡；選哪張看操作方式，
+ * 不看機種的 `role`（Ju 87 是轟炸機但直接投彈）。
  */
 export function tutorialsFor(
-  role: AircraftSpec['role'], ordnance: OrdnanceKind | null,
+  role: AircraftSpec['role'], ordnance: OrdnanceKind | null, directDrop: boolean,
 ): Tutorial[] {
   const out: Tutorial[] = []
   if (role === 'fighter') out.push(FIGHTER_TUTORIAL)
   if (ordnance === 'torpedo') out.push(TORPEDO_TUTORIAL)
-  else if (ordnance === 'bomb') out.push(role === 'fighter' ? FIGHTER_BOMB_TUTORIAL : BOMB_TUTORIAL)
+  else if (ordnance === 'bomb') out.push(directDrop ? DIRECT_BOMB_TUTORIAL : BOMB_TUTORIAL)
   return out
 }
 
