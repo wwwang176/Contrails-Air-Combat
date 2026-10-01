@@ -103,12 +103,12 @@ const CENTRAL_EUROPE: BuildingColors = {
 
 /**
  * 俄國南部的農村：石灰刷白的泥牆、麥稈紮的草頂（khata）；附屬的棚子是土黃的泥牆、
- * 更舊更暗的草頂；少數公家的房子（場部、學校）是鐵皮頂。池的名字沿用 —— 池只認
- * 顏色表，形狀都一樣
+ * 更舊更暗的草頂。**`houseSlate` 在草原村是燒毀的房子**：牆與屋頂都燒成焦黑。池的名字
+ * 沿用 —— 池只認顏色表，形狀都一樣
  */
 const STEPPE_VILLAGE: BuildingColors = {
   house: { wall: 0xe4dcc6, roof: 0x9b8453 },
-  houseSlate: { wall: 0xd9d1bb, roof: 0x6d716a },
+  houseSlate: { wall: 0x2b2722, roof: 0x1a1816 },
   barn: { wall: 0xa39069, roof: 0x6b5a39 },
   barnTar: { wall: 0x7a6a50, roof: 0x4a443a },
 }

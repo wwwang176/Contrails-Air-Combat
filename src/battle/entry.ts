@@ -143,6 +143,25 @@ export const BOUNCE: EntryPlan = {
 }
 
 /**
+ * 遠方出擊：藍隊從更南邊、對準目標區的橫向位置出發，朝 −Z 飛。德 M4 庫斯克用。
+ *
+ * 【為什麼要它】庫斯克的戰場跟著村與路擺（`world/kursk.ts`），在 z ≈ +2,500 附近；
+ * `HEAD_ON` 的藍隊在 z = +5,000，離德軍集結地只有 2.5 km、25 秒就到。`along` 0.85 =
+ * z +8,500，到德軍集結地約 5.3 km。
+ *
+ * 【橫向對準路】`across × lateralOffset` = −3,300 m，是村南邊那條路的 x。不對準的話玩家
+ * 開場得先轉一個大彎。**座標是從農地框架算出來的**，`kursk-mission.test.ts` 守著兩邊
+ * 沒有差開。
+ *
+ * 紅隊的擺位與 `HEAD_ON` 相同；庫斯克開場沒有敵機，用不到它。**兩個數字是起始值，由試飛裁定。**
+ */
+export const STRIKE_DEEP: EntryPlan = {
+  id: 'strikeDeep',
+  blue: { ...NEUTRAL, along: 0.85, across: -2.2 },
+  red: { ...NEUTRAL, along: -0.5, across: 0.5, heading: Math.PI },
+}
+
+/**
  * 護住艦隊：擺位與 `HEAD_ON` 相同，但藍隊貼在艦隊上空、低空待命。
  *
  * 【為什麼藍隊要靠過去】被守的是原點的艦隊，不是藍隊自己。開局擺在 5 km
@@ -169,6 +188,7 @@ export const ENTRY_PLANS = {
   pursuit: PURSUIT,
   bounce: BOUNCE,
   carrierGuard: CARRIER_GUARD,
+  strikeDeep: STRIKE_DEEP,
 } as const
 
 export type EntryPlanId = keyof typeof ENTRY_PLANS

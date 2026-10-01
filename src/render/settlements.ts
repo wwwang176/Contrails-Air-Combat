@@ -43,6 +43,10 @@ type Kind = Place['kind']
 const CHURCH_REACH = 13
 /** 教堂周圍留的空地（加在教堂的外接半徑上），m */
 const CHURCH_YARD = 10
+/** 教堂連留地佔的半徑，m：別的東西（房子、路、菜園）的中心要離教堂這麼遠 */
+export function churchRoom(scale: number): number {
+  return CHURCH_REACH * scale + CHURCH_YARD
+}
 /**
  * 村有教堂的機率，照人口：小村多半沒有自己的教堂（幾個村共用一個教區教堂），
  * 大村才有。沒有人口資料的村取中間那一檔。鎮一定有、小聚落一定沒有
@@ -422,7 +426,7 @@ export function placeChurch(p: Place, avoid: (x: number, z: number) => boolean, 
   if (p.kind === 'hamlet') return null
   if (p.kind === 'village' && ((h >>> 20) & 0xff) / 256 >= villageChurchChance(p.pop)) return null
   const scale = p.kind === 'town' ? ((p.pop ?? 0) >= CATHEDRAL_POP ? 2 : 1.5) : 1
-  const room = CHURCH_REACH * scale + CHURCH_YARD
+  const room = churchRoom(scale)
   if (avoid(p.x, p.z) || !occ.free(p.x, p.z, room)) return null
   occ.add(p.x, p.z, room)
   return {
@@ -897,7 +901,7 @@ function frontageAlong(
 function town(c: Ctx): void {
   if (c.church !== null) churchyardTrees(c, c.church.x, c.church.z, c.church.scale)
   const style = c.p.name === 'Leuna' ? GARDEN_CITY_STYLE : TOWN_STYLE
-  const room = CHURCH_REACH * (c.church?.scale ?? 1) + CHURCH_YARD
+  const room = churchRoom(c.church?.scale ?? 1)
   const plan = planTown({
     x: c.p.x, z: c.p.z, R: c.R, outline: (th) => outlineScale(c.p, th), roads: c.roads,
     market: room + style.market, rand: c.rand, avoid: c.avoid, spec: style.plan,

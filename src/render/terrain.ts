@@ -8,7 +8,7 @@ import { CULL } from './cullRuns'
 import { createFieldClipmap, type ClipLevelSpec, type FieldClipmap } from './fieldClipmap'
 import { floraSplats } from './buildingBake'
 import { farmSettlements } from './farmSettlements'
-import { buildGardens } from './steppeVillage'
+import { buildBlasts, buildGardens, buildStreets } from './steppeVillage'
 import type { DayPalette } from './timeOfDay'
 import { createIslands } from './island'
 import { createFarmGround } from './farmGround'
@@ -42,7 +42,7 @@ import {
   ROAD_WIDTH as ASCH_ROAD_WIDTH, ROADS as ASCH_ROADS,
 } from '../world/asch'
 import {
-  createKursk, SCAR_ZONE, SCORCH, TRACKS, TRENCHES,
+  battleKeepOut, burnRateOf, createKursk, SCAR_ZONE, SCORCH, TRACKS, TRENCHES,
 } from '../world/kursk'
 import { preloadScarAtlas } from './battleScars'
 import type { HeightFieldData } from '../world/heightfield'
@@ -541,7 +541,15 @@ function createAschTerrain(gfx?: TerrainGfx): Terrain {
 }
 
 /**
- * 庫斯克：沒有墊面，地面照樣是麥田；三條土路，交戰帶疊上彈坑、燒田、履帶痕與壕溝
+ * 草原街村的建築池。街村沿著凹路拉得很長，還帶著不規則的分支，一個視野裡的房子比德國的
+ * 團狀村多得多：戰場的南北軸與兩側實測同時最多約 2,230 棟房屋、320 棟棚子、120 棟燒毀的房子
+ * （農地預設 320／190／60，超出的部分由 `stats.overflow` 靜靜丟掉）。留 1.5～2 倍的餘裕。
+ * 一格實例 152 byte。
+ */
+export const STEPPE_CAPACITY = { house: 3600, barn: 700, houseSlate: 300 } as const
+
+/**
+ * 庫斯克：沒有墊面、不畫路（路是區塊交界的凹路），交戰帶疊上彈坑、燒田、履帶痕與壕溝
  *
  * 【彈坑的密度】交戰帶裡一格（24 m）三成有坑，往外 700 m 內降到三分。**起始值，
  * 拿眼睛校**
@@ -649,7 +657,9 @@ function createInlandTerrain(
   // 程序生成的地圖的村用洛伊納那一套生成器（`farmSettlements.ts`），蓋到植被圈伸得到
   // 的地方
   const villageReach = farm.field.cell * (farm.field.size - 1) / 2 + FLORA_RADIUS + 1000
-  const villages = dressing === undefined ? farmSettlements(villageReach, season) : null
+  const villages = dressing === undefined
+    ? farmSettlements(villageReach, season, steppe ? { keepOut: battleKeepOut, burnRate: burnRateOf } : undefined)
+    : null
   let buildings = padClear(villages === null ? dressing!.buildings : villages.flora)
   // 【不長樹的範圍】地圖列出它有的範圍，載入時各合成一張遮罩（`keepOutMask.ts`）。
   // 野生的樹（河岸林、河漫灘的林子）避開村鎮、礦坑、高速公路；田裡的樹（樹籬、田裡
@@ -690,17 +700,25 @@ function createInlandTerrain(
   const reach = farm.field.cell * (farm.field.size - 1) / 2
     + FIELD_CLIP_HORIZON.size * FIELD_CLIP_HORIZON.metersPerTexel / 2
   const roofs = clipmap === null ? null : floraSplats(splatted, -reach, -reach, reach, reach, season)
-  /** 菜園的網格。烘圖的 overlay 不替呼叫端丟幾何，`dispose` 要自己丟 */
-  let gardenGeometry: BufferGeometry | null = null
+  /** 菜園、支路與彈坑貼片的網格。烘圖的 overlay 不替呼叫端丟幾何，`dispose` 要自己丟 */
+  const villageGeometry: BufferGeometry[] = []
   if (clipmap !== null && roofs !== null) {
     for (const m of dressing?.baked ?? []) {
       clipmap.addOverlay(m.geometry, true)
       clipmap.replaces(m)
     }
-    // 屋後的長條菜園（草原街村）：平貼在地上，烘進近圖
-    if (villages !== null && villages.gardens.length > 0) {
-      gardenGeometry = buildGardens((x, z) => solid.sample(x, z), villages.gardens)
-      clipmap.addOverlay(gardenGeometry, true)
+    // 草原大村：屋後的長條菜園、支路的土路帶、燒毀房子底下的彈坑，平貼在地上烘進近圖。
+    // 【次序】菜園在最底、支路壓過它、彈坑最上（被炸到的房子連路一起炸掉一角）
+    if (villages !== null) {
+      const sample = (x: number, z: number): number => solid.sample(x, z)
+      if (villages.gardens.length > 0) villageGeometry.push(buildGardens(sample, villages.gardens))
+      if (villages.streets.length > 0) villageGeometry.push(buildStreets(sample, villages.streets))
+      for (const g of villageGeometry) clipmap.addOverlay(g, true)
+      if (villages.blasts.length > 0) {
+        const g = buildBlasts(sample, villages.blasts)
+        villageGeometry.push(g)
+        clipmap.addOverlay(g, true, true)
+      }
     }
     for (const m of dressing?.beyond ?? []) clipmap.beyondFar(m)
     clipmap.addOverlay(roofs, false)
@@ -708,7 +726,8 @@ function createInlandTerrain(
   /** 上一次 `update` 的中心：植被量距離的那一點 */
   const centre = { x: 0, z: 0 }
   const vegetation = createVegetation(fields, (x, z) => solid.sample(x, z), {
-    season, ...(dressing === undefined ? {} : { capacity: dressing.capacity }),
+    season,
+    ...(dressing !== undefined ? { capacity: dressing.capacity } : steppe ? { capacity: STEPPE_CAPACITY } : {}),
   })
   // 【河掛在陸地底下】它是地表的一部分：`__gfx` 關陸地時一起關，群組的位置
   // 契約也不動。放在換材質那一圈之後 —— 那一圈把每一個孩子都當成田
@@ -787,7 +806,7 @@ function createInlandTerrain(
       vegetation.dispose()
       clipmap?.dispose()
       roofs?.dispose()
-      gardenGeometry?.dispose()
+      for (const g of villageGeometry) g.dispose()
       if (river !== null) disposeRiverMeshes(river)
       dressing?.dispose()
       if (sceneryGroup !== null) {

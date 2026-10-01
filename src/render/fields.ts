@@ -1076,6 +1076,49 @@ export const STEPPE_LAYOUT = {
   ridge: 8, pasture: 0.14,
 } as const
 
+const STEPPE_REG: RegionSample = {
+  r1: 0, r2: 0, ax: 0, az: 0, bx: 0, bz: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
+}
+
+/** 草原田第 `k` 條格線的位置，m：`edgeAt` 換成草原的抖動量 */
+function steppeEdgeAt(k: number, cell: number, salt: number): number {
+  return (k + (hash2(k, salt) / 4294967296 - 0.5) * 2 * STEPPE_LAYOUT.edgeJitter) * cell
+}
+
+/**
+ * 草原田：世界座標 (x, z) 到最近一條田埂（田界）的距離，m。**是 GLSL `fieldColorAt` 裡
+ * `best` 的 CPU 版**（草原田不對切，所以只有四條外框）。畫在地上的東西要避開田埂線時問它：
+ * 沿著田埂走的支路會與田埂重疊成一條線，看起來像田埂延伸成路。
+ *
+ * 熱路徑之外（載入時與測試），不配置。
+ */
+export function steppeRidgeGap(x: number, z: number): number {
+  regionAt(x, z, STEPPE_REG)
+  const rh = hash1(STEPPE_REG.id)
+  const angle = 0.35 + ((rh & 0xffff) / 65536 - 0.5) * 0.5
+  const scale = STEPPE_LAYOUT.spacingVar[0]
+    + ((rh >>> 16) / 65536) * (STEPPE_LAYOUT.spacingVar[1] - STEPPE_LAYOUT.spacingVar[0])
+  const cellW = STEPPE_LAYOUT.spacing * scale
+  const cellH = cellW * STEPPE_LAYOUT.aniso
+  const cos = Math.cos(-angle)
+  const sin = Math.sin(-angle)
+  const qx = x * cos - z * sin
+  const qz = x * sin + z * cos
+
+  let r = Math.floor(qz / cellH)
+  if (qz < steppeEdgeAt(r, cellH, 1)) r--
+  else if (qz >= steppeEdgeAt(r + 1, cellH, 1)) r++
+  const colSalt = (r * 2 + 1) | 0
+  let c = Math.floor(qx / cellW)
+  if (qx < steppeEdgeAt(c, cellW, colSalt)) c--
+  else if (qx >= steppeEdgeAt(c + 1, cellW, colSalt)) c++
+
+  return Math.min(
+    qx - steppeEdgeAt(c, cellW, colSalt), steppeEdgeAt(c + 1, cellW, colSalt) - qx,
+    qz - steppeEdgeAt(r, cellH, 1), steppeEdgeAt(r + 1, cellH, 1) - qz,
+  )
+}
+
 function fieldGlslBase(season: Season, candidates: boolean): string {
   const c = FIELD_COLORS[season]
   const steppe = c.layout === 'steppe'

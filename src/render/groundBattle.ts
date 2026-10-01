@@ -341,8 +341,10 @@ export function createGroundBattle(
         if (artilleryClock <= 0) {
           artilleryClock += art.period
           const seed = Math.floor(time * 10)
-          const x = art.x0 + hash01(seed * 3 + 1) * (art.x1 - art.x0)
-          const z = art.z0 + hash01(seed * 3 + 2) * (art.z1 - art.z0)
+          const a = (hash01(seed * 3 + 1) * 2 - 1) * art.halfAcross
+          const b = (hash01(seed * 3 + 2) * 2 - 1) * art.halfAlong
+          const x = art.x + a * art.across.x + b * art.along.x
+          const z = art.z + a * art.across.z + b * art.along.z
           const y = groundAt(x, z)
           // 【比照實比例大】從 1.5～2 km 往下看要讀得出是一柱土
           flash.emit(x, y + 1, z, 0, 0, 0, 3)

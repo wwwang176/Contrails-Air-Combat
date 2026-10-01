@@ -201,8 +201,11 @@ export interface FieldClipmap {
    * 寫 0，內圈照近圖的透明度把疊圖疊回去。
    *
    * 幾何歸呼叫端，`dispose` 不丟它。
+   *
+   * 【貼圖版】`textured` 為真時改讀頂點的 `uv`，顏色與不透明度取自戰場痕跡的圖集
+   * （`battleScars.ts` 的 `SCAR_ATLAS`），不讀 `color`。燒毀房屋底下的彈坑用它。
    */
-  addOverlay(geometry: BufferGeometry, near: boolean): void
+  addOverlay(geometry: BufferGeometry, near: boolean, textured?: boolean): void
   /**
    * 這顆網格已經整顆烘進兩張貼圖（`addOverlay(…, true)`）：平常不畫，旁路時畫
    */
@@ -321,6 +324,30 @@ void main() { gl_FragColor = vCol; }`,
     side: DoubleSide,
     // 【顏色照不透明度混、透明度累加】三個分量的頂點色第四個分量讀成 1，整片蓋掉；
     // 淡出的邊顏色與底下混，透明度照樣記下來給內圈用
+    transparent: true,
+    blending: CustomBlending,
+    blendEquation: AddEquation,
+    blendSrc: SrcAlphaFactor,
+    blendDst: OneMinusSrcAlphaFactor,
+    blendSrcAlpha: OneFactor,
+    blendDstAlpha: OneMinusSrcAlphaFactor,
+    depthTest: false,
+    depthWrite: false,
+  })
+  // 【貼圖版】同一組 uniform 與同一套混合，顏色改取圖集（`SCAR_ATLAS`）。圖集是直的
+  // alpha，sRGB 貼圖取樣時 GPU 轉成線性，與頂點色同一個空間。取樣點的偏移由呼叫端的
+  // uv 留（`steppeVillage.ts`）
+  const texturedOverlayMat = new ShaderMaterial({
+    uniforms: {
+      uCell0: bakeMat.uniforms['uCell0']!, uCells: bakeMat.uniforms['uCells']!, uMetres: bakeMat.uniforms['uMetres']!,
+      uScarAtlas: SCAR_ATLAS,
+    },
+    vertexShader: `uniform vec2 uCell0; uniform vec2 uCells; uniform float uMetres;
+varying vec2 vUv;
+void main() { vUv = uv; gl_Position = vec4((position.xz / uMetres - uCell0) / uCells * 2.0 - 1.0, 0.0, 1.0); }`,
+    fragmentShader: `varying vec2 vUv; uniform sampler2D uScarAtlas;
+void main() { gl_FragColor = texture2D(uScarAtlas, vUv); }`,
+    side: DoubleSide,
     transparent: true,
     blending: CustomBlending,
     blendEquation: AddEquation,
@@ -538,8 +565,8 @@ ${horizonColour}`)
   return {
     material,
     stats,
-    addOverlay(geometry, toNear) {
-      const mesh = new Mesh(geometry, overlayMat)
+    addOverlay(geometry, toNear, textured = false) {
+      const mesh = new Mesh(geometry, textured ? texturedOverlayMat : overlayMat)
       // 包圍球是世界座標，烘圖的鏡頭是 ±1 的正交盒 —— 不關的話整顆被剔掉
       mesh.frustumCulled = false
       mesh.renderOrder = 1 + overlays.children.length
@@ -641,6 +668,7 @@ uniform vec2 uFarCentre; uniform float uFarSpan;`)
       backdrop?.rt.dispose()
       bakeMat.dispose()
       overlayMat.dispose()
+      texturedOverlayMat.dispose()
       quadGeo.dispose()
       material.dispose()
     },

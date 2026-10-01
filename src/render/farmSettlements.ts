@@ -1,7 +1,7 @@
 import { villageSite, type FloraSource } from './flora'
 import { regionAt, regionSeed, trackGap, trackWidthAt, REGION_SPACING, type RegionSample } from './fields'
 import { settlementLayout } from './settlements'
-import { steppeLayout, type GardenStrip, type LaneVillage } from './steppeVillage'
+import { steppeLayout, type Blast, type GardenStrip, type LaneVillage, type StreetRibbon } from './steppeVillage'
 import type { Season } from './season'
 import type { Place } from '../world/landFeatures'
 
@@ -94,20 +94,37 @@ export function farmSettlementFlora(half: number): FloraSource {
   return farmSettlements(half).flora
 }
 
+
+/** 村與小聚落的產出 */
+export interface Settlements {
+  /** 建築與樹 */
+  readonly flora: FloraSource
+  /** 屋後的菜園（只有草原街村有） */
+  readonly gardens: readonly GardenStrip[]
+  /** 支路與岔路的土路帶（只有草原街村有） */
+  readonly streets: readonly StreetRibbon[]
+  /** 燒毀房子底下的彈坑貼片（只有草原街村有） */
+  readonly blasts: readonly Blast[]
+}
+
 /**
- * 村與小聚落：建築與樹（`flora`）、屋後的菜園（`gardens`，只有草原街村有）。
+ * 村與小聚落。
  *
- * @param season 七月麥田（`julyWheat`）是俄國南部的街村；其餘是德國中部的團狀村與綠地村
+ * @param season 七月麥田（`julyWheat`）是俄國南部的大村；其餘是德國中部的團狀村與綠地村
+ * @param war 戰場：不准蓋房子的地方，與各村房子燒毀的比例（`world/kursk.ts`）。只有草原村讀它
  */
 export function farmSettlements(
   half: number, season: Season = 'summer',
-): { flora: FloraSource; gardens: readonly GardenStrip[] } {
+  war?: { readonly keepOut: (x: number, z: number) => boolean; readonly burnRate: (name: string) => number },
+): Settlements {
   const onLane = (x: number, z: number): boolean => {
     regionAt(x, z, REG)
     return trackGap(x, z, REG) < trackWidthAt(x, z) + LANE_CLEAR
   }
-  if (season === 'julyWheat') return steppeLayout(farmLaneVillages(half), onLane)
+  if (season === 'julyWheat') return steppeLayout(farmLaneVillages(half), onLane, war?.keepOut, war?.burnRate)
   // 團狀村與綠地村各半：由站址座標的雜湊挑（`eastOfSaale` 在這裡只是村形的開關）
   const angerdorf = (x: number, z: number): boolean => (mix(Math.imul(Math.round(x), 73856093) ^ Math.round(z)) & 1) === 0
-  return { flora: settlementLayout(farmPlaces(half), onLane, angerdorf).flora, gardens: [] }
+  return {
+    flora: settlementLayout(farmPlaces(half), onLane, angerdorf).flora, gardens: [], streets: [], blasts: [],
+  }
 }

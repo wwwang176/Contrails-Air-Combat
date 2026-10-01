@@ -390,7 +390,7 @@ describe('洛伊納', () => {
   /** 【有真實村鎮就不撒隨機的村】隨機的村會落在不存在的地方 —— 田中央冒出一座教堂 */
   it('給了真實地物的地形不撒隨機的村', () => {
     const src = readFileSync('src/render/terrain.ts', 'utf8').replace(/\r\n/g, '\n')
-    expect(src).toContain('const villages = dressing === undefined ? farmSettlements(villageReach, season) : null')
+    expect(src).toMatch(/const villages = dressing === undefined\n\s*\? farmSettlements\(villageReach, season,[^\n]*\)\n\s*: null/)
     expect(src).toContain('padClear(villages === null ? dressing!.buildings : villages.flora)')
     expect(src.match(/farmSettlements\(/g)).toHaveLength(1)
   })

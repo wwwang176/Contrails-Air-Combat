@@ -211,7 +211,7 @@ export const GERMANY: readonly MissionCard[] = [
       blueCount: 4, redCount: 0,
       convoyCount: 0, convoyPriority: 1,
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
-      entry: 'headOn',
+      entry: 'strikeDeep',
       terrain: 'kursk',
       // 【塵霾】乾熱、砲擊與車輛揚起的塵土，地平線一片黃褐
       timeOfDay: 'julyNoon',

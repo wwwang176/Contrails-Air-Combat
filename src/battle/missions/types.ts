@@ -620,9 +620,16 @@ export interface MissionTheater {
   readonly period: number
   /** 射程，m：範圍內最近的存活敵方才打 */
   readonly range: number
-  /** 砲兵彈著的矩形（世界座標）與平均間隔，s */
+  /**
+   * 砲兵彈著的有向矩形與平均間隔，s。**中心是世界座標；`across` 是矩形橫向的單位向量
+   * （世界），`along` 是縱向的單位向量；半寬與半長沿這兩軸**。戰場跟著路轉
+   * （`world/kursk.ts`），軸對齊的外接矩形會讓彈著落到無人地帶之外
+   */
   readonly artillery?: {
-    readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number
+    readonly x: number; readonly z: number
+    readonly across: { readonly x: number; readonly z: number }
+    readonly along: { readonly x: number; readonly z: number }
+    readonly halfAcross: number; readonly halfAlong: number
     readonly period: number
   }
   /** 整場不熄的煙柱，世界座標 */
