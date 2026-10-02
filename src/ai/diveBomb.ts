@@ -165,6 +165,13 @@ export const DIVE_ORBIT_BAND = 500
 export const DIVE_ORBIT_BIAS = 35 * DEG
 export const DIVE_REARM_RANGE = 2500
 
+/**
+ * 回平飛時目標落在身後最多這麼遠（沿航向的「飛過」量），m。盤旋把範圍維持在一個半徑上，速度幾乎
+ * 垂直於目標方向，「飛過」量在 0 附近由雜訊決定，門檻要有餘裕。必須小於 `DIVE_FLIP_MISS`：平飛看到
+ * 飛過量超過那一條就轉脫離，兩個條件重疊的話相位每步來回切換。
+ */
+export const DIVE_REARM_ALONG = 200
+
 /** 平飛維持高度的前瞻時間，s。`誤差 − 前瞻 × 升降率` 除以 400 就是瞄準方向的仰角 */
 export const DIVE_LEVEL_DAMP = 6
 
@@ -473,11 +480,12 @@ function stepEgress(state: DiveBombState, self: Aircraft, loaded: boolean, out: 
   const climb = (DIVE_EGRESS_CLIMB + (DIVE_ZOOM_CLIMB - DIVE_EGRESS_CLIMB) * zoom) * k
   const c = Math.cos(climb)
   out.aimWorld.set(out.aimWorld.x * c, Math.sin(climb), out.aimWorld.z * c)
-  // 回平飛要目標在機鼻前半面：平飛把「飛過 `DIVE_FLIP_MISS` 以上」當成錯過、轉脫離，這裡若不看航向，
-  // 目標在遠處身後時兩邊的條件同時成立，相位每步來回切，瞄準點與維持高度也每步重設
+  // 回平飛要目標沒有落在身後太遠（`DIVE_REARM_ALONG`）：平飛把「飛過 `DIVE_FLIP_MISS` 以上」當成錯過、
+  // 轉脫離，這裡若不看航向，目標在遠處身後時兩邊的條件同時成立，相位每步來回切，瞄準點與維持高度也
+  // 每步重設
   if (
     loaded && p.y - state.aim.y >= DIVE_MIN_HEIGHT + DIVE_LEVEL_SLACK && range >= DIVE_REARM_RANGE
-    && alongTrack(self, dx, dz) <= 0
+    && alongTrack(self, dx, dz) <= DIVE_REARM_ALONG
   ) {
     state.phase = 'level'
     state.holdAlt = 0

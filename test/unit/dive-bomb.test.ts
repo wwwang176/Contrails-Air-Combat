@@ -5,7 +5,7 @@ import {
   DIVE_EGRESS_CLIMB, DIVE_EGRESS_RANGE, DIVE_ENTRY_BANK, DIVE_ENTRY_SPEED, DIVE_FLIP_DONE, DIVE_FLIP_FLOOR,
   DIVE_FLIP_LATERAL, DIVE_FLIP_MISS, DIVE_FLIP_PAST, DIVE_HOLD_RANGE, DIVE_IAS_BAND, DIVE_IAS_RATIO,
   DIVE_LEVEL_SLACK, DIVE_MIN_HEIGHT, DIVE_ORBIT_BAND, DIVE_ORBIT_BIAS, DIVE_PULLOUT_DONE, DIVE_PULLOUT_PITCH,
-  DIVE_REARM_RANGE, DIVE_RELEASE_HEIGHT, DIVE_ZOOM_CLIMB, DIVE_ZOOM_END_SPEED, DIVE_ZOOM_FULL_SPEED,
+  DIVE_REARM_ALONG, DIVE_REARM_RANGE, DIVE_RELEASE_HEIGHT, DIVE_ZOOM_CLIMB, DIVE_ZOOM_END_SPEED, DIVE_ZOOM_FULL_SPEED,
   pickDiveTarget, resetDiveBomb, stepDiveBomb, type DiveBombState, type DivePhase,
 } from '../../src/ai/diveBomb'
 import { AiController } from '../../src/ai/AiController'
@@ -581,9 +581,42 @@ describe('拉起與脫離', () => {
   })
 
   /**
+   * 【盤旋時目標在正側面也要能回平飛】盤旋把範圍維持在一個半徑上，速度幾乎垂直於目標方向，「飛過」量
+   * 在 0 附近由雜訊決定。門檻若是 0，緩慢往外漂幾公尺就一直回不去（高度早就夠了還白爬）。
+   * 門檻要有餘裕，但必須小於平飛的放棄線 `DIVE_FLIP_MISS`，兩個條件才不重疊
+   */
+  describe('回平飛的航向門檻', () => {
+    const enough = DIVE_MIN_HEIGHT + DIVE_LEVEL_SLACK + 10
+    const R = DIVE_EGRESS_RANGE + 60
+    /** 在目標正側面（距離 R）朝 −X 飛，航向再往 +Z（遠離目標）偏到「飛過」量剛好是 `along` */
+    const phaseWithAlong = (along: number): DivePhase => {
+      const self = fly(0, enough, R, 0, 66, 90)
+      const phi = Math.asin(along / R)
+      self.state.velocity.set(-66 * Math.cos(phi), 0, 66 * Math.sin(phi))
+      const s = stateIn('egress')
+      stepDiveBomb(s, self, TARGET_AT(0, 0), true, createCommand())
+      return s.phase
+    }
+
+    it('正側面、緩慢往外漂（2 m/s）：回平飛', () => {
+      expect(phaseWithAlong(R * (2 / 66))).toBe('level')
+    })
+
+    it('飛過量在 DIVE_REARM_ALONG 上下：以內回平飛、超過留在脫離', () => {
+      expect(phaseWithAlong(DIVE_REARM_ALONG - 20)).toBe('level')
+      expect(phaseWithAlong(DIVE_REARM_ALONG + 20)).toBe('egress')
+    })
+
+    it('門檻小於平飛的放棄線：脫離回平飛的那一步，平飛不會立刻把它打回去', () => {
+      expect(DIVE_REARM_ALONG).toBeGreaterThan(0)
+      expect(DIVE_REARM_ALONG).toBeLessThan(DIVE_FLIP_MISS)
+    })
+  })
+
+  /**
    * 【目標在身後時不回平飛】平飛看到目標在身後（飛過 `DIVE_FLIP_MISS` 以上）就走脫離；脫離若只看
    * 高度、距離、彈艙，距離夠遠的那一步就立刻回平飛、下一步又被打回脫離，兩個相位每步來回切，
-   * 瞄準點與維持高度也每步重設。回平飛要目標在機鼻前半面
+   * 瞄準點與維持高度也每步重設。回平飛要目標沒有落在身後太遠
    */
   it('目標在身後、離得夠遠：脫離不回平飛', () => {
     const s = stateIn('egress')
