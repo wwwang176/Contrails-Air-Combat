@@ -25,12 +25,13 @@ import {
 //   3.5–4.5   〔獵人視角，長焦、微荷蘭角〕第一架 109 俯衝線的後上方往前下方盯著右僚機：
 //             獵物鎖在畫面正中越來越大，109 從畫面右下緣切進來朝它衝，曳光迎著打過來
 //   4.5–7.6   一刀到底，右僚機翼根上方：長焦看 109 迎面撲來開火、曳光打進機身，逼近時拉寬，
-//             它從頭上 25 m 掠過時鏡頭甩頭追到身後（震一下），看它拉起
+//             它從頭上 25 m 掠過時鏡頭甩頭追到身後（震一下），看它拉起爬升轉開
 //   7.6–8.7   右僚機正後上方的跟拍：被打中的右內側發動機冒著煙、竄出火，煙從鏡頭旁往後流
-//   8.7–9.6   〔細節特寫〕長機下巴砲塔的側影，機槍手從它旁邊往前打，曳光往外噴、收向
-//             遠處撲來的第二架 109（一個小點）
-//   9.6–10.7  長機左翼根上方往前看：火花從右內側發動機一路掃過機首、打到鏡頭旁的左內側
-//             發動機，它冒出煙；機槍手從身邊往前還擊
+//   第二波換方向：一架從後上方（high six）撲向長機，一架從東側橫切
+//   8.7–9.6   〔細節特寫〕長機尾砲手的位置往後看：平尾與垂尾在下緣，曳光往後噴、收向
+//             後上方撲下來的第二架 109
+//   9.6–10.7  長機上方砲塔往後看：第二架 109 從後上方逼近，火花打在垂尾與機背上，左內側
+//             發動機冒出煙；上方砲塔從身邊往後還擊
 //   10.7–11.9 右僚機左後方的伴飛機（手持）：拖著火的右僚機掉在隊形下方、一點一點拉回長機
 //             旁邊；近處一朵高砲震一下
 //   11.9–13.4 長機右腰窗（手持）：拖著火的右僚機 12.6 秒被高砲直接命中炸開，編隊不散
@@ -171,7 +172,7 @@ const FALL_V = velocityAt(lowRight, LAST_FALL_AT, new Vector3())
 /** 收尾兩刀廠區那一側的注視點：西北槽區與動力區之間，殉爆的槽區在畫面裡 */
 const FALL_PLANT = new Vector3(300, 0, -1330)
 
-/** 109 對頭攻擊：速度、射擊窗正中那一刻離目標多遠 */
+/** 109 撲向目標：速度、對頭攻擊時射擊窗正中那一刻離目標多遠 */
 const FIGHTER_SPEED = 150
 const FIRE_RANGE = 380
 /**
@@ -181,124 +182,171 @@ const FIRE_RANGE = 380
  * 距離從 500 m 打到 260 m。俯角 6° 不偏航時上下偏 4.3 m；兩向都要偏的話俯角得放淺
  */
 const FIRE_HALF = 0.55
-/** 停火之後最後一刻拉起：擦身那一刻多抬高幾公尺 */
-const PULL_UP = 12
+/** 停火之後最後一刻拉起的時間常數，s */
 const PULL_D = 0.3
 
-/** 從射擊窗正中到飛過目標那一個橫切面要幾秒 */
-function passAfter(dive: number, yaw: number): number {
+/** 從射擊窗正中到飛過目標那一個橫切面要幾秒（射擊窗正中離目標 `range` m） */
+function passAfter(dive: number, yaw: number, range: number): number {
   const c = Math.cos(dive) * Math.cos(yaw)
-  return (c * FIRE_RANGE) / (FIGHTER_SPEED * c + STREAM_SPEED)
+  return (c * range) / (FIGHTER_SPEED * c + STREAM_SPEED)
 }
 
+/** 脫離：迴轉每一段（轉 90°）要幾秒 */
+const BREAK_TURN = 3.5
 /**
- * 109 從前方對頭撲向 `target`：一條往下 `dive`、往右偏 `yaw` 的直線，第 `fireAt` 秒穿過
- * 目標的機身中心、那時離它 380 m。停火的那一刻（`fireAt + FIRE_HALF`）猛然拉起，
- * 從目標頭上掠過（約 4 G，翼尖拉出凝結尾），之後往 `side` 那一側壓坡度轉開。
+ * 爬升收平時往下的加速度，m/s²。【小於 g】往下的加速度大過重力就要負 G，姿態推出來
+ * 是機腹朝天
+ */
+const BREAK_EASE = 6
+
+/**
+ * 打完一輪的脫離 —— 爬升轉彎：第 `tb` 秒起猛然拉起、同時壓坡度往 `side` 那一側轉，
+ * 加到 `out` 上的位移。(`vx`, `vy`, `vz`) 是脫離前的速度。`turns` = 1 轉 90°（之後往側面
+ * 飛遠）、2 轉 180°（迴轉回頭，像要準備下一輪）。第一段裡爬升率從 `vy` 拉到 `climb`，
+ * 轉完之後以 6 m/s² 慢慢收平。約 6 G，翼尖拉出凝結尾。
+ *
+ * 【迴轉用定向加速度拼】每一段的加速度是（段末速度 − 段初速度）/ 段長，速度從「前」轉到
+ * 「側」再轉到「後」；中段速度降到 106 m/s。每一次跳變用 `rampedOffset` 平順加上去，
+ * 全部跳變加起來是零，轉完不再加速
+ * 【往上拉、不往下推】拉起那一段的加速度朝上（正 G）；收平用 6 m/s²，小於 g
+ */
+function breakAway(
+  t: number, tb: number, vx: number, vy: number, vz: number,
+  side: number, turns: 1 | 2, climb: number, out: Vector3,
+): Vector3 {
+  const T = BREAK_TURN
+  const d = 0.4
+  // 側向：水平航向往 `side` 那一側轉 90°，大小相同
+  const px = side * vz
+  const pz = -side * vx
+  const t2 = tb + T
+  const te = tb + turns * T
+  if (turns === 1) {
+    out.x += rampedOffset(t, tb, d, (px - vx) / T) - rampedOffset(t, t2, d, (px - vx) / T)
+    out.z += rampedOffset(t, tb, d, (pz - vz) / T) - rampedOffset(t, t2, d, (pz - vz) / T)
+  } else {
+    out.x += rampedOffset(t, tb, d, (px - vx) / T) + rampedOffset(t, t2, d, (-2 * px) / T)
+      + rampedOffset(t, te, d, (vx + px) / T)
+    out.z += rampedOffset(t, tb, d, (pz - vz) / T) + rampedOffset(t, t2, d, (-2 * pz) / T)
+      + rampedOffset(t, te, d, (vz + pz) / T)
+  }
+  const up = (climb - vy) / T
+  out.y += rampedOffset(t, tb, d, up) - rampedOffset(t, t2, d, up)
+    - rampedOffset(t, te, d, BREAK_EASE) + rampedOffset(t, te + climb / BREAK_EASE, d, BREAK_EASE)
+  return out
+}
+
+/** 撲進射擊航線之前那一段陡俯衝改出來要幾秒 */
+const ENTRY_PULL = 2.5
+
+/**
+ * 109 撲向 `target`：一條往下 `dive`、航向 `yaw`（0 = 往南迎頭、π = 往北從後方追上）的
+ * 直線，第 `fireAt` 秒穿過目標的機身中心、那時離它 `range` m。停火的那一刻
+ * （`fireAt + FIRE_HALF`）猛然拉起、擦身時多抬高 `pullUp` m，掠過之後接 `breakAway`
+ * 的爬升轉彎（往 `side`、轉 `turns` 個 90°、爬升率拉到 `climb`）。
+ * `entry` > 0 的話，射擊窗前 0.85 秒之前是一段更陡的俯衝（多 `entry` m/s 的下沉），
+ * 用 2.5 秒改出來接上射擊航線 —— 從高處撲下來。
  *
  * 【拉起只能在停火之後】曳光沿機首直直打出去；一拉起機首就離開目標
- * 【擦身的間距】B-17 加 109 的半翼展和是 20.8 m，僚機另有 ±2 m 的起伏。直線本身在擦身
- * 那一刻已經高出目標（俯角 6° 是 13 m、3° 是 6.6 m），偏航另外橫向錯開
+ * 【擦身的間距】B-17 加 109 的半翼展和是 20.8 m，僚機另有 ±2 m 的起伏。對頭時直線在擦身
+ * 那一刻已經高出目標（俯角 6° 是 13 m）；從後方追上時反過來，直線在擦身那一刻低於目標
+ * （6°、160 m 是 17 m），`pullUp` 要補到它頭上 20 m 以上
  */
-function diveOn(target: Path, fireAt: number, side: number, dive: number, yaw: number): Path {
+function diveOn(
+  target: Path, fireAt: number, dive: number, yaw: number, range: number, pullUp: number,
+  side: number, turns: 1 | 2, climb: number, entry: number,
+): Path {
   const aim = target(fireAt, new Vector3())
   const dx = Math.cos(dive) * Math.sin(yaw)
   const dy = -Math.sin(dive)
   const dz = Math.cos(dive) * Math.cos(yaw)
-  const x0 = aim.x - dx * FIRE_RANGE
-  const y0 = aim.y - dy * FIRE_RANGE
-  const z0 = aim.z - dz * FIRE_RANGE
+  const x0 = aim.x - dx * range
+  const y0 = aim.y - dy * range
+  const z0 = aim.z - dz * range
   const pullFrom = fireAt + FIRE_HALF
-  const pass = fireAt + passAfter(dive, yaw)
+  const pass = fireAt + passAfter(dive, yaw, range)
   const pullT = pass - pullFrom
-  const pullGain = PULL_UP / (0.5 * PULL_D * (pullT - PULL_D) + 0.5 * (pullT - PULL_D) ** 2)
-  // 改平的加速度：兩段錯開 1.5 秒的 `rampedOffset` 相減，速度改變量就是它 × 1.5 —— 正好抵掉下沉
-  const levelGain = (FIGHTER_SPEED * Math.sin(dive)) / 1.5
+  const pullGain = pullUp / (0.5 * PULL_D * (pullT - PULL_D) + 0.5 * (pullT - PULL_D) ** 2)
+  // 拉起之後的爬升率：直線的下沉加上拉起帶來的速度
+  const vyPass = dy * FIGHTER_SPEED + pullGain * (pullT - PULL_D)
+  const tb = pass + 0.15
+  const entryEnd = fireAt - FIRE_HALF - 0.3
+  const entryGain = entry / ENTRY_PULL
   return (t, out) => {
     const s = FIGHTER_SPEED * (t - fireAt)
     out.set(x0 + dx * s, y0 + dy * s, z0 + dz * s)
     out.y += pullGain * (rampedOffset(t, pullFrom, PULL_D, 1) - rampedOffset(t, pass - PULL_D, PULL_D, 1))
-    // 衝過去之後改平：收掉俯衝的下沉 —— 不收的話 20 秒後掉到離地十幾公尺
-    out.y += levelGain * (rampedOffset(t, pass + 0.5, 1.5, 1) - rampedOffset(t, pass + 2, 1.5, 1))
-    out.x += side * rampedOffset(t, pass + 0.3, 1.5, 9)
-    out.z -= rampedOffset(t, pass + 0.3, 1.5, 10)
+    // 時間倒過來的 `rampedOffset`：`entryEnd` 之前越早越高，改出那 2.5 秒的加速度朝上
+    out.y += entryGain * (rampedOffset(-t, -entryEnd, 0.4, 1) - rampedOffset(-t, -(entryEnd - ENTRY_PULL), 0.4, 1))
+    breakAway(t, tb, dx * FIGHTER_SPEED, vyPass, dz * FIGHTER_SPEED, side, turns, climb, out)
     return out
   }
 }
-/** 第一架：俯角 6° 正對著撲向右僚機 */
+/**
+ * 第一波 —— 第一架：俯角 6° 迎頭撲向右僚機，從它頭上 25 m 掠過，往西拉起爬升、
+ * 迴轉回頭
+ */
 const DIVE_1 = (6 * Math.PI) / 180
 const FIRE_1 = 5.0
-const PASS_1 = FIRE_1 + passAfter(DIVE_1, 0)
-const bandit = diveOn(crippledBase, FIRE_1, -1, DIVE_1, 0)
+const PASS_1 = FIRE_1 + passAfter(DIVE_1, 0, FIRE_RANGE)
+const bandit = diveOn(crippledBase, FIRE_1, DIVE_1, 0, FIRE_RANGE, 12, -1, 2, 35, 0)
 const BANDIT = 9
 /**
- * 第二架：撲向長機。俯角 3°、往右偏 6°，機首那條線每秒在長機身上往左掃 7.9 m：火花從
- * 右內側發動機掃過機首、打到左內側發動機（`enginePoints[2]`），它冒煙。擦身時在長機
- * 左上方
+ * 第二波 —— 第二架：從長機後上方（high six）撲下來。先是一段 23° 的陡俯衝，9.0 秒改出、
+ * 接上往北 6° 的射擊航線，從長機正後方 200 m 打到 120 m：曳光從尾巴打上來，火花落在
+ * 垂尾與機背上。停火後拉起 45 m，從長機頭上 28 m 掠過，往東拉起爬升轉開。
+ * 【射擊距離只有 160 m】從後方追上的接近速度只有 75 m/s，380 m 外開火的話要 5 秒才
+ * 追得上
  */
 const FIRE_2 = 9.55
-const bandit2 = diveOn(streamLead, FIRE_2, -1, (3 * Math.PI) / 180, (6 * Math.PI) / 180)
+const bandit2 = diveOn(streamLead, FIRE_2, DIVE_1, Math.PI, 160, 45, -1, 1, 30, 50)
 const BANDIT_2 = 10
 
-/** 穿梭的 109：俯角、U 形迴轉的每一半要幾秒 */
+/** 穿梭的 109：俯角 */
 const RAID_DIVE = (6 * Math.PI) / 180
-const RAID_TURN = 5
 
 /**
  * 攔截中隊裡穿梭的 109（不瞄準、不帶護欄的目標）：第 `tp` 秒穿過編隊裡相對長機
  * (`gx`, `gy`, `gz`) 那一點 —— 一個量過、離每一架 B-17 都超過 23 m 的空隙。航向 `yaw`
- * （0 = 往南迎頭、π = 往北從後方追上、π/2 = 往東橫切），往下 6°。
- * 穿過之後 `breakAfter` 秒翻身脫離：往 `side` 那一側做一個 U 形迴轉（前 5 秒轉到側向、
- * 後 5 秒轉到反向，同時改平），迴轉完在 750 m 外往回飛，像在外圍盤旋準備下一輪。
- *
- * 【迴轉用兩段定向加速度拼】速度從「前」轉到「側」再轉到「後」，中段速度降到 106 m/s，
- * 約 4.3 G。每一段用 `rampedOffset` 平順加上去，三次跳變加起來是零，迴轉完不再加速
- * 【一定要改平】往下 6° 一路衝的話 20 秒後掉到離地兩百公尺以下、30 秒撞地
+ * （0 = 往南迎頭、π = 往北從後方追上、±π/2 = 往東／往西橫切），往下 6°。
+ * 穿過之後 `breakAfter` 秒脫離：往 `side` 那一側拉起爬升、迴轉 180°（`breakAway`），
+ * 爬升率拉到 `climb`。迴轉完在 500 m 外往回飛，像在外圍準備下一輪
  */
-function raider(tp: number, gx: number, gy: number, gz: number, yaw: number, side: number, breakAfter: number): Path {
+function raider(
+  tp: number, gx: number, gy: number, gz: number, yaw: number, side: number, breakAfter: number, climb: number,
+): Path {
   const a = streamLead(tp, new Vector3()).add(new Vector3(gx, gy, gz))
   const h = Math.cos(RAID_DIVE) * FIGHTER_SPEED
   const vx = Math.sin(yaw) * h
   const vy = -Math.sin(RAID_DIVE) * FIGHTER_SPEED
   const vz = Math.cos(yaw) * h
-  // 側向：航向往 `side` 那一側轉 90°
-  const px = side * Math.cos(yaw) * h
-  const pz = -side * Math.sin(yaw) * h
-  const t1 = tp + breakAfter
-  const t2 = t1 + RAID_TURN
-  const t3 = t2 + RAID_TURN
-  const T = RAID_TURN
+  const tb = tp + breakAfter
   return (t, out) => {
     const s = t - tp
     out.set(a.x + vx * s, a.y + vy * s, a.z + vz * s)
-    // 第一段加速度 (p − h)/T，第二段 (−h − p)/T，之後 0
-    out.x += rampedOffset(t, t1, 0.5, (px - vx) / T) + rampedOffset(t, t2, 0.5, -2 * px / T)
-      + rampedOffset(t, t3, 0.5, (vx + px) / T)
-    out.z += rampedOffset(t, t1, 0.5, (pz - vz) / T) + rampedOffset(t, t2, 0.5, -2 * pz / T)
-      + rampedOffset(t, t3, 0.5, (vz + pz) / T)
-    // 第一段同時把下沉收掉
-    out.y += rampedOffset(t, t1, 0.5, -vy / T) - rampedOffset(t, t2, 0.5, -vy / T)
-    return out
+    return breakAway(t, tb, vx, vy, vz, side, 2, climb, out)
   }
 }
 /**
  * 五架穿梭的 109，各在不同的刀裡穿過背景：
  * - 從編隊右後方追上來、斜斜往前下方超過右上那一架（開場長焦的背景、砲塔特寫的前方）
- * - 一對長僚機跟第一架 109 一起迎頭撲下來，從長機與右僚機之間的上方穿過（獵人視角裡
- *   是同一群往下撲的其他幾架，迎面＋甩頭那刀從右僚機頭上穿過）
- * - 一架迎頭從左僚機與低空組之間鑽過去（砲塔特寫、掉高度那兩刀）
- * - 一架往東橫切、從長機組後面穿過去（垂直俯視那刀從編隊底下橫過）
+ * - 第一波：一對長僚機跟第一架 109 一起迎頭撲下來，從長機與右僚機之間的上方穿過，
+ *   掠過之後一架往東、一架往西拉起爬升散開（獵人視角裡是同一群往下撲的其他幾架，
+ *   迎面＋甩頭那刀從右僚機頭上穿過）
+ * - 第二波：一架從東側橫切（beam attack），從長機組後上方往西穿過去，往北拉起爬升
+ *   （和從後上方撲下來的第二架同時到，兩個方向）
+ * - 一架往東橫切、從長機組後面穿過去，往北拉起（垂直俯視那刀從編隊底下橫過）
  * 【開場那架在編隊東側】長焦那刀從左後方拍、選單在左邊：西側的全躲在選單後面
  */
 /**
  * 【追上來的那架要晚點才迴轉、往東轉】它往北飛，迴轉完往南：早轉的話段尾往南飛出
- * 開闊圓；往西轉的話橫切過前導組的前方。超過編隊 600 m 才翻身，迴轉完只剩 15 秒往南
+ * 開闊圓；往西轉的話橫切過前導組的前方。超過編隊 700 m 才翻身，迴轉完只剩 16 秒往南
  */
-const raidAstern = raider(1.5, 110, -25, 20, Math.PI, -1, 8.5)
-const raidLead = raider(5.6, 18, 30, 0, 0, 1, 1.0)
-const raidWing = raider(5.9, 40, 45, 0, 0, 1, 1.0)
-const raidLow = raider(10.3, -56, -21, 0, 0, -1, 1.0)
-const raidCross = raider(14.9, 0, -20, 70, Math.PI / 2, 1, 1.5)
+const raidAstern = raider(1.5, 110, -25, 20, Math.PI, -1, 10.0, 25)
+const raidLead = raider(5.6, 18, 30, 0, 0, 1, 1.0, 35)
+const raidWing = raider(5.9, 40, 45, 0, 0, -1, 1.0, 25)
+const raidLow = raider(10.3, 0, 25, 60, -Math.PI / 2, -1, 0.8, 35)
+const raidCross = raider(14.9, 0, -20, 70, Math.PI / 2, 1, 1.5, 30)
 const RAID_LEAD = 8
 const RAID_WING = 13
 const RAID_LOW = 14
@@ -444,30 +492,29 @@ const CUTS: readonly Cut[] = [
   {
     from: 8.7, subject: BANDIT_2, mount: 0,
     camera(t, out) {
-      // 細節特寫：長機機背、上方砲塔右後方 3 m 往前看。曬著太陽的砲塔在畫面左下，
-      // 長機的機槍手就從它旁邊往前打，曳光一條條往外噴、收向前方 600 m 外迎面撲來的
-      // 第二架 109（畫面中間的一個小點，9.0 秒起它的槍口也在閃）。掛在機上，只留 0.1° 的
-      // 慢晃。
-      // 【拍上方砲塔、不拍下巴砲塔】正午的太陽在頭頂，機腹下的砲塔從哪個角度看都是
-      // 一團背光的黑球
-      body(streamLead, t, 1.0, 3.3, 1.5, false, out.position)
+      // 細節特寫：長機機背後段、右平尾前上方往後看 —— 尾砲手的方向。平尾與垂尾壓在畫面下緣，
+      // 尾砲手從身邊往後打，曳光一條條往外噴、收向後上方 200 m 外撲下來的第二架 109
+      // （第二波換方向：從後上方，9.0 秒起它的槍口也在閃）。第一波從正前方迎頭，
+      // 這一波從身後。掛在機上，只留 0.1° 的慢晃
+      body(streamLead, t, 2.6, 3.2, 7.5, false, out.position)
       bandit2(t, S1)
-      body(streamLead, t, 0, 2.6, -1.0, false, S2)
-      aimBetween(out.position, S1, S2, 0.4, out.target)
+      body(streamLead, t, 3.0, 1.0, 20, false, S2)
+      aimBetween(out.position, S1, S2, 0.45, out.target)
       shake(t, 0.15, 35, out.target)
       bodyUp(streamLead, t, out.up)
       out.fov = 50
     },
   },
   {
-    from: 9.6, subject: 0, mount: 0,
+    from: 9.6, subject: BANDIT_2, mount: 0,
     camera(t, out) {
-      // 長機左翼根上方往右前方看：機首與右內側發動機在畫面裡，第二架 109 只是上緣一個
-      // 越來越大的小點。火花從右內側發動機掃過機首、一路打到鏡頭旁的左內側發動機
-      // （彈著 9.4～10.5 秒），10.15 秒它冒出煙、從鏡頭右下往後流；長機的機槍手從身邊
-      // 往前還擊。掛在機上，挨打時晃 0.3°
-      body(streamLead, t, -4.9, 2.8, 4.0, false, out.position)
-      body(streamLead, t, 1.5, 1.2, -8, false, out.target)
+      // 長機上方砲塔右後方往後看：機背與垂尾在畫面中間，第二架 109 從後上方逼近、越來
+      // 越大（130 m → 75 m），火花打在垂尾與機背上（彈著 9.4～10.5 秒）；10.15 秒左內側
+      // 發動機冒出煙、從畫面左邊往後流；上方砲塔從身邊往後還擊。掛在機上，挨打時晃 0.3°
+      body(streamLead, t, 0.9, 3.4, 0.5, false, out.position)
+      bandit2(t, S1)
+      body(streamLead, t, 0, 3.5, 14, false, S2)
+      aimBetween(out.position, S1, S2, 0.4, out.target)
       shake(t, 0.3, 21, out.target)
       jolt(t, FIRE_2 + FIRE_HALF, 0.5, out.target)
       bodyUp(streamLead, t, out.up)
