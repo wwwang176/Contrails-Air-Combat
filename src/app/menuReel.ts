@@ -760,7 +760,10 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     for (let k = pendingBombs.length - 1; k >= 0; k--) {
       const p = pendingBombs[k]!
       if (p.at > t) continue
-      pendingBombs.splice(k, 1)
+      // 【換到最後再彈出】`splice` 每次回傳一個新陣列；佇列不需要保持順序，而且往回掃，
+      // 換過來的那一格已經看過了
+      pendingBombs[k] = pendingBombs[pendingBombs.length - 1]!
+      pendingBombs.pop()
       const a = actors[p.actor]
       if (a === undefined || a.model === null) continue
       const i = bombs.next
