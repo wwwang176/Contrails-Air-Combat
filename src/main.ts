@@ -3767,7 +3767,7 @@ const REEL_BOMB_SCALE = 0.8
  * 短片拖煙：蜿蜒的外飄速度幅度、每團各自的小亂數（m/s）、大小的相對抖動。
  * 煙本來就細，幅度一大整條就散掉、不連貫
  */
-const REEL_SMOKE_WANDER = 1.2
+const REEL_SMOKE_WANDER = 0.84
 const REEL_SMOKE_JITTER = 0.4
 const REEL_SMOKE_SIZE_JITTER = 0.35
 let reelSmokeSeed = 0
