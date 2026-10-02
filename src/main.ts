@@ -187,6 +187,7 @@ import {
 } from './ui/tutorials'
 import { nextScreen, type Screen } from './ui/screens'
 import { createMenuReel, type MenuReel, type ReelSiteRequest } from './app/menuReel'
+import type { ReelTerrainKind } from './app/reelShots'
 import { createShowcase, type Showcase } from './app/showcase'
 import { PLANT_STACKS } from './world/leuna'
 import { assetUrl } from './core/asset'
@@ -1452,7 +1453,7 @@ function clearBattleScenery(): void {
  * 選單短片要的地形：與現在的不同才重建。短片每換一段都叫它（在暗場裡），
  * 所以從戰鬥回到選單也由它換回來
  */
-function setMenuTerrain(kind: 'archipelago' | 'farmland', site?: ReelSiteRequest): void {
+function setMenuTerrain(kind: ReelTerrainKind, site?: ReelSiteRequest): void {
   const siteKey = site?.key ?? null
   if (terrainKind === kind && terrainSiteKey === siteKey) return
   terrainKind = kind

@@ -22,7 +22,7 @@ import type { AircraftSpec } from '../specs/types'
 import { createFlight, flightPose, openSeaOrigin, type Flight } from './reelFlight'
 import {
   BOMB_RELEASE_Y, bombAt, createReelCamera, pickIsland, reelShots, torpedoAt, torpedoEntry,
-  type ReelDecor, type ReelEvent, type ReelGround, type ReelPoint, type Shot,
+  type ReelDecor, type ReelEvent, type ReelGround, type ReelPoint, type ReelTerrainKind, type Shot,
 } from './reelShots'
 import type { SiteLayout } from '../render/fields'
 import { createBombs, createTorpedoes, type BombVisuals, type OrdnancePool } from '../render/bombs'
@@ -111,9 +111,9 @@ export interface ReelStage {
   terrain(): ReelTerrain
   /**
    * 換成這張地形（種類與廠區都與現在的相同就不動）。換景的暗場裡呼叫。
-   * `site` 只對 `'farmland'` 有意義
+   * `site` 只對兩種農地有意義
    */
-  setTerrain(kind: 'archipelago' | 'farmland', site?: ReelSiteRequest): void
+  setTerrain(kind: ReelTerrainKind, site?: ReelSiteRequest): void
   setTimeOfDay(tod: TimeOfDay): void
   /** 全黑的那一層。opacity 由這裡寫，過渡時間在 CSS */
   readonly fade: HTMLElement
