@@ -121,10 +121,12 @@ export const DIVE_PULLOUT_DONE = 5 * DEG
 /**
  * 翻轉時真速要不低於這個，m/s。
  *
- * 【為什麼要看速度】低速時操縱沒力：70 m/s 上下直接壓機鼻，滾轉會飄到 40～68°、機鼻衝過 −85°；
- * 90 m/s 以上滾轉恆為 0。脫離的爬升會把速度耗到 70 m/s 上下，回平飛要有加速的距離。
+ * 【為什麼是 65】單機模擬（`test/tools/ju87-flip.probe.ts`，離目標高 900 m）在 65～90 m/s 都翻得完：
+ * 65 m/s 用 5.2 秒、掉 113 m，90 m/s 用 4.5 秒、掉 112 m，機翼都翻正。再低沒量過，而安全層的失速門檻
+ * 是 36 m/s，翻轉要耗速，餘裕不能再少。脫離的爬升把速度耗到 65 m/s 上下，回頭的助跑約 1,100 m，
+ * 進場時真速約 77～85 m/s。
  */
-export const DIVE_ENTRY_SPEED = 85
+export const DIVE_ENTRY_SPEED = 65
 
 /**
  * 脫離的爬升角，rad；爬升角隨真速收斂：不低於 `DIVE_CLIMB_FULL_SPEED` 全爬，到 `DIVE_CLIMB_MIN_SPEED`
@@ -158,12 +160,16 @@ export const DIVE_ZOOM_END_SPEED = 80
  * 【為什麼是盤旋不是飛出去再飛回來】直飛出去掉頭飛回時，爬得夠高常常已經飛進回平飛的距離以內，
  * 要飛過目標、再飛出去才能回平飛，白繞一大圈；盤旋讓爬夠了高度就能回平飛。
  *
- * 回平飛至少要離目標 `DIVE_REARM_RANGE` 公尺，m：留得出轉彎、對正與加速到 `DIVE_ENTRY_SPEED` 的空間。
+ * 離目標在 `DIVE_EGRESS_RANGE − DIVE_ORBIT_BAND`（500 m）以內而且正在飛離的，保持航向直線爬；
+ * 再遠就開始轉彎。半徑大的話（3,000 m）要飛到離目標 2,500 m 才開始轉、轉回來再用一圈的時間，爬夠
+ * 高度之後還要多飛幾十秒才能回頭。
+ *
+ * 回平飛至少要離目標 `DIVE_REARM_RANGE` 公尺，m：留得出轉彎與對正的空間。
  */
-export const DIVE_EGRESS_RANGE = 3000
+export const DIVE_EGRESS_RANGE = 1000
 export const DIVE_ORBIT_BAND = 500
 export const DIVE_ORBIT_BIAS = 35 * DEG
-export const DIVE_REARM_RANGE = 2500
+export const DIVE_REARM_RANGE = 500
 
 /**
  * 回平飛時目標落在身後最多這麼遠（沿航向的「飛過」量），m。盤旋把範圍維持在一個半徑上，速度幾乎

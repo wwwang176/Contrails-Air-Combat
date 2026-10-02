@@ -476,10 +476,13 @@ describe('拉起與脫離', () => {
   })
 
   /** 轉彎（含側滑）會耗掉持續爬升約 1.5 m/s：直線飛 8.3 m/s、繞圈 6～7.5 m/s */
+  /** 離目標在轉彎起點（半徑減偏滿的距離）之內 */
+  const NEAR = (DIVE_EGRESS_RANGE - DIVE_ORBIT_BAND) / 2
+
   it('脫離：離目標還近而且正在飛離，就直線爬（不轉彎，爬得最快）', () => {
     const near = createCommand()
-    stepDiveBomb(stateIn('egress'), fly(0, 700, 1500, 10, 75, 180), TARGET_AT(0, 0), true, near)
-    // 航向 180°：朝 +Z，離目標 1,500 m（半徑之內），速度方向在遠離目標
+    stepDiveBomb(stateIn('egress'), fly(0, 700, NEAR, 10, 75, 180), TARGET_AT(0, 0), true, near)
+    // 航向 180°：朝 +Z，離目標 NEAR m（轉彎起點之內），速度方向在遠離目標
     expect(near.aimWorld.y).toBeCloseTo(Math.sin(DIVE_EGRESS_CLIMB), 6)
     expect(near.aimWorld.x).toBeCloseTo(0, 6)
     expect(near.aimWorld.z).toBeGreaterThan(0)
@@ -487,8 +490,8 @@ describe('拉起與脫離', () => {
 
   it('脫離：正朝目標飛來的會轉開（朝外偏的盤旋），不會飛過目標上空', () => {
     const out = createCommand()
-    // 離目標 1,500 m、航向朝目標（0° = 朝 −Z）
-    stepDiveBomb(stateIn('egress'), fly(0, 700, 1500, 10, 90, 0), TARGET_AT(0, 0), true, out)
+    // 離目標 NEAR m、航向朝目標（0° = 朝 −Z）
+    stepDiveBomb(stateIn('egress'), fly(0, 700, NEAR, 10, 90, 0), TARGET_AT(0, 0), true, out)
     const h = new Vector3(out.aimWorld.x, 0, out.aimWorld.z).normalize()
     // 朝目標的分量是負的（朝外偏），而且不是直接朝目標
     expect(h.z).toBeGreaterThan(0)
