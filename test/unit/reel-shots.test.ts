@@ -105,7 +105,7 @@ describe.each(shots.map((s) => [s.id, s] as const))(
 
     it('地面物件只放在島上或內陸的段', () => {
       if ((shot.props ?? []).length === 0) return
-      expect(shot.site === 'island' || shot.terrain === 'farmland').toBe(true)
+      expect(shot.site === 'island' || shot.terrain === 'farmland' || shot.terrain === 'autumnFarmland').toBe(true)
     })
 
     it('標了目標的連射，開火的每一刻機首正前方那條線都穿過目標的機身', () => {

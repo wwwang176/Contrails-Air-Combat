@@ -235,15 +235,15 @@ export async function preloadTerrainScenery(kind: TerrainKind): Promise<void> {
 }
 
 /**
- * @param farmSite 只對 `'farmland'` 有效：拿到這張農地的山丘之後給一塊廠區（選單短片用 ——
- *   原點要避開山丘，所以廠區要等高度場生成之後才定得下來）
+ * @param farmSite 只對 `'farmland'`／`'autumnFarmland'` 有效：拿到這張農地的山丘之後給一塊
+ *   廠區（選單短片用 —— 原點要避開山丘，所以廠區要等高度場生成之後才定得下來）
  */
 export function createTerrain(
   kind: TerrainKind, gfx?: TerrainGfx,
   farmSite?: (hills: readonly IslandDesc[]) => SiteLayout,
 ): Terrain {
   if (kind === 'farmland') return createFarmlandTerrain(gfx, farmSite)
-  if (kind === 'autumnFarmland') return createAutumnFarmlandTerrain(gfx)
+  if (kind === 'autumnFarmland') return createAutumnFarmlandTerrain(gfx, farmSite)
   if (kind === 'leuna') return createLeunaTerrain(gfx)
   if (kind === 'poltava') return createPoltavaTerrain(gfx)
   if (kind === 'asch') return createAschTerrain(gfx)
@@ -504,8 +504,11 @@ function createLeunaTerrain(gfx?: TerrainGfx): Terrain {
  * 晚秋的內陸：農地的高度場，洛伊納的晚秋色盤。**沒有廠區的墊面與佈景** ——
  * 德 M1 在路途上攔截，地上不該有工廠。
  */
-function createAutumnFarmlandTerrain(gfx?: TerrainGfx): Terrain {
-  return createInlandTerrain(createFarmland(), 'lateAutumn', undefined, undefined, gfx)
+function createAutumnFarmlandTerrain(
+  gfx?: TerrainGfx, farmSite?: (hills: readonly IslandDesc[]) => SiteLayout,
+): Terrain {
+  const farm = createFarmland()
+  return createInlandTerrain(farm, 'lateAutumn', farmSite?.(farm.hills), undefined, gfx)
 }
 
 /** 波爾塔瓦機場的墊面（草）、跑道／滑行道／停機位（水泥）、連外道路與鐵路 */

@@ -54,6 +54,9 @@ export interface ReelDecor {
   readonly h?: number
 }
 
+/** 短片可以用的地形 */
+export type ReelTerrainKind = 'archipelago' | 'farmland' | 'autumnFarmland'
+
 /** 局部座標的軸對齊矩形，m */
 export interface ReelRect {
   readonly x0: number
@@ -199,12 +202,13 @@ export interface Shot {
    */
   readonly site?: 'sea' | 'island'
   /**
-   * 這一段用哪一張地形。省略 = 群島（`'archipelago'`）。內陸的段給 `'farmland'`：
+   * 這一段用哪一張地形。省略 = 群島（`'archipelago'`）。內陸的段給 `'farmland'`（夏季）或
+   * `'autumnFarmland'`（晚秋，配 `novemberNoon`）：兩張是同一個高度場、只有色盤不同。
    * 換景的暗場裡重建地形（約半秒到一秒，藏在黑畫面裡），`clear` 圓躲的是那張地形的山丘
    */
-  readonly terrain?: 'archipelago' | 'farmland'
+  readonly terrain?: ReelTerrainKind
   /**
-   * 地上畫一塊廠區（只有 `'farmland'` 的段用得到）：水泥墊面、碴石／裸土的鋪面、道路、
+   * 地上畫一塊廠區（只有農地的段用得到）：水泥墊面、碴石／裸土的鋪面、道路、
    * 鐵路，墊面外一圈不長樹。全部是**局部座標**，執行時跟著原點與 `yaw` 轉到世界。
    * 它是地形著色器畫的，不是模型 —— 換地形的暗場裡一起建好
    */
