@@ -273,6 +273,35 @@ const DECOR_M = new Matrix4()
 /** 燒黑的佈景建築。與地面目標殘骸同一個焦黑（`render/groundTargets.ts`） */
 const DECOR_BURNT = new Color(0x2a2421)
 
+/** 上一次開播的是哪一段（`localStorage` 的鍵）。重新整理時不從同一段開始 */
+const LAST_SHOT_KEY = 'reel.lastShot'
+
+/** 讀寫都包 try —— 無痕視窗與封鎖站台資料會讓 localStorage 直接拋，那時只是不記得 */
+function readLastShot(): string | null {
+  try {
+    return localStorage.getItem(LAST_SHOT_KEY)
+  } catch {
+    return null
+  }
+}
+
+function saveLastShot(id: string): void {
+  try {
+    localStorage.setItem(LAST_SHOT_KEY, id)
+  } catch { /* 存不了就算了 */ }
+}
+
+/**
+ * 開場從第幾段開始：在 `ids` 裡隨機挑一段，但**不挑 `last`**（上一次最後在播的那一段）。
+ * `r` ∈ [0, 1) 是亂數。只有一段、或 `last` 不在清單裡時就是單純隨機
+ */
+export function pickFirstShot(ids: readonly string[], last: string | null, r: number): number {
+  const skip = last === null ? -1 : ids.indexOf(last)
+  if (skip < 0 || ids.length < 2) return Math.floor(r * ids.length)
+  const k = Math.floor(r * (ids.length - 1))
+  return k >= skip ? k + 1 : k
+}
+
 /** 廠區道路與鐵路的預設寬，m（與洛伊納同一組） */
 const SITE_ROAD_WIDTH = 12
 const SITE_RAIL_WIDTH = 26
@@ -345,7 +374,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   const restFov = camera.fov
 
   const shots = reelShots()
-  let index = Math.floor(Math.random() * shots.length)
+  let index = pickFirstShot(shots.map((s) => s.id), readLastShot(), Math.random())
   let shot: Shot | null = null
   let t = 0
   let cursor = 0
@@ -457,6 +486,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   function begin(next: Shot): void {
     teardown()
     shot = next
+    saveLastShot(next.id)
     t = 0
     cursor = 0
     fadingOut = false
