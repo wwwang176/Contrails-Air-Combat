@@ -252,8 +252,6 @@ export const en: Record<MessageKey, string> = {
   'campaign.allies.blurb': 'Escort and strike over Europe, fleet defence in the Pacific.',
   'campaign.germany.blurb': 'Intercept the bomber streams, raid and strafe airfields.',
   'campaign.japan.blurb': 'Cover the torpedo bombers, cut the supply convoys.',
-  'campaign.ready': '{n} ready',
-  'campaign.total': '/ {n, plural, one {# mission} other {# missions}}',
 
   'brief.soon': 'Coming soon',
   'brief.soonBody': 'This mission is still being built.',

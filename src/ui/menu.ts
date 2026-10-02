@@ -118,10 +118,10 @@ const CAMPAIGN_LABEL: Record<Campaign, MessageKey> = {
   allies: 'campaign.allies', germany: 'campaign.germany', japan: 'campaign.japan',
 }
 const campaignLabel = (c: Campaign): string => t(CAMPAIGN_LABEL[c])
-const CAMPAIGN_BLURB: Record<Campaign, { readonly lineKey: MessageKey; readonly planes: string }> = {
-  allies: { lineKey: 'campaign.allies.blurb', planes: 'P-51D · B-17G · F6F-5' },
-  germany: { lineKey: 'campaign.germany.blurb', planes: 'Bf 109 K-4 · He 111' },
-  japan: { lineKey: 'campaign.japan.blurb', planes: 'A6M5 · Ki-84 · G4M' },
+const CAMPAIGN_BLURB: Record<Campaign, { readonly lineKey: MessageKey }> = {
+  allies: { lineKey: 'campaign.allies.blurb' },
+  germany: { lineKey: 'campaign.germany.blurb' },
+  japan: { lineKey: 'campaign.japan.blurb' },
 }
 
 /**
@@ -253,8 +253,6 @@ function fullName(spec: AircraftSpec): string {
   const full = aircraftName(spec)
   return full.startsWith(s) ? full.slice(s.length).trim() : full
 }
-
-const readyCount = (list: readonly MissionCard[]): number => list.filter((m) => m.battle !== null).length
 
 /**
  * 選單的 DOM 元件。
@@ -470,9 +468,6 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       const blurb = CAMPAIGN_BLURB[c]
       b.innerHTML = `<span class="photo"><i class="tape tl"></i><img src="${assetUrl(`/ui/${c}.jpg`)}" alt=""></span>`
         + `<span class="t">${escapeHtml(campaignLabel(c))}</span><span class="d">${escapeHtml(t(blurb.lineKey))}</span>`
-        + `<span class="m">${escapeHtml(blurb.planes)} · `
-        + `<b>${escapeHtml(t('campaign.ready', { n: readyCount(MISSIONS[c]) }))}</b> `
-        + `${escapeHtml(t('campaign.total', { n: MISSIONS[c].length }))}</span>`
       // 【卡片用自己的監聽器而不是 data-act】`data-act` 只帶得了一個字串，
       // 這裡要帶「哪一條線」。先記下來，再送畫面事件 —— 資料先於事件
       b.addEventListener('click', () => {
