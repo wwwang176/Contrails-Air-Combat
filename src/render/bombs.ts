@@ -169,7 +169,9 @@ function createOrdnanceVisuals(
     object: mesh,
     update(pool) {
       for (let i = 0; i < capacity; i++) {
-        if (pool.active[i] === 0) {
+        // 【不是 1 就當空格】狀態池可以比外觀池小（選單短片的池只有幾十格），超出的那幾格
+        // 讀到 undefined；用 `=== 0` 判的話會被當成活的，寫進一整排 NaN 矩陣
+        if (pool.active[i] !== 1) {
           DUMMY.position.set(0, PARKED_Y, 0)
           DUMMY.quaternion.identity()
         } else {

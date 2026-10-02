@@ -22,7 +22,7 @@ import {
   blastGainDb, blastRate, damageGainDb, dopplerRate, engineRate, hitFeedback, shakeGainDb,
   hitRate, shakeInterval, windParams,
 } from './audio/curves'
-import { DAY_PALETTES, applyTimeOfDay } from './render/timeOfDay'
+import { DAY_PALETTES, applyTimeOfDay, type TimeOfDay } from './render/timeOfDay'
 import { FAR_LAND_NAME } from './render/leyteGround'
 import { flatSeaCrashPolicy } from './world/seaCrash'
 import { arenaKills, createArenaState, stepArena } from './world/arena'
@@ -56,7 +56,8 @@ import {
 import { createGroundModels, type GroundModels } from './render/groundTargets'
 import { createSearchlights, makeGlareTexture, type Searchlights } from './render/searchlights'
 import { groundModelUrls, preloadGroundModels } from './render/geometry/ground'
-import { settleGroundTargets } from './world/groundTargets'
+import { settleGroundTargets, type GroundTarget } from './world/groundTargets'
+import type { Ship } from './world/ships'
 import {
   balloonHills, settleBalloons, syncBalloonHills, type BalloonHillSet,
 } from './world/balloons'
@@ -64,7 +65,7 @@ import {
   BALLOON_MODEL_COUNT, createBalloonModels, preloadBalloonModel, type BalloonModels,
 } from './render/balloons'
 import type { TerrainSource } from './ai/terrainSense'
-import { clearBursts, flakDamage, type BurstEvents } from './world/flak'
+import { clearBursts, createBursts, flakDamage, pushBurst, type BurstEvents } from './world/flak'
 import {
   createShipFireSmoke, createSmoke, createSteam, emitSmoke,
   DEBRIS_SMOKE_SIZE, STEAM_PLUME_SPEED,
@@ -185,7 +186,7 @@ import {
   readSeenTutorials, tutorialsFor, unseenTutorials, type Tutorial,
 } from './ui/tutorials'
 import { nextScreen, type Screen } from './ui/screens'
-import { menuCameraPose } from './app/menuCamera'
+import { createMenuReel, type MenuReel, type ReelSiteRequest } from './app/menuReel'
 import { createShowcase, type Showcase } from './app/showcase'
 import { PLANT_STACKS } from './world/leuna'
 import { assetUrl } from './core/asset'
@@ -226,6 +227,8 @@ function blockForRecoveryWorker(failure: RecoveryFailure): void {
  * 重跑」的鑰匙的一部分，而有波次的「重新開始」不重建地形卻要重印那一行。
  */
 let terrainKind: Parameters<typeof createTerrain>[0] = 'archipelago'
+/** 選單短片畫在農地上的廠區是哪一段的；null = 沒有廠區。戰鬥的地形一律是 null */
+let terrainSiteKey: string | null = null
 /**
  * 建地形時給的 GPU 資源。**每次建都重讀檔位** —— 內圈半徑跟著玩家目前選的
  * 畫質走，換檔位時另由 `onQuality` 直接調現有地形的
@@ -1138,7 +1141,7 @@ let steamSeed = 0
  * 【這裡不配置記憶體】每幀跑。`PLANT_STACKS` 是模組常數而且已經是世界
  * 座標，迴圈裡沒有 `new`、沒有換算。
  */
-function emitPlantSteam(frameSeconds: number): void {
+function emitPlantSteam(frameSeconds: number, targets: readonly GroundTarget[]): void {
   steamAccum += frameSeconds * STEAM_PER_SECOND
   const n = Math.floor(steamAccum)
   if (n <= 0) return
@@ -1155,7 +1158,7 @@ function emitPlantSteam(frameSeconds: number): void {
       }
     }
   }
-  for (const t of world.groundTargets) {
+  for (const t of targets) {
     if (!t.alive) continue
     const id = t.unit.id
     if (id !== 'chimney' && id !== 'coolingTower') continue
@@ -1404,6 +1407,60 @@ function leaveBattle(): void {
   scoreboard.setVisible(false)
   boardActions.hidden = true
   boardEl.classList.remove('finished')
+  clearBattleScenery()
+}
+
+/**
+ * 收掉這一場的船、地面單位、探照燈、氣球與雨。**下一場開打時本來就會重建**，
+ * 這裡只是不讓它們留在選單的短片裡 —— 上一場的艦隊會開進短片的畫面。
+ */
+function clearBattleScenery(): void {
+  if (shipModels !== null) {
+    ctx.scene.remove(shipModels.object)
+    shipModels.dispose()
+    shipModels = null
+  }
+  if (shipWakes !== null) {
+    ctx.scene.remove(shipWakes.object)
+    shipWakes.dispose()
+    shipWakes = null
+  }
+  if (groundModels !== null) {
+    ctx.scene.remove(groundModels.object)
+    groundModels.dispose()
+    groundModels = null
+  }
+  if (searchlights !== null) {
+    ctx.scene.remove(searchlights.object)
+    searchlights.dispose()
+    searchlights = null
+  }
+  if (balloonModels !== null) {
+    ctx.scene.remove(balloonModels.object)
+    balloonModels.dispose()
+    balloonModels = null
+  }
+  if (rain !== null) {
+    ctx.scene.remove(rain.object)
+    rain.dispose()
+    rain = null
+  }
+  storm = null
+}
+
+/**
+ * 選單短片要的地形：與現在的不同才重建。短片每換一段都叫它（在暗場裡），
+ * 所以從戰鬥回到選單也由它換回來
+ */
+function setMenuTerrain(kind: 'archipelago' | 'farmland', site?: ReelSiteRequest): void {
+  const siteKey = site?.key ?? null
+  if (terrainKind === kind && terrainSiteKey === siteKey) return
+  terrainKind = kind
+  terrainSiteKey = siteKey
+  ctx.scene.remove(terrain.object)
+  terrain.dispose()
+  terrain = createTerrain(terrainKind, terrainGfx(), site?.layout)
+  ctx.scene.add(terrain.object)
 }
 
 /**
@@ -1612,6 +1669,7 @@ function buildBattleTerrain(): void {
   // 3. 地形重建。種類沒變也重建 —— 那條路徑因此每一場都在走，不是一條
   //    等著被第一次使用的死碼（M10 spec §5.3）
   terrainKind = battleTerrainKind()
+  terrainSiteKey = null
   ctx.scene.remove(terrain.object)
   terrain.dispose()
   terrain = createTerrain(terrainKind, terrainGfx())
@@ -2994,7 +3052,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   updateFireCrowd(fireCrowd, groundFires, shipFires, world.ships, worldSeconds)
   stepShipFires(shipFires, world.ships, worldSeconds, emitFirePuff, fireCrowd.ship)
   stepGroundFires(groundFires, worldSeconds, emitFirePuff, fireCrowd.ground)
-  emitPlantSteam(worldSeconds)
+  emitPlantSteam(worldSeconds, world.groundTargets)
   emitFlareSmoke(worldSeconds)
   // 【槍焰用內插姿態】它是一個狀態而不是一個瞬間，所以位置在這裡重算 ——
   // 用物理位置的話槍焰會相對機身抖動一個子步的位移（M7 spec §2.1）
@@ -3002,64 +3060,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 【砲塔的槍管也用內插姿態】理由與槍焰完全相同
   turretBarrels.update(world.combatants, renderPositions, renderQuaternions)
   turretMuzzles.update(world.combatants, renderPositions, renderQuaternions)
-  // 【火花與水柱在幀率積分】純裝飾，不參與判定也不需要決定性
-  sparks.step(worldSeconds)
-  // 【爆炸的火星走 `elapsed`】位置在著色器裡由出生到現在的時間算出來 ——
-  // 暫停時它不走，慢動作時它一起慢
-  blastSparks.step(elapsed)
-  // 【殘骸與零件先步進，再把它們吐出來的事件餵給煙、噴濺與水柱】兩者的
-  // 事件緩衝在各自的 step 開頭排空，所以這裡讀到的恆是這一幀的
-  // 【落地與落水用兩支不同的函式】`heightAt` 決定「碰到地面了沒」，
-  // `waterAt` 決定「那是水嗎」。共用一支的話摔在島上會噴水柱
-  wrecks.step(worldSeconds, terrain.heightAt, terrain.waterAt, elapsed)
-  debris.step(worldSeconds, terrain.heightAt, terrain.waterAt, elapsed)
-  // 【殘骸的引擎在燒】走船火那一份配方，小一號。位置由 `wrecks` 每一步從
-  // 機體座標轉成世界座標，法線那三格帶的是殘骸的速度 —— 火團要繼承它
-  {
-    const d = wrecks.fireEvents.data
-    for (let e = 0; e < wrecks.fireEvents.count; e++) {
-      const o = e * IMPACT_STRIDE
-      emitWreckFirePuff(d[o]!, d[o + 1]!, d[o + 2]!, d[o + 3]!)
-    }
-  }
-  emitSmoke(smoke, debris.smokeEvents, DEBRIS_SMOKE_SIZE)
-  emitSpray(spray, wrecks.sprayEvents, WRECK_SPRAY_COUNT)
-  // 【殘骸落水掀一個水冠】粗水柱塌下留水霧、柱腳噴水花 —— 與魚雷、炸彈落水同一套池
-  {
-    const d = wrecks.sprayEvents.data
-    for (let e = 0; e < wrecks.sprayEvents.count; e++) {
-      const o = e * IMPACT_STRIDE
-      emitBlast(BLAST_POOLS, WRECK_WATER_BLAST, d[o]!, d[o + 1]!, d[o + 2]!,
-        (e * 173 + Math.round(world.time * 60)) | 0)
-    }
-  }
-  emitSpray(spray, debris.sprayEvents, DEBRIS_SPRAY_COUNT)
-  // 殘骸入水的那一圈水柱沿用 M7 的池子 —— 用數量換規模，splash.ts 不用改
-  splashes.emit(wrecks.splashEvents, terrain.heightAt, elapsed)
-  // 零件入水各濺一根小水柱。與噴濺讀同一份事件：同一次入水的兩個表現，
-  // 位置相同。高低粗細由 splashSize 依格子隨機
-  splashes.emit(debris.sprayEvents, terrain.heightAt, elapsed)
-  splashes.step(worldSeconds)
-  fireball.step(worldSeconds)
-  smoke.step(worldSeconds)
-  steam.step(worldSeconds)
-  shipFireSmoke.step(worldSeconds)
-  wreckFireSmoke.step(worldSeconds)
-  // 【爆炸那一組】水冠要在水霧之前 —— 它的 `onFade` 會往水霧池發射，
-  // 同一幀生的那幾團才不會被水霧自己的 `step` 漏掉一幀
-  blastJets.step(worldSeconds)
-  // 【這兩個要拿到殘骸的錨點】引擎火吸附在殘骸上，世界座標由池子每一幀
-  // 自己組。不給的話那些火當場收掉 —— 畫面上是「飛機不燒了」
-  blastChunks.step(worldSeconds, wrecks.anchors)
-  blastGlow.step(worldSeconds, wrecks.anchors)
-  blastEmber.step(worldSeconds)
-  blastSmoke.step(worldSeconds)
-  blastDust.step(worldSeconds)
-  blastMist.step(worldSeconds)
-  flakBursts.step(worldSeconds)
   flareLights.update(world.flares, elapsed)
-  // 【畫面時間】閃光是純表現，與火花、火球同一條
-  blastLights.step(worldSeconds)
+  stepEffects(worldSeconds, world.time)
   // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
   // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
   groundModels?.update(world.groundTargets, ctx.camera.position, worldSeconds)
@@ -3502,8 +3504,6 @@ function grabPointer(): void {
   void Promise.resolve(canvas.requestPointerLock()).catch(() => {})
 }
 
-const MENU_POSE = { position: new Vector3(), target: new Vector3() }
-
 /**
  * 機庫的展示場。**只在機庫那一頁存在** —— 離開就整個丟掉。
  *
@@ -3519,13 +3519,294 @@ function drawHangar(frameSeconds: number, show: Showcase): void {
   ctx.renderer.render(ctx.scene, ctx.camera)
 }
 
-/** 選單期間的一幀：只有海與天，鏡頭緩緩平移（M10 spec §9.4）。 */
-function drawMenuBackground(): void {
-  menuCameraPose(elapsed, MENU_POSE)
-  ctx.camera.position.copy(MENU_POSE.position)
-  ctx.camera.up.set(0, 1, 0)
-  ctx.camera.lookAt(MENU_POSE.target)
-  terrain.update(elapsed, MENU_POSE.position.x, MENU_POSE.position.z)
+/**
+ * 殘骸、零件與爆炸那一組池子的一幀。**戰鬥與選單的短片共用。**
+ *
+ * 【裡面不得讀 `world`】選單第一次出現時 `world` 還沒建（`startWorld` 才賦值）。
+ * 種子時間由呼叫端給：戰鬥是 `world.time`、選單是 `elapsed`。
+ */
+function stepEffects(worldSeconds: number, seedTime: number): void {
+  // 【火花與水柱在幀率積分】純裝飾，不參與判定也不需要決定性
+  sparks.step(worldSeconds)
+  // 【爆炸的火星走 `elapsed`】位置在著色器裡由出生到現在的時間算出來 ——
+  // 暫停時它不走，慢動作時它一起慢
+  blastSparks.step(elapsed)
+  // 【殘骸與零件先步進，再把它們吐出來的事件餵給煙、噴濺與水柱】兩者的
+  // 事件緩衝在各自的 step 開頭排空，所以這裡讀到的恆是這一幀的
+  // 【落地與落水用兩支不同的函式】`heightAt` 決定「碰到地面了沒」，
+  // `waterAt` 決定「那是水嗎」。共用一支的話摔在島上會噴水柱
+  wrecks.step(worldSeconds, terrain.heightAt, terrain.waterAt, elapsed)
+  debris.step(worldSeconds, terrain.heightAt, terrain.waterAt, elapsed)
+  // 【殘骸的引擎在燒】走船火那一份配方，小一號。位置由 `wrecks` 每一步從
+  // 機體座標轉成世界座標，法線那三格帶的是殘骸的速度 —— 火團要繼承它
+  {
+    const d = wrecks.fireEvents.data
+    for (let e = 0; e < wrecks.fireEvents.count; e++) {
+      const o = e * IMPACT_STRIDE
+      emitWreckFirePuff(d[o]!, d[o + 1]!, d[o + 2]!, d[o + 3]!)
+    }
+  }
+  emitSmoke(smoke, debris.smokeEvents, DEBRIS_SMOKE_SIZE)
+  emitSpray(spray, wrecks.sprayEvents, WRECK_SPRAY_COUNT)
+  // 【殘骸落水掀一個水冠】粗水柱塌下留水霧、柱腳噴水花 —— 與魚雷、炸彈落水同一套池
+  {
+    const d = wrecks.sprayEvents.data
+    for (let e = 0; e < wrecks.sprayEvents.count; e++) {
+      const o = e * IMPACT_STRIDE
+      emitBlast(BLAST_POOLS, WRECK_WATER_BLAST, d[o]!, d[o + 1]!, d[o + 2]!,
+        (e * 173 + Math.round(seedTime * 60)) | 0)
+    }
+  }
+  emitSpray(spray, debris.sprayEvents, DEBRIS_SPRAY_COUNT)
+  // 殘骸入水的那一圈水柱沿用 M7 的池子 —— 用數量換規模，splash.ts 不用改
+  splashes.emit(wrecks.splashEvents, terrain.heightAt, elapsed)
+  // 零件入水各濺一根小水柱。與噴濺讀同一份事件：同一次入水的兩個表現，
+  // 位置相同。高低粗細由 splashSize 依格子隨機
+  splashes.emit(debris.sprayEvents, terrain.heightAt, elapsed)
+  splashes.step(worldSeconds)
+  fireball.step(worldSeconds)
+  smoke.step(worldSeconds)
+  steam.step(worldSeconds)
+  shipFireSmoke.step(worldSeconds)
+  wreckFireSmoke.step(worldSeconds)
+  // 【爆炸那一組】水冠要在水霧之前 —— 它的 `onFade` 會往水霧池發射，
+  // 同一幀生的那幾團才不會被水霧自己的 `step` 漏掉一幀
+  blastJets.step(worldSeconds)
+  // 【這兩個要拿到殘骸的錨點】引擎火吸附在殘骸上，世界座標由池子每一幀
+  // 自己組。不給的話那些火當場收掉 —— 畫面上是「飛機不燒了」
+  blastChunks.step(worldSeconds, wrecks.anchors)
+  blastGlow.step(worldSeconds, wrecks.anchors)
+  blastEmber.step(worldSeconds)
+  blastSmoke.step(worldSeconds)
+  blastDust.step(worldSeconds)
+  blastMist.step(worldSeconds)
+  flakBursts.step(worldSeconds)
+  // 【畫面時間】閃光是純表現，與火花、火球同一條
+  blastLights.step(worldSeconds)
+}
+
+/**
+ * 短片裡受損拖的煙，相對殘骸煙池（`wreckFireSmoke`）的出生尺寸。
+ *
+ * 【走殘骸那一池，不走通用煙池】通用的那一份是 2.5 秒的實心軟圓，一路拖出來是
+ * 一串分開的黑球；殘骸那一份有煙的貼圖與受光、活 20 秒、慢慢散開 —— 拖出來是
+ * 一條連著的煙，與殘骸墜落時那一條是同一種東西
+ */
+const REEL_SMOKE_SIZE = 0.32
+
+/** 短片的高砲：一朵雲走與戰鬥同一條路（黑雲池 + 爆點小火球 + 閃光） */
+const REEL_BURSTS = createBursts(1)
+
+/** 開場與主選單的左欄 */
+const reelRows = Array.from(document.querySelectorAll<HTMLElement>('#landing .rows, #menu .rows'))
+/** 選單頁的主角位置（畫面寬度的成數）；開場與主選單每次重量，量到之前用這個值 */
+let reelSubjectRight = 0.7
+
+/**
+ * 主選單背景的短片（`app/menuReel.ts`）。選單類畫面都在放；進機庫與戰鬥時停下。
+ */
+const menuReel: MenuReel = createMenuReel({
+  scene: ctx.scene,
+  camera: ctx.camera,
+  terrain: () => terrain,
+  setTerrain: setMenuTerrain,
+  setTimeOfDay(tod) {
+    setMenuTimeOfDay(tod)
+  },
+  fade: document.getElementById('reel-fade') as HTMLElement,
+  subjectX() {
+    // 所有選單頁一律落在左欄（開場與主選單的 `.rows`，兩頁同寬）右緣與畫面右緣的中間。
+    // 左欄只在這兩頁量得到，其他頁沿用上一次量到的值 —— 換頁時主角才不會動
+    for (const rows of reelRows) {
+      const right = rows.getBoundingClientRect().right
+      if (right > 0 && window.innerWidth > 0) {
+        reelSubjectRight = (right + window.innerWidth) / 2 / window.innerWidth
+        break
+      }
+    }
+    return reelSubjectRight
+  },
+  light: window.matchMedia('(pointer: coarse)').matches,
+  fx: {
+    kill(model, spec, vx, vy, vz, seed, blast) {
+      // 【殘骸池的回收回呼從場景移除】模型要直接掛在場景上，回收時才拆得掉
+      ctx.scene.attach(model.group)
+      if (blast) {
+        const p = model.group.position
+        emitBlast(BLAST_POOLS, AIR_BLAST, p.x, p.y, p.z, seed,
+          vx * KILL_BLAST_INHERIT, vy * KILL_BLAST_INHERIT, vz * KILL_BLAST_INHERIT)
+        blastLights.flash(p.x, p.y, p.z, KILL_SHAKE, ctx.camera.position)
+      }
+      wrecks.adopt(model, spec, vx, vy, vz, seed)
+    },
+    flak(x, y, z) {
+      // 雲的大小、閃光的尺度都用艦砲的預設值
+      pushBurst(REEL_BURSTS, x, y, z, 1)
+      emitFlakBursts(flakBursts, REEL_BURSTS)
+      emitFlakBlasts(BLAST_POOLS, REEL_BURSTS)
+      blastLights.flash(x, y, z, REEL_BURSTS.shake[0]!, ctx.camera.position, false)
+      clearBursts(REEL_BURSTS)
+    },
+    smoke(x, y, z, vx, vy, vz) {
+      wreckFireSmoke.emit(x, y, z, vx, vy, vz, REEL_SMOKE_SIZE)
+    },
+    fire(x, y, z) {
+      emitWreckFirePuff(x, y, z)
+    },
+    bomb(x, y, z, water) {
+      // 與 `emitBombBlasts` 同一套：配方依落點、放大到基準彈的尺度、閃光、碎片；
+      // 落在陸上的噴火星、點一處地面火
+      const vis = BOMB_BLAST_SIZE * REEL_BOMB_SCALE
+      scaleBlast(water ? WATER_BLAST : LAND_BLAST, vis * vis * vis, SCALED_BLAST)
+      const seed = (reelBlastSeed = (reelBlastSeed + 197) | 0)
+      emitBlast(BLAST_POOLS, SCALED_BLAST, x, y, z, seed)
+      blastLights.flash(x, y, z, REEL_BOMB_SCALE, ctx.camera.position)
+      debris.burst(x, y, z, BLAST_DEBRIS_COLOR, seed, blastDebrisSpeed())
+      if (!water) {
+        burstSparks(x, y, z)
+        lightGroundFire(groundFires, x, y, z)
+      }
+    },
+    torpedoSplash(x, z) {
+      scaleBlast(WATER_BLAST, REEL_TORPEDO_SPLASH, SCALED_BLAST)
+      emitBlast(BLAST_POOLS, SCALED_BLAST, x, 0, z, (reelBlastSeed = (reelBlastSeed + 211) | 0))
+    },
+    torpedoWake(slot, x, z, serial) {
+      wakes.emit(slot, x, z, serial)
+    },
+    torpedoHit(x, z) {
+      // 與 `emitTorpedoBlasts` 同一套，尺度取基準
+      scaleBlast(TORPEDO_BLAST, 1, SCALED_BLAST)
+      const seed = (reelBlastSeed = (reelBlastSeed + 223) | 0)
+      emitBlast(BLAST_POOLS, SCALED_BLAST, x, 0, z, seed)
+      blastLights.flash(x, 0, z, 1, ctx.camera.position)
+      debris.burst(x, 0, z, BLAST_DEBRIS_COLOR, seed, blastDebrisSpeed())
+      burstSparks(x, 0, z)
+    },
+    shipHit(x, y, z) {
+      // 與 `emitBombBlasts` 打中船那一份同一套：空爆配方（甲板上不揚土、不掀水冠）
+      const vis = BOMB_BLAST_SIZE * REEL_BOMB_SCALE
+      scaleBlast(AIR_BLAST, vis * vis * vis, SCALED_BLAST)
+      const seed = (reelBlastSeed = (reelBlastSeed + 199) | 0)
+      emitBlast(BLAST_POOLS, SCALED_BLAST, x, y, z, seed)
+      blastLights.flash(x, y, z, REEL_BOMB_SCALE, ctx.camera.position)
+      debris.burst(x, y, z, BLAST_DEBRIS_COLOR, seed, blastDebrisSpeed())
+      burstSparks(x, y, z)
+    },
+    vortex(seat, loadFactor, lx, ly, lz, rx, ry, rz) {
+      vortex.emit(seat, loadFactor, lx, ly, lz, rx, ry, rz)
+    },
+    hits(events) {
+      const c = ctx.camera.position
+      sparks.emit(events, c.x, c.y, c.z)
+    },
+    shipFire(x, y, z) {
+      emitFirePuff(x, y, z)
+    },
+    groundKill(x, y, z, fires) {
+      // 與 `emitGroundKills` 同一套：落地的火、閃光；火點沿黃金角撒在半徑 8 m 內
+      emitBlast(BLAST_POOLS, LAND_BLAST, x, y, z, (reelBlastSeed = (reelBlastSeed + 97) | 0))
+      blastLights.flash(x, y, z, GROUND_KILL_SHAKE, ctx.camera.position)
+      for (let k = 0; k < fires; k++) {
+        const r = fires === 1 ? 0 : 8 * Math.sqrt((k + 0.5) / fires)
+        const a = k * 2.39996
+        lightGroundFire(groundFires, x + Math.cos(a) * r, y + 1, z + Math.sin(a) * r)
+      }
+    },
+    blast(x, y, z, size) {
+      // 【一群炸彈大小的火球疊成一大團，不是把一團放大】單團放大到好幾倍時，發光粒子
+      // 也跟著放大，火球外圍會畫出一圈彩虹似的色帶，整團讀成一片橘色的煙塵罩。
+      // 團數 ∝ 體積（size³，上限 `REEL_BLAST_LUMPS`），撒在半徑 ∝ size 的半球裡
+      const vis = BOMB_BLAST_SIZE * REEL_BOMB_SCALE * REEL_BLAST_LUMP
+      scaleBlast(LAND_BLAST, vis * vis * vis, SCALED_BLAST)
+      const lumps = Math.min(REEL_BLAST_LUMPS, Math.max(1, Math.round(size * size * size)))
+      const reach = REEL_BLAST_SPREAD * (size - 1)
+      for (let k = 0; k < lumps; k++) {
+        const seed = (reelBlastSeed = (reelBlastSeed + 229) | 0)
+        const a = k * 2.39996
+        const r = lumps === 1 ? 0 : reach * Math.sqrt((k + 0.5) / lumps)
+        const h = reach * 0.8 * hash01(seed)
+        emitBlast(BLAST_POOLS, SCALED_BLAST, x + Math.cos(a) * r, y + h, z + Math.sin(a) * r, seed)
+      }
+      const seed = reelBlastSeed
+      blastLights.flash(x, y, z, REEL_BOMB_SCALE * Math.min(size, REEL_FLASH_MAX), ctx.camera.position)
+      debris.burst(x, y, z, BLAST_DEBRIS_COLOR, seed, blastDebrisSpeed())
+      burstSparks(x, y, z)
+      const fires = Math.max(1, Math.round(size))
+      for (let k = 0; k < fires; k++) {
+        const r = fires === 1 ? 0 : 6 * size * Math.sqrt((k + 0.5) / fires)
+        const a = k * 2.39996
+        lightGroundFire(groundFires, x + Math.cos(a) * r, y, z + Math.sin(a) * r)
+      }
+    },
+    clear() {
+      wrecks.reset()
+      resetPools()
+      // 【閃光不在 `POOLS` 裡】停在一團爆炸的閃光上進機庫的話，光源與煙的受光一直亮著
+      blastLights.reset()
+    },
+  },
+})
+
+/** 短片的炸彈相對基準彈的尺度（`blastScaleOf` 的那個尺度）。一串十幾枚，太大會糊成一片 */
+const REEL_BOMB_SCALE = 0.8
+/** 選單裡沒有戰鬥的船。模組層建一次 —— 每幀傳一個新的空陣列就是每幀配置 */
+const NO_SHIPS: readonly Ship[] = []
+/** 導演指定的大爆炸，閃光最多放大到一枚炸彈的幾倍 */
+const REEL_FLASH_MAX = 1.5
+/** 大爆炸裡每一團相對一枚炸彈的線性倍率、最多幾團、`size` 每多 1 往外撒幾公尺 */
+const REEL_BLAST_LUMP = 1.2
+const REEL_BLAST_LUMPS = 24
+const REEL_BLAST_SPREAD = 9
+/** 魚雷入水的水花：水面爆炸配方的當量倍率 —— 只是一個小水柱，不是爆炸 */
+const REEL_TORPEDO_SPLASH = 0.004
+/** 短片的爆炸種子，每一團推一格 */
+let reelBlastSeed = 0
+
+/**
+ * 選單期間的時段與天氣。雷雨的段要有雨與閃電；換到別的時段就收掉 ——
+ * 留著的話機庫裡也在下雨
+ */
+function setMenuTimeOfDay(tod: TimeOfDay): void {
+  applyTimeOfDay(ctx, terrain, tod)
+  syncFireSmokeLighting()
+  if (tod === 'storm' && storm === null) {
+    storm = createStorm()
+    rain = createRain()
+    ctx.scene.add(rain.object)
+  } else if (tod !== 'storm' && storm !== null) {
+    storm = null
+    if (rain !== null) {
+      ctx.scene.remove(rain.object)
+      rain.dispose()
+      rain = null
+    }
+  }
+}
+
+window.addEventListener('resize', () => menuReel.relayout())
+
+/** 選單期間的一幀：放短片、推進特效池 */
+function drawMenuBackground(frameSeconds: number): void {
+  menuReel.update(frameSeconds, elapsed)
+  // 【定格時特效也停】只停短片的話，殘骸與煙照樣往下掉、往外散，截到的不是那一秒
+  const fx = menuReel.hold ? 0 : frameSeconds
+  stepEffects(fx, elapsed)
+  spray.step(fx)
+  vortex.step(fx)
+  // 短片地上的煙囪與冷卻塔冒白煙（炸毀的就停）
+  emitPlantSteam(fx, menuReel.props)
+  // 短片投下的炸彈點的地面火、魚雷的航跡。【擠在一起的火少冒煙】短片的地面火也要
+  // 照密度節流，不然一串炸彈的火全速冒煙；戰鬥的船火池在選單裡是空的
+  updateFireCrowd(fireCrowd, groundFires, shipFires, NO_SHIPS, fx)
+  stepGroundFires(groundFires, fx, emitFirePuff, fireCrowd.ground)
+  wakes.bindOcean(terrain.oceanHeight)
+  wakes.step(fx, elapsed, terrain.heightAt)
+  terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
+  if (storm !== null) {
+    applyFlash(ctx.lights, ctx.sky, DAY_PALETTES.storm, stepStorm(storm, fx, playThunder))
+  }
+  if (rain !== null) rain.update(ctx.camera.position, fx, frameSeconds, false, rainGroundAt)
   ctx.renderer.render(ctx.scene, ctx.camera)
 }
 
@@ -3589,6 +3870,11 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
       mode = 'skirmish'
       pendingMission = null
     }
+    // 【短片只在選單類畫面放】機庫有自己的展示場、戰鬥有自己的場景。停下時連共用的
+    // 特效池一起清 —— 機庫不推進那些池，留著的黑雲會凍在天上
+    if (screen === 'hangar' || screen === 'battle') menuReel.stop()
+    // 【機庫一律正午】短片換過時段，停在黃昏的話機庫的飛機是剪影
+    if (screen === 'hangar' && from !== 'hangar') setMenuTimeOfDay('noon')
     // 【`fight` 一律重建】不管是從設定頁進來還是結算的「再打一場」
     if (event === 'fight' && screen === 'battle') {
       // 【先鎖指標再載入】瀏覽器只准在點擊的當下要指標鎖定；等載入完再要會被拒絕
@@ -3609,6 +3895,8 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     }
     menu.show(screen)
     menu.setPaused(false)
+    // 【換頁之後重量】回到開場或主選單時左欄才量得到
+    menuReel.relayout()
   },
   onSetup(next) {
     setup = next
@@ -3827,11 +4115,16 @@ function frame(now: number) {
       ctx.renderer.render(ctx.scene, ctx.camera)
     }
   } else {
-    elapsed += frameSeconds
+    // 【短片定格時全域時間也停】海浪與火星讀的是它，照走的話截到的不是那一秒
+    if (screen === 'hangar' || !menuReel.hold) elapsed += frameSeconds
     // 【展示場還沒建好就照畫海天】進機庫的第一幀有可能落在 `onAircraft`
-    // 之前，那一幀畫成黑的會閃一下
-    if (screen === 'hangar' && showcase !== null) drawHangar(frameSeconds, showcase)
-    else drawMenuBackground()
+    // 之前，那一幀畫成黑的會閃一下。**這一幀不放短片** —— 放的話它會從暗場重新開一段
+    if (screen === 'hangar') {
+      if (showcase !== null) drawHangar(frameSeconds, showcase)
+      else ctx.renderer.render(ctx.scene, ctx.camera)
+    } else {
+      drawMenuBackground(frameSeconds)
+    }
   }
 
   perf.endFrame(loop.lastSubstepCount)
@@ -3948,6 +4241,23 @@ if (initialRecoveryFailure !== null) {
  * 真實幀率比對，兩者對不上就是覆蓋層量錯了東西。
  */
 ;(window as unknown as Record<string, unknown>)['__perfFps'] = (): number => perf.fps
+
+/**
+ * 主選單短片的**量測出口**：不給參數回目前放到哪；給 `(段名, 秒)` 就跳過去，
+ * 事件從頭重放到那一刻。`hold` = 跳過去之後定格（截圖驗收分鏡用）。
+ */
+;(window as unknown as Record<string, unknown>)['__reel'] = (shot?: string, at = 0, hold = false) => {
+  if (shot !== undefined) {
+    menuReel.hold = hold
+    menuReel.seek(shot, at, (dt) => {
+      elapsed += dt
+      stepEffects(dt, elapsed)
+      spray.step(dt)
+      vortex.step(dt)
+    })
+  }
+  return menuReel.status
+}
 
 /**
  * **量測出口**：上一幀的 draw call 與三角形數（`renderer.info.render`）。

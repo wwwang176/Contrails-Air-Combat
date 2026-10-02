@@ -3,8 +3,29 @@ import { Quaternion, Vector3 } from 'three'
 import type { BufferGeometry } from 'three'
 import {
   BOMB_BODY_RADIUS, BOMB_LENGTH, BOMB_SHAPE, TORPEDO_SHAPE,
-  bombOrientation, createBombGeometry,
+  bombOrientation, createBombGeometry, createBombs, createTorpedoes,
 } from '../../src/render/bombs'
+
+describe('彈藥外觀池', () => {
+  /**
+   * 選單短片的狀態池只有幾十格，外觀池是戰鬥的容量。超出的那幾格讀到 undefined，
+   * 被當成活的就寫進 NaN 矩陣
+   */
+  it('狀態池比外觀池小時，多出來的格子停在收納位置，不寫 NaN', () => {
+    const n = 8
+    const f = (): Float64Array => new Float64Array(n)
+    const pool = { active: new Uint8Array(n), x: f(), y: f(), z: f(), vx: f(), vy: f(), vz: f() }
+    pool.active[0] = 1
+    pool.y[0] = 500
+    pool.vz[0] = -100
+    for (const v of [createBombs(), createTorpedoes()]) {
+      v.update(pool)
+      const m = v.object.instanceMatrix.array
+      for (let i = 0; i < m.length; i++) expect(Number.isNaN(m[i]!), `${i}`).toBe(false)
+      v.dispose()
+    }
+  })
+})
 
 const geo = createBombGeometry()
 const pos = geo.getAttribute('position')

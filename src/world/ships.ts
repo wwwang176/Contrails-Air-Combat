@@ -355,10 +355,13 @@ for (const cls of Object.values(SHIP_CLASSES)) {
 }
 
 /**
- * 主甲板的高度，m：**蓋住中線的盒**裡最高的那個盒頂。
+ * 主甲板的高度，m：**蓋住中線、而且縱貫至少半艘船的盒**裡最高的那個盒頂。
  *
  * 【為什麼限定蓋住中線】Essex 的艦島有盒而且比甲板高得多；炸彈落的是甲板，
  * 不是艦島頂。驅逐艦與巡洋艦只有一個盒，兩種說法一樣。
+ *
+ * 【為什麼限定縱貫半艘船】LST 的艉樓盒也蓋住中線，但只占艉部 20 m；算進來的話
+ * 整片戰車甲板被當成 11.2 m 高（實際 6.67），轟炸解算與瞄點全部偏高 4.5 m。
  *
  * 【它不是「船有多高」】桅杆、測距儀全在盒外。要「整艘船的最高點」的話
  * 問的是**模型** —— `render/ships.ts` 的 `shipModelTop`，HUD 的標記走那一支。
@@ -367,9 +370,16 @@ for (const cls of Object.values(SHIP_CLASSES)) {
  * 末速下多飛約 7 m。
  */
 export function deckHeightOf(cls: ShipClass): number {
+  let bow = Infinity
+  let stern = -Infinity
+  for (const b of cls.hull) {
+    bow = Math.min(bow, b.center.z - b.half.z)
+    stern = Math.max(stern, b.center.z + b.half.z)
+  }
   let top = 0
   for (const b of cls.hull) {
     if (Math.abs(b.center.x) > b.half.x) continue
+    if (4 * b.half.z < stern - bow) continue
     const t = b.center.y + b.half.y
     if (t > top) top = t
   }

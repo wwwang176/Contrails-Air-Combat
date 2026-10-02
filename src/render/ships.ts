@@ -429,6 +429,8 @@ export function createShipModels(ships: readonly Ship[]): ShipModels {
     dispose() {
       flashes.geometry.dispose()
       ;(flashes.material as MeshBasicMaterial).dispose()
+      // 實例矩陣的 GPU 緩衝要靠 mesh 自己的 dispose 放掉；選單短片每一段重建一次船
+      flashes.dispose()
       for (const o of owned) o.dispose()
     },
   }
