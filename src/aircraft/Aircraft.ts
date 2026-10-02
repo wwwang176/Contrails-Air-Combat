@@ -165,6 +165,7 @@ export class Aircraft {
    * @param aimDirWorld **世界座標**的瞄準方向（`InputState.aimWorld`）
    * @param throttle    玩家油門，0 ~ 1.1
    * @param trackTurn   `Command.trackTurn`：機翼改平改到瞄準方向那個轉彎要的坡度
+   * @param pull        `Command.pull`：強制翻轉後拉，不推頭
    *
    * 【不要在這裡轉成機體座標】`FlightDirector.update` 的第五參數就叫
    * `aimDirWorld`，它自己在每一步用當下姿態的逆四元數轉成機體座標
@@ -176,7 +177,7 @@ export class Aircraft {
    */
   update(
     aimDirWorld: Vector3, throttle: number, dt: number, brake = 0, upright = false,
-    trackTurn = false,
+    trackTurn = false, pull = false,
   ): void {
     this.prevPosition.copy(this.state.position)
     this.prevOrientation.copy(this.state.orientation)
@@ -189,7 +190,7 @@ export class Aircraft {
 
     this.director.update(
       this.spec, this.state, this.diag.aero, this.diag.slatsDeployed,
-      aimDirWorld, dt, this.controls, this.dbg, upright, trackTurn,
+      aimDirWorld, dt, this.controls, this.dbg, upright, trackTurn, pull,
     )
 
     const es = this.specificEnergy

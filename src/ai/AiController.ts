@@ -434,8 +434,8 @@ export class AiController implements Controller {
    *
    * 【一趟之內不換目標】名次靠後的目標，排序隨長機的位置每個決策拍都可能換；一直換目標就一直轉向、
    * 掉速、對不準，永遠壓不下機鼻。只在脫離時重挑，脫離結束前最後一次挑的就是下一趟的目標；目標死了
-   * 或還沒有也補挑。俯衝與拉起鎖著瞄準點，目標中途被炸掉也要把這一趟飛完，所以那兩個相位沒有目標時
-   * 照樣呼叫。
+   * 或還沒有也補挑。翻轉、俯衝與拉起鎖著瞄準點，目標中途被炸掉也要把這一趟飛完，所以那三個相位沒有
+   * 目標時照樣呼叫。
    *
    * 【不走掃射的解除閘門】那一套（`groundStrafeActive`）會在對地俯衝時驗證改出、必要時把機首拉平，
    * 為低空掃射設計；俯衝投彈自己決定幾時拉起，安全層（`applySafety`）仍是最後一道。
@@ -446,7 +446,7 @@ export class AiController implements Controller {
     const me = this.board?.candidates[this.selfIndex]
     if (me === undefined) return false
     const state = this.diveBomb
-    const flying = state.phase === 'dive' || state.phase === 'pullout'
+    const flying = state.phase === 'flip' || state.phase === 'dive' || state.phase === 'pullout'
     let target = this.groundAim >= 0 ? this.groundTargets[this.groundAim] : undefined
     if (!flying) {
       if ((decide && state.phase === 'egress') || target === undefined || !target.alive) {
@@ -993,6 +993,8 @@ export class AiController implements Controller {
     raw.bombing = false
     // 【正飛的提示同理】只有掛彈的對艦攻擊寫它；殘留的話空戰也會被綁成只准推頭
     raw.upright = false
+    // 【強制翻轉後拉同理】只有俯衝投彈的翻轉相位寫它
+    raw.pull = false
     // 【跟瞄同理】只有空戰交戰那一條寫它；對地、對艦、站位、集合、平飛都早退
     raw.trackTurn = false
 

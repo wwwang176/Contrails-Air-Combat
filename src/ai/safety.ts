@@ -412,6 +412,8 @@ export function applySafety(
     out.bombing = false
     // 【正飛的提示也清掉】接管要的是最快的改出，翻轉後拉常常就是最快的
     out.upright = false
+    // 【強制翻轉後拉也清掉】接管的改出自己挑最快的路
+    out.pull = false
     // 【跟瞄也清掉】瞄準方向已經換成改出的方向，不是一個要跟住的轉彎
     out.trackTurn = false
     return action
@@ -464,6 +466,7 @@ export function applySafety(
     out.firing = false
     out.bombing = false
     out.upright = false
+    out.pull = false
     out.trackTurn = false
     return 'stall'
   }

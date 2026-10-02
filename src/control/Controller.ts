@@ -38,6 +38,19 @@ export interface Command {
    */
   upright: boolean
   /**
+   * 強制「滾轉後拉」：瞄準點在機翼平面之下時，指揮儀一律把瞄準點翻到機體上方再用正過載拉，不推頭。
+   * `upright` 的對稱相反。
+   *
+   * 【為什麼需要它】瞄準點在下方時，指揮儀在「推頭」與「翻轉後拉」之間挑時間短的；這台飛機這個速度下
+   * 挑的是推頭（負過載，俯仰率不到正過載的一半，但翻轉那一圈更貴），推頭拉不過垂直。斯圖卡的過頂
+   * 俯衝要翻到顛倒、用正過載拉過垂直，機鼻指向後下方、回頭對著目標。
+   *
+   * 【與 `upright` 同時給時 `upright` 優先】機翼放平是投放的硬條件。
+   *
+   * 【玩家恆為 false】玩家自己決定姿態。
+   */
+  pull: boolean
+  /**
    * 跟瞄：瞄準方向正跟著一個在轉的目標。指揮儀的機翼改平改到那個轉彎要的
    * 坡度，而不是拉向水平（`FlightDirector.update`）。
    *
@@ -55,7 +68,7 @@ export interface Command {
 export function createCommand(): Command {
   return {
     aimWorld: new Vector3(0, 0, -1), throttle: 0, brake: 0, firing: false, bombing: false,
-    upright: false, trackTurn: false,
+    upright: false, pull: false, trackTurn: false,
   }
 }
 

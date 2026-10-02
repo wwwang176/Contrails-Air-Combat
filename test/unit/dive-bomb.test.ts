@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { Euler, Vector3 } from 'three'
 import {
-  createDiveBombState, DIVE_ABORT_MARGIN, DIVE_ANGLE, DIVE_ANGLE_MAX, DIVE_CLIMB_FULL_SPEED,
-  DIVE_CLIMB_MIN_SPEED, DIVE_EGRESS_CLIMB, DIVE_EGRESS_RANGE, DIVE_ENTRY_BANK, DIVE_ENTRY_SPEED,
-  DIVE_IAS_BAND, DIVE_IAS_RATIO, DIVE_LEAD_SECONDS, DIVE_LEVEL_SLACK, DIVE_MIN_HEIGHT, DIVE_ORBIT_BAND,
-  DIVE_ORBIT_BIAS, DIVE_PULLOUT_DONE, DIVE_PULLOUT_PITCH, DIVE_REARM_RANGE, DIVE_RELEASE_HEIGHT,
-  DIVE_ZOOM_CLIMB, DIVE_ZOOM_END_SPEED, DIVE_ZOOM_FULL_SPEED, diveEntryRange, pickDiveTarget, resetDiveBomb,
-  stepDiveBomb, type DiveBombState, type DivePhase,
+  createDiveBombState, DIVE_ABORT_MARGIN, DIVE_ANGLE_MAX, DIVE_CLIMB_FULL_SPEED, DIVE_CLIMB_MIN_SPEED,
+  DIVE_EGRESS_CLIMB, DIVE_EGRESS_RANGE, DIVE_ENTRY_BANK, DIVE_ENTRY_SPEED, DIVE_FLIP_DONE, DIVE_FLIP_FLOOR,
+  DIVE_FLIP_LATERAL, DIVE_FLIP_MISS, DIVE_FLIP_PAST, DIVE_HOLD_RANGE, DIVE_IAS_BAND, DIVE_IAS_RATIO,
+  DIVE_LEVEL_SLACK, DIVE_MIN_HEIGHT, DIVE_ORBIT_BAND, DIVE_ORBIT_BIAS, DIVE_PULLOUT_DONE, DIVE_PULLOUT_PITCH,
+  DIVE_REARM_RANGE, DIVE_RELEASE_HEIGHT, DIVE_ZOOM_CLIMB, DIVE_ZOOM_END_SPEED, DIVE_ZOOM_FULL_SPEED,
+  pickDiveTarget, resetDiveBomb, stepDiveBomb, type DiveBombState, type DivePhase,
 } from '../../src/ai/diveBomb'
 import { AiController } from '../../src/ai/AiController'
 import { createTargetBoard } from '../../src/ai/target'
@@ -24,29 +24,16 @@ import { createGroundTarget, type GroundTarget } from '../../src/world/groundTar
 import type { GroundUnitId } from '../../src/render/geometry/ground'
 
 /**
- * # 俯衝投彈：進場距離、挑目標、相位機
+ * # 俯衝投彈：挑目標、相位機
  *
- * 平飛到目標上方的某個水平距離才壓機鼻；四架各挑不同的目標，免得同時衝向同一點。
- * 相位：平飛 → 俯衝 → 拉起 → 爬離 → 回頭再平飛，每個轉換守住它的條件，缺一個都不轉。
+ * 平飛 → 飛過目標一小段 → 翻到顛倒、用正過載拉過垂直（機鼻指向後下方、回頭對著目標）→ 機翼是正的、
+ * 俯衝 → 拉起 → 爬離 → 回頭再平飛。每個轉換守住它的條件，缺一個都不轉。四架各挑不同的目標，
+ * 免得同時衝向同一點。
+ *
+ * 座標約定：目標在原點，飛機沿 −Z 前進，所以 z < 0 就是已經飛過目標。
  */
 
 const DEG = Math.PI / 180
-
-describe('進場距離', () => {
-  it('高 1,000 m、速度 100 m/s：直線俯衝 75° 的水平距離加上機鼻壓下去飛掉的距離', () => {
-    // 1000 / tan(75°) = 267.95；機鼻壓下去那段 100 × 3.4 = 340
-    expect(DIVE_ANGLE).toBeCloseTo(75 * DEG, 9)
-    expect(DIVE_LEAD_SECONDS).toBeCloseTo(3.4, 9)
-    expect(diveEntryRange(1000, 100)).toBeCloseTo(267.95 + 340, 1)
-  })
-
-  it('越高、越快，進場距離越長；高度為零或負時只剩機鼻壓下去那一項', () => {
-    expect(diveEntryRange(2000, 100)).toBeGreaterThan(diveEntryRange(1000, 100))
-    expect(diveEntryRange(1000, 120)).toBeGreaterThan(diveEntryRange(1000, 100))
-    expect(diveEntryRange(0, 100)).toBeCloseTo(100 * DIVE_LEAD_SECONDS, 9)
-    expect(diveEntryRange(-500, 100)).toBeCloseTo(100 * DIVE_LEAD_SECONDS, 9)
-  })
-})
 
 describe('挑目標', () => {
   const at = (i: number, id: GroundUnitId, team: 'red' | 'blue', x: number, z: number): GroundTarget =>
@@ -158,6 +145,10 @@ function stateIn(phase: DivePhase): DiveBombState {
   return s
 }
 
+/** 飛過目標 60 m（比 `DIVE_FLIP_PAST` 多一點）、高 1,700 m、對正、平飛、速度夠：具備翻轉的全部條件 */
+const PAST = DIVE_FLIP_PAST + 10
+const ready = (): Aircraft => fly(0, 1700, -PAST)
+
 describe('平飛', () => {
   it('朝目標水平飛、維持高度：低於維持高度就把機首抬一點', () => {
     const s = createDiveBombState()
@@ -172,83 +163,185 @@ describe('平飛', () => {
     stepDiveBomb(s, far, TARGET_AT(0, 0), true, out)
     expect(out.aimWorld.y).toBeGreaterThan(0.05)
     expect(out.upright).toBe(false)
+    expect(out.pull).toBe(false)
     expect(out.bombing).toBe(false)
     expect(out.firing).toBe(false)
     expect(out.trackTurn).toBe(false)
     expect(out.throttle).toBeGreaterThan(1)
   })
 
-  it('高度夠、進了距離、對正、有彈：轉俯衝，並把瞄準點鎖在目標那一點', () => {
-    // 高 1,700 m、離目標 780 m、對正：剛好進了壓機鼻的距離
-    expect(diveEntryRange(1700, 100)).toBeGreaterThan(780)
+  /**
+   * 離目標近了就保持航向，不再朝目標轉：過頂的那一刻目標方位會翻轉 180°，朝它轉的話一飛過目標
+   * 就掉頭。
+   */
+  it('離目標近了保持航向，飛過目標之後也不掉頭', () => {
+    const horizontal = (x: number, z: number): Vector3 => {
+      const out = createCommand()
+      // 速度不夠，不會進翻轉：只看平飛的瞄準
+      stepDiveBomb(createDiveBombState(), fly(x, 1700, z, 0, DIVE_ENTRY_SPEED - 20), TARGET_AT(0, 0), true, out)
+      return new Vector3(out.aimWorld.x, 0, out.aimWorld.z).normalize()
+    }
+    // 離目標遠：朝目標轉（飛機在 +x 40 m，目標在 −x 方向）
+    expect(horizontal(40, 600).x).toBeLessThan(-0.03)
+    // 近到 `DIVE_HOLD_RANGE` 之內：保持航向 −Z
+    expect(Math.hypot(40, 200)).toBeLessThan(DIVE_HOLD_RANGE)
+    expect(Math.abs(horizontal(40, 200).x)).toBeLessThan(1e-6)
+    expect(horizontal(40, 200).z).toBeLessThan(0)
+    // 已經飛過：照樣保持航向，不朝回轉
+    expect(horizontal(0, -100).z).toBeLessThan(0)
+  })
+
+  it('飛過目標一小段、橫向對正、高度速度夠、坡度小、有彈：轉翻轉，並把瞄準點鎖在目標那一點', () => {
     const s = createDiveBombState()
-    stepDiveBomb(s, fly(0, 1700, 780), TARGET_AT(0, 0), true, createCommand())
-    expect(s.phase).toBe('dive')
+    stepDiveBomb(s, ready(), TARGET_AT(0, 0), true, createCommand())
+    expect(s.phase).toBe('flip')
     expect(s.aim.toArray()).toEqual([0, 0, 0])
   })
 
-  it('還沒進距離：留在平飛', () => {
+  it('還沒飛過 DIVE_FLIP_PAST：留在平飛', () => {
     const s = createDiveBombState()
-    stepDiveBomb(s, fly(0, 1700, diveEntryRange(1700, 100) + 50), TARGET_AT(0, 0), true, createCommand())
+    stepDiveBomb(s, fly(0, 1700, -(DIVE_FLIP_PAST - 10)), TARGET_AT(0, 0), true, createCommand())
     expect(s.phase).toBe('level')
+    // 還沒到目標上空
+    const before = createDiveBombState()
+    stepDiveBomb(before, fly(0, 1700, 300), TARGET_AT(0, 0), true, createCommand())
+    expect(before.phase).toBe('level')
   })
 
-  it('機首與目標方位差太多：留在平飛', () => {
-    const s = createDiveBombState()
-    // 目標在右前 31°，水平距離 583 m、高 1,700 m：在壓機鼻的距離內，視線角 71°
-    stepDiveBomb(s, fly(0, 1700, 500), TARGET_AT(300, 0), true, createCommand())
-    expect(s.phase).toBe('level')
+  it('橫向偏離太大：留在平飛；飛過頭太多就放棄這一趟，改走脫離', () => {
+    const off = createDiveBombState()
+    stepDiveBomb(off, fly(DIVE_FLIP_LATERAL + 40, 1700, -PAST), TARGET_AT(0, 0), true, createCommand())
+    expect(off.phase).toBe('level')
+    const gone = createDiveBombState()
+    stepDiveBomb(gone, fly(DIVE_FLIP_LATERAL + 40, 1700, -(DIVE_FLIP_MISS + 10)), TARGET_AT(0, 0), true, createCommand())
+    expect(gone.phase).toBe('egress')
+    // 對正的也一樣：飛過頭太多還沒翻就放棄（例如一直沒有達到速度）
+    const slow = createDiveBombState()
+    stepDiveBomb(slow, fly(0, 1700, -(DIVE_FLIP_MISS + 10), 0, DIVE_ENTRY_SPEED - 20), TARGET_AT(0, 0), true, createCommand())
+    expect(slow.phase).toBe('egress')
   })
 
-  it('坡度太大：留在平飛（目標在側面、還在轉彎的途中不壓機鼻）', () => {
+  it('坡度太大：留在平飛（還在轉彎的途中不翻轉）', () => {
     const banked = createDiveBombState()
-    stepDiveBomb(banked, fly(0, 1700, 780, 0, 100, 0, DIVE_ENTRY_BANK / DEG + 5), TARGET_AT(0, 0), true, createCommand())
+    stepDiveBomb(banked, fly(0, 1700, -PAST, 0, 100, 0, DIVE_ENTRY_BANK / DEG + 5), TARGET_AT(0, 0), true, createCommand())
     expect(banked.phase).toBe('level')
     const level = createDiveBombState()
-    stepDiveBomb(level, fly(0, 1700, 780, 0, 100, 0, DIVE_ENTRY_BANK / DEG - 5), TARGET_AT(0, 0), true, createCommand())
-    expect(level.phase).toBe('dive')
+    stepDiveBomb(level, fly(0, 1700, -PAST, 0, 100, 0, DIVE_ENTRY_BANK / DEG - 5), TARGET_AT(0, 0), true, createCommand())
+    expect(level.phase).toBe('flip')
     // 左右一樣
     const left = createDiveBombState()
-    stepDiveBomb(left, fly(0, 1700, 780, 0, 100, 0, -(DIVE_ENTRY_BANK / DEG + 5)), TARGET_AT(0, 0), true, createCommand())
+    stepDiveBomb(left, fly(0, 1700, -PAST, 0, 100, 0, -(DIVE_ENTRY_BANK / DEG + 5)), TARGET_AT(0, 0), true, createCommand())
     expect(left.phase).toBe('level')
   })
 
-  /** 低速時推頭沒力、滾轉亂跑：後面幾趟壓機鼻時只有 70 m/s，滾轉飄到 40～68°；90 m/s 時滾轉恆為 0 */
+  /** 低速時沒力：後面幾趟脫離爬升把速度耗到 70 m/s 上下，直接翻轉的話滾轉亂跑；90 m/s 以上才乾淨 */
   it('速度不夠：留在平飛（先加速）', () => {
-    // 離目標 700 m：兩種速度都在壓機鼻的距離之內，只差速度
     const slow = createDiveBombState()
-    stepDiveBomb(slow, fly(0, 1700, 700, 0, DIVE_ENTRY_SPEED - 5), TARGET_AT(0, 0), true, createCommand())
+    stepDiveBomb(slow, fly(0, 1700, -PAST, 0, DIVE_ENTRY_SPEED - 5), TARGET_AT(0, 0), true, createCommand())
     expect(slow.phase).toBe('level')
     const ok = createDiveBombState()
-    stepDiveBomb(ok, fly(0, 1700, 700, 0, DIVE_ENTRY_SPEED + 5), TARGET_AT(0, 0), true, createCommand())
-    expect(ok.phase).toBe('dive')
+    stepDiveBomb(ok, fly(0, 1700, -PAST, 0, DIVE_ENTRY_SPEED + 5), TARGET_AT(0, 0), true, createCommand())
+    expect(ok.phase).toBe('flip')
   })
 
-  it('彈艙是空的：不俯衝，改走脫離（爬離、等補滿）', () => {
+  it('彈艙是空的：不翻轉，改走脫離（爬離、等補滿）', () => {
     const s = createDiveBombState()
-    stepDiveBomb(s, fly(0, 1700, 780), TARGET_AT(0, 0), false, createCommand())
+    stepDiveBomb(s, ready(), TARGET_AT(0, 0), false, createCommand())
     expect(s.phase).toBe('egress')
   })
 
-  it('離目標不夠高：不俯衝；掉到遲滯帶以下才改走脫離（先爬高）', () => {
-    // 在下限與遲滯帶之間：不壓機鼻（高度不夠），但也不退回脫離，平飛維持高度
+  it('離目標不夠高：不翻轉；掉到遲滯帶以下才改走脫離（先爬高）', () => {
+    // 在下限與遲滯帶之間：不翻轉（高度不夠），但也不退回脫離，平飛維持高度
     const between = createDiveBombState()
-    stepDiveBomb(between, fly(0, DIVE_MIN_HEIGHT - DIVE_LEVEL_SLACK / 2, 500), TARGET_AT(0, 0), true, createCommand())
+    stepDiveBomb(between, fly(0, DIVE_MIN_HEIGHT - DIVE_LEVEL_SLACK / 2, -PAST), TARGET_AT(0, 0), true, createCommand())
     expect(between.phase).toBe('level')
     const low = createDiveBombState()
-    stepDiveBomb(low, fly(0, DIVE_MIN_HEIGHT - DIVE_LEVEL_SLACK - 50, 500), TARGET_AT(0, 0), true, createCommand())
+    stepDiveBomb(low, fly(0, DIVE_MIN_HEIGHT - DIVE_LEVEL_SLACK - 50, -PAST), TARGET_AT(0, 0), true, createCommand())
     expect(low.phase).toBe('egress')
   })
+})
 
-  it('視線角超過 80°（飛到目標上方附近）：不壓機鼻，改走脫離', () => {
-    const s = createDiveBombState()
-    // 高 1,700 m、水平 200 m：視線角 83°
-    stepDiveBomb(s, fly(0, 1700, 200), TARGET_AT(0, 0), true, createCommand())
-    expect(s.phase).toBe('egress')
-    // 水平 400 m：視線角 76.8°，不算太近
-    const s2 = createDiveBombState()
-    stepDiveBomb(s2, fly(0, 1700, 400), TARGET_AT(0, 0), true, createCommand())
-    expect(s2.phase).toBe('dive')
+describe('翻轉', () => {
+  /** 翻轉中：瞄準點鎖在目標（原點），飛機在目標後方 120 m、高 1,000 m、機頭朝前平飛 */
+  const flipping = (self: Aircraft): { s: DiveBombState; out: ReturnType<typeof createCommand>; self: Aircraft } => {
+    const s = stateIn('flip')
+    s.aim.set(0, 0, 0)
+    return { s, out: createCommand(), self }
+  }
+
+  it('瞄準方向是到鎖定點的視線；強制翻轉後拉、不要求放平；油門怠速、不投彈', () => {
+    const { s, out, self } = flipping(fly(0, 1000, -120))
+    stepDiveBomb(s, self, null, true, out)
+    // 飛機在目標後方（z = −120），視線朝後下方
+    const los = new Vector3(0, -1000, 120).normalize()
+    expect(out.aimWorld.distanceTo(los)).toBeLessThan(1e-6)
+    expect(out.pull).toBe(true)
+    expect(out.upright).toBe(false)
+    expect(out.throttle).toBe(THROTTLE_FLOOR)
+    expect(out.bombing).toBe(false)
+    expect(out.firing).toBe(false)
+    expect(out.trackTurn).toBe(false)
+  })
+
+  it('瞄準點是鎖定的：目標被炸掉、換成別的目標，瞄準點不動', () => {
+    const { s, out, self } = flipping(fly(0, 1000, -120))
+    stepDiveBomb(s, self, TARGET_AT(900, -900), true, out)
+    expect(s.aim.toArray()).toEqual([0, 0, 0])
+    expect(out.aimWorld.x).toBeCloseTo(0, 6)
+  })
+
+  it('減速板隨指示空速升降，與俯衝同一條', () => {
+    const brakeAt = (ratio: number): number => {
+      const { s, out, self } = flipping(fly(0, 1000, -120))
+      ias(self, ratio)
+      stepDiveBomb(s, self, null, true, out)
+      return out.brake
+    }
+    expect(brakeAt(0.5)).toBe(0)
+    expect(brakeAt(DIVE_IAS_RATIO + DIVE_IAS_BAND / 2)).toBeCloseTo(0.5, 6)
+    expect(brakeAt(1)).toBe(1)
+  })
+
+  /**
+   * 拉過垂直之後機鼻指向後下方，機翼自然是正的（翻轉後拉的終點），所以接下來的俯衝不需要再滾。
+   * 機鼻對上視線而且機翼是正的才算翻完。
+   */
+  it('機鼻對上視線、機翼是正的：轉俯衝', () => {
+    // 飛機在目標後方 180 m、高 1,000 m，機鼻朝後下方 79°（航向 180°）、機翼正
+    const { s, out, self } = flipping(fly(0, 1000, -180, -79, 100, 180))
+    stepDiveBomb(s, self, null, true, out)
+    expect(s.phase).toBe('dive')
+    expect(out.pull).toBe(true)
+  })
+
+  it('機鼻還沒對上視線：留在翻轉', () => {
+    const { s, out, self } = flipping(fly(0, 1000, -180))
+    stepDiveBomb(s, self, null, true, out)
+    expect(s.phase).toBe('flip')
+    // 剛好在容許的夾角之外
+    const edge = flipping(fly(0, 1000, -180, -(79 - DIVE_FLIP_DONE / DEG - 2), 100, 180))
+    stepDiveBomb(edge.s, edge.self, null, true, edge.out)
+    expect(edge.s.phase).toBe('flip')
+  })
+
+  it('機鼻對上了但機翼是顛倒的：留在翻轉（投放包絡擋顛倒）', () => {
+    const { s, out, self } = flipping(fly(0, 1000, -180, -79, 100, 180, 180))
+    stepDiveBomb(s, self, null, true, out)
+    expect(s.phase).toBe('flip')
+  })
+
+  it('翻轉中掉到投彈高度加地板以下：放棄這一趟，轉拉起、不投、不再強制翻轉', () => {
+    const { s, out, self } = flipping(fly(0, DIVE_RELEASE_HEIGHT + DIVE_FLIP_FLOOR - 10, -180, 0, 100, 0))
+    stepDiveBomb(s, self, null, true, out)
+    expect(s.phase).toBe('pullout')
+    expect(out.bombing).toBe(false)
+    expect(out.pull).toBe(false)
+  })
+
+  it('彈艙空了也放棄（炸彈不會憑空出現）', () => {
+    const { s, out, self } = flipping(fly(0, 1000, -120))
+    stepDiveBomb(s, self, null, false, out)
+    expect(s.phase).toBe('pullout')
   })
 })
 
@@ -259,15 +352,24 @@ describe('俯衝', () => {
     return { s, out: createCommand(), self }
   }
 
-  it('瞄準方向是到鎖定點的視線；機翼放平（upright）、油門怠速', () => {
+  it('瞄準方向是到鎖定點的視線；機翼放平（upright）、油門怠速、不強制翻轉', () => {
     const { s, out, self } = diving(fly(0, 1500, 450, -75, 110))
     stepDiveBomb(s, self, null, true, out)
     const los = new Vector3(0, -1500, -450).normalize()
     expect(out.aimWorld.distanceTo(los)).toBeLessThan(1e-6)
     expect(out.upright).toBe(true)
+    expect(out.pull).toBe(false)
     expect(out.throttle).toBe(THROTTLE_FLOOR)
     expect(out.firing).toBe(false)
     expect(out.trackTurn).toBe(false)
+  })
+
+  /** 翻轉之後飛機在目標後方、航向朝後：視線朝後下方，水平方向是回頭對著目標 */
+  it('飛過目標、回頭對著目標俯衝：瞄準方向朝後下方', () => {
+    const { s, out, self } = diving(fly(0, 1500, -300, -79, 110, 180))
+    stepDiveBomb(s, self, null, true, out)
+    const los = new Vector3(0, -1500, 300).normalize()
+    expect(out.aimWorld.distanceTo(los)).toBeLessThan(1e-6)
   })
 
   it('瞄準俯仰夾在 −85° 以內，方位不變', () => {
@@ -344,15 +446,25 @@ describe('拉起與脫離', () => {
     const self = fly(0, 480, 100, -70, 120)
     const out = createCommand()
     out.upright = true
+    out.pull = true
     out.brake = 1
     stepDiveBomb(stateIn('pullout'), self, null, true, out)
     expect(out.aimWorld.y).toBeCloseTo(Math.sin(DIVE_PULLOUT_PITCH), 6)
     expect(out.aimWorld.z).toBeLessThan(0)
     expect(out.aimWorld.x).toBeCloseTo(0, 6)
     expect(out.upright).toBe(false)
+    expect(out.pull).toBe(false)
     expect(out.brake).toBe(0)
     expect(out.throttle).toBeGreaterThan(1)
     expect(out.bombing).toBe(false)
+  })
+
+  /** 過頂翻轉之後飛機朝後（航向 180°）：拉起保持的是現在的水平航向，不是原來進場的方向 */
+  it('拉起：保持現在的水平航向（過頂翻轉之後朝後）', () => {
+    const out = createCommand()
+    stepDiveBomb(stateIn('pullout'), fly(0, 480, -100, -70, 120, 180), null, true, out)
+    expect(out.aimWorld.y).toBeCloseTo(Math.sin(DIVE_PULLOUT_PITCH), 6)
+    expect(out.aimWorld.z).toBeGreaterThan(0)
   })
 
   it('航跡角回到 5° 以上才轉脫離', () => {
@@ -454,9 +566,10 @@ describe('拉起與脫離', () => {
   })
 
   it('高度、距離、彈艙三個條件都成立才回平飛，缺一個都留在脫離', () => {
+    // 朝 −Z 飛、目標在原點：z > 0 時目標在機鼻前方
     const run = (y: number, z: number, loaded: boolean): DivePhase => {
       const s = stateIn('egress')
-      stepDiveBomb(s, fly(0, y, z, 10, 90, 180), TARGET_AT(0, 0), loaded, createCommand())
+      stepDiveBomb(s, fly(0, y, z, 10, 90, 0), TARGET_AT(0, 0), loaded, createCommand())
       return s.phase
     }
     // 回平飛的高度要多給一點（遲滯）：剛好在下限回去，平飛維持高度掉個幾公尺就又被打回脫離
@@ -465,6 +578,32 @@ describe('拉起與脫離', () => {
     expect(run(DIVE_MIN_HEIGHT + 10, DIVE_REARM_RANGE + 10, true)).toBe('egress')
     expect(run(enough, DIVE_REARM_RANGE - 10, true)).toBe('egress')
     expect(run(enough, DIVE_REARM_RANGE + 10, false)).toBe('egress')
+  })
+
+  /**
+   * 【目標在身後時不回平飛】平飛看到目標在身後（飛過 `DIVE_FLIP_MISS` 以上）就走脫離；脫離若只看
+   * 高度、距離、彈艙，距離夠遠的那一步就立刻回平飛、下一步又被打回脫離，兩個相位每步來回切，
+   * 瞄準點與維持高度也每步重設。回平飛要目標在機鼻前半面
+   */
+  it('目標在身後、離得夠遠：脫離不回平飛', () => {
+    const s = stateIn('egress')
+    stepDiveBomb(s, fly(0, 1700, -3000, 0, 90, 0), TARGET_AT(0, 0), true, createCommand())
+    expect(s.phase).toBe('egress')
+  })
+
+  it('目標遠遠落在身後時，相位不會每步來回切換', () => {
+    const self = fly(0, 1700, -3000, 0, 90, 0)
+    const target = TARGET_AT(0, 0)
+    const s = stateIn('level')
+    const out = createCommand()
+    let switches = 0
+    let prev = s.phase
+    for (let i = 0; i < 240; i++) {
+      stepDiveBomb(s, self, target, true, out)
+      if (s.phase !== prev) switches++
+      prev = s.phase
+    }
+    expect(switches).toBeLessThanOrEqual(1)
   })
 
   it('重設之後回到平飛、瞄準點與維持高度歸零', () => {
@@ -499,18 +638,29 @@ describe('接線', () => {
     return ai
   }
 
-  /** 高 1,700 m、離目標 780 m、對正：Ju 87 一進來就具備壓機鼻的條件 */
-  const stuka = (x = 0): Aircraft => fly(x, 1700, 780)
+  /** 飛過目標 60 m、高 1,700 m、對正：Ju 87 一進來就具備翻轉的條件 */
+  const stuka = (x = 0): Aircraft => fly(x, 1700, -PAST)
 
   it('Ju 87 有地面目標：新相位會動（沒有優先單位的入口）', () => {
     const self = stuka()
     const target = TARGET_AT(0, 0)
     const ai = wire(self, 0, [{ index: 0, aircraft: self }], [target], 'ju87')
     ai.update(self, DT, createCommand())
-    expect(ai.diveBombPhase).toBe('dive')
+    expect(ai.diveBombPhase).toBe('flip')
     expect(ai.groundTarget).toBe(target)
     // 水平轟炸那一套沒有被問到
     expect(ai.strikeRef.index).toBe(-1)
+  })
+
+  it('翻轉的指令穿過延遲與安全層送到飛機：pull 為真', () => {
+    const self = stuka()
+    const ai = wire(self, 0, [{ index: 0, aircraft: self }], [TARGET_AT(0, 0)], 'ju87')
+    ai.update(self, DT, createCommand())
+    const out = createCommand()
+    ai.update(self, DT, out)
+    expect(ai.diveBombPhase).toBe('flip')
+    expect(out.pull).toBe(true)
+    expect(out.upright).toBe(false)
   })
 
   it('任務指定了優先地面單位：Ju 87 照樣俯衝（另一個入口）', () => {
@@ -519,7 +669,7 @@ describe('接線', () => {
     const ai = wire(self, 0, [{ index: 0, aircraft: self }], [target], 'ju87')
     ai.priorityGroundUnit = 'atGun'
     ai.update(self, DT, createCommand())
-    expect(ai.diveBombPhase).toBe('dive')
+    expect(ai.diveBombPhase).toBe('flip')
     expect(ai.strikeRef.index).toBe(-1)
   })
 
@@ -532,7 +682,7 @@ describe('接線', () => {
     ai.stationReferenceIndex = 0
     ai.priorityGroundUnit = 'atGun'
     ai.update(wing, DT, createCommand())
-    expect(ai.diveBombPhase).toBe('dive')
+    expect(ai.diveBombPhase).toBe('flip')
   })
 
   it('指定的優先單位場上沒有：和戰鬥機一樣退回打別的地面目標', () => {
@@ -541,7 +691,7 @@ describe('接線', () => {
     const ai = wire(self, 0, [{ index: 0, aircraft: self }], [target], 'ju87')
     ai.priorityGroundUnit = 'tank'
     ai.update(self, DT, createCommand())
-    expect(ai.diveBombPhase).toBe('dive')
+    expect(ai.diveBombPhase).toBe('flip')
     expect(ai.groundTarget).toBe(target)
   })
 
@@ -601,19 +751,22 @@ describe('接線', () => {
     expect(ai.groundTarget).toBe(far)
   })
 
-  it('俯衝到一半目標被炸掉，這一趟照樣飛完：新相位不退回', () => {
+  it('翻轉到一半目標被炸掉，這一趟照樣飛完：新相位不退回', () => {
     const self = stuka()
     const target = TARGET_AT(0, 0)
     const ai = wire(self, 0, [{ index: 0, aircraft: self }], [target], 'ju87')
     ai.update(self, DT, createCommand())
-    expect(ai.diveBombPhase).toBe('dive')
+    expect(ai.diveBombPhase).toBe('flip')
     target.alive = false
-    ai.update(self, DT, createCommand())
-    expect(ai.diveBombPhase).toBe('dive')
+    const out = createCommand()
+    ai.update(self, DT, out)
+    expect(ai.diveBombPhase).toBe('flip')
+    // 指令真的還在寫：強制翻轉後拉沒有被別的行為蓋掉
+    expect(out.pull).toBe(true)
   })
 
   it('G4M 有彈艙有地面目標：走水平轟炸，新狀態一個位元都沒碰', () => {
-    const self = fly(0, 1700, 780, 0, 100, 0, 0, G4M)
+    const self = fly(0, 1700, -PAST, 0, 100, 0, 0, G4M)
     const ai = wire(self, 0, [{ index: 0, aircraft: self }], [TARGET_AT(0, 0)], 'g4m')
     ai.update(self, DT, createCommand())
     expect(ai.strikeRef.index).toBe(0)
@@ -637,7 +790,7 @@ describe('接線', () => {
     const self = stuka()
     const ai = wire(self, 0, [{ index: 0, aircraft: self }], [TARGET_AT(0, 0)], 'ju87')
     ai.update(self, DT, createCommand())
-    expect(ai.diveBombPhase).toBe('dive')
+    expect(ai.diveBombPhase).toBe('flip')
     ai.clearTerrainState()
     expect(ai.diveBombPhase).toBe('level')
     expect(ai.diveBomb.holdAlt).toBe(0)

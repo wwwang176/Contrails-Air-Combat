@@ -73,6 +73,9 @@ interface Dive {
   safetyH: number
   releaseT: number
   releaseH: number
+  releasePitch: number
+  releaseRoll: number
+  releaseBack: string
   minAgl: number
   maxN: number
   samples: string[]
@@ -82,6 +85,7 @@ interface Dive {
 const climb: { n: number; vz: number; tas: number; pitch: number; load: number; roll: number; aoa: number }[] = []
 const NOSE = new Vector3()
 const RIGHT = new Vector3()
+const UP = new Vector3()
 const dives: Dive[] = []
 const open = new Map<number, Dive>()
 const prevPhase = new Map<number, string>()
@@ -109,6 +113,7 @@ for (let i = 0, total = Math.round(SECONDS / DT); i < total; i++) {
     const gamma = tas > 1 ? Math.asin(v.y / tas) * DEG : 0
     NOSE.set(0, 0, -1).applyQuaternion(a.state.orientation)
     RIGHT.set(1, 0, 0).applyQuaternion(a.state.orientation)
+    UP.set(0, 1, 0).applyQuaternion(a.state.orientation)
     const pitch = Math.asin(NOSE.y) * DEG
     const roll = Math.asin(RIGHT.y) * DEG
     const ground = terrain.collisionHeightAt(p.x, p.z)
@@ -134,7 +139,7 @@ for (let i = 0, total = Math.round(SECONDS / DT); i < total; i++) {
       const range = tgt === null ? NaN : Math.hypot(tgt.position.x - p.x, tgt.position.z - p.z)
       open.set(c.index, {
         seat: c.index, t0: w.time, entryH: tgt === null ? NaN : p.y - tgt.position.y, entryRange: range, entryRoll: roll,
-        maxRoll: 0, gammaMin: 0, pitchMin: 0, iasMax: 0, safety: 'none', safetyH: -1, releaseT: -1, releaseH: -1,
+        maxRoll: 0, gammaMin: 0, pitchMin: 0, iasMax: 0, safety: 'none', safetyH: -1, releaseT: -1, releaseH: -1, releasePitch: NaN, releaseRoll: NaN, releaseBack: '',
         minAgl: Infinity, maxN: 0, samples: [],
       })
     }
@@ -154,6 +159,10 @@ for (let i = 0, total = Math.round(SECONDS / DT); i < total; i++) {
       if (prevLoad !== undefined && l < prevLoad && d.releaseT < 0) {
         d.releaseT = w.time
         d.releaseH = tgt === null ? agl : p.y - tgt.position.y
+        // 投彈那一刻：機鼻往下的角度（往前或往後下方都算，機鼻過垂直之後是回頭對著目標）、滾轉、機翼是否顛倒
+        d.releasePitch = Math.asin(-NOSE.y) * DEG
+        d.releaseRoll = UP.y < 0 ? 180 - Math.abs(roll) : Math.abs(roll)
+        d.releaseBack = NOSE.dot(new Vector3(tgt === null ? 0 : tgt.position.x - p.x, 0, tgt === null ? 0 : tgt.position.z - p.z)) > 0 ? '朝目標' : '背對目標'
       }
       if (VERBOSE && i % 240 === 0) {
         d.samples.push(`${(tgt === null ? agl : p.y - tgt.position.y).toFixed(0)}m 俯${pitch.toFixed(0)} γ${gamma.toFixed(0)} 滾${roll.toFixed(0)} IAS${ias.toFixed(0)} ${phase}`)
@@ -194,6 +203,6 @@ console.log('各相位時間比例', JSON.stringify(Object.fromEntries(Object.en
 for (const d of dives) {
   console.log(`#${d.seat} t=${d.t0.toFixed(0).padStart(3)} 壓機鼻 高${d.entryH.toFixed(0)} 水平${d.entryRange.toFixed(0)} 滾${d.entryRoll.toFixed(0)}°｜` +
     `機鼻最陡 ${d.pitchMin.toFixed(0)}° 航跡 ${d.gammaMin.toFixed(0)}° 俯衝中最大滾轉 ${d.maxRoll.toFixed(0)}° IAS最高 ${d.iasMax.toFixed(0)}｜` +
-    `投彈 ${d.releaseT < 0 ? '沒投出去' : `t=${d.releaseT.toFixed(1)} 高${d.releaseH.toFixed(0)}`}｜最低離地 ${d.minAgl.toFixed(0)} 最大過載 ${d.maxN.toFixed(1)}｜安全層 ${d.safety}${d.safetyH >= 0 ? `@高${d.safetyH.toFixed(0)}` : ''}`)
+    `投彈 ${d.releaseT < 0 ? '沒投出去' : `t=${d.releaseT.toFixed(1)} 高${d.releaseH.toFixed(0)} 機鼻下${d.releasePitch.toFixed(0)}°(${d.releaseBack}) 滾轉${d.releaseRoll.toFixed(0)}°`}｜最低離地 ${d.minAgl.toFixed(0)} 最大過載 ${d.maxN.toFixed(1)}｜安全層 ${d.safety}${d.safetyH >= 0 ? `@高${d.safetyH.toFixed(0)}` : ''}`)
   if (VERBOSE) console.log('   ' + d.samples.join(' | '))
 }

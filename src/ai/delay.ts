@@ -102,6 +102,8 @@ export class CommandDelay {
     out.bombing = input.bombing
     // 【正飛的提示也直通】它描述的是 AI 自己此刻的狀態，與投彈同一個理由
     out.upright = input.upright
+    // 【強制翻轉後拉同理】
+    out.pull = input.pull
     if (steps <= 0 && fireSteps <= 0) {
       out.aimWorld.copy(input.aimWorld)
       out.throttle = input.throttle

@@ -657,6 +657,7 @@ export class FlightDirector {
     dbg: DirectorDebug,
     upright = false,
     trackTurn = false,
+    pull = false,
   ): void {
     // 【跟瞄的瞄準角速度】關到開的第一步、以及一步跳超過 `TRACK_JUMP` 的那一步
     // 只記方向、不微分，角速度歸零 —— 拿舊方向算會暴衝。關著的時候整段不跑
@@ -747,7 +748,7 @@ export class FlightDirector {
       // 目標在機首後方」，只保留真正需要遲滯的那一極。
       dbg.rollCommand = this.lastRollCommand
     } else {
-      dbg.rollCommand = this.rollOrPush(spec, aero, aimBody, dbg, qMin, upright)
+      dbg.rollCommand = this.rollOrPush(spec, aero, aimBody, dbg, qMin, upright, pull)
     }
     // 【投放準備：滾轉指令不准把坡度推過上限】推頭解本身在目標接近機翼
     // 平面時也會要到 ±90°，再加上動態過衝就超過投放包絡。夾的是**滾完之後
@@ -831,7 +832,10 @@ export class FlightDirector {
     // 【防飽和】只在指令未被限制器夾住時累積。硬拉時 desiredQ 整段貼在 qMax，
     // 若照樣累積，數秒的機動就會把積分灌到上限，改平瞬間變成一記大過衝。
     const qRaw = g.pitchOuter * dbg.verticalError + this.pitchIntegral
-    const qClamped = clamp(qRaw, qMin, dbg.limiter.qMax)
+    // 【`Command.pull` 不准推桿】機翼還沒翻過來時瞄準點在機腹那一側，垂直誤差是負的，照常夾會推出
+    // 負過載；強制翻轉要的是翻到顛倒之後用正過載拉。`upright` 優先：它要的就是推
+    const qFloor = pull && !upright ? 0 : qMin
+    const qClamped = clamp(qRaw, qFloor, dbg.limiter.qMax)
     if (qRaw === qClamped) {
       this.pitchIntegral = clamp(
         this.pitchIntegral + g.pitchOuterI * dbg.verticalError * dt,
@@ -909,7 +913,7 @@ export class FlightDirector {
    */
   private rollOrPush(
     spec: AircraftSpec, aero: AeroState, aimBody: Vector3, dbg: DirectorDebug, qMin: number,
-    upright: boolean,
+    upright: boolean, pull: boolean,
   ): number {
     const rollPull = Math.atan2(aimBody.x, aimBody.y)
     // 目標在機翼平面之上：翻轉問題不存在，拉桿永遠是對的。
@@ -925,6 +929,12 @@ export class FlightDirector {
       this.pushMode = true
       dbg.pushMode = true
       return rollPush
+    }
+    // 【強制翻轉後拉】`Command.pull`。排在 `upright` 之後：兩個同時給時機翼放平優先
+    if (pull) {
+      this.pushMode = false
+      dbg.pushMode = false
+      return rollPull
     }
 
     const pSs = steadyRollRate(spec, aero)

@@ -17,17 +17,49 @@ import type { Team } from '../world/World'
  * 掃射（`ai/shipAttack.ts`），這裡一個字都不碰。
  *
  * ```
- * 平飛 ──對準方位、到了水平距離──▶ 俯衝 ──離目標 DIVE_RELEASE_HEIGHT──▶ 拉起 ──▶ 爬離 ──▶ 回頭再平飛
+ * 平飛 ──飛過目標一小段──▶ 翻轉 ──機鼻對上目標、機翼是正的──▶ 俯衝 ──離目標 DIVE_RELEASE_HEIGHT──▶
+ * 拉起 ──▶ 爬離 ──▶ 回頭再平飛
  * ```
  *
- * 【只追視線，不修正落點】AI 是陪玩家玩的，姿態演出來就好：機翼放平、機鼻壓到約 75°、投彈、拉起。
- * 落點修正（`stepBombAim`）在高處的修正量很大，會把機鼻推向正下方並引來大滾轉；只追視線時滾轉恆為 0。
+ * 【過頂翻轉】平飛飛過目標 `DIVE_FLIP_PAST` 公尺，翻到顛倒、用正過載把機鼻拉過垂直：機鼻指向後下方、
+ * 回頭對著目標，機翼自然是正的（翻轉後拉的終點），俯衝不需要再滾。指揮儀自己在這個速度下會選推頭，推頭
+ * 拉不過垂直，所以要用 `Command.pull` 強制翻轉後拉。實測飛過 0～150 m、高 1,000～1,300 m，翻完用
+ * 約 4 秒、機鼻停在往後下方約 64～78°、無阻力落點離目標 19～65 m。
+ *
+ * 【只追視線，不修正落點】AI 是陪玩家玩的，姿態演出來就好。落點修正（`stepBombAim`）在高處的修正量很大，
+ * 會把機鼻推向正下方並引來大滾轉；只追視線時滾轉恆為 0。
  *
  * 所有數值是起始值，由試飛裁定。
  */
 
-/** 進場幾何用的俯衝角：從目標上空往回推的直線俯衝角 */
-export const DIVE_ANGLE = 75 * DEG
+/**
+ * 飛過目標這麼遠才翻轉，m。翻轉那一圈機鼻拉過垂直、飛機仍在往前飛（約 250～400 m），所以俯衝線回頭
+ * 落在目標附近；飛過得越多，俯衝角越淺、落點越靠後。
+ */
+export const DIVE_FLIP_PAST = 50
+
+/**
+ * 飛過目標時橫向偏離上限，m。翻轉與俯衝都在同一個鉛直面裡，橫向偏離會一路帶到投彈。
+ */
+export const DIVE_FLIP_LATERAL = 80
+
+/** 飛過目標這麼遠還沒翻（條件一直不成立）就放棄這一趟、改走脫離，m */
+export const DIVE_FLIP_MISS = 400
+
+/**
+ * 平飛時離目標這麼近就不再朝目標轉、保持航向，m。過頂那一刻目標方位會翻轉 180°，朝它轉的話
+ * 一飛過目標就掉頭。
+ */
+export const DIVE_HOLD_RANGE = 250
+
+/** 機鼻與視線的夾角小於這個、而且機翼是正的，就算翻完、轉俯衝，rad */
+export const DIVE_FLIP_DONE = 15 * DEG
+
+/**
+ * 翻轉中離目標的高度低於「投彈高度 + 這個」就放棄這一趟、拉起，m。翻轉那一圈會掉 125～145 m，
+ * 沒翻完就低到這裡，不能再賭。
+ */
+export const DIVE_FLIP_FLOOR = 150
 
 /**
  * 瞄準俯仰的下限（往下為正的絕對值）。
@@ -37,23 +69,8 @@ export const DIVE_ANGLE = 75 * DEG
  */
 export const DIVE_ANGLE_MAX = 85 * DEG
 
-/**
- * 進場時離目標的視線角（機身看目標的俯角）超過這個就不壓機鼻。
- *
- * 【為什麼】已經飛到目標正上方附近，壓下去只會比 `DIVE_ANGLE_MAX` 更陡；改走脫離、拉開再回頭。
- */
-export const DIVE_TOO_STEEP = 80 * DEG
-
-/**
- * 機鼻從水平壓到俯衝角那段飛掉的水平距離，換成秒（乘上真速）。
- *
- * 【它決定俯衝的平台角】機鼻壓下去約 4.5 秒、掉 350 m、前進 400 m，之後直線飛向目標，所以平台角就是
- * 壓完那一刻的視線角。預留 1.5 s → 約 −83°、2 s → −80°、3.4 s → −75°。
- */
-export const DIVE_LEAD_SECONDS = 3.4
-
-/** 離目標至少這麼高才俯衝，m。低於它的話俯衝段太短，拉起之前看不出是俯衝 */
-export const DIVE_MIN_HEIGHT = 1000
+/** 離目標至少這麼高才翻轉，m。低於它的話俯衝段太短，拉起之前看不出是俯衝 */
+export const DIVE_MIN_HEIGHT = 1200
 
 /**
  * 高度的遲滯帶，m：脫離要爬到 `DIVE_MIN_HEIGHT + DIVE_LEVEL_SLACK` 才回平飛；平飛掉到
@@ -64,14 +81,11 @@ export const DIVE_MIN_HEIGHT = 1000
  */
 export const DIVE_LEVEL_SLACK = 100
 
-/** 機首與目標方位的夾角小於這個才壓機鼻，rad。對不準就壓下去會斜著衝 */
-export const DIVE_ALIGN = 10 * DEG
-
 /**
- * 壓機鼻時坡度的絕對值要小於這個，rad。
+ * 翻轉時坡度的絕對值要小於這個，rad。
  *
- * 【為什麼要看坡度】`FlightDirector` 的 `upright` 只把坡度夾在 ±80° 以內，不會把機翼鎖平。目標在側面、
- * 平飛還在轉彎時，方位對準了但機翼還斜著，壓下去之後帶著六十幾度的坡度一路俯衝到投彈。
+ * 【為什麼要看坡度】還在轉彎時開始翻轉，坡度會一路帶進翻轉；翻轉是在鉛直面裡拉，帶著坡度拉出去的
+ * 俯衝線會偏離目標。
  */
 export const DIVE_ENTRY_BANK = 15 * DEG
 
@@ -105,9 +119,9 @@ export const DIVE_PULLOUT_PITCH = 20 * DEG
 export const DIVE_PULLOUT_DONE = 5 * DEG
 
 /**
- * 壓機鼻時真速要不低於這個，m/s。
+ * 翻轉時真速要不低於這個，m/s。
  *
- * 【為什麼要看速度】低速時推頭沒力：70 m/s 上下壓機鼻，滾轉會飄到 40～68°、機鼻衝過 −85°；
+ * 【為什麼要看速度】低速時操縱沒力：70 m/s 上下直接壓機鼻，滾轉會飄到 40～68°、機鼻衝過 −85°；
  * 90 m/s 以上滾轉恆為 0。脫離的爬升會把速度耗到 70 m/s 上下，回平飛要有加速的距離。
  */
 export const DIVE_ENTRY_SPEED = 85
@@ -158,16 +172,6 @@ export const DIVE_LEVEL_DAMP = 6
 export const DIVE_RANK_COUNT = 4
 
 /**
- * 在離目標 `h` 公尺高、真速 `tas` 時，水平距離進到這裡就壓機鼻。
- *
- * 前一項是從 `h` 直線俯衝 `DIVE_ANGLE` 到目標需要的水平距離，後一項是機鼻壓下去那段飛掉的距離。
- * 高度為零或負時只剩後一項。
- */
-export function diveEntryRange(h: number, tas: number): number {
-  return Math.max(0, h) / Math.tan(DIVE_ANGLE) + tas * DIVE_LEAD_SECONDS
-}
-
-/**
  * 挑俯衝的目標：敵隊、活著、在 `range` 以內，依（價值高優先、同價值近優先、再同則索引小優先）排序，
  * 取第 `rank` 名（0 起算）；候選不夠就取最後一名。沒有候選回 −1。
  *
@@ -214,7 +218,7 @@ export function pickDiveTarget(
   return last
 }
 
-export type DivePhase = 'level' | 'dive' | 'pullout' | 'egress'
+export type DivePhase = 'level' | 'flip' | 'dive' | 'pullout' | 'egress'
 
 /** 一架飛機的俯衝投彈狀態。**由 `AiController` 持有**，換場時重設 */
 export interface DiveBombState {
@@ -243,6 +247,7 @@ const MIN_ERROR = 1e-6
 
 /** 模組私有的暫存。熱路徑：不配置 */
 const NOSE = /* @__PURE__ */ new Vector3()
+const BODY_UP = /* @__PURE__ */ new Vector3()
 const HEAD = /* @__PURE__ */ new Vector3()
 const BANK = /* @__PURE__ */ createBankAttitude()
 
@@ -266,11 +271,23 @@ function headingHorizontal(self: Aircraft, out: Vector3): void {
 }
 
 /**
- * 推進一步。寫滿 `out` 的瞄準、油門、減速板、`upright` 與 `bombing`（`firing` 與 `trackTurn` 恆為 false）。
+ * 沿現在的水平航向飛過目標多遠，m（飛過為正、目標在前方為負）。副作用：`HEAD` 留著水平航向，
+ * 呼叫端接著算橫向偏離要用
  *
- * 平飛 → 俯衝 → 拉起 → 爬離 → 回頭再平飛，見檔頭。**呼叫端仍然要在之後套 `applySafety`**。
+ * @param dx 飛機到目標的水平向量
+ */
+function alongTrack(self: Aircraft, dx: number, dz: number): number {
+  headingHorizontal(self, HEAD)
+  return -(dx * HEAD.x + dz * HEAD.z)
+}
+
+/**
+ * 推進一步。寫滿 `out` 的瞄準、油門、減速板、`upright`、`pull` 與 `bombing`（`firing` 與 `trackTurn`
+ * 恆為 false）。
  *
- * @param target 目標；平飛與脫離讀它的位置，俯衝與拉起不讀（用鎖定的 `state.aim`）。沒有就沿用上一個位置
+ * 平飛 → 翻轉 → 俯衝 → 拉起 → 爬離 → 回頭再平飛，見檔頭。**呼叫端仍然要在之後套 `applySafety`**。
+ *
+ * @param target 目標；平飛與脫離讀它的位置，翻轉、俯衝與拉起不讀（用鎖定的 `state.aim`）。沒有就沿用上一個位置
  * @param loaded 彈艙裡還有東西（含正在連投的佇列）。炸彈出去了它就變 false
  *
  * 熱路徑（每個物理步）：不配置。
@@ -281,6 +298,7 @@ export function stepDiveBomb(
   out.firing = false
   out.bombing = false
   out.upright = false
+  out.pull = false
   out.trackTurn = false
   out.brake = 0
   out.throttle = WEP_THROTTLE
@@ -289,14 +307,22 @@ export function stepDiveBomb(
   }
   switch (state.phase) {
     case 'level': stepLevel(state, self, loaded, out); break
+    case 'flip': stepFlip(state, self, loaded, out); break
     case 'dive': stepDive(state, self, loaded, out); break
     case 'pullout': stepPullout(state, self, out); break
     case 'egress': stepEgress(state, self, loaded, out); break
   }
 }
 
+/** 俯衝與翻轉共用的減速板：隨指示空速從 `DIVE_IAS_RATIO` 起漸開，`DIVE_IAS_BAND` 寬滿開 */
+function diveBrake(self: Aircraft): number {
+  const ias = Math.sqrt((2 * self.diag.aero.qbar) / RHO0)
+  return Math.max(0, Math.min(1, (ias / self.spec.limits.vne - DIVE_IAS_RATIO) / DIVE_IAS_BAND))
+}
+
 /**
- * 平飛：朝目標水平飛、維持高度。條件都成立就轉俯衝；沒有條件俯衝（空手、不夠高、飛到目標上方附近）
+ * 平飛：朝目標水平飛、維持高度；離目標近了就保持航向（`DIVE_HOLD_RANGE`）。飛過目標 `DIVE_FLIP_PAST`
+ * 而且橫向對正、高度與速度夠、坡度小、有彈，就轉翻轉。空手、離目標不夠高、飛過頭太多（`DIVE_FLIP_MISS`）
  * 就走脫離。
  */
 function stepLevel(state: DiveBombState, self: Aircraft, loaded: boolean, out: Command): void {
@@ -308,25 +334,50 @@ function stepLevel(state: DiveBombState, self: Aircraft, loaded: boolean, out: C
   const h = p.y - state.aim.y
 
   if (state.holdAlt === 0) state.holdAlt = p.y
-  if (range > MIN_ERROR) out.aimWorld.set(dx / range, 0, dz / range)
+  if (range > DIVE_HOLD_RANGE) out.aimWorld.set(dx / range, 0, dz / range)
   else headingHorizontal(self, out.aimWorld)
   // 高度控制：前瞻的比例控制，與水平轟炸的定高同一個形式（`ai/strikeRun.ts` 的 `applyRunAltitude`）
   const err = state.holdAlt - p.y
   out.aimWorld.y = Math.max(-LEVEL_SLOPE, Math.min(LEVEL_SLOPE, (err - DIVE_LEVEL_DAMP * v.y) / 400))
   out.aimWorld.normalize()
 
-  if (!loaded || h < DIVE_MIN_HEIGHT - DIVE_LEVEL_SLACK || range < h / Math.tan(DIVE_TOO_STEEP)) {
+  // 沿航向飛過目標多遠（飛過為正）與橫向偏離
+  const along = alongTrack(self, dx, dz)
+  const lateral = Math.abs(dx * HEAD.z - dz * HEAD.x)
+  if (!loaded || h < DIVE_MIN_HEIGHT - DIVE_LEVEL_SLACK || along > DIVE_FLIP_MISS) {
     state.phase = 'egress'
     return
   }
-  const tas = v.length()
-  if (h < DIVE_MIN_HEIGHT || tas < DIVE_ENTRY_SPEED || range > diveEntryRange(h, tas)) return
-  noseHorizontal(self, NOSE)
-  const aligned = range > MIN_ERROR
-    && (NOSE.x * dx + NOSE.z * dz) / range >= Math.cos(DIVE_ALIGN)
-  if (aligned && Math.abs(bankAttitude(self.state.orientation, BANK).angle) <= DIVE_ENTRY_BANK) {
-    state.phase = 'dive'
+  if (along < DIVE_FLIP_PAST || lateral > DIVE_FLIP_LATERAL) return
+  if (h < DIVE_MIN_HEIGHT || v.length() < DIVE_ENTRY_SPEED) return
+  if (Math.abs(bankAttitude(self.state.orientation, BANK).angle) <= DIVE_ENTRY_BANK) state.phase = 'flip'
+}
+
+/**
+ * 翻轉：瞄準點是鎖定的那一點，只追視線；強制翻轉後拉（`Command.pull`），翻到顛倒、用正過載把機鼻拉過
+ * 垂直，機鼻指向後下方、回頭對著目標，機翼自然轉正。油門怠速、減速板擋速度。機鼻對上視線（`DIVE_FLIP_DONE`）
+ * 而且機翼是正的就轉俯衝；彈艙空了、或掉到投彈高度加 `DIVE_FLIP_FLOOR` 以下還沒翻完，就放棄、拉起。
+ */
+function stepFlip(state: DiveBombState, self: Aircraft, loaded: boolean, out: Command): void {
+  const p = self.state.position
+  const lx = state.aim.x - p.x
+  const ly = state.aim.y - p.y
+  const lz = state.aim.z - p.z
+  const len = Math.hypot(lx, ly, lz)
+  if (len > MIN_ERROR) out.aimWorld.set(lx / len, ly / len, lz / len)
+  else out.aimWorld.set(0, -1, 0)
+  out.pull = true
+  out.throttle = THROTTLE_FLOOR
+  out.brake = diveBrake(self)
+
+  if (!loaded || p.y - state.aim.y <= DIVE_RELEASE_HEIGHT + DIVE_FLIP_FLOOR) {
+    state.phase = 'pullout'
+    out.pull = false
+    return
   }
+  NOSE.set(0, 0, -1).applyQuaternion(self.state.orientation)
+  BODY_UP.set(0, 1, 0).applyQuaternion(self.state.orientation)
+  if (NOSE.dot(out.aimWorld) >= Math.cos(DIVE_FLIP_DONE) && BODY_UP.y > 0) state.phase = 'dive'
 }
 
 /**
@@ -348,8 +399,7 @@ function stepDive(state: DiveBombState, self: Aircraft, loaded: boolean, out: Co
 
   out.upright = true
   out.throttle = THROTTLE_FLOOR
-  const ias = Math.sqrt((2 * self.diag.aero.qbar) / RHO0)
-  out.brake = Math.max(0, Math.min(1, (ias / self.spec.limits.vne - DIVE_IAS_RATIO) / DIVE_IAS_BAND))
+  out.brake = diveBrake(self)
 
   // 炸彈出去了（或本來就沒有）
   if (!loaded) {
@@ -423,7 +473,12 @@ function stepEgress(state: DiveBombState, self: Aircraft, loaded: boolean, out: 
   const climb = (DIVE_EGRESS_CLIMB + (DIVE_ZOOM_CLIMB - DIVE_EGRESS_CLIMB) * zoom) * k
   const c = Math.cos(climb)
   out.aimWorld.set(out.aimWorld.x * c, Math.sin(climb), out.aimWorld.z * c)
-  if (loaded && p.y - state.aim.y >= DIVE_MIN_HEIGHT + DIVE_LEVEL_SLACK && range >= DIVE_REARM_RANGE) {
+  // 回平飛要目標在機鼻前半面：平飛把「飛過 `DIVE_FLIP_MISS` 以上」當成錯過、轉脫離，這裡若不看航向，
+  // 目標在遠處身後時兩邊的條件同時成立，相位每步來回切，瞄準點與維持高度也每步重設
+  if (
+    loaded && p.y - state.aim.y >= DIVE_MIN_HEIGHT + DIVE_LEVEL_SLACK && range >= DIVE_REARM_RANGE
+    && alongTrack(self, dx, dz) <= 0
+  ) {
     state.phase = 'level'
     state.holdAlt = 0
   }
