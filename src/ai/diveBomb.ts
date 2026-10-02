@@ -53,7 +53,16 @@ export const DIVE_TOO_STEEP = 80 * DEG
 export const DIVE_LEAD_SECONDS = 3.4
 
 /** 離目標至少這麼高才俯衝，m。低於它的話俯衝段太短，拉起之前看不出是俯衝 */
-export const DIVE_MIN_HEIGHT = 1300
+export const DIVE_MIN_HEIGHT = 1000
+
+/**
+ * 高度的遲滯帶，m：脫離要爬到 `DIVE_MIN_HEIGHT + DIVE_LEVEL_SLACK` 才回平飛；平飛掉到
+ * `DIVE_MIN_HEIGHT - DIVE_LEVEL_SLACK` 以下才退回脫離。
+ *
+ * 【為什麼要有帶】剛好在下限回平飛的話，平飛維持高度掉個幾公尺就小於下限，立刻被打回脫離，兩個相位
+ * 來回切換，飛進回平飛的距離以內之後還要飛過目標白繞一圈。
+ */
+export const DIVE_LEVEL_SLACK = 100
 
 /** 機首與目標方位的夾角小於這個才壓機鼻，rad。對不準就壓下去會斜著衝 */
 export const DIVE_ALIGN = 10 * DEG
@@ -109,16 +118,37 @@ export const DIVE_ENTRY_SPEED = 85
  *
  * 【為什麼要收斂】12° 一路爬把速度耗到接近失速，安全層（`applySafety`）用失速接管把機首壓下去，
  * 還要在轉彎時承受更大的失速速度。放平才加得回速度。
+ *
+ * 【速度取在最佳爬升速度附近】這台飛機（套過手感）WEP 下最佳爬升約 9.4 m/s @ 52 m/s，70 m/s 只剩
+ * 7.9、75 m/s 6.9；失速門檻 36 m/s，55 m/s 以上有 1.5 倍餘裕，轉彎也不會碰到。速度越高爬得越慢，
+ * 但回平飛要加速到 `DIVE_ENTRY_SPEED`（水平加速度在 60 m/s 約 1.5 m/s²、80 m/s 約 0.7）。
  */
 export const DIVE_EGRESS_CLIMB = 12 * DEG
-export const DIVE_CLIMB_FULL_SPEED = 80
-export const DIVE_CLIMB_MIN_SPEED = 65
+export const DIVE_CLIMB_FULL_SPEED = 70
+export const DIVE_CLIMB_MIN_SPEED = 55
 
 /**
- * 脫離時飛到離目標 `DIVE_EGRESS_RANGE` 公尺就掉頭朝目標，m：繞著目標盤旋爬高，不會一路飛出戰場。
+ * 拉高衝：拉起時速度還有 129 m/s，動能折合約 620 m 的高度。真速不低於 `DIVE_ZOOM_FULL_SPEED` 用
+ * `DIVE_ZOOM_CLIMB` 爬，掉到 `DIVE_ZOOM_END_SPEED` 以下回到持續爬升的 `DIVE_EGRESS_CLIMB`，之間線性。
+ *
+ * 【為什麼】用持續爬升的角度慢慢爬，同一份動能要花兩倍的時間，阻力吃掉更多；大角度很快把它換成高度。
+ */
+export const DIVE_ZOOM_CLIMB = 35 * DEG
+export const DIVE_ZOOM_FULL_SPEED = 110
+export const DIVE_ZOOM_END_SPEED = 80
+
+/**
+ * 脫離時繞著目標盤旋爬高，盤旋半徑 `DIVE_EGRESS_RANGE`，m。半徑之外朝內偏、之內朝外偏，偏的量隨離
+ * 半徑的距離線性增加，到 `DIVE_ORBIT_BAND` 公尺偏滿 `DIVE_ORBIT_BIAS`。
+ *
+ * 【為什麼是盤旋不是飛出去再飛回來】直飛出去掉頭飛回時，爬得夠高常常已經飛進回平飛的距離以內，
+ * 要飛過目標、再飛出去才能回平飛，白繞一大圈；盤旋讓爬夠了高度就能回平飛。
+ *
  * 回平飛至少要離目標 `DIVE_REARM_RANGE` 公尺，m：留得出轉彎、對正與加速到 `DIVE_ENTRY_SPEED` 的空間。
  */
-export const DIVE_EGRESS_RANGE = 3500
+export const DIVE_EGRESS_RANGE = 3000
+export const DIVE_ORBIT_BAND = 500
+export const DIVE_ORBIT_BIAS = 35 * DEG
 export const DIVE_REARM_RANGE = 2500
 
 /** 平飛維持高度的前瞻時間，s。`誤差 − 前瞻 × 升降率` 除以 400 就是瞄準方向的仰角 */
@@ -213,6 +243,7 @@ const MIN_ERROR = 1e-6
 
 /** 模組私有的暫存。熱路徑：不配置 */
 const NOSE = /* @__PURE__ */ new Vector3()
+const HEAD = /* @__PURE__ */ new Vector3()
 const BANK = /* @__PURE__ */ createBankAttitude()
 
 /** 平飛維持高度時，瞄準仰角的上限（sin） */
@@ -284,12 +315,12 @@ function stepLevel(state: DiveBombState, self: Aircraft, loaded: boolean, out: C
   out.aimWorld.y = Math.max(-LEVEL_SLOPE, Math.min(LEVEL_SLOPE, (err - DIVE_LEVEL_DAMP * v.y) / 400))
   out.aimWorld.normalize()
 
-  if (!loaded || h < DIVE_MIN_HEIGHT || range < h / Math.tan(DIVE_TOO_STEEP)) {
+  if (!loaded || h < DIVE_MIN_HEIGHT - DIVE_LEVEL_SLACK || range < h / Math.tan(DIVE_TOO_STEEP)) {
     state.phase = 'egress'
     return
   }
   const tas = v.length()
-  if (tas < DIVE_ENTRY_SPEED || range > diveEntryRange(h, tas)) return
+  if (h < DIVE_MIN_HEIGHT || tas < DIVE_ENTRY_SPEED || range > diveEntryRange(h, tas)) return
   noseHorizontal(self, NOSE)
   const aligned = range > MIN_ERROR
     && (NOSE.x * dx + NOSE.z * dz) / range >= Math.cos(DIVE_ALIGN)
@@ -346,21 +377,53 @@ function stepPullout(state: DiveBombState, self: Aircraft, out: Command): void {
 }
 
 /**
- * 脫離：以 `DIVE_EGRESS_CLIMB` 爬升。離目標不到 `DIVE_EGRESS_RANGE` 就保持航向（飛離目標），到了就
- * 水平掉頭朝目標。高度、距離、彈艙都夠了就回平飛。
+ * 脫離的水平瞄準方向（單位向量）寫進 `out`：繞著目標沿切線飛，半徑之外朝內偏、之內朝外偏。切線有
+ * 兩個方向，取與現在水平航向同向的那一個（機頭偏哪邊就繞哪邊，不來回切換）。
+ *
+ * @param dx 飛機到目標的水平向量（≠ 0）
+ */
+function orbitHeading(self: Aircraft, dx: number, dz: number, range: number, out: Vector3): void {
+  const ix = dx / range
+  const iz = dz / range
+  headingHorizontal(self, HEAD)
+  let tx = -iz
+  let tz = ix
+  if (tx * HEAD.x + tz * HEAD.z < 0) {
+    tx = -tx
+    tz = -tz
+  }
+  const k = Math.max(-1, Math.min(1, (range - DIVE_EGRESS_RANGE) / DIVE_ORBIT_BAND))
+  const beta = k * DIVE_ORBIT_BIAS
+  const c = Math.cos(beta)
+  const s = Math.sin(beta)
+  out.set(tx * c + ix * s, 0, tz * c + iz * s)
+}
+
+/**
+ * 脫離：爬升（角度隨速度收斂，見 `DIVE_EGRESS_CLIMB`）。離目標還近而且正在飛離就保持航向直線爬；
+ * 飛到盤旋半徑附近、或正朝目標飛來，就繞著目標盤旋（`orbitHeading`）。高度、距離、彈艙都夠了就回平飛。
  */
 function stepEgress(state: DiveBombState, self: Aircraft, loaded: boolean, out: Command): void {
   const p = self.state.position
   const dx = state.aim.x - p.x
   const dz = state.aim.z - p.z
   const range = Math.hypot(dx, dz)
-  if (range >= DIVE_EGRESS_RANGE) out.aimWorld.set(dx / range, 0, dz / range)
-  else headingHorizontal(self, out.aimWorld)
-  const k = (self.state.velocity.length() - DIVE_CLIMB_MIN_SPEED) / (DIVE_CLIMB_FULL_SPEED - DIVE_CLIMB_MIN_SPEED)
-  const climb = DIVE_EGRESS_CLIMB * Math.max(0, Math.min(1, k))
+  // 【離得近而且正在飛離就直線爬】轉彎（含側滑）會耗掉持續爬升約 1.5 m/s，直線最快；到了盤旋半徑附近
+  // 才開始轉。正朝目標飛來的要轉開，不然會飛過目標上空
+  const v = self.state.velocity
+  const away = v.x * dx + v.z * dz < 0
+  if (range > MIN_ERROR && (range >= DIVE_EGRESS_RANGE - DIVE_ORBIT_BAND || !away)) {
+    orbitHeading(self, dx, dz, range, out.aimWorld)
+  } else {
+    headingHorizontal(self, out.aimWorld)
+  }
+  const tas = self.state.velocity.length()
+  const zoom = Math.max(0, Math.min(1, (tas - DIVE_ZOOM_END_SPEED) / (DIVE_ZOOM_FULL_SPEED - DIVE_ZOOM_END_SPEED)))
+  const k = Math.max(0, Math.min(1, (tas - DIVE_CLIMB_MIN_SPEED) / (DIVE_CLIMB_FULL_SPEED - DIVE_CLIMB_MIN_SPEED)))
+  const climb = (DIVE_EGRESS_CLIMB + (DIVE_ZOOM_CLIMB - DIVE_EGRESS_CLIMB) * zoom) * k
   const c = Math.cos(climb)
   out.aimWorld.set(out.aimWorld.x * c, Math.sin(climb), out.aimWorld.z * c)
-  if (loaded && p.y - state.aim.y >= DIVE_MIN_HEIGHT && range >= DIVE_REARM_RANGE) {
+  if (loaded && p.y - state.aim.y >= DIVE_MIN_HEIGHT + DIVE_LEVEL_SLACK && range >= DIVE_REARM_RANGE) {
     state.phase = 'level'
     state.holdAlt = 0
   }

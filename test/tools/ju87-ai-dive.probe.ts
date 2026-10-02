@@ -19,6 +19,7 @@ import { flatSeaCrashPolicy } from '../../src/world/seaCrash'
 import { settleGroundTargets } from '../../src/world/groundTargets'
 import { clearImpacts } from '../../src/world/events'
 import { clearKills } from '../../src/world/kills'
+import { maxClimbRate } from '../../src/analysis/envelope'
 import { RHO0 } from '../../src/physics/atmosphere'
 import { readyCard } from '../fixtures/mission'
 
@@ -77,6 +78,8 @@ interface Dive {
   samples: string[]
 }
 
+/** 脫離段持續爬升的累計，依離地高度每 250 m 一格 */
+const climb: { n: number; vz: number; tas: number; pitch: number; load: number; roll: number; aoa: number }[] = []
 const NOSE = new Vector3()
 const RIGHT = new Vector3()
 const dives: Dive[] = []
@@ -161,10 +164,30 @@ for (let i = 0, total = Math.round(SECONDS / DT); i < total; i++) {
       }
     }
     flightSteps++
+    // 脫離段的持續爬升：速度已經掉下來（不是拉起之後的衝高）才算，依離地高度每 250 m 一格
+    if (phase === 'egress' && tas < 85 && Math.abs(roll) < 8) {
+      const band = Math.min(8, Math.floor(agl / 250))
+      const e = climb[band] ?? (climb[band] = { n: 0, vz: 0, tas: 0, pitch: 0, load: 0, roll: 0, aoa: 0 })
+      e.n++
+      e.vz += v.y
+      e.tas += tas
+      e.pitch += pitch
+      e.load += a.diag.loadFactor
+      e.roll += Math.abs(roll)
+      e.aoa += pitch - gamma
+    }
   }
   if (b.outcome !== 'fighting') break
 }
 for (const d of open.values()) dives.push(d)
+const spec = w.combatants.find((c) => c.team === 'blue')!.aircraft.spec
+console.log('脫離段的持續爬升（速度已掉下來、機翼平的樣本），對照這台飛機在 WEP 下的物理最大爬升率：')
+climb.forEach((e, band) => {
+  if (e.n < 50) return
+  const alt = band * 250 + 125
+  const best = maxClimbRate(spec, alt)
+  console.log(`  離地 ${band * 250}～${band * 250 + 250} m：實際 ${(e.vz / e.n).toFixed(1)} m/s（真速 ${(e.tas / e.n).toFixed(0)}、機鼻 ${(e.pitch / e.n).toFixed(1)}°、攻角約 ${(e.aoa / e.n).toFixed(1)}°、過載 ${(e.load / e.n).toFixed(2)}、坡度 ${(e.roll / e.n).toFixed(1)}°）｜物理最大 ${best.rate.toFixed(1)} m/s（真速 ${best.speed.toFixed(0)}）`)
+})
 
 console.log(`種子 ${SEED}，${SECONDS} 秒；墜毀（藍隊）${crashes}；活著 ${w.combatants.filter((c) => c.team === 'blue' && c.alive).length}/4；地面目標損失 ${w.groundTargets.filter((t) => !t.alive).length}`)
 console.log('各相位時間比例', JSON.stringify(Object.fromEntries(Object.entries(phaseSteps).map(([k, v]) => [k, +((100 * v) / Math.max(1, blueSteps)).toFixed(1)]))))

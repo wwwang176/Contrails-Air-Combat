@@ -3,8 +3,9 @@ import { Euler, Vector3 } from 'three'
 import {
   createDiveBombState, DIVE_ABORT_MARGIN, DIVE_ANGLE, DIVE_ANGLE_MAX, DIVE_CLIMB_FULL_SPEED,
   DIVE_CLIMB_MIN_SPEED, DIVE_EGRESS_CLIMB, DIVE_EGRESS_RANGE, DIVE_ENTRY_BANK, DIVE_ENTRY_SPEED,
-  DIVE_IAS_BAND, DIVE_IAS_RATIO, DIVE_LEAD_SECONDS, DIVE_MIN_HEIGHT, DIVE_PULLOUT_DONE,
-  DIVE_PULLOUT_PITCH, DIVE_REARM_RANGE, DIVE_RELEASE_HEIGHT, diveEntryRange, pickDiveTarget, resetDiveBomb,
+  DIVE_IAS_BAND, DIVE_IAS_RATIO, DIVE_LEAD_SECONDS, DIVE_LEVEL_SLACK, DIVE_MIN_HEIGHT, DIVE_ORBIT_BAND,
+  DIVE_ORBIT_BIAS, DIVE_PULLOUT_DONE, DIVE_PULLOUT_PITCH, DIVE_REARM_RANGE, DIVE_RELEASE_HEIGHT,
+  DIVE_ZOOM_CLIMB, DIVE_ZOOM_END_SPEED, DIVE_ZOOM_FULL_SPEED, diveEntryRange, pickDiveTarget, resetDiveBomb,
   stepDiveBomb, type DiveBombState, type DivePhase,
 } from '../../src/ai/diveBomb'
 import { AiController } from '../../src/ai/AiController'
@@ -229,10 +230,14 @@ describe('平飛', () => {
     expect(s.phase).toBe('egress')
   })
 
-  it('離目標不夠高：不俯衝，改走脫離（先爬高）', () => {
-    const s = createDiveBombState()
-    stepDiveBomb(s, fly(0, DIVE_MIN_HEIGHT - 50, 500), TARGET_AT(0, 0), true, createCommand())
-    expect(s.phase).toBe('egress')
+  it('離目標不夠高：不俯衝；掉到遲滯帶以下才改走脫離（先爬高）', () => {
+    // 在下限與遲滯帶之間：不壓機鼻（高度不夠），但也不退回脫離，平飛維持高度
+    const between = createDiveBombState()
+    stepDiveBomb(between, fly(0, DIVE_MIN_HEIGHT - DIVE_LEVEL_SLACK / 2, 500), TARGET_AT(0, 0), true, createCommand())
+    expect(between.phase).toBe('level')
+    const low = createDiveBombState()
+    stepDiveBomb(low, fly(0, DIVE_MIN_HEIGHT - DIVE_LEVEL_SLACK - 50, 500), TARGET_AT(0, 0), true, createCommand())
+    expect(low.phase).toBe('egress')
   })
 
   it('視線角超過 80°（飛到目標上方附近）：不壓機鼻，改走脫離', () => {
@@ -358,17 +363,63 @@ describe('拉起與脫離', () => {
     expect(s.phase).toBe('egress')
   })
 
-  it('脫離：離目標不到拉開距離就保持航向爬升；到了就掉頭朝目標爬升', () => {
+  /** 轉彎（含側滑）會耗掉持續爬升約 1.5 m/s：直線飛 8.3 m/s、繞圈 6～7.5 m/s */
+  it('脫離：離目標還近而且正在飛離，就直線爬（不轉彎，爬得最快）', () => {
     const near = createCommand()
-    stepDiveBomb(stateIn('egress'), fly(0, 700, 1500, 10, 90, 180), TARGET_AT(0, 0), true, near)
-    // 航向 180°：朝 +Z，離目標 1,500 m
+    stepDiveBomb(stateIn('egress'), fly(0, 700, 1500, 10, 75, 180), TARGET_AT(0, 0), true, near)
+    // 航向 180°：朝 +Z，離目標 1,500 m（半徑之內），速度方向在遠離目標
     expect(near.aimWorld.y).toBeCloseTo(Math.sin(DIVE_EGRESS_CLIMB), 6)
+    expect(near.aimWorld.x).toBeCloseTo(0, 6)
     expect(near.aimWorld.z).toBeGreaterThan(0)
+  })
 
-    const far = createCommand()
-    stepDiveBomb(stateIn('egress'), fly(0, 700, DIVE_EGRESS_RANGE + 500, 10, 90, 180), TARGET_AT(0, 0), true, far)
-    expect(far.aimWorld.y).toBeCloseTo(Math.sin(DIVE_EGRESS_CLIMB), 6)
-    expect(far.aimWorld.z).toBeLessThan(0)
+  it('脫離：正朝目標飛來的會轉開（朝外偏的盤旋），不會飛過目標上空', () => {
+    const out = createCommand()
+    // 離目標 1,500 m、航向朝目標（0° = 朝 −Z）
+    stepDiveBomb(stateIn('egress'), fly(0, 700, 1500, 10, 90, 0), TARGET_AT(0, 0), true, out)
+    const h = new Vector3(out.aimWorld.x, 0, out.aimWorld.z).normalize()
+    // 朝目標的分量是負的（朝外偏），而且不是直接朝目標
+    expect(h.z).toBeGreaterThan(0)
+    expect(h.z).toBeCloseTo(Math.sin(DIVE_ORBIT_BIAS), 6)
+  })
+
+  /**
+   * 飛到盤旋半徑附近就繞著目標轉、邊轉邊爬。直飛出去再掉頭飛回的話，爬得夠高時常常已經飛進回平飛的
+   * 距離以內，要飛過目標、再飛出去才能回平飛，白繞一大圈。
+   */
+  describe('脫離盤旋', () => {
+    /** 脫離時的水平瞄準方向（單位向量）與到目標的視線（單位向量，飛機看目標）的內積 */
+    const aimAt = (z: number, yaw: number): { aim: Vector3; los: Vector3 } => {
+      const out = createCommand()
+      const self = fly(0, 700, z, 10, 90, yaw)
+      stepDiveBomb(stateIn('egress'), self, TARGET_AT(0, 0), true, out)
+      const aim = new Vector3(out.aimWorld.x, 0, out.aimWorld.z).normalize()
+      const los = new Vector3(0 - self.state.position.x, 0, 0 - self.state.position.z).normalize()
+      return { aim, los }
+    }
+
+    it('盤旋半徑上：沿切線飛，與視線垂直', () => {
+      const { aim, los } = aimAt(DIVE_EGRESS_RANGE, 90)
+      expect(Math.abs(aim.dot(los))).toBeLessThan(0.02)
+    })
+
+    it('在半徑之外朝內偏、在半徑之內朝外偏，偏的量由 DIVE_ORBIT_BIAS 決定', () => {
+      const outside = aimAt(DIVE_EGRESS_RANGE + DIVE_ORBIT_BAND, 90)
+      expect(outside.aim.dot(outside.los)).toBeCloseTo(Math.sin(DIVE_ORBIT_BIAS), 6)
+      const inside = aimAt(DIVE_EGRESS_RANGE - DIVE_ORBIT_BAND, 90)
+      expect(inside.aim.dot(inside.los)).toBeCloseTo(-Math.sin(DIVE_ORBIT_BIAS), 6)
+      // 更遠也只偏到上限
+      const far = aimAt(DIVE_EGRESS_RANGE + 5 * DIVE_ORBIT_BAND, 90)
+      expect(far.aim.dot(far.los)).toBeCloseTo(Math.sin(DIVE_ORBIT_BIAS), 6)
+    })
+
+    it('往哪一邊轉由現在的航向決定：機頭偏哪邊就繞哪邊，不來回切換', () => {
+      const left = aimAt(DIVE_EGRESS_RANGE, 90)
+      const right = aimAt(DIVE_EGRESS_RANGE, -90)
+      // 航向 ±90°：朝 −X／+X；切線取與現在航向同向的那一個
+      expect(left.aim.x).toBeLessThan(-0.9)
+      expect(right.aim.x).toBeGreaterThan(0.9)
+    })
   })
 
   /** 爬升掉速掉到接近失速，安全層會用失速接管把機首壓下去；速度不夠就少爬一點、把速度留住 */
@@ -385,16 +436,35 @@ describe('拉起與脫離', () => {
     expect(mid).toBeLessThan(Math.sin(DIVE_EGRESS_CLIMB) - 0.01)
   })
 
+  /**
+   * 拉起時速度還有 129 m/s，動能折合約 620 m 的高度。高速時用大角度爬升把它換成高度，速度掉下來
+   * 再收斂到持續爬升的角度；用持續爬升的角度慢慢爬，同一份動能要花兩倍的時間，阻力吃掉更多。
+   */
+  it('高速時拉高衝：速度越高爬升角越大，速度掉到收斂速度以下回到持續爬升的角度', () => {
+    const climbAt = (speed: number): number => {
+      const out = createCommand()
+      stepDiveBomb(stateIn('egress'), fly(0, 700, 1500, 10, speed, 180), TARGET_AT(0, 0), true, out)
+      return out.aimWorld.y
+    }
+    expect(climbAt(DIVE_ZOOM_FULL_SPEED + 10)).toBeCloseTo(Math.sin(DIVE_ZOOM_CLIMB), 6)
+    expect(climbAt(DIVE_ZOOM_END_SPEED)).toBeCloseTo(Math.sin(DIVE_EGRESS_CLIMB), 6)
+    const mid = climbAt((DIVE_ZOOM_END_SPEED + DIVE_ZOOM_FULL_SPEED) / 2)
+    expect(mid).toBeGreaterThan(Math.sin(DIVE_EGRESS_CLIMB) + 0.01)
+    expect(mid).toBeLessThan(Math.sin(DIVE_ZOOM_CLIMB) - 0.01)
+  })
+
   it('高度、距離、彈艙三個條件都成立才回平飛，缺一個都留在脫離', () => {
     const run = (y: number, z: number, loaded: boolean): DivePhase => {
       const s = stateIn('egress')
       stepDiveBomb(s, fly(0, y, z, 10, 90, 180), TARGET_AT(0, 0), loaded, createCommand())
       return s.phase
     }
-    expect(run(DIVE_MIN_HEIGHT + 10, DIVE_REARM_RANGE + 10, true)).toBe('level')
-    expect(run(DIVE_MIN_HEIGHT - 10, DIVE_REARM_RANGE + 10, true)).toBe('egress')
-    expect(run(DIVE_MIN_HEIGHT + 10, DIVE_REARM_RANGE - 10, true)).toBe('egress')
-    expect(run(DIVE_MIN_HEIGHT + 10, DIVE_REARM_RANGE + 10, false)).toBe('egress')
+    // 回平飛的高度要多給一點（遲滯）：剛好在下限回去，平飛維持高度掉個幾公尺就又被打回脫離
+    const enough = DIVE_MIN_HEIGHT + DIVE_LEVEL_SLACK + 10
+    expect(run(enough, DIVE_REARM_RANGE + 10, true)).toBe('level')
+    expect(run(DIVE_MIN_HEIGHT + 10, DIVE_REARM_RANGE + 10, true)).toBe('egress')
+    expect(run(enough, DIVE_REARM_RANGE - 10, true)).toBe('egress')
+    expect(run(enough, DIVE_REARM_RANGE + 10, false)).toBe('egress')
   })
 
   it('重設之後回到平飛、瞄準點與維持高度歸零', () => {
