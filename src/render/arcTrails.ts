@@ -28,7 +28,7 @@ import { injectVertexAlpha, TRAIL_COLOR } from './vortex'
 
 /**
  * 同時最多幾發（在飛的加上落地後正在收的）。**池滿了新的一發蓋掉最舊的，被蓋掉的那一發永遠不落地
- * （沒有爆炸）**，所以要比最壞情況大：德 M4 十門、最遠一發約 25 秒、收尾 4 秒、週期 12 秒，
+ * （沒有爆炸）**，所以要比最壞情況大：德 M4 十門、最遠一發約 25 秒、收尾 2 秒、週期 12 秒，
  * 約 40 條；`ground-battle.test.ts` 由卡片算這個下界
  */
 export const ARC_TRAIL_CAPACITY = 64
@@ -40,7 +40,7 @@ export const ARC_TRAIL_RINGS = 10
 export const ARC_TRAIL_SIDES = 4
 
 /** 尾流往彈頭後面拖多久的弧，s；落地之後也是收掉它所花的時間 */
-export const ARC_TRAIL_SECONDS = 4
+export const ARC_TRAIL_SECONDS = 2
 
 /**
  * 頭端與尾端的管半徑，m。**從 1.5 km 高處看得見才訂的**：720p、65° 視野下那個距離一個像素約

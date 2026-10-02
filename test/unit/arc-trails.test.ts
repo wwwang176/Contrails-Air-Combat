@@ -118,9 +118,9 @@ describe('迫擊砲的白色尾流', () => {
     expect(landed[0]!.y).toBeCloseTo(0, 6)
     expect(landed[0]!.z).toBeCloseTo(800, 6)
     // 之後不會再通報
-    trails.step(2, land)
+    trails.step(ARC_TRAIL_SECONDS / 2, land)
     expect(landed).toHaveLength(1)
-    // 落地後 2 秒：頭端還在落點，管子比落地前短
+    // 落地後收了一半的時間：頭端還在落點，管子比落地前短
     const head = ring(read(trails).pos, 0, ARC_TRAIL_RINGS - 1).c
     expect(head.x).toBeCloseTo(600, 3)
     expect(head.z).toBeCloseTo(800, 3)
