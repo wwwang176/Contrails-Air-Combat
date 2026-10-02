@@ -1,4 +1,5 @@
-import { Euler, Quaternion, Vector3, type Mesh, type Object3D } from 'three'
+import './render/heightFogInstall'
+import { Euler, Quaternion, Vector3, type FogExp2, type Mesh, type Object3D } from 'three'
 import { FixedStepAccumulator, MAX_FRAME_SECONDS, clampFrameSeconds } from './core/loop'
 import { createPerfOverlay } from './core/perf'
 import { createRangeProbe } from './hud/rangeProbe'
@@ -57,6 +58,7 @@ import {
 import { createGroundModels, type GroundModels } from './render/groundTargets'
 import { createSearchlights, makeGlareTexture, type Searchlights } from './render/searchlights'
 import { createGroundBattle, type GroundBattle } from './render/groundBattle'
+import { BATTLE_FOG, battleFogTint, clearBattleFog, setBattleFog, stepBattleFog } from './render/heightFog'
 import { groundModelUrls, preloadGroundModels } from './render/geometry/ground'
 import { settleGroundTargets } from './world/groundTargets'
 import {
@@ -356,6 +358,8 @@ let balloonModels: BalloonModels | null = null
 let searchlights: Searchlights | null = null
 /** 地面戰的戲（德 M4）。卡片有 `theater` 才建 */
 let groundBattle: GroundBattle | null = null
+/** 這一場有沒有戰場高度霧。卡片的 `theater.haze` 有就開，與地面戰的戲同一個生命週期 */
+let battleFogOn = false
 /** 探照燈眩光的十字貼圖：畫一次、每一場共用 */
 const glareTexture = makeGlareTexture()
 /** 砲位陣亡時噴火球用的暫存。熱路徑之外，但仍不配置。 */
@@ -1408,6 +1412,8 @@ function fitCameraToPlayer(): void {
  * 之後那幾池粒子與曳光會凍在選單的背景裡
  */
 function releaseGroundBattle(): void {
+  clearBattleFog()
+  battleFogOn = false
   if (groundBattle === null) return
   for (const o of groundBattle.objects) ctx.scene.remove(o)
   groundBattle.dispose()
@@ -1774,6 +1780,10 @@ function startWorld(cfg: BattleConfig): void {
   if (theater !== undefined && world.groundTargets.length > 0) {
     groundBattle = createGroundBattle(theater, emitFirePuff, smokeTexture, emitMortarBlast)
     for (const o of groundBattle.objects) ctx.scene.add(o)
+    if (theater.haze !== undefined) {
+      setBattleFog({ ...theater.haze, tint: battleFogTint((ctx.scene.fog as FogExp2).color) })
+      battleFogOn = true
+    }
   }
   // 氣球與船同一個做法：每一場重建
   if (balloonModels !== null) {
@@ -3101,6 +3111,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   groundModels?.update(world.groundTargets, ctx.camera.position, worldSeconds)
   // 【吃世界秒數】射擊排程是 `world.time` 的純函數；暫停時兩者都不走
   groundBattle?.update(world.groundTargets, world.time, worldSeconds, world.groundAt)
+  // 【吃世界秒數】暫停時為 0，團塊停在原地
+  if (battleFogOn) stepBattleFog(worldSeconds)
   balloonModels?.update(world.balloons, worldSeconds, terrain.collisionHeightAt, burnBalloon)
   searchlights?.update(elapsed, world.combatants, ctx.camera.position)
   shipModels?.update(world.ships, (x, y, z) => {
@@ -4262,6 +4274,24 @@ const GFX_HIDDEN_LAYER = 31
 
 /** **量測出口**：地面戰的戲開場到現在打了幾發。`null` = 這一場沒有戲 */
 ;(window as unknown as Record<string, unknown>)['__theater'] = () => groundBattle?.shots ?? null
+
+/**
+ * **量測出口**：戰場高度霧開關（省略參數 = 查現在的狀態）。同一頁交錯開關量它的成本、拍有霧與沒霧的
+ * 同一幀。`null` = 這一場沒有霧
+ */
+;(window as unknown as Record<string, unknown>)['__haze'] = (on?: boolean) => {
+  if (!battleFogOn) return null
+  if (on !== undefined) BATTLE_FOG.a.w = on ? 1 : 0
+  return BATTLE_FOG.a.w > 0
+}
+
+/** **量測出口**：塵團開關（省略參數 = 查現在的狀態）。`null` = 這一場沒有塵團 */
+;(window as unknown as Record<string, unknown>)['__dustClouds'] = (on?: boolean) => {
+  const o = groundBattle?.objects.find((x) => x.name === 'groundBattle.dustClouds')
+  if (o === undefined) return null
+  if (on !== undefined) o.visible = on
+  return o.visible
+}
 
 /** **量測出口**：迫擊砲彈開場到現在發了幾發、落地幾發、最近一發落在哪裡。`null` = 這一場沒有戲 */
 ;(window as unknown as Record<string, unknown>)['__mortars'] = () => groundBattle === null ? null : {

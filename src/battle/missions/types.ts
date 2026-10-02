@@ -650,6 +650,13 @@ export interface MissionTheater {
   }
   /** 整場不熄的煙柱，世界座標 */
   readonly smokes?: readonly { readonly x: number; readonly z: number }[]
+  /** 戰場的高度霧（`render/heightFog.ts`）：圓心與半徑，世界座標，m。省略 = 沒有 */
+  readonly haze?: { readonly x: number; readonly z: number; readonly radius: number }
+  /**
+   * 塵團的出處，世界座標：每一處附近持續冒出慢慢長大、往同一個方向飄散的塵團（`render/groundBattle.ts`）。
+   * 顏色跟著高度霧（`haze`），所以只在有 `haze` 的戰場有意義。省略 = 沒有
+   */
+  readonly dusts?: readonly { readonly x: number; readonly z: number }[]
 }
 
 /**
