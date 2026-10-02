@@ -57,6 +57,7 @@ import { createGroundModels, type GroundModels } from './render/groundTargets'
 import { createSearchlights, makeGlareTexture, type Searchlights } from './render/searchlights'
 import { groundModelUrls, preloadGroundModels } from './render/geometry/ground'
 import { settleGroundTargets, type GroundTarget } from './world/groundTargets'
+import type { Ship } from './world/ships'
 import {
   balloonHills, settleBalloons, syncBalloonHills, type BalloonHillSet,
 } from './world/balloons'
@@ -3741,12 +3742,16 @@ const menuReel: MenuReel = createMenuReel({
     clear() {
       wrecks.reset()
       resetPools()
+      // 【閃光不在 `POOLS` 裡】停在一團爆炸的閃光上進機庫的話，光源與煙的受光一直亮著
+      blastLights.reset()
     },
   },
 })
 
 /** 短片的炸彈相對基準彈的尺度（`blastScaleOf` 的那個尺度）。一串十幾枚，太大會糊成一片 */
 const REEL_BOMB_SCALE = 0.8
+/** 選單裡沒有戰鬥的船。模組層建一次 —— 每幀傳一個新的空陣列就是每幀配置 */
+const NO_SHIPS: readonly Ship[] = []
 /** 導演指定的大爆炸，閃光最多放大到一枚炸彈的幾倍 */
 const REEL_FLASH_MAX = 1.5
 /** 大爆炸裡每一團相對一枚炸彈的線性倍率、最多幾團、`size` 每多 1 往外撒幾公尺 */
@@ -3791,7 +3796,9 @@ function drawMenuBackground(frameSeconds: number): void {
   vortex.step(fx)
   // 短片地上的煙囪與冷卻塔冒白煙（炸毀的就停）
   emitPlantSteam(fx, menuReel.props)
-  // 短片投下的炸彈點的地面火、魚雷的航跡
+  // 短片投下的炸彈點的地面火、魚雷的航跡。【擠在一起的火少冒煙】短片的地面火也要
+  // 照密度節流，不然一串炸彈的火全速冒煙；戰鬥的船火池在選單裡是空的
+  updateFireCrowd(fireCrowd, groundFires, shipFires, NO_SHIPS, fx)
   stepGroundFires(groundFires, fx, emitFirePuff, fireCrowd.ground)
   wakes.bindOcean(terrain.oceanHeight)
   wakes.step(fx, elapsed, terrain.heightAt)
