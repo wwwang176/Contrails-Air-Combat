@@ -165,6 +165,12 @@
         z-index: 1; background: currentColor;
         -webkit-mask: var(--ac) center/contain no-repeat; mask: var(--ac) center/contain no-repeat; }
 
+      /* ① 開場的標題墊一張紙卡。【用負邊界抵掉內距】卡片往外撐，標題文字留在原位 ——
+         與主選單的標題同一個位置，按下「開始遊戲」時文字不動 */
+      .cover { position: relative; padding: 26px 60px 22px; margin: -26px 0 -22px -60px; }
+      .cover::after { content: ''; position: absolute; left: 22px; top: -1px; width: 8px; height: 8px;
+        border-radius: 50%; background: rgba(0,0,0,.5); box-shadow: 30px 0 0 rgba(0,0,0,.5); }
+
       /* ① 開場與 ①b 主選單：標題與按鈕／三條橫幅靠左，右邊留給背景的短片（app/menuReel.ts）。
          【兩頁同一個版面】標題在同一個位置，按下「開始遊戲」時標題不動、按鈕換成
          三條橫幅；短片的主角兩頁都在右邊（`main.ts` 量 `.rows` 的右緣）。
@@ -179,7 +185,8 @@
       .rows { display: flex; flex-direction: column; gap: 14px; width: min(560px, 44vw); }
       /* 開場的按鈕放在三條橫幅的位置，高度預留成三條橫幅那麼高 —— 整欄垂直置中，
          高度不同的話標題會落在不同的高度 */
-      .landing-rows { height: calc(3 * (118px + 16px + 1.4px) + 2 * 14px); align-items: flex-start; }
+      .landing-rows { height: calc(3 * (118px + 16px + 1.4px) + 2 * 14px); align-items: flex-start;
+        padding-top: 24px; box-sizing: border-box; }
       .menurow { position: relative; display: grid; grid-template-columns: 210px 1fr auto;
         align-items: center; gap: 0 22px; padding: 8px 24px 8px 8px; text-align: left; }
       .menurow .photo { height: 118px; }
@@ -574,6 +581,7 @@
         .menu-title { display: none; }
         /* 開場只有標題與一顆按鈕，標題留著；主選單收掉標題，兩頁的高度本來就對不齊 */
         #landing .menu-title { display: block; }
+        .cover { padding: 16px 36px 14px; margin: 0; }
         .landing-rows { height: auto; }
         #ui .screen#menu, #ui .screen#landing { padding-left: 64px; }
         .rows { gap: 8px; width: min(400px, 48vw); }
@@ -762,7 +770,7 @@
     <div id="ui">
       <!-- ① 開場：遮罩 30%。獨立一頁，不併進主選單 -->
       <section id="landing" class="screen" style="--v:.30">
-        <h1 class="menu-title">CONTRAILS AIR: COMBAT</h1>
+        <div class="cover paperbit"><h1 class="menu-title">CONTRAILS AIR: COMBAT</h1></div>
         <div class="rows landing-rows">
           <button class="go" data-act="start" style="padding:14px 54px" data-i18n="landing.start">開始遊戲</button>
         </div>
