@@ -187,6 +187,7 @@ import {
 } from './ui/tutorials'
 import { nextScreen, type Screen } from './ui/screens'
 import { createMenuReel, type MenuReel, type ReelSiteRequest } from './app/menuReel'
+import type { ReelTerrainKind } from './app/reelShots'
 import { createShowcase, type Showcase } from './app/showcase'
 import { PLANT_STACKS } from './world/leuna'
 import { assetUrl } from './core/asset'
@@ -1452,7 +1453,7 @@ function clearBattleScenery(): void {
  * 選單短片要的地形：與現在的不同才重建。短片每換一段都叫它（在暗場裡），
  * 所以從戰鬥回到選單也由它換回來
  */
-function setMenuTerrain(kind: 'archipelago' | 'farmland', site?: ReelSiteRequest): void {
+function setMenuTerrain(kind: ReelTerrainKind, site?: ReelSiteRequest): void {
   const siteKey = site?.key ?? null
   if (terrainKind === kind && terrainSiteKey === siteKey) return
   terrainKind = kind
@@ -3648,7 +3649,19 @@ const menuReel: MenuReel = createMenuReel({
       clearBursts(REEL_BURSTS)
     },
     smoke(x, y, z, vx, vy, vz) {
-      wreckFireSmoke.emit(x, y, z, vx, vy, vz, REEL_SMOKE_SIZE)
+      // 【平順地蜿蜒，不是各自亂飄】外飄速度由出生位置決定（幾條不同波長的正弦），
+      // 相鄰兩團幾乎一樣 —— 整條煙緩緩彎曲但仍連成一條。不加的話直飛的飛機把煙排成
+      // 一條筆直的管子；每團各自亂數的話又散成一片、讀不出是一條煙
+      const wx = Math.sin(x * 0.031 + z * 0.017) + 0.5 * Math.sin(y * 0.043 + x * 0.011)
+      const wy = Math.sin(z * 0.027 - x * 0.019) + 0.5 * Math.sin(x * 0.047 + y * 0.013)
+      const wz = Math.sin(y * 0.029 + z * 0.023)
+      const s = (reelSmokeSeed = (reelSmokeSeed + 1) | 0)
+      const j = REEL_SMOKE_JITTER
+      const size = REEL_SMOKE_SIZE * (1 + (hash01(s * 5 + 4) * 2 - 1) * REEL_SMOKE_SIZE_JITTER)
+      wreckFireSmoke.emit(x, y, z,
+        vx + REEL_SMOKE_WANDER * wx + (hash01(s * 5 + 1) * 2 - 1) * j,
+        vy + REEL_SMOKE_WANDER * wy + (hash01(s * 5 + 2) * 2 - 1) * j,
+        vz + REEL_SMOKE_WANDER * wz + (hash01(s * 5 + 3) * 2 - 1) * j, size)
     },
     fire(x, y, z) {
       emitWreckFirePuff(x, y, z)
@@ -3750,6 +3763,14 @@ const menuReel: MenuReel = createMenuReel({
 
 /** 短片的炸彈相對基準彈的尺度（`blastScaleOf` 的那個尺度）。一串十幾枚，太大會糊成一片 */
 const REEL_BOMB_SCALE = 0.8
+/**
+ * 短片拖煙：蜿蜒的外飄速度幅度、每團各自的小亂數（m/s）、大小的相對抖動。
+ * 煙本來就細，幅度一大整條就散掉、不連貫
+ */
+const REEL_SMOKE_WANDER = 0.84
+const REEL_SMOKE_JITTER = 0.4
+const REEL_SMOKE_SIZE_JITTER = 0.35
+let reelSmokeSeed = 0
 /** 選單裡沒有戰鬥的船。模組層建一次 —— 每幀傳一個新的空陣列就是每幀配置 */
 const NO_SHIPS: readonly Ship[] = []
 /** 導演指定的大爆炸，閃光最多放大到一枚炸彈的幾倍 */

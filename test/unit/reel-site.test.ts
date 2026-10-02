@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { reelSiteLayout } from '../../src/app/menuReel'
+import { pickFirstShot, reelSiteLayout } from '../../src/app/menuReel'
+
+describe('pickFirstShot：重新整理時不從上一次那段開始', () => {
+  const ids = ['fleet', 'stream', 'dogfight', 'strike', 'raid']
+
+  it('整個亂數範圍都挑不到上一次那段，其他每一段都挑得到', () => {
+    for (const last of ids) {
+      const seen = new Set<number>()
+      for (let i = 0; i < 1000; i++) seen.add(pickFirstShot(ids, last, i / 1000))
+      expect(seen.has(ids.indexOf(last)), last).toBe(false)
+      expect(seen.size, last).toBe(ids.length - 1)
+    }
+  })
+
+  it('沒有記錄、或記錄的那段已經不在清單裡，就是單純隨機', () => {
+    expect(pickFirstShot(ids, null, 0)).toBe(0)
+    expect(pickFirstShot(ids, 'gone', 0.99)).toBe(4)
+  })
+})
 
 /** `fields.ts` 的著色器把世界座標轉進廠區局部座標的那一條（`siteGlsl`／`siteSurfaceColor`） */
 function siteLocal(x: number, z: number, pivot: { x: number, z: number }, heading: number) {
