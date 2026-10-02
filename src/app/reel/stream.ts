@@ -1,6 +1,5 @@
 import { Vector3 } from 'three'
 import { B17G } from '../../specs/b17g'
-import { P51D } from '../../specs/p51d'
 import { BF109K4 } from '../../specs/bf109k4'
 import {
   BOMB_RELEASE_Y, barrage, body, bodyUp, bombAt, edit, rampedOffset, timeline, velocityAt, wingman, wreckAt,
@@ -46,11 +45,9 @@ import {
 //   27.3–28.6 廠區東緣地上往西仰看：天上的編隊與落下的炸彈同框，地上一串串從左往右
 //             走過動力區，左前景是廠房
 //   28.6–30.6 廠區東北角外的田上仰看：編隊從左上方飛過，右下的中東槽組連環殉爆成一大團
-//   30.6–32.4 長機機腹往後下方看：整片廠區在燒，西北槽區連環殉爆成一大團
-//   32.4–33.4 長機左翼根上方往後看：低空組在前景，後下方整片油廠在燒；低空組右僚機燒著的
-//             發動機撐不住，32.6 秒掉出編隊
-//   33.4–36.0 〔著火的 B-17 往下墜〕它的前上方往後下方看：它拖著火與黑煙往在燒的油廠掉
-//             下去，伴飛機往前上方拉開、它越來越小。不跟到落地
+//   30.6–35.6 〔著火的 B-17 往下墜〕一刀到底，長機左翼根上方往後下方看：整片廠區在燒、
+//             西北槽區連環殉爆；低空組右僚機的發動機燒起來，32.3 秒掉出編隊，鏡頭不切、
+//             慢慢搖著跟它往下，它拖著火與黑煙越來越小、落向燃燒的廠區。不跟到落地
 
 const S1 = new Vector3()
 const S2 = new Vector3()
@@ -165,8 +162,13 @@ const lowLead = wingman(streamLead, -72, -48, 112, 0.3)
 const lowLeft = wingman(streamLead, -110, -55, 138, 3.4)
 const lowRight = wingman(streamLead, -34, -41, 138, 2.2)
 const LOW_LEAD = 3
-/** 低空組右僚機掉出編隊的時刻：整段的最後一刀看它往下掉 */
-const LAST_FALL_AT = 32.6
+/** 低空組右僚機掉出編隊的時刻：收尾那一刀裡看它脫隊、往下掉 */
+const LAST_FALL_AT = 32.3
+/** 它交給殘骸池那一刻的位置與速度；收尾那一刀用 `wreckAt` 從它算出它掉到哪 */
+const FALL_P = lowRight(LAST_FALL_AT, new Vector3())
+const FALL_V = velocityAt(lowRight, LAST_FALL_AT, new Vector3())
+/** 收尾那一刀廠區那一側的注視點：西北槽區與動力區之間，殉爆的槽區在畫面裡 */
+const FALL_PLANT = new Vector3(300, 0, -1330)
 
 /** 109 對頭攻擊：速度、射擊窗正中那一刻離目標多遠 */
 const FIGHTER_SPEED = 150
@@ -237,13 +239,68 @@ const FIRE_2 = 9.55
 const bandit2 = diveOn(streamLead, FIRE_2, -1, (3 * Math.PI) / 180, (6 * Math.PI) / 180)
 const BANDIT_2 = 10
 
-const escort = (dx: number, dy: number, dz: number, phase: number): Path => (t, out) => {
-  streamLead(t, out)
-  out.x += dx + 110 * Math.sin(0.33 * t + phase)
-  out.y += dy + 14 * Math.sin(0.47 * t + phase)
-  out.z += dz
-  return out
+/** 穿梭的 109：俯角、U 形迴轉的每一半要幾秒 */
+const RAID_DIVE = (6 * Math.PI) / 180
+const RAID_TURN = 5
+
+/**
+ * 攔截中隊裡穿梭的 109（不瞄準、不帶護欄的目標）：第 `tp` 秒穿過編隊裡相對長機
+ * (`gx`, `gy`, `gz`) 那一點 —— 一個量過、離每一架 B-17 都超過 23 m 的空隙。航向 `yaw`
+ * （0 = 往南迎頭、π = 往北從後方追上、π/2 = 往東橫切），往下 6°。
+ * 穿過之後 `breakAfter` 秒翻身脫離：往 `side` 那一側做一個 U 形迴轉（前 5 秒轉到側向、
+ * 後 5 秒轉到反向，同時改平），迴轉完在 750 m 外往回飛，像在外圍盤旋準備下一輪。
+ *
+ * 【迴轉用兩段定向加速度拼】速度從「前」轉到「側」再轉到「後」，中段速度降到 106 m/s，
+ * 約 4.3 G。每一段用 `rampedOffset` 平順加上去，三次跳變加起來是零，迴轉完不再加速
+ * 【一定要改平】往下 6° 一路衝的話 20 秒後掉到離地兩百公尺以下、30 秒撞地
+ */
+function raider(tp: number, gx: number, gy: number, gz: number, yaw: number, side: number, breakAfter: number): Path {
+  const a = streamLead(tp, new Vector3()).add(new Vector3(gx, gy, gz))
+  const h = Math.cos(RAID_DIVE) * FIGHTER_SPEED
+  const vx = Math.sin(yaw) * h
+  const vy = -Math.sin(RAID_DIVE) * FIGHTER_SPEED
+  const vz = Math.cos(yaw) * h
+  // 側向：航向往 `side` 那一側轉 90°
+  const px = side * Math.cos(yaw) * h
+  const pz = -side * Math.sin(yaw) * h
+  const t1 = tp + breakAfter
+  const t2 = t1 + RAID_TURN
+  const t3 = t2 + RAID_TURN
+  const T = RAID_TURN
+  return (t, out) => {
+    const s = t - tp
+    out.set(a.x + vx * s, a.y + vy * s, a.z + vz * s)
+    // 第一段加速度 (p − h)/T，第二段 (−h − p)/T，之後 0
+    out.x += rampedOffset(t, t1, 0.5, (px - vx) / T) + rampedOffset(t, t2, 0.5, -2 * px / T)
+      + rampedOffset(t, t3, 0.5, (vx + px) / T)
+    out.z += rampedOffset(t, t1, 0.5, (pz - vz) / T) + rampedOffset(t, t2, 0.5, -2 * pz / T)
+      + rampedOffset(t, t3, 0.5, (vz + pz) / T)
+    // 第一段同時把下沉收掉
+    out.y += rampedOffset(t, t1, 0.5, -vy / T) - rampedOffset(t, t2, 0.5, -vy / T)
+    return out
+  }
 }
+/**
+ * 五架穿梭的 109，各在不同的刀裡穿過背景：
+ * - 從編隊右後方追上來、斜斜往前下方超過右上那一架（開場長焦的背景、砲塔特寫的前方）
+ * - 一對長僚機跟第一架 109 一起迎頭撲下來，從長機與右僚機之間的上方穿過（獵人視角裡
+ *   是同一群往下撲的其他幾架，迎面＋甩頭那刀從右僚機頭上穿過）
+ * - 一架迎頭從左僚機與低空組之間鑽過去（砲塔特寫、掉高度那兩刀）
+ * - 一架往東橫切、從長機組後面穿過去（垂直俯視那刀從編隊底下橫過）
+ * 【開場那架在編隊東側】長焦那刀從左後方拍、選單在左邊：西側的全躲在選單後面
+ */
+/**
+ * 【追上來的那架要晚點才迴轉、往東轉】它往北飛，迴轉完往南：早轉的話段尾往南飛出
+ * 開闊圓；往西轉的話橫切過前導組的前方。超過編隊 600 m 才翻身，迴轉完只剩 15 秒往南
+ */
+const raidAstern = raider(1.5, 110, -25, 20, Math.PI, -1, 8.5)
+const raidLead = raider(5.6, 18, 30, 0, 0, 1, 1.0)
+const raidWing = raider(5.9, 40, 45, 0, 0, 1, 1.0)
+const raidLow = raider(10.3, -56, -21, 0, 0, -1, 1.0)
+const raidCross = raider(14.9, 0, -20, 70, Math.PI / 2, 1, 1.5)
+const RAID_LEAD = 8
+const RAID_WING = 13
+const RAID_LOW = 14
 
 /**
  * 前導組：長機組右前上方，只當背景不投彈。
@@ -564,47 +621,24 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 30.6, subject: null, mount: 0,
+    from: 30.6, subject: 5, mount: 0,
     camera(t, out) {
-      // 長機機腹下、球形砲塔的位置往後下方看：自己剛炸過、整片在燒的廠區在正下方，
-      // 西北槽區還在一座接一座殉爆（30.8～31.7 秒），32.0 秒整片槽區炸成一大團。
-      // 注視點釘在地上，鏡頭跟著飛機慢慢轉過去。掛在機上，只留 0.1° 的慢晃
-      body(streamLead, t, 0, -2.6, 2.0, false, out.position)
-      out.target.set(300, 0, -1330)
-      shake(t, 0.2, 11, out.target)
-      bodyUp(streamLead, t, out.up)
-      out.fov = 60
-    },
-  },
-  {
-    from: 32.4, subject: LOW_LEAD, mount: 0,
-    camera(t, out) {
-      // 長機左翼根上方、兩具發動機之間往後看：左後下方是低空組，後下方整片油廠在燒，
-      // 槽區還在炸（32.8、33.2 秒）；低空組右僚機燒著的那一具撐不住了，32.6 秒它掉出
-      // 編隊。自己的垂尾在畫面右緣一角。掛在機上，只留 0.1° 的慢晃。
+      // 收尾，一刀到底 5 秒：長機左翼根上方、兩具發動機之間往後下方看。後下方整片廠區在燒，
+      // 西北槽區一座接一座殉爆（30.8～31.7 秒）、32.0 秒炸成一大團；左後下方是低空組。
+      // 低空組右僚機冒了半天煙的那一具 31.0 秒燒起來，32.3 秒撐不住、拖著火與黑煙掉出
+      // 編隊。鏡頭不切，注視點跟著它（晚 0.2 秒，跟不上一點）慢慢往下、往後搖：它越掉越
+      // 遠、越來越小，落向燃燒的廠區，最後停在「廠區在燒 + 一架墜落的 B-17」的構圖上。
+      // 注視點一直是它與廠區兩個方向之間，它掉向廠區那一側，搖的方向不會折返。
+      // 自己的垂尾在畫面右緣一角。掛在機上，只留 0.15° 的慢晃。不跟到落地。
       // 【不架在機背中線】從中線往後看，垂尾從上緣直插到下緣、把廠區擠到角落
       body(streamLead, t, -5, 2.6, 6, false, out.position)
-      lowLead(t, S1)
-      aimBetween(out.position, S1, PLANT, 0.45, out.target)
+      const tf = t - 0.2
+      if (tf < LAST_FALL_AT) lowRight(tf, S1)
+      else wreckAt(FALL_P, FALL_V, tf - LAST_FALL_AT, S1)
+      aimBetween(out.position, S1, FALL_PLANT, 0.25, out.target)
       shake(t, 0.25, 12, out.target)
       bodyUp(streamLead, t, out.up)
-      out.fov = 58
-    },
-  },
-  {
-    from: 33.4, subject: null,
-    camera(t, out) {
-      // 收尾：低空組右僚機原位的前上方 80 m 往後下方看（伴飛機，手持 0.2°）。它 32.6 秒
-      // 拖著火與黑煙掉出編隊（上一刀看到它脫隊），這一刀它已經在往下掉：往後下方整片
-      // 在燒的油廠掉下去，3 秒內掉了 50 m。伴飛機同時往前上方拉開，它從 90 m 退到 200 m
-      // 外、越來越小。鏡頭綁在編隊上不跟它，注視點只往下壓一點；不跟到落地
-      const k = ease(t, 33.4, 2.6)
-      streamLead(t, out.position).add(S1.set(-15, -5 + 25 * k, 70 - 50 * k))
-      shake(t, 0.15, 39, out.position)
-      streamLead(t, S2).add(S3.set(-34, -41, 138))
-      aimBetween(out.position, S2, PLANT, 0.15 + 0.2 * k, out.target)
-      shake(t, 0.25, 40, out.target)
-      out.fov = 50
+      out.fov = 48
     },
   },
 ]
@@ -617,12 +651,17 @@ const PLANES: readonly ReelPlane[] = [
   { spec: B17G, path: lowLeft, extra: true },
   { spec: B17G, path: lowRight },
   { spec: B17G, path: wingman(streamLead, 78, 42, 150, 4.1), extra: true },
-  { spec: P51D, path: escort(60, 115, -30, 0) },
-  { spec: P51D, path: escort(-80, 135, -80, Math.PI), extra: true },
+  // 7、8：穿梭的 109（換掉兩架野馬護航 —— 攔截的是一整個中隊，護航在畫面上沒有戲）
+  { spec: BF109K4, path: raidAstern },
+  { spec: BF109K4, path: raidLead },
   { spec: BF109K4, path: bandit },
   { spec: BF109K4, path: bandit2 },
   { spec: B17G, path: forwardA, extra: true },
   { spec: B17G, path: forwardB, extra: true },
+  // 13～15：其餘穿梭的 109
+  { spec: BF109K4, path: raidWing },
+  { spec: BF109K4, path: raidLow },
+  { spec: BF109K4, path: raidCross },
 ]
 
 /**
@@ -715,7 +754,7 @@ const DECOR: readonly ReelDecor[] = [
 
 export const STREAM: Shot = {
   id: 'stream',
-  duration: 36,
+  duration: 35.6,
   // 十一月的正午：太陽在西南偏南、仰角 25°，天色灰白。編隊往北飛，太陽在它左後方 ——
   // 往北看的鏡頭順光，往南看的逆光（機身背光變暗）
   timeOfDay: 'novemberNoon',
@@ -786,6 +825,15 @@ export const STREAM: Shot = {
     { at: 8.5, kind: 'gunner', actor: 1, target: BANDIT_2, seconds: 2.6, miss: 14 },
     { at: 8.7, kind: 'gunner', actor: STREAM_HIT, target: BANDIT_2, seconds: 2.4, miss: 16 },
     { at: FIRE_2 - FIRE_HALF, kind: 'burst', actor: BANDIT_2, seconds: 2 * FIRE_HALF, target: 0 },
+    // 穿梭的 109：迎頭穿過空隙之前打一短串（不帶目標 —— 曳光順著空隙穿過編隊），
+    // 編隊的機槍手轉過去追著它們打
+    { at: 4.7, kind: 'burst', actor: RAID_LEAD, seconds: 0.5 },
+    { at: 5.0, kind: 'burst', actor: RAID_WING, seconds: 0.5 },
+    { at: 5.2, kind: 'gunner', actor: 1, target: RAID_LEAD, seconds: 1.4, miss: 16 },
+    { at: 5.4, kind: 'gunner', actor: 6, target: RAID_WING, seconds: 1.4, miss: 18 },
+    { at: 9.4, kind: 'burst', actor: RAID_LOW, seconds: 0.5 },
+    { at: 9.5, kind: 'gunner', actor: 1, target: RAID_LOW, seconds: 1.4, miss: 14 },
+    { at: 9.7, kind: 'gunner', actor: 3, target: RAID_LOW, seconds: 1.4, miss: 16 },
     { at: FIRE_2 + FIRE_HALF + 0.05, kind: 'smoke', actor: 0, engine: 2 },
     { at: FLAK_SAG_AT, kind: 'flak', x: FLAK_SAG.x, y: FLAK_SAG.y, z: FLAK_SAG.z },
     // 投彈：長機組、低空組、右上那一架照順序
@@ -813,8 +861,8 @@ export const STREAM: Shot = {
     { at: 32.8, kind: 'destroy', prop: 1 },
     { at: 33.2, kind: 'destroy', prop: 6 },
     { at: 33.5, kind: 'blast', x: 100, y: 12, z: -1470, size: 3 },
-    // 收尾：低空組右僚機那具冒了半天煙的發動機燒起來，撐到 32.6 秒掉出編隊
-    { at: 30.0, kind: 'smoke', actor: 5, engine: 2, fire: true },
+    // 收尾：低空組右僚機那具冒了半天煙的發動機燒起來，撐到 32.3 秒掉出編隊
+    { at: 31.0, kind: 'smoke', actor: 5, engine: 2, fire: true },
     { at: LAST_FALL_AT, kind: 'kill', actor: 5, blast: false },
   ]),
 }
