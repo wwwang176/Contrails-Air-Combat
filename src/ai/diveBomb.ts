@@ -70,7 +70,7 @@ export const DIVE_FLIP_FLOOR = 150
 export const DIVE_ANGLE_MAX = 85 * DEG
 
 /** 離目標至少這麼高才翻轉，m。低於它的話俯衝段太短，拉起之前看不出是俯衝 */
-export const DIVE_MIN_HEIGHT = 1200
+export const DIVE_MIN_HEIGHT = 800
 
 /**
  * 高度的遲滯帶，m：脫離要爬到 `DIVE_MIN_HEIGHT + DIVE_LEVEL_SLACK` 才回平飛；平飛掉到
