@@ -210,6 +210,60 @@ describe('劇本打掉前的最後一發', () => {
 })
 
 /**
+ * 【直射砲彈擊中：用迫擊砲的小爆炸】戰車與反坦克砲的砲彈打中目標，爆出與迫擊砲落地同一份小爆炸
+ * （`impact` 回呼）；打偏的揚塵、步兵的槍彈只有一小團火花，都不放。
+ */
+describe('直射砲彈擊中', () => {
+  const flat = (): number => 0
+
+  it('必中的最後一發擊中：爆在被打掉的那一台身上，只爆一次', () => {
+    const blasts: { x: number; y: number; z: number }[] = []
+    const gb = createGroundBattle({ shooters: ['tank'], period: 1e6, range: 1500 } as never, () => {}, undefined,
+      (x, y, z) => { blasts.push({ x, y, z }) })
+    const attacker = createGroundTarget(0, 'tank', 'blue', 0, 0, 0)
+    const victim = createGroundTarget(1, 'tank', 'red', 900, 0, 0)
+    victim.killAt = 30
+    for (let t = 0; t < 45; t += 0.1) gb.update([attacker, victim], t, 0.1, flat)
+    expect(gb.hitShots).toBe(1)
+    expect(blasts).toHaveLength(1)
+    expect(blasts[0]!.x).toBeCloseTo(900, 6)
+    expect(blasts[0]!.z).toBeCloseTo(0, 6)
+    // 爆在車身的高度，不是貼地
+    expect(blasts[0]!.y).toBeGreaterThan(0.5)
+    gb.dispose()
+  })
+
+  it('每一發命中爆一次、打偏的不爆：落地回呼的次數等於命中數', () => {
+    let calls = 0
+    const gb = createGroundBattle({ shooters: ['tank'], period: 1, range: 1500 } as never, () => {}, undefined,
+      () => { calls++ })
+    const a = createGroundTarget(0, 'tank', 'blue', 0, 0, 0)
+    const b = createGroundTarget(1, 'tank', 'red', 900, 0, 0)
+    for (let t = 0; t < 100; t += 0.1) gb.update([a, b], t, 0.1, flat)
+    a.alive = false
+    b.alive = false
+    // 停火之後在飛的砲彈（飛行約 2 秒）全部落地
+    for (let t = 100; t < 110; t += 0.1) gb.update([a, b], t, 0.1, flat)
+    expect(gb.hitShots).toBeGreaterThan(10)
+    expect(gb.shots).toBeGreaterThan(gb.hitShots)
+    expect(calls).toBe(gb.hitShots)
+    gb.dispose()
+  })
+
+  it('步兵的槍彈打中不放小爆炸', () => {
+    let calls = 0
+    const gb = createGroundBattle({ shooters: ['infantry'], period: 0.5, range: 1500 } as never, () => {}, undefined,
+      () => { calls++ })
+    const a = createGroundTarget(0, 'infantry', 'blue', 0, 0, 0)
+    const b = createGroundTarget(1, 'infantry', 'red', 300, 0, 0)
+    for (let t = 0; t < 60; t += 0.1) gb.update([a, b], t, 0.1, flat)
+    expect(gb.hitShots).toBeGreaterThan(10)
+    expect(calls).toBe(0)
+    gb.dispose()
+  })
+})
+
+/**
  * 【迫擊砲：高拋物線的間接射擊】不走直射的曳光彈：發射、飛行、落地各一次，落地時小爆炸。
  * 直射的週期設得極大，場上只剩迫擊砲在打。
  */

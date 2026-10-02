@@ -218,8 +218,8 @@ function gunSmokeColor(_t: number, out: Color): void {
 /**
  * @param burn 長燒的煙。與地面火同一份配方（`main.ts` 的 `emitFirePuff`）
  * @param smokeTexture 塵土的不透明度貼圖，與爆炸的塵土同一張
- * @param impact 迫擊砲彈落地的爆炸，世界座標。**與炸彈同一份火球與粒子的配方，只是縮小**
- *   （`main.ts` 的 `emitMortarBlast`）；省略 = 落地沒有表現
+ * @param impact 小爆炸，世界座標：迫擊砲彈落地、戰車與反坦克砲的砲彈擊中目標時放。**與炸彈同一份
+ *   火球與粒子的配方，只是縮小**（`main.ts` 的 `emitMortarBlast`）；省略 = 沒有表現
  */
 export function createGroundBattle(
   theater: MissionTheater, burn: FirePuffFn, smokeTexture?: Texture,
@@ -270,7 +270,7 @@ export function createGroundBattle(
   /** `lob` 解出來的彈道，交給尾流之前的暫存。熱路徑：不配置 */
   const arcShot: ArcShot = { x0: 0, y0: 0, z0: 0, vx: 0, vy: 0, vz: 0, flight: 0 }
 
-  /** 迫擊砲彈落地：爆炸交給呼叫端（炸彈的火球與粒子，縮小一號） */
+  /** 迫擊砲彈落地：爆炸交給呼叫端（炸彈的火球與粒子，縮小一號），與直射砲彈擊中同一份 */
   function land(x: number, y: number, z: number): void {
     arcLanded++
     arcLastLanding.x = x
@@ -370,8 +370,11 @@ export function createGroundBattle(
         const x = pool.hx[i]!
         const y = pool.hy[i]!
         const z = pool.hz[i]!
-        if (pool.hit[i] === 1) flash.emit(x, y, z, 0, 0, 0, small ? 0.4 : 0.8)
-        else dust.emit(x, y, z, 0, small ? 1 : 3, 0, small ? 0.3 : 0.7)
+        // 【砲彈擊中是小爆炸】與迫擊砲落地同一份（`impact`）；步兵的槍彈只有一小團火花
+        if (pool.hit[i] === 1) {
+          if (small) flash.emit(x, y, z, 0, 0, 0, 0.4)
+          else impact(x, y, z)
+        } else dust.emit(x, y, z, 0, small ? 1 : 3, 0, small ? 0.3 : 0.7)
         continue
       }
       pool.age[i] = age

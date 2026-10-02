@@ -879,8 +879,8 @@ const CRASH_BLAST_HEIGHT = 25
 const SCALED_BLAST: { -readonly [K in keyof BlastParams]: number } = { ...LAND_BLAST }
 
 /**
- * 迫擊砲彈落地的爆炸：炸彈那一份火球與粒子縮小，配方在 `render/mortarBlast.ts`。
- * **純畫面**：不震鏡頭、不打燈、不點地面火。
+ * 小爆炸：迫擊砲彈落地、戰車與反坦克砲的砲彈擊中時放。炸彈那一份火球與粒子縮小，配方在
+ * `render/mortarBlast.ts`。**純畫面**：不震鏡頭、不打燈、不點地面火。
  */
 /** 每一發推一格，同一幀的兩團才不會噴成一樣的形狀 */
 let mortarSeed = 0
