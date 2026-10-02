@@ -47,6 +47,7 @@ import {
   emitBlast, emitEmber, emitFlakBlasts, emitMist, resetFlakBlastSeed, scaleBlast,
   type BlastParams, type BlastPools,
 } from './render/blast'
+import { MORTAR_BLAST } from './render/mortarBlast'
 import { createFireball, FIREBALL_COUNT, FIREBALL_SPEED } from './render/fireball'
 import { createFlakBursts, emitFlakBursts, resetFlakBurstSeed } from './render/flakBursts'
 import { createFlareLights } from './render/flares'
@@ -878,13 +879,9 @@ const CRASH_BLAST_HEIGHT = 25
 const SCALED_BLAST: { -readonly [K in keyof BlastParams]: number } = { ...LAND_BLAST }
 
 /**
- * 迫擊砲彈落地的爆炸：**炸彈那一份火球與粒子（`LAND_BLAST`）縮小**，尺度是基準彈的 0.4 倍
- * （體積約十五分之一）。**純畫面**：不震鏡頭、不打燈、不點地面火 —— 一小團火與塵土。
- * 起始值，由試飛裁定。
+ * 迫擊砲彈落地的爆炸：炸彈那一份火球與粒子縮小，配方在 `render/mortarBlast.ts`。
+ * **純畫面**：不震鏡頭、不打燈、不點地面火。
  */
-const MORTAR_BLAST_SCALE = 0.4
-const MORTAR_BLAST: { -readonly [K in keyof BlastParams]: number } = { ...LAND_BLAST }
-scaleBlast(LAND_BLAST, MORTAR_BLAST_SCALE ** 3, MORTAR_BLAST)
 /** 每一發推一格，同一幀的兩團才不會噴成一樣的形狀 */
 let mortarSeed = 0
 const emitMortarBlast = (x: number, y: number, z: number): void => {
