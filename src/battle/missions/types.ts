@@ -333,6 +333,11 @@ export interface MissionBattle {
    */
   readonly blueStacked?: true
   /**
+   * 藍隊分批前後排開：每 `size` 架一批，相鄰兩批在世界座標 z 上差 `depth` 公尺，前後交錯進場
+   * （`order.ts` 的 `waveColumn`）。**省略 = 橫隊。** 只是開場站位，玩家在第一批。
+   */
+  readonly blueWaves?: { readonly size: number; readonly depth: number }
+  /**
    * 紅隊分兩路夾擊：後半繞著艦隊往右舷轉這麼多，rad。**省略 = 一路壓上來。**
    *
    * 【它繞的是世界原點】`MissionFleet.center` 就在原點，兩者是同一個點。

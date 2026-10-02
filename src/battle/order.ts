@@ -587,6 +587,45 @@ export function soloBombers(units: OrderOfBattle, schwarmSpacing: number): Order
   return out
 }
 
+/**
+ * 藍隊分批前後排開：每 `waveSize` 架一批，第 `g` 批在世界座標 z 上比第一批多落後 `g × depth` m，
+ * 前後交錯進場。玩家在第一批；每批同一條橫向（`lane` 0）、同一個高度層（`tier` 0）。紅隊與
+ * `lineAbreast` 相同。**只決定開場站在哪裡**，起飛之後每一架照自己的攻擊航路飛。
+ *
+ * 【為什麼不用 `stackedEntry`】它按 Schwarm（4 架）切批，批與批橫向錯開、高度分層，而且玩家在中間那一批。
+ * 這裡要的是任意批大小、同一條線上的前後間隔，玩家在最前面。
+ *
+ * 【正號是落後】`depth` 是世界座標的 z，藍隊機首朝 −Z。
+ *
+ * @param waveSize 一批幾架，1 … `SCHWARM_SIZE`
+ * @param depth 相鄰兩批的前後間隔，公尺
+ */
+export function waveColumn(
+  plan: EntryPlan,
+  blueSpec: AircraftSpec, blueCount: number,
+  waveSize: number, depth: number,
+  redSpec: AircraftSpec, redCount: number,
+): OrderOfBattle {
+  if (!Number.isInteger(waveSize) || waveSize < 1 || waveSize > SCHWARM_SIZE) {
+    throw new Error(`批大小要在 1..${SCHWARM_SIZE}，收到 ${waveSize}`)
+  }
+  const out: FlightPlan[] = []
+  const waves = Math.ceil(blueCount / waveSize)
+  for (let g = 0; g < waves; g++) {
+    const size = Math.min(waveSize, blueCount - g * waveSize)
+    const members: AircraftSpec[] = Array.from({ length: size }, () => blueSpec)
+    const flight: FlightPlan = {
+      team: 'blue', members, entry: plan.blue, duty: 'combat', lane: 0, tier: 0, depth: g * depth,
+    }
+    out.push(g === 0 ? { ...flight, player: true } : flight)
+  }
+  // 【紅隊直接取 `lineAbreast` 的】兩份長得很像的擺法只會有一份被修好；藍隊全部排在紅隊之前
+  for (const u of lineAbreast(plan, blueSpec, blueCount, redSpec, redCount)) {
+    if (u.team === 'red') out.push(u)
+  }
+  return out
+}
+
 /** 一隊的總架數。 */
 export function sideCount(units: OrderOfBattle, team: Team): number {
   let n = 0

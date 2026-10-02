@@ -4,7 +4,7 @@ import { createGroundMotion, motionPose } from '../../world/groundMotion'
 import { VETERAN } from '../../ai/profile'
 import { ENTRY_PLANS, type EntryPlan, type SideEntry } from '../entry'
 import {
-  WAVE_LANE, convoyLine, lineAbreast, pincer, rotateEntry, soloBombers, stackedEntry,
+  WAVE_LANE, convoyLine, lineAbreast, pincer, rotateEntry, soloBombers, stackedEntry, waveColumn,
 } from '../order'
 import { SCHWARM_SIZE } from '../flights'
 import type { Beat, BeatCondition, RecycleBeat, ReinforceBeat, WithdrawBeat } from '../beats'
@@ -218,6 +218,10 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
         bomber: convoyOf(card),
         bombers: b.convoyCount,
       })
+    : b.blueWaves !== undefined
+      ? waveColumn(
+        plan, b.blueSpec, b.blueCount, b.blueWaves.size, b.blueWaves.depth, b.redSpec, b.redCount,
+      )
     : b.blueStacked === true
       ? stackedEntry(plan, b.blueSpec, b.blueCount, b.redSpec, b.redCount)
       : b.redStarboard === undefined

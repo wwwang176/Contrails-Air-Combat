@@ -217,7 +217,10 @@ export const GERMANY: readonly MissionCard[] = [
       objectiveKey: 'mission.germany-m4.objective', bannerKey: 'mission.germany-m4.banner',
       blueSpec: JU87, redSpec: P51D, convoySpec: null,
       // 【沒有敵機】壓力全在地面的防空。`redSpec` 只是型別要填
-      blueCount: 4, redCount: 0,
+      // 【2 + 2 + 2】三批各兩架，相鄰兩批前後差 4,700 m：開場速度約 95 m/s，晚約 50 秒到目標；
+      // Ju 87 一輪約 150 秒，三批的俯衝剛好錯開三分之一輪。**起始值，由試飛裁定**
+      blueCount: 6, redCount: 0,
+      blueWaves: { size: 2, depth: 4700 },
       convoyCount: 0, convoyPriority: 1,
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       entry: 'strikeDeep',

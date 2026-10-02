@@ -198,7 +198,7 @@ climb.forEach((e, band) => {
   console.log(`  離地 ${band * 250}～${band * 250 + 250} m：實際 ${(e.vz / e.n).toFixed(1)} m/s（真速 ${(e.tas / e.n).toFixed(0)}、機鼻 ${(e.pitch / e.n).toFixed(1)}°、攻角約 ${(e.aoa / e.n).toFixed(1)}°、過載 ${(e.load / e.n).toFixed(2)}、坡度 ${(e.roll / e.n).toFixed(1)}°）｜物理最大 ${best.rate.toFixed(1)} m/s（真速 ${best.speed.toFixed(0)}）`)
 })
 
-console.log(`種子 ${SEED}，${SECONDS} 秒；墜毀（藍隊）${crashes}；活著 ${w.combatants.filter((c) => c.team === 'blue' && c.alive).length}/4；地面目標損失 ${w.groundTargets.filter((t) => !t.alive).length}`)
+console.log(`種子 ${SEED}，${SECONDS} 秒；墜毀（藍隊）${crashes}；活著 ${w.combatants.filter((c) => c.team === 'blue' && c.alive).length}/${w.combatants.filter((c) => c.team === 'blue').length}；地面目標損失 ${w.groundTargets.filter((t) => !t.alive).length}`)
 console.log('各相位時間比例', JSON.stringify(Object.fromEntries(Object.entries(phaseSteps).map(([k, v]) => [k, +((100 * v) / Math.max(1, blueSteps)).toFixed(1)]))))
 for (const d of dives) {
   console.log(`#${d.seat} t=${d.t0.toFixed(0).padStart(3)} 壓機鼻 高${d.entryH.toFixed(0)} 水平${d.entryRange.toFixed(0)} 滾${d.entryRoll.toFixed(0)}°｜` +

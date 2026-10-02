@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   lineAbreast, mixedLine, flightLine, pincer, assertOrderOfBattle, sideSummary,
-  soloBombers, stackedEntry, type OrderOfBattle,
+  soloBombers, stackedEntry, waveColumn, type OrderOfBattle,
 } from '../../src/battle/order'
 import { createBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
 import { DEG } from '../../src/core/math'
@@ -389,5 +389,65 @@ describe('soloBombers', () => {
         expect(q.z, `z ${i}`).toBeCloseTo(p.z, 6)
       }
     }
+  })
+})
+
+/**
+ * # 分批前後排開
+ *
+ * 藍隊每 `waveSize` 架一批，批與批在世界座標 z 上差 `depth` m（+Z 是後方，藍隊朝 −Z），前後交錯進場。
+ * 玩家在第一批；每批同一條橫向、同一個高度層；紅隊與 `lineAbreast` 相同。
+ */
+describe('waveColumn', () => {
+  const six = (depth = 4000): OrderOfBattle => waveColumn(HEAD_ON, B17G, 6, 2, depth, BF109K4, 4)
+
+  it('六架、每批兩架：三個雙機小隊，depth 依序 0、D、2D', () => {
+    const u = six()
+    expect(blue(u).map((f) => f.members.length)).toEqual([2, 2, 2])
+    expect(blue(u).map((f) => f.depth)).toEqual([0, 4000, 8000])
+  })
+
+  it('玩家掛在第一批；每批同一條橫向（lane 0）、同一個高度層（tier 0）', () => {
+    const u = blue(six())
+    expect(u.map((f) => f.player === true)).toEqual([true, false, false])
+    expect(u.map((f) => f.lane)).toEqual([0, 0, 0])
+    expect(u.map((f) => f.tier)).toEqual([0, 0, 0])
+    assertOrderOfBattle(six())
+  })
+
+  it('架數不是批大小的倍數：最後一批比較小', () => {
+    expect(blue(waveColumn(HEAD_ON, B17G, 5, 2, 4000, BF109K4, 4)).map((f) => f.members.length))
+      .toEqual([2, 2, 1])
+  })
+
+  it('紅隊與 lineAbreast 的紅隊逐項相同，而且排在藍隊之後', () => {
+    const u = six()
+    expect(red(u)).toEqual(red(lineAbreast(HEAD_ON, B17G, 6, BF109K4, 4)))
+    expect(u.findIndex((f) => f.team === 'red')).toBe(blue(u).length)
+  })
+
+  it('批大小要在 1 … 一個 Schwarm 之內', () => {
+    expect(() => waveColumn(HEAD_ON, B17G, 6, 0, 4000, BF109K4, 4)).toThrow()
+    expect(() => waveColumn(HEAD_ON, B17G, 6, SCHWARM_SIZE + 1, 4000, BF109K4, 4)).toThrow()
+    expect(() => waveColumn(HEAD_ON, B17G, 6, 1.5, 4000, BF109K4, 4)).toThrow()
+  })
+
+  it('開局的位置：同批的兩架同一個 z 偏移，後一批比前一批多 depth，x 與 y 不變', () => {
+    const idle = { update() {} }
+    const make = (depth: number) => createBattle(
+      idle, { ...DEFAULT_BATTLE, units: soloBombers(six(depth), DEFAULT_BATTLE.schwarmSpacing) }, 1,
+    )
+    const base = make(0)
+    const trailed = make(4000)
+    expect(trailed.world.combatants.filter((c) => c.team === 'blue').length).toBe(6)
+    const shift = [0, 0, 4000, 4000, 8000, 8000]
+    for (let i = 0; i < 6; i++) {
+      const p = base.world.combatants[i]!.aircraft.state.position
+      const q = trailed.world.combatants[i]!.aircraft.state.position
+      expect(q.x, `x ${i}`).toBeCloseTo(p.x, 6)
+      expect(q.y, `y ${i}`).toBeCloseTo(p.y, 6)
+      expect(q.z - p.z, `z ${i}`).toBeCloseTo(shift[i]!, 6)
+    }
+    expect(trailed.playerSeat).toBeLessThan(2)
   })
 })
