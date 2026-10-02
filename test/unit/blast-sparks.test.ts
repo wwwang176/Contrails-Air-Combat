@@ -123,11 +123,30 @@ describe('火星的接線', () => {
     return SRC.slice(at, end + 1).join('\n')
   }
 
-  it('只在炸彈與魚雷的爆炸呼叫', () => {
+  /** 選單短片的 `fx` 方法：從 `    name(` 那一行到同一縮排的 `    },` */
+  function method(head: string): string {
+    const at = SRC.findIndex((l) => l.startsWith(`    ${head}(`))
+    expect(at, head).toBeGreaterThanOrEqual(0)
+    let end = at + 1
+    while (end < SRC.length && SRC[end] !== '    },') end++
+    return SRC.slice(at, end + 1).join('\n')
+  }
+
+  /** 選單短片裡噴火星的四個方法：炸彈落地、魚雷命中、炸彈落在船上、導演指定的大爆炸 */
+  const REEL_SPARKS = ['bomb', 'torpedoHit', 'shipHit', 'blast'] as const
+
+  it('只在炸彈與魚雷的爆炸呼叫（戰鬥兩處、選單短片四處）', () => {
     const calls = SRC.filter((l) => l.includes('burstSparks(') && !l.includes('function burstSparks'))
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(2 + REEL_SPARKS.length)
     expect(body('function emitBombBlasts')).toContain('burstSparks(')
     expect(body('function emitTorpedoBlasts')).toContain('burstSparks(')
+    for (const m of REEL_SPARKS) expect(method(m), m).toContain('burstSparks(')
+  })
+
+  it('選單短片落水的炸彈也不噴', () => {
+    const b = method('bomb')
+    expect(b.indexOf('if (!water)')).toBeGreaterThanOrEqual(0)
+    expect(b.indexOf('burstSparks(')).toBeGreaterThan(b.indexOf('if (!water)'))
   })
 
   it('落水的炸彈不噴', () => {
@@ -139,9 +158,12 @@ describe('火星的接線', () => {
    * 【先縮放配方再噴】`burstSparks` 讀的是 `SCALED_BLAST` 的火球半徑；
    * 順序反了的話，噴多遠跟著的是上一團爆炸的大小，不會報錯
    */
-  it('兩處都在 scaleBlast 之後才噴', () => {
-    for (const head of ['function emitBombBlasts', 'function emitTorpedoBlasts']) {
-      const b = body(head)
+  it('每一處都在 scaleBlast 之後才噴', () => {
+    const bodies = [
+      ...['function emitBombBlasts', 'function emitTorpedoBlasts'].map((h) => [h, body(h)] as const),
+      ...REEL_SPARKS.map((m) => [m, method(m)] as const),
+    ]
+    for (const [head, b] of bodies) {
       expect(b.indexOf('scaleBlast('), head).toBeGreaterThanOrEqual(0)
       expect(b.indexOf('burstSparks('), head).toBeGreaterThan(b.indexOf('scaleBlast('))
     }
