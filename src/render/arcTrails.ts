@@ -43,11 +43,12 @@ export const ARC_TRAIL_SIDES = 4
 export const ARC_TRAIL_SECONDS = 2
 
 /**
- * 頭端與尾端的管半徑，m。**從 1.5 km 高處看得見才訂的**：720p、65° 視野下那個距離一個像素約
- * 2.6 m，翼尖凝結尾的 0.2～0.65 m 在這裡是看不見的；再細的話遠看只剩斷續的淡線。
+ * 頭端與尾端的管半徑，m。細：迫擊砲是小口徑，遠看是一條淡淡的細線。720p、65° 視野下從
+ * 1.5 km 高處一個像素約 2.6 m，所以遠看時線寬不到一個像素，靠抗鋸齒與透明度讀得出來；
+ * 近看（百公尺內）才看得出是一根管。
  */
-export const ARC_TRAIL_RADIUS_HEAD = 0.7
-export const ARC_TRAIL_RADIUS_TAIL = 1.6
+export const ARC_TRAIL_RADIUS_HEAD = 0.35
+export const ARC_TRAIL_RADIUS_TAIL = 0.8
 
 /**
  * 頭端的不透明度。管子經 `DoubleSide` 疊兩層，實效是 `1 − (1 − 這個)²`（見 `vortex.ts` 的
