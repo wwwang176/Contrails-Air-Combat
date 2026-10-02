@@ -3649,7 +3649,15 @@ const menuReel: MenuReel = createMenuReel({
       clearBursts(REEL_BURSTS)
     },
     smoke(x, y, z, vx, vy, vz) {
-      wreckFireSmoke.emit(x, y, z, vx, vy, vz, REEL_SMOKE_SIZE)
+      // 【每一團各自抖】方位、外飄速度、上浮、大小獨立取樣。不抖的話直飛的飛機
+      // 把一團團煙排成一條筆直、等粗的管子，讀不出是煙
+      const s = (reelSmokeSeed = (reelSmokeSeed + 1) | 0)
+      const a = hash01(s * 5 + 1) * Math.PI * 2
+      const out = REEL_SMOKE_SPREAD * Math.sqrt(hash01(s * 5 + 2))
+      const up = REEL_SMOKE_RISE * hash01(s * 5 + 3)
+      const size = REEL_SMOKE_SIZE * (1 + (hash01(s * 5 + 4) * 2 - 1) * REEL_SMOKE_SIZE_JITTER)
+      wreckFireSmoke.emit(x, y, z,
+        vx + Math.cos(a) * out, vy + Math.sin(a) * out + up, vz + Math.sin(a + 1.3) * out, size)
     },
     fire(x, y, z) {
       emitWreckFirePuff(x, y, z)
@@ -3751,6 +3759,11 @@ const menuReel: MenuReel = createMenuReel({
 
 /** 短片的炸彈相對基準彈的尺度（`blastScaleOf` 的那個尺度）。一串十幾枚，太大會糊成一片 */
 const REEL_BOMB_SCALE = 0.8
+/** 短片拖煙每一團往外飄的最大速度、往上浮的最大速度（m/s）、大小的相對抖動 */
+const REEL_SMOKE_SPREAD = 5
+const REEL_SMOKE_RISE = 2.5
+const REEL_SMOKE_SIZE_JITTER = 0.35
+let reelSmokeSeed = 0
 /** 選單裡沒有戰鬥的船。模組層建一次 —— 每幀傳一個新的空陣列就是每幀配置 */
 const NO_SHIPS: readonly Ship[] = []
 /** 導演指定的大爆炸，閃光最多放大到一枚炸彈的幾倍 */
