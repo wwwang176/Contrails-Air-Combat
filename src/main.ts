@@ -3769,7 +3769,7 @@ const REEL_BOMB_SCALE = 0.8
  */
 const REEL_SMOKE_WANDER = 1.2
 const REEL_SMOKE_JITTER = 0.4
-const REEL_SMOKE_SIZE_JITTER = 0.15
+const REEL_SMOKE_SIZE_JITTER = 0.35
 let reelSmokeSeed = 0
 /** 選單裡沒有戰鬥的船。模組層建一次 —— 每幀傳一個新的空陣列就是每幀配置 */
 const NO_SHIPS: readonly Ship[] = []
