@@ -878,6 +878,20 @@ const CRASH_BLAST_HEIGHT = 25
 const SCALED_BLAST: { -readonly [K in keyof BlastParams]: number } = { ...LAND_BLAST }
 
 /**
+ * 迫擊砲彈落地的爆炸：**炸彈那一份火球與粒子（`LAND_BLAST`）縮小**，尺度是基準彈的 0.4 倍
+ * （體積約十五分之一）。**純畫面**：不震鏡頭、不打燈、不點地面火 —— 一小團火與塵土。
+ * 起始值，由試飛裁定。
+ */
+const MORTAR_BLAST_SCALE = 0.4
+const MORTAR_BLAST: { -readonly [K in keyof BlastParams]: number } = { ...LAND_BLAST }
+scaleBlast(LAND_BLAST, MORTAR_BLAST_SCALE ** 3, MORTAR_BLAST)
+/** 每一發推一格，同一幀的兩團才不會噴成一樣的形狀 */
+let mortarSeed = 0
+const emitMortarBlast = (x: number, y: number, z: number): void => {
+  emitBlast(BLAST_POOLS, MORTAR_BLAST, x, y, z, (mortarSeed = (mortarSeed + 1) | 0))
+}
+
+/**
  * 空中擊墜的爆炸繼承多少母機速度。
  *
  * 【與 `FIREBALL_INHERIT` 同一個值、同一個理由】火球完全靜止的話，一架
@@ -1761,7 +1775,7 @@ function startWorld(cfg: BattleConfig): void {
   releaseGroundBattle()
   const theater = pendingMission?.battle.theater
   if (theater !== undefined && world.groundTargets.length > 0) {
-    groundBattle = createGroundBattle(theater, emitFirePuff, smokeTexture)
+    groundBattle = createGroundBattle(theater, emitFirePuff, smokeTexture, emitMortarBlast)
     for (const o of groundBattle.objects) ctx.scene.add(o)
   }
   // 氣球與船同一個做法：每一場重建
@@ -4251,6 +4265,13 @@ const GFX_HIDDEN_LAYER = 31
 
 /** **量測出口**：地面戰的戲開場到現在打了幾發。`null` = 這一場沒有戲 */
 ;(window as unknown as Record<string, unknown>)['__theater'] = () => groundBattle?.shots ?? null
+
+/** **量測出口**：迫擊砲彈開場到現在發了幾發、落地幾發、最近一發落在哪裡。`null` = 這一場沒有戲 */
+;(window as unknown as Record<string, unknown>)['__mortars'] = () => groundBattle === null ? null : {
+  shots: groundBattle.arcShots,
+  landed: groundBattle.arcLanded,
+  last: { ...groundBattle.arcLastLanding },
+}
 
 /**
  * **量測出口**：把紅方 `unit` 的前 `n` 台（省略 = 全部）直接打掉。

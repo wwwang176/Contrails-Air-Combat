@@ -14,8 +14,8 @@ const body = (from: string, to: string): string => {
 }
 
 describe('人死不爆炸', () => {
-  it('只有步兵是人', () => {
-    expect(GROUND_UNITS.filter((u) => u.personnel === true).map((u) => u.id)).toEqual(['infantry'])
+  it('只有步兵與迫擊砲（砲組）是人', () => {
+    expect(GROUND_UNITS.filter((u) => u.personnel === true).map((u) => u.id)).toEqual(['infantry', 'mortar'])
   })
 
   /** 死掉的人不畫；死掉的別種單位照舊畫成焦黑 */

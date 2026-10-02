@@ -104,6 +104,7 @@ export const zh = {
   'name.ground.panzer4': 'IV 號戰車',
   'name.ground.tiger': '虎式戰車',
   'name.ground.infantry': '步兵班',
+  'name.ground.mortar': '迫擊砲',
   'name.ground.flakHeavy': '8.8 cm Flak 18',
   'name.ground.flakLight': '2 cm Flakvierling 38',
   'name.ground.usTank': 'M4A3 雪曼',

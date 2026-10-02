@@ -54,6 +54,7 @@ const GROUND: Readonly<Record<GroundUnitId, MessageKey>> = {
   panzer4: 'name.ground.panzer4',
   tiger: 'name.ground.tiger',
   infantry: 'name.ground.infantry',
+  mortar: 'name.ground.mortar',
   flakHeavy: 'name.ground.flakHeavy',
   flakLight: 'name.ground.flakLight',
   usTank: 'name.ground.usTank',

@@ -7,6 +7,8 @@ import { createDust } from './blast'
 import { createTracers, type TracerSource } from './tracers'
 import { hash01 } from './scatter'
 import { FIRE_SECONDS, type FirePuffFn } from './shipFires'
+import { solveArc, type ArcShot } from './arc'
+import { createArcTrails } from './arcTrails'
 
 /**
  * # 地面戰的戲
@@ -63,6 +65,26 @@ export const BURNS: ReadonlySet<GroundUnitId> = new Set<GroundUnitId>(['panzer4'
  * 一輛燒毀的戰車悶燒幾分鐘就熄，不是整場一直冒；整場的煙柱數也有上限。**起始值，由試飛裁定。**
  */
 export const WRECK_SMOKE_SECONDS = 150
+
+/**
+ * 迫擊砲：高拋物線的間接射擊，**起始值，由試飛裁定**。
+ *
+ * 【仰角 60°】迫擊砲只能高角度發射（45°～85°）。彈道由距離反解（`arc.ts`），所以 1 km 外的
+ * 目標飛約 19 秒、最高 430 m。
+ */
+export const MORTAR_ELEVATION = (60 * Math.PI) / 180
+/** 射程的下界與上界，m。太近打不出弧線，太遠超出戰場 */
+export const MORTAR_RANGE_MIN = 150
+export const MORTAR_RANGE_MAX = 2600
+/** 平均每幾秒一發。比直射慢：一發要飛將近二十秒，同時在天上的才不會太多 */
+export const MORTAR_PERIOD = 12
+/** 落點在目標周圍散佈的半徑，m。純畫面，不改任何單位的血量 */
+export const MORTAR_SCATTER = 35
+/** 砲口離地的高度，m。立方體的高 */
+const MORTAR_MUZZLE_HEIGHT = 1.2
+
+/** 打間接射擊的單位 */
+const ARC_SHOOTERS: ReadonlySet<GroundUnitId> = new Set<GroundUnitId>(['mortar'])
 
 /** 戲裡同時在飛的曳光彈上限 */
 const SHELL_CAPACITY = 256
@@ -160,6 +182,11 @@ export interface GroundBattle {
   readonly shots: number
   /** 其中瞄準點就是目標、會爆出火光的（命中）有幾發。量測用 */
   readonly hitShots: number
+  /** 迫擊砲開場到現在發了幾發（高拋物線，不計入 `shots`），與其中已經落地的。量測用 */
+  readonly arcShots: number
+  readonly arcLanded: number
+  /** 最近一發落在哪裡（還沒落過就是原點）。量測用：驗收要把鏡頭擺到落點旁 */
+  readonly arcLastLanding: Readonly<{ x: number; y: number; z: number }>
   /**
    * @param time 世界秒數（`world.time`），排程吃它
    * @param frameDt 這一幀世界前進了多少秒，粒子與曳光吃它
@@ -183,14 +210,17 @@ function gunSmokeColor(_t: number, out: Color): void {
 /**
  * @param burn 長燒的煙。與地面火同一份配方（`main.ts` 的 `emitFirePuff`）
  * @param smokeTexture 塵土的不透明度貼圖，與爆炸的塵土同一張
+ * @param impact 迫擊砲彈落地的爆炸，世界座標。**與炸彈同一份火球與粒子的配方，只是縮小**
+ *   （`main.ts` 的 `emitMortarBlast`）；省略 = 落地沒有表現
  */
 export function createGroundBattle(
   theater: MissionTheater, burn: FirePuffFn, smokeTexture?: Texture,
+  impact: (x: number, y: number, z: number) => void = () => {},
 ): GroundBattle {
   const shooters = new Set<GroundUnitId>(theater.shooters)
   const isTarget = (id: GroundUnitId): boolean => shooters.has(id)
-  /** 劇本打掉的最後一發由戰車與砲打，步兵的槍打不穿 */
-  const isTank = (id: GroundUnitId): boolean => shooters.has(id) && id !== 'infantry'
+  /** 劇本打掉的最後一發由戰車與砲打（直射的砲彈）：步兵的槍打不穿，迫擊砲的彈是高拋的 */
+  const isTank = (id: GroundUnitId): boolean => shooters.has(id) && id !== 'infantry' && !ARC_SHOOTERS.has(id)
 
   // 【比真的大一號】玩家在 1.5～2 km 外往下看，照實的 3 m 槍焰只有兩三個像素
   const flash = createParticles({
@@ -206,7 +236,8 @@ export function createGroundBattle(
   const bullets = createShellPool(BULLET_CAPACITY)
   const shellTracers = createTracers(SHELL_CAPACITY)
   const bulletTracers = createTracers(BULLET_CAPACITY, 0.5)
-  // 【命名】量測出口（`__sceneList`）靠名字認出這幾池
+  const arcTrails = createArcTrails()
+  // 【命名】量測出口（`__sceneList`）靠名字認出這幾池（尾流自己取名）
   flash.object.name = 'groundBattle.flash'
   gunSmoke.object.name = 'groundBattle.gunSmoke'
   dust.object.name = 'groundBattle.dust'
@@ -225,6 +256,69 @@ export function createGroundBattle(
   let lastTime = -1
   let shots = 0
   let hitShots = 0
+  let arcShots = 0
+  let arcLanded = 0
+  const arcLastLanding = { x: 0, y: 0, z: 0 }
+  /** `lob` 解出來的彈道，交給尾流之前的暫存。熱路徑：不配置 */
+  const arcShot: ArcShot = { x0: 0, y0: 0, z0: 0, vx: 0, vy: 0, vz: 0, flight: 0 }
+
+  /** 迫擊砲彈落地：爆炸交給呼叫端（炸彈的火球與粒子，縮小一號） */
+  function land(x: number, y: number, z: number): void {
+    arcLanded++
+    arcLastLanding.x = x
+    arcLastLanding.y = y
+    arcLastLanding.z = z
+    impact(x, y, z)
+  }
+
+  /**
+   * 第 `s` 台（迫擊砲）發一發高拋物線的彈：射程內任何還活著的敵方單位，挑哪一個由雜湊決定；
+   * 落點在它周圍散佈。沒有目標、或解不出彈道就不發
+   */
+  function lob(
+    targets: readonly GroundTarget[], s: number, k: number,
+    groundAt: (x: number, z: number) => number,
+  ): void {
+    const me = targets[s]!
+    const near = MORTAR_RANGE_MIN * MORTAR_RANGE_MIN
+    const far = MORTAR_RANGE_MAX * MORTAR_RANGE_MAX
+    // 兩趟：先數有幾個候選，再取第 `pick` 個 —— 不配置陣列
+    let n = 0
+    for (let j = 0; j < targets.length; j++) {
+      const t = targets[j]!
+      if (t.team === me.team || !inPlay(t)) continue
+      const dx = t.position.x - me.position.x
+      const dz = t.position.z - me.position.z
+      const d2 = dx * dx + dz * dz
+      if (d2 >= near && d2 <= far) n++
+    }
+    if (n === 0) return
+    const seed = s * 7919 + k
+    let pick = Math.min(n - 1, Math.floor(hash01(seed + 3) * n))
+    let them: GroundTarget | null = null
+    for (let j = 0; j < targets.length && them === null; j++) {
+      const t = targets[j]!
+      if (t.team === me.team || !inPlay(t)) continue
+      const dx = t.position.x - me.position.x
+      const dz = t.position.z - me.position.z
+      const d2 = dx * dx + dz * dz
+      if (d2 >= near && d2 <= far && pick-- === 0) them = t
+    }
+    if (them === null) return
+    const a = hash01(seed + 1) * TWO_PI
+    const r = Math.sqrt(hash01(seed + 2)) * MORTAR_SCATTER
+    const tx = them.position.x + Math.cos(a) * r
+    const tz = them.position.z + Math.sin(a) * r
+    const ox = me.position.x
+    const oy = me.position.y + MORTAR_MUZZLE_HEIGHT
+    const oz = me.position.z
+    if (!solveArc(ox, oy, oz, tx - ox, groundAt(tx, tz) - oy, tz - oz, MORTAR_ELEVATION, arcShot)) return
+    arcTrails.spawn(arcShot)
+    arcShots++
+    // 砲口：垂直的管子，一小團槍焰與往上飄的煙
+    flash.emit(ox, oy, oz, 0, 0, 0, 0.8)
+    gunSmoke.emit(ox, oy + 0.3, oz, 0, 4, 0, 1)
+  }
 
   function fire(
     pool: ShellPool, ox: number, oy: number, oz: number,
@@ -321,9 +415,12 @@ export function createGroundBattle(
   }
 
   return {
-    objects: [flash.object, gunSmoke.object, dust.object, shellTracers.object, bulletTracers.object],
+    objects: [flash.object, gunSmoke.object, dust.object, shellTracers.object, bulletTracers.object, arcTrails.object],
     get shots() { return shots },
     get hitShots() { return hitShots },
+    get arcShots() { return arcShots },
+    get arcLanded() { return arcLanded },
+    get arcLastLanding() { return arcLastLanding },
 
     update(targets, time, frameDt, groundAt) {
       if (trackClock.length !== targets.length) {
@@ -339,8 +436,13 @@ export function createGroundBattle(
         const me = targets[s]!
         if (!inPlay(me)) continue
         if (shooters.has(me.unit.id)) {
-          const n = shotTimesBetween(s, theater.period, t0, time, shotBuf)
-          for (let k = 0; k < n; k++) shoot(targets, s, Math.round(shotBuf[k]! * 10), groundAt)
+          if (ARC_SHOOTERS.has(me.unit.id)) {
+            const n = shotTimesBetween(s, MORTAR_PERIOD, t0, time, shotBuf)
+            for (let k = 0; k < n; k++) lob(targets, s, Math.round(shotBuf[k]! * 10), groundAt)
+          } else {
+            const n = shotTimesBetween(s, theater.period, t0, time, shotBuf)
+            for (let k = 0; k < n; k++) shoot(targets, s, Math.round(shotBuf[k]! * 10), groundAt)
+          }
         }
         // 【照劇本被打掉的，最後挨一發命中的砲彈】`killAt` 在未來 `KILL_SHOT_LEAD` 秒內的，由射程內
         // 最近的敵方戰車（不是步兵）補一發必中、算好飛行時間讓它在 `killAt` 落地：看得到是誰打的，
@@ -407,6 +509,7 @@ export function createGroundBattle(
         }
       }
 
+      arcTrails.step(frameDt, land)
       stepPool(shells, frameDt, false)
       stepPool(bullets, frameDt, true)
       shellTracers.update(shells)
@@ -425,6 +528,12 @@ export function createGroundBattle(
       lastTime = -1
       shots = 0
       hitShots = 0
+      arcShots = 0
+      arcLanded = 0
+      arcLastLanding.x = 0
+      arcLastLanding.y = 0
+      arcLastLanding.z = 0
+      arcTrails.reset()
       burnClock = 0
       artilleryClock = 0
       trackClock.fill(0)
@@ -438,6 +547,7 @@ export function createGroundBattle(
       dust.dispose()
       shellTracers.dispose()
       bulletTracers.dispose()
+      arcTrails.dispose()
     },
   }
 }

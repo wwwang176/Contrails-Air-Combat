@@ -102,6 +102,7 @@ export const en: Record<MessageKey, string> = {
   'name.ground.panzer4': 'Panzer IV',
   'name.ground.tiger': 'Tiger I',
   'name.ground.infantry': 'Infantry squad',
+  'name.ground.mortar': 'Mortar',
   'name.ground.flakHeavy': '8.8 cm Flak 18',
   'name.ground.flakLight': '2 cm Flakvierling 38',
   'name.ground.usTank': 'M4A3 Sherman',

@@ -50,6 +50,8 @@ export const GROUND_HP: Readonly<Record<GroundUnitId, number>> = {
   tiger: 1_500,
   // 一個班：近失彈就倒，機槍也掃得掉
   infantry: 60,
+  // 砲組：近失彈就倒，機槍也掃得掉
+  mortar: 60,
   flakHeavy: 400,
   flakLight: 160,
   // 美軍三台與上面對應的那三種同一個量級：戰車靠裝甲、卡車與防空車掃射得掉
@@ -95,6 +97,7 @@ export const GROUND_ARMOUR: Readonly<Record<GroundUnitId, number>> = {
   panzer4: 80,
   tiger: 100,
   infantry: 0,
+  mortar: 0,
   flakHeavy: 0,
   flakLight: 0,
   // 雪曼車體前方 51 mm —— 與 T-34 一樣只有炸彈炸得掉
@@ -135,8 +138,9 @@ export const GROUND_VALUE: Readonly<Partial<Record<GroundUnitId, number>>> = {
   atGun: 5_000,
   tank: 2_000,
   tankDug: 600,
-  // 步兵不是任務目標，AI 不拿炸彈去追他們
+  // 步兵與迫擊砲不是任務目標，AI 不拿炸彈去追他們
   infantry: 10,
+  mortar: 10,
 }
 
 export interface GroundTarget extends StrikeTarget {

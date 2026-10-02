@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
-  BURN_EVERY, BURNS, createGroundBattle, nearestEnemy, shotTimesBetween, SHOT_JITTER, WRECK_SMOKE_SECONDS,
+  BURN_EVERY, BURNS, createGroundBattle, MORTAR_ELEVATION, MORTAR_PERIOD, MORTAR_RANGE_MAX, MORTAR_RANGE_MIN,
+  MORTAR_SCATTER, nearestEnemy, shotTimesBetween, SHOT_JITTER, WRECK_SMOKE_SECONDS,
 } from '../../src/render/groundBattle'
+import { solveArc, type ArcShot } from '../../src/render/arc'
+import { ARC_TRAIL_CAPACITY, ARC_TRAIL_SECONDS } from '../../src/render/arcTrails'
 import { FIRE_SECONDS } from '../../src/render/shipFires'
 import { BLAST_PACE, FIRE_BLAST } from '../../src/render/blast'
 import { FIRE_CHUNK_CAPACITY, FIRE_CHUNK_LIFE } from '../../src/render/chunks'
@@ -203,6 +206,158 @@ describe('劇本打掉前的最後一發', () => {
     run([infantry, victim], 0, 40, gb)
     expect(gb.shots).toBe(0)
     gb.dispose()
+  })
+})
+
+/**
+ * 【迫擊砲：高拋物線的間接射擊】不走直射的曳光彈：發射、飛行、落地各一次，落地時小爆炸。
+ * 直射的週期設得極大，場上只剩迫擊砲在打。
+ */
+describe('迫擊砲', () => {
+  const theater = { shooters: ['mortar', 'tank'], period: 1e6, range: 1500 } as const
+  const flat = (): number => 0
+  const run = (targets: ReturnType<typeof createGroundTarget>[], to: number, gb: ReturnType<typeof createGroundBattle>): void => {
+    for (let t = 0; t < to; t += 0.1) gb.update(targets, t, 0.1, flat)
+  }
+  const mortar = (team: 'red' | 'blue', x: number): ReturnType<typeof createGroundTarget> => createGroundTarget(0, 'mortar', team, x, 0, 0)
+  const tank = (team: 'red' | 'blue', x: number, i = 1): ReturnType<typeof createGroundTarget> => createGroundTarget(i, 'tank', team, x, 0, 0)
+
+  it('射程內的敵方挨炮：打出弧線彈、飛完落地各通報一次；直射的發數不增', () => {
+    const gb = createGroundBattle(theater as never, () => {})
+    const targets = [mortar('red', 0), tank('blue', 900)]
+    run(targets, 100, gb)
+    expect(gb.arcShots).toBeGreaterThanOrEqual(5)
+    expect(gb.arcShots).toBeLessThanOrEqual(10)
+    // 飛行時間約 18 秒：100 秒時早發的已經落地，不是全部都還在天上
+    expect(gb.arcLanded).toBeGreaterThan(0)
+    expect(gb.arcLanded).toBeLessThanOrEqual(gb.arcShots)
+    expect(gb.shots).toBe(0)
+    gb.dispose()
+  })
+
+  it('飛行時間之後一定落地：發完最後一發再等一個尾流長度，全部落地', () => {
+    const gb = createGroundBattle(theater as never, () => {})
+    const m = mortar('red', 0)
+    const t = tank('blue', 900)
+    // 只讓迫擊砲活 30 秒：之後它不再發，剩下在飛的自己落地
+    for (let s = 0; s < 300; s++) gb.update([m, t], s * 0.1, 0.1, flat)
+    m.alive = false
+    expect(gb.arcShots).toBeGreaterThan(0)
+    for (let s = 300; s < 300 + 600; s++) gb.update([m, t], s * 0.1, 0.1, flat)
+    expect(gb.arcLanded).toBe(gb.arcShots)
+    gb.dispose()
+  })
+
+  it('同隊、太遠、太近、沒列在 shooters 的都不打', () => {
+    const cases: [string, ReturnType<typeof createGroundTarget>[], unknown][] = [
+      ['同隊', [mortar('red', 0), tank('red', 900)], theater],
+      ['太遠', [mortar('red', 0), tank('blue', MORTAR_RANGE_MAX + 200)], theater],
+      ['太近', [mortar('red', 0), tank('blue', MORTAR_RANGE_MIN - 50)], theater],
+      ['沒列在 shooters', [mortar('red', 0), tank('blue', 900)], { ...theater, shooters: ['tank'] }],
+    ]
+    for (const [name, targets, th] of cases) {
+      const gb = createGroundBattle(th as never, () => {})
+      run(targets, 60, gb)
+      expect(gb.arcShots, name).toBe(0)
+      gb.dispose()
+    }
+  })
+
+  it('死掉的迫擊砲不打，死掉的目標不挨', () => {
+    const dead = createGroundBattle(theater as never, () => {})
+    const m = mortar('red', 0)
+    m.alive = false
+    run([m, tank('blue', 900)], 60, dead)
+    expect(dead.arcShots).toBe(0)
+    dead.dispose()
+    const gone = createGroundBattle(theater as never, () => {})
+    const t = tank('blue', 900)
+    t.alive = false
+    run([mortar('red', 0), t], 60, gone)
+    expect(gone.arcShots).toBe(0)
+    gone.dispose()
+  })
+
+  /** 劇本打掉前的最後一發是直射的砲彈（必中、曳光），迫擊砲的高拋彈不能代打 */
+  it('劇本打掉前的最後一發不由迫擊砲補', () => {
+    const gb = createGroundBattle({ ...theater, period: 1e6 } as never, () => {})
+    const victim = tank('red', 600, 1)
+    victim.killAt = 30
+    const m = createGroundTarget(0, 'mortar', 'blue', 0, 0, 0)
+    for (let t = 0; t < 40; t += 0.1) gb.update([m, victim], t, 0.1, flat)
+    expect(gb.shots).toBe(0)
+    expect(gb.hitShots).toBe(0)
+    gb.dispose()
+  })
+
+  it('同一段時間同一組結果：切成大幀或小幀發出的彈數一樣', () => {
+    const count = (dt: number): number => {
+      const gb = createGroundBattle(theater as never, () => {})
+      const targets = [mortar('red', 0), tank('blue', 900)]
+      for (let t = 0; t < 60; t += dt) gb.update(targets, t, dt, flat)
+      const n = gb.arcShots
+      gb.dispose()
+      return n
+    }
+    expect(count(0.05)).toBe(count(0.5))
+  })
+
+  /** 落地的爆炸由呼叫端給（炸彈的配方縮小，`main.ts`）：每一發落地呼叫一次，落在目標的散佈半徑之內、貼地 */
+  it('每一發落地呼叫一次爆炸回呼，落點在目標周圍 MORTAR_SCATTER 之內', () => {
+    const blasts: { x: number; y: number; z: number }[] = []
+    const gb = createGroundBattle(theater as never, () => {}, undefined, (x, y, z) => { blasts.push({ x, y, z }) })
+    const m = mortar('red', 0)
+    const t = tank('blue', 900)
+    for (let s = 0; s < 300; s++) gb.update([m, t], s * 0.1, 0.1, flat)
+    m.alive = false
+    for (let s = 300; s < 900; s++) gb.update([m, t], s * 0.1, 0.1, flat)
+    expect(gb.arcShots).toBeGreaterThan(0)
+    expect(blasts).toHaveLength(gb.arcLanded)
+    expect(blasts).toHaveLength(gb.arcShots)
+    for (const b of blasts) {
+      expect(Math.hypot(b.x - 900, b.z - 0)).toBeLessThanOrEqual(MORTAR_SCATTER + 1e-6)
+      expect(b.y).toBeCloseTo(0, 6)
+    }
+    gb.dispose()
+  })
+
+  it('尾流是場景物件之一，換場清空（含上一場的落點）', () => {
+    const gb = createGroundBattle(theater as never, () => {})
+    expect(gb.objects.some((o) => o.name === 'groundBattle.arcTrails')).toBe(true)
+    run([mortar('red', 0), tank('blue', 900)], 90, gb)
+    expect(gb.arcShots).toBeGreaterThan(0)
+    expect(gb.arcLanded).toBeGreaterThan(0)
+    expect(gb.arcLastLanding.x).not.toBe(0)
+    gb.reset()
+    expect(gb.arcShots).toBe(0)
+    expect(gb.arcLanded).toBe(0)
+    expect({ ...gb.arcLastLanding }).toEqual({ x: 0, y: 0, z: 0 })
+    gb.dispose()
+  })
+
+  /**
+   * 【池子要夠大】尾流池滿了會蓋掉還在飛的一發，那一發永遠不落地（沒有爆炸）。最壞情況由卡片算：
+   * 每門迫擊砲同時在天上與收尾的彈數 ≤ ⌈(最遠的飛行時間 + 收尾) ÷ 週期⌉ + 1
+   */
+  it('尾流池的容量夠德 M4 的最壞情況', () => {
+    const card = MISSIONS.germany.find((c) => c.id === 'germany-m4') as ReadyMissionCard
+    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
+    const targets = b.world.groundTargets
+    const sol: ArcShot = { x0: 0, y0: 0, z0: 0, vx: 0, vy: 0, vz: 0, flight: 0 }
+    let slots = 0
+    for (const m of targets) {
+      if (m.unit.id !== 'mortar') continue
+      let farthest = 0
+      for (const t of targets) {
+        if (t.team === m.team) continue
+        const d = Math.hypot(t.position.x - m.position.x, t.position.z - m.position.z)
+        if (d < MORTAR_RANGE_MIN || d > MORTAR_RANGE_MAX) continue
+        if (solveArc(0, 0, 0, d, 0, 0, MORTAR_ELEVATION, sol)) farthest = Math.max(farthest, sol.flight)
+      }
+      slots += Math.ceil((farthest + ARC_TRAIL_SECONDS) / MORTAR_PERIOD) + 1
+    }
+    expect(slots).toBeGreaterThan(20)
+    expect(slots).toBeLessThanOrEqual(ARC_TRAIL_CAPACITY)
   })
 })
 

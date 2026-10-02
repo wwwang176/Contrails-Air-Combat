@@ -10,8 +10,8 @@ import { GROUND_FLAK_SPEC } from '../../world/shipGuns'
 import { JU87 } from '../../specs/ju87'
 import {
   ARTILLERY_ZONE, AT_GUNS, COLUMN_GAP, COLUMN_SPEED, COLUMN_TURN_RADIUS, FRONT_T34, FRONT_T34_SCRIPTED,
-  GERMAN_INFANTRY, KURSK_SMOKES, PANZER_ROUTE_A, PANZER_ROUTE_B, SOVIET_FLAK, SOVIET_INFANTRY,
-  SOVIET_TRUCKS, STALLED_PANZERS, T34_RESERVE_EAST, T34_RESERVE_WEST, WRECK_PANZERS, WRECK_T34,
+  GERMAN_INFANTRY, GERMAN_MORTARS, KURSK_SMOKES, PANZER_ROUTE_A, PANZER_ROUTE_B, SOVIET_FLAK, SOVIET_INFANTRY,
+  SOVIET_MORTARS, SOVIET_TRUCKS, STALLED_PANZERS, T34_RESERVE_EAST, T34_RESERVE_WEST, WRECK_PANZERS, WRECK_T34,
 } from '../../world/kursk'
 import { POLTAVA_GROUND } from './shared'
 import type { GroundEntry, MissionCard, MissionTrigger } from './types'
@@ -52,6 +52,8 @@ const KURSK_GROUND: readonly GroundEntry[] = [
   ...SOVIET_INFANTRY.map((s): GroundEntry => ({ unit: 'infantry', team: 'red', ...s })),
   ...GERMAN_INFANTRY.map((s): GroundEntry => ({ unit: 'infantry', team: 'blue', ...s })),
   ...SOVIET_FLAK.map((s): GroundEntry => ({ unit: 'flakLight', team: 'red', ...s })),
+  ...SOVIET_MORTARS.map((s): GroundEntry => ({ unit: 'mortar', team: 'red', ...s })),
+  ...GERMAN_MORTARS.map((s): GroundEntry => ({ unit: 'mortar', team: 'blue', ...s })),
   ...SOVIET_TRUCKS.map((s): GroundEntry => ({ unit: 'truck', team: 'red', ...s })),
 ]
 
@@ -267,7 +269,7 @@ export const GERMANY: readonly MissionCard[] = [
       },
       // 【節奏】一台平均 4 秒一發，步兵的班也一樣；再慢從空中看起來像沒在交火。砲兵的彈著 1.6 秒一柱
       theater: {
-        shooters: ['panzer4', 'tiger', 'tank', 'tankDug', 'atGun', 'infantry'],
+        shooters: ['panzer4', 'tiger', 'tank', 'tankDug', 'atGun', 'infantry', 'mortar'],
         period: 4,
         range: 1500,
         artillery: { ...ARTILLERY_ZONE, period: 1.6 },
