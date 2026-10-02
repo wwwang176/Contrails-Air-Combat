@@ -49,6 +49,9 @@ import {
 } from './bombRun'
 import type { StrikeProfile } from './strikeRun'
 import { createStrikeState, resetStrike, stepStrike } from './strikeRun'
+import {
+  createDiveBombState, DIVE_RANK_COUNT, pickDiveTarget, resetDiveBomb, stepDiveBomb, type DivePhase,
+} from './diveBomb'
 import { setTorpedoBallistics } from './torpedoRun'
 import { BOMB_BLAST_RADIUS, type BombBay } from '../weapons/bomb'
 
@@ -357,6 +360,13 @@ export class AiController implements Controller {
   private controlOverride = 'off'
   /** 飛越地面目標後，先完成離場再准許回頭的跨格狀態。 */
   private readonly groundStrafe = createGroundStrafeState()
+  /**
+   * 俯衝投彈的狀態（`ai/diveBomb.ts`）。**只有 `spec.diveBomber` 的機種會動它**；其他機種這一份
+   * 永遠是初始值。
+   */
+  readonly diveBomb = createDiveBombState()
+  /** 俯衝投彈現在在哪一個相位。探針與測試讀 */
+  get diveBombPhase(): DivePhase { return this.diveBomb.phase }
   /** 只供 HUD／探針／測試辨認目前是進場還是離場。 */
   get groundStrafePhase() { return this.groundStrafe.phase }
   /** 本次離場動態算出的回頭門檻，m；非離場時為 0。 */
@@ -375,7 +385,8 @@ export class AiController implements Controller {
   private strafeGround(
     self: Aircraft, decide: boolean, out: Command, onlyUnit: GroundUnitId | null = null,
   ): boolean {
-    if (this.groundTargets.length === 0 || self.spec.role !== 'fighter') {
+    const dives = self.spec.diveBomber === true
+    if (this.groundTargets.length === 0 || (self.spec.role !== 'fighter' && !dives)) {
       this.groundAim = -1
       resetGroundStrafe(this.groundStrafe)
       return false
@@ -386,6 +397,8 @@ export class AiController implements Controller {
       resetGroundStrafe(this.groundStrafe)
       return false
     }
+    // 【俯衝轟炸機走自己的行為】任務指定了優先地面單位、以及沒有空中目標時排在站位之前，都從這裡進
+    if (dives) return this.diveBombGround(self, decide, out, onlyUnit)
     // 【離場途中也挑】挑到的是下一趟要打的那一台；離場拉開到它的回頭門檻才轉回來
     // （`groundStrafeCommand` 換目標時不打斷離場）。
     //
@@ -409,6 +422,48 @@ export class AiController implements Controller {
     this.bombGround(self, t, decide, out)
     this.groundAttackActive = true
     this.groundStrafeActive = true
+    return true
+  }
+
+  /**
+   * 俯衝投彈（`ai/diveBomb.ts`）：平飛到目標上方、壓機鼻俯衝、離目標 500 m 投彈、拉起。回傳 true
+   * 代表 `out` 已經寫滿。**只給 `spec.diveBomber` 的機種。**
+   *
+   * 【各架挑不同的目標】名次是 `selfIndex` 對 `DIVE_RANK_COUNT` 取餘數，距離從長機的位置量（長機自己
+   * 量自己的）：各架各量各的位置，排序會不同，不同名次不保證挑到不同的目標。
+   *
+   * 【一趟之內不換目標】名次靠後的目標，排序隨長機的位置每個決策拍都可能換；一直換目標就一直轉向、
+   * 掉速、對不準，永遠壓不下機鼻。只在脫離時重挑，脫離結束前最後一次挑的就是下一趟的目標；目標死了
+   * 或還沒有也補挑。俯衝與拉起鎖著瞄準點，目標中途被炸掉也要把這一趟飛完，所以那兩個相位沒有目標時
+   * 照樣呼叫。
+   *
+   * 【不走掃射的解除閘門】那一套（`groundStrafeActive`）會在對地俯衝時驗證改出、必要時把機首拉平，
+   * 為低空掃射設計；俯衝投彈自己決定幾時拉起，安全層（`applySafety`）仍是最後一道。
+   */
+  private diveBombGround(
+    self: Aircraft, decide: boolean, out: Command, onlyUnit: GroundUnitId | null = null,
+  ): boolean {
+    const me = this.board?.candidates[this.selfIndex]
+    if (me === undefined) return false
+    const state = this.diveBomb
+    const flying = state.phase === 'dive' || state.phase === 'pullout'
+    let target = this.groundAim >= 0 ? this.groundTargets[this.groundAim] : undefined
+    if (!flying) {
+      if ((decide && state.phase === 'egress') || target === undefined || !target.alive) {
+        const ref = this.stationReference !== null ? this.stationReference.state.position : self.state.position
+        const rank = this.selfIndex >= 0 ? this.selfIndex % DIVE_RANK_COUNT : 0
+        this.groundAim = pickDiveTarget(ref, me.team, this.groundTargets, SHIP_ATTACK_RANGE, rank, onlyUnit)
+        target = this.groundAim >= 0 ? this.groundTargets[this.groundAim] : undefined
+      }
+      if (target === undefined || !target.alive) {
+        this.groundAim = -1
+        return false
+      }
+    }
+    const bay = this.bombBay
+    const loaded = bay !== null && bay.capacity > 0 && (bay.load > 0 || bay.queue > 0)
+    stepDiveBomb(state, self, target !== undefined && target.alive ? target : null, loaded, out)
+    this.groundAttackActive = true
     return true
   }
 
@@ -474,6 +529,11 @@ export class AiController implements Controller {
       this.shipAim.ship = -1
       this.strikeRef.index = -1
       return false
+    }
+    // 【俯衝轟炸機有地面目標就俯衝】沒有可打的地面目標（回傳 false）才往下走船的水平轟炸
+    if (self.spec.diveBomber === true && this.groundTargets.length > 0
+      && this.diveBombGround(self, decide, out)) {
+      return true
     }
     if (decide) {
       pickShipTarget(self.state.position, me.team, this.ships, this.shipAim, self.state.velocity)
@@ -600,6 +660,7 @@ export class AiController implements Controller {
     // 新的一場 —— 與地形的承諾同一個理由，也同一個呼叫點。
     resetStrike(this.strike)
     resetBombAim(this.bombAim)
+    resetDiveBomb(this.diveBomb)
     this.shipAim.ship = -1
     this.strikeRef.index = -1
     this.groundAim = -1
