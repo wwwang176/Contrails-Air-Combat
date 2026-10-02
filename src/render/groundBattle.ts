@@ -78,6 +78,11 @@ export const MORTAR_RANGE_MIN = 150
 export const MORTAR_RANGE_MAX = 2600
 /** 平均每幾秒一發。比直射慢：一發要飛將近二十秒，同時在天上的才不會太多 */
 export const MORTAR_PERIOD = 12
+/**
+ * 開場補上多久之前發出的彈，s。要大於最遠一發的飛行時間（`MORTAR_RANGE_MAX` 約 30 秒），
+ * 否則遠處的目標在開場時天上少了幾發
+ */
+export const MORTAR_OPENING = 32
 /** 落點在目標周圍散佈的半徑，m。純畫面，不改任何單位的血量 */
 export const MORTAR_SCATTER = 35
 /** 砲口離地的高度，m。立方體的高 */
@@ -103,13 +108,16 @@ const TWO_PI = Math.PI * 2
  *
  * 第 k 發 = `phase + k × period + (2h − 1) × SHOT_JITTER × period`，h 是 (i, k) 的雜湊。
  * 抖動小於半個週期，所以序列遞增，區間的左開右閉保證跨幀不重複也不漏。
+ *
+ * @param kMin 最小的發序，預設 0（開場之後才有）。傳負數或 −Infinity 可以取開場之前的發
+ *   （迫擊砲開場時天上已經在飛的那幾發）
  */
 export function shotTimesBetween(
-  i: number, period: number, t0: number, t1: number, out: Float64Array,
+  i: number, period: number, t0: number, t1: number, out: Float64Array, kMin = 0,
 ): number {
   const phase = hash01(i * 7919 + 13) * period
   const reach = SHOT_JITTER * period
-  const k0 = Math.max(0, Math.floor((t0 - phase - reach) / period))
+  const k0 = Math.max(kMin, Math.floor((t0 - phase - reach) / period))
   const k1 = Math.floor((t1 - phase + reach) / period)
   let n = 0
   for (let k = k0; k <= k1 && n < out.length; k++) {
@@ -274,10 +282,13 @@ export function createGroundBattle(
   /**
    * 第 `s` 台（迫擊砲）發一發高拋物線的彈：射程內任何還活著的敵方單位，挑哪一個由雜湊決定；
    * 落點在它周圍散佈。沒有目標、或解不出彈道就不發
+   *
+   * @param flown 這一發已經飛了幾秒，預設 0（現在才發）。開場前發出的那幾發給正數：從那個位置
+   *   接著飛，沒有砲口的槍焰；已經落地的（`flown` ≥ 飛行時間）不加
    */
   function lob(
     targets: readonly GroundTarget[], s: number, k: number,
-    groundAt: (x: number, z: number) => number,
+    groundAt: (x: number, z: number) => number, flown = 0,
   ): void {
     const me = targets[s]!
     const near = MORTAR_RANGE_MIN * MORTAR_RANGE_MIN
@@ -313,8 +324,10 @@ export function createGroundBattle(
     const oy = me.position.y + MORTAR_MUZZLE_HEIGHT
     const oz = me.position.z
     if (!solveArc(ox, oy, oz, tx - ox, groundAt(tx, tz) - oy, tz - oz, MORTAR_ELEVATION, arcShot)) return
-    arcTrails.spawn(arcShot)
+    if (flown >= arcShot.flight) return
+    arcTrails.spawn(arcShot, flown)
     arcShots++
+    if (flown > 0) return
     // 砲口：垂直的管子，一小團槍焰與往上飄的煙
     flash.emit(ox, oy, oz, 0, 0, 0, 0.8)
     gunSmoke.emit(ox, oy + 0.3, oz, 0, 4, 0, 1)
@@ -429,7 +442,8 @@ export function createGroundBattle(
         killShot = new Uint8Array(targets.length)
       }
       // 【第一幀不補發】開場那一刻沒有「上一幀」，從 0 算的話會一口氣補上開場前的發數
-      const t0 = lastTime < 0 || time < lastTime ? time : lastTime
+      const first = lastTime < 0
+      const t0 = first || time < lastTime ? time : lastTime
       lastTime = time
 
       for (let s = 0; s < targets.length; s++) {
@@ -437,6 +451,14 @@ export function createGroundBattle(
         if (!inPlay(me)) continue
         if (shooters.has(me.unit.id)) {
           if (ARC_SHOOTERS.has(me.unit.id)) {
+            // 【開場天上就有彈】戰鬥是從中途開始的：第一幀補上開場前 `MORTAR_OPENING` 秒內發出、
+            // 還沒落地的那幾發，從它們已經飛到的位置接著飛。排程是時間的純函數，所以每次開場都一樣
+            if (first) {
+              const m = shotTimesBetween(s, MORTAR_PERIOD, time - MORTAR_OPENING, time, shotBuf, -Infinity)
+              for (let k = 0; k < m; k++) {
+                lob(targets, s, Math.round(shotBuf[k]! * 10), groundAt, time - shotBuf[k]!)
+              }
+            }
             const n = shotTimesBetween(s, MORTAR_PERIOD, t0, time, shotBuf)
             for (let k = 0; k < n; k++) lob(targets, s, Math.round(shotBuf[k]! * 10), groundAt)
           } else {

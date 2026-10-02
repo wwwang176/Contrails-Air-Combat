@@ -226,8 +226,9 @@ describe('迫擊砲', () => {
     const gb = createGroundBattle(theater as never, () => {})
     const targets = [mortar('red', 0), tank('blue', 900)]
     run(targets, 100, gb)
+    // 100 秒約 8 發，加上開場時已經在天上的一兩發
     expect(gb.arcShots).toBeGreaterThanOrEqual(5)
-    expect(gb.arcShots).toBeLessThanOrEqual(10)
+    expect(gb.arcShots).toBeLessThanOrEqual(13)
     // 飛行時間約 18 秒：100 秒時早發的已經落地，不是全部都還在天上
     expect(gb.arcLanded).toBeGreaterThan(0)
     expect(gb.arcLanded).toBeLessThanOrEqual(gb.arcShots)
@@ -246,6 +247,34 @@ describe('迫擊砲', () => {
     for (let s = 300; s < 300 + 600; s++) gb.update([m, t], s * 0.1, 0.1, flat)
     expect(gb.arcLanded).toBe(gb.arcShots)
     gb.dispose()
+  })
+
+  /** 【開場天上就有彈】戰鬥是從中途開始的：第一幀就有幾發在飛、各自落地一次，不是從一片空天開始 */
+  it('開場第一幀就有彈在天上，之後各自落地一次；開場前已經落地的不補', () => {
+    const gb = createGroundBattle(theater as never, () => {})
+    const targets = [mortar('red', 0), tank('blue', 900)]
+    gb.update(targets, 0, 0, flat)
+    expect(gb.arcShots).toBeGreaterThanOrEqual(1)
+    expect(gb.arcShots).toBeLessThanOrEqual(3)
+    expect(gb.arcLanded).toBe(0)
+    expect(gb.shots).toBe(0)
+    const opening = gb.arcShots
+    // 開場那一批 20 秒之內全部落地（1 km 的飛行時間約 19 秒）
+    for (let t = 0.1; t < 20; t += 0.1) gb.update(targets, t, 0.1, flat)
+    expect(gb.arcLanded).toBeGreaterThanOrEqual(opening)
+    gb.dispose()
+  })
+
+  it('開場那一批的飛行進度由「開場前多久發的」決定：同一個迫擊砲、同一個時刻，永遠同一組', () => {
+    const run = (): number[] => {
+      const blasts: number[] = []
+      const gb = createGroundBattle(theater as never, () => {}, undefined, (x, _y, z) => { blasts.push(Math.round(x * 10 + z)) })
+      const targets = [mortar('red', 0), tank('blue', 900)]
+      for (let t = 0; t < 25; t += 0.1) gb.update(targets, t, 0.1, flat)
+      gb.dispose()
+      return blasts
+    }
+    expect(run()).toEqual(run())
   })
 
   it('同隊、太遠、太近、沒列在 shooters 的都不打', () => {

@@ -62,8 +62,12 @@ export interface ArcTrails {
   readonly object: Mesh
   /** 現在有幾條（在飛的加上落地後正在收的） */
   readonly live: number
-  /** 加一發。池滿了蓋掉最舊的 */
-  spawn(shot: ArcShot): void
+  /**
+   * 加一發。池滿了蓋掉最舊的。
+   *
+   * @param age 已經飛了幾秒，預設 0。開場時天上已經有的彈從這裡開始，要小於 `flight`（已經落地的不加）
+   */
+  spawn(shot: ArcShot, age?: number): void
   /**
    * 前進 `dt` 秒並重寫頂點。這一步落地的每一發呼叫一次 `land(x, y, z)`（落點）。
    * **渲染幀率呼叫，不在物理步裡。**
@@ -170,7 +174,7 @@ export function createArcTrails(capacity: number = ARC_TRAIL_CAPACITY): ArcTrail
     object,
     get live() { return liveCount },
 
-    spawn(shot) {
+    spawn(shot, flown = 0) {
       const i = cursor
       cursor = (i + 1) % capacity
       const s = shots[i]!
@@ -181,7 +185,7 @@ export function createArcTrails(capacity: number = ARC_TRAIL_CAPACITY): ArcTrail
       s.vy = shot.vy
       s.vz = shot.vz
       s.flight = shot.flight
-      age[i] = 0
+      age[i] = flown
       if (live[i] === 0) liveCount++
       live[i] = 1
     },

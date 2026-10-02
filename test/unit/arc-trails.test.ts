@@ -133,6 +133,25 @@ describe('迫擊砲的白色尾流', () => {
     trails.dispose()
   })
 
+  /** 開場時天上已經有的彈：從已經飛了幾秒的位置開始，落地的時刻是「飛行時間 − 已飛」之後 */
+  it('帶著已飛的秒數發射：頭端在那一刻的位置，剩下的時間飛完就落地', () => {
+    const trails = createArcTrails()
+    const s = shot(1000, 0)
+    trails.spawn(s, 10)
+    trails.step(0, noop)
+    const p: ArcPoint = { x: 0, y: 0, z: 0 }
+    arcAt(s, 10, p)
+    const head = ring(read(trails).pos, 0, ARC_TRAIL_RINGS - 1).c
+    expect(head.x).toBeCloseTo(p.x, 3)
+    expect(head.y).toBeCloseTo(p.y, 3)
+    let landed = 0
+    trails.step(s.flight - 10 - 0.5, () => { landed++ })
+    expect(landed).toBe(0)
+    trails.step(1, () => { landed++ })
+    expect(landed).toBe(1)
+    trails.dispose()
+  })
+
   it('同時飛的彈互不相干：兩條各自在各自的那一段頂點', () => {
     const trails = createArcTrails()
     const a = shot(1000, 0)
