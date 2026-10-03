@@ -558,13 +558,13 @@ export const STEPPE_CAPACITY = { house: 900, barn: 120, houseSlate: 250 } as con
 
 const RAVINE_KEEP_OUT = ravineKeepOutFor(RAVINES)
 /**
- * 庫斯克的村的禁區：戰場（單位、壕溝、縱隊路線）與沖溝。村的房子、菜園與支路都讓開。
+ * 勒熱夫的村的禁區：戰場（單位、壕溝、縱隊路線）與沖溝。村的房子、菜園與支路都讓開。
  * 地形與測試用同一支，測的才是遊戲實際蓋出來的村。
  */
 export const rzhevVillageKeepOut = (x: number, z: number): boolean => battleKeepOut(x, z) || RAVINE_KEEP_OUT(x, z)
 
 /**
- * 庫斯克：沒有墊面、不畫路（路是區塊交界的凹路），交戰帶疊上彈坑、燒田、履帶痕與壕溝
+ * 勒熱夫：沒有墊面、不畫路（路是區塊交界的凹路），交戰帶疊上彈坑、燒田、履帶痕與壕溝
  *
  * 【彈坑的密度】交戰帶裡一格（24 m）三成有坑，往外 700 m 內降到三分。**起始值，
  * 拿眼睛校**

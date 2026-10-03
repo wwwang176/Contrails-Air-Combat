@@ -59,7 +59,7 @@ describe('射擊排程', () => {
   })
 })
 
-describe('庫斯克的長燒火塊', () => {
+describe('勒熱夫的長燒火塊', () => {
   /**
    * 【最壞情況：所有能燒的單位都死了、卡片上的火源全開】長燒的殘骸與火源每 `BURN_EVERY` 秒各發
    * 一朵火（`FIRE_BLAST.fireCount` 塊），一塊活 `FIRE_CHUNK_LIFE × BLAST_PACE` 秒。池子滿了新的會

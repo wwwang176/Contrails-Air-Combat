@@ -68,15 +68,15 @@ async function main(): Promise<void> {
         console.log(`  open 的 fieldGlslWithSite('${season}', 候選表 ${String(cand)}) 編譯通過`)
       }
     }
-    // 【庫斯克那一份】沒有墊面、土路、戰場痕跡（圖集取樣、彈坑的 3 × 3 格迴圈、
+    // 【勒熱夫那一份】沒有墊面、土路、戰場痕跡（圖集取樣、彈坑的 3 × 3 格迴圈、
     // 壕溝與履帶痕的線段表），田圍著村、查候選表
     const rzhevLog = await compile(page, fieldGlslWithSite('winterSteppe', RZHEV_SITE, true, true))
     if (rzhevLog.trim() !== '') {
-      console.error('  庫斯克的 fieldGlslWithSite 編譯失敗：')
+      console.error('  勒熱夫的 fieldGlslWithSite 編譯失敗：')
       console.error(rzhevLog)
       throw new Error('GLSL 編譯失敗')
     }
-    console.log('  庫斯克的 fieldGlslWithSite 編譯通過')
+    console.log('  勒熱夫的 fieldGlslWithSite 編譯通過')
   } finally {
     await browser.close()
   }

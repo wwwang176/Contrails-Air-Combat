@@ -107,7 +107,7 @@ export const SCAR_ATLAS: { value: Texture | null } = { value: null }
 
 let loading: Promise<void> | null = null
 
-/** 進場前載入圖集。只有庫斯克用，開場不預載 */
+/** 進場前載入圖集。只有勒熱夫用，開場不預載 */
 export function preloadScarAtlas(): Promise<void> {
   if (loading !== null) return loading
   loading = new TextureLoader().loadAsync(assetUrl('/textures/battlefield.png')).then((t) => {
@@ -116,7 +116,7 @@ export function preloadScarAtlas(): Promise<void> {
     t.anisotropy = 4
     SCAR_ATLAS.value = t
   }, (e: unknown) => {
-    // 【失敗了要能再試】留著被拒絕的那一份的話，網路恢復之後再進庫斯克仍然失敗
+    // 【失敗了要能再試】留著被拒絕的那一份的話，網路恢復之後再進勒熱夫仍然失敗
     loading = null
     throw e
   })

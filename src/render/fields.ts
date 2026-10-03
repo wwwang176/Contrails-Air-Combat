@@ -1428,7 +1428,7 @@ export interface SiteLayout {
   /** 局部系相對世界的旋轉，弧度。省略或 0 時局部＝世界 */
   readonly heading?: number
   /**
-   * 墊面矩形，廠區局部座標。**省略 = 沒有墊面**：庫斯克只有道路與戰場的痕跡，
+   * 墊面矩形，廠區局部座標。**省略 = 沒有墊面**：勒熱夫只有道路與戰場的痕跡，
    * 地面照樣是田
    */
   readonly pad?: { readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number }

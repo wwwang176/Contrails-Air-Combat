@@ -159,14 +159,14 @@ describe('塵團的池子', () => {
   })
 })
 
-describe('庫斯克的塵團出處', () => {
+describe('勒熱夫的塵團出處', () => {
   const card = MISSIONS.germany.find((c) => c.id === 'germany-m4') as ReadyMissionCard
 
   it('卡片帶的就是這份名單', () => {
     expect(card.battle.theater!.dusts).toBe(RZHEV_DUSTS)
   })
 
-  it('十門反坦克砲各一處，加上沿村主街的五處', () => {
+  it('十門德軍反坦克砲各一處，加上沿村主街的五處', () => {
     expect(RZHEV_DUSTS).toHaveLength(GERMAN_AT_GUNS.length + 5)
     for (const g of GERMAN_AT_GUNS) expect(RZHEV_DUSTS.some((p) => p.x === g.x && p.z === g.z)).toBe(true)
     const street = RZHEV_DUSTS.slice(GERMAN_AT_GUNS.length).map((p) => toLocal(p.x, p.z))

@@ -219,7 +219,7 @@ export const GERMANY: readonly MissionCard[] = [
   {
     id: 'germany-m4', titleKey: 'mission.germany-m4.title', type: 'strike',
     summaryKey: 'mission.germany-m4.summary',
-    placeKey: 'mission.germany-m4.place', period: { year: 1943, month: 7 },
+    placeKey: 'mission.germany-m4.place', period: { year: 1942, month: 11 },
     battle: {
       objectiveKey: 'mission.germany-m4.objective', bannerKey: 'mission.germany-m4.banner',
       blueSpec: JU87, redSpec: P51D, convoySpec: null,
@@ -288,7 +288,7 @@ export const GERMANY: readonly MissionCard[] = [
         artillery: { ...ARTILLERY_ZONE, period: 1.6 },
         smokes: RZHEV_SMOKES,
         haze: BATTLE_HAZE,
-        // 白霧：雪原的霧是白的，不是庫斯克的灰黃塵煙。**起始值，拿眼睛校**
+        // 白霧：雪原的霧是白的，不是砲擊揚起的灰黃塵煙。**起始值，拿眼睛校**
         fogColor: 0xe8edf1,
         dusts: RZHEV_DUSTS,
       },

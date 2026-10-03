@@ -12,7 +12,7 @@
  * 【`leuna`、`autumnFarmland`、`poltava`、`asch` 是為任務做的】盟 M2 的洛伊納
  * （`world/leuna.ts`）、德 M1 的晚秋內陸（農地的高度場配洛伊納的晚秋色盤，
  * 沒有廠區）、德 M2 的波爾塔瓦機場（`world/poltava.ts`）、德 M3 的 Y-29 前進
- * 降落場（`world/asch.ts`）、德 M4 的庫斯克戰場（`world/rzhev.ts`）：農地的機制、
+ * 降落場（`world/asch.ts`）、德 M4 的勒熱夫戰場（`world/rzhev.ts`）：農地的機制、
  * 手擺的丘陵。
  *
  * 【`leyte` 也是為任務做的】日 M2 的雷伊泰海岸線（`world/leyte.ts`）：半邊是海、

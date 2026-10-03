@@ -11,7 +11,7 @@ import { BELT_FRAME } from '../../src/world/rzhev'
 
 const n = (v: number): string => v.toFixed(5)
 
-describe('庫斯克的遠處林帶', () => {
+describe('勒熱夫的遠處林帶', () => {
   const glsl = fieldGlslWithSite('winterSteppe', RZHEV_SITE)
 
   it('用田界的身分（edgeKey ^ 0x2be1）與 BELT_CHANCE 判定哪些田界有林帶，只畫在遠層', () => {

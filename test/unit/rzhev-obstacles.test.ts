@@ -13,7 +13,7 @@ import { regionAt, trackGap, trackWidthAt } from '../../src/render/fields'
 import { createTerrain } from '../../src/render/terrain'
 
 /**
- * # 庫斯克的障礙物：反坦克樁、捷克刺蝟、鐵絲網
+ * # 勒熱夫的障礙物：反坦克樁、捷克刺蝟、鐵絲網
  *
  * 立體的，走地形的「佈景」機制（非索引三角形湯、位置與頂點色）。佈局是資料、幾何是純函數；
  * 擺位的限制（縱隊的路上不放、任何一條路上都不放、不壓單位、不進雷區）在這裡守。
@@ -368,7 +368,7 @@ describe('障礙物的幾何', () => {
   })
 })
 
-describe('庫斯克的地形掛上障礙物', () => {
+describe('勒熱夫的地形掛上障礙物', () => {
   it('地形多了一組佈景（第五個孩子），切成好幾塊，釋放不拋錯', () => {
     const t = createTerrain('rzhev')
     expect(t.object.children.length).toBeGreaterThanOrEqual(5)

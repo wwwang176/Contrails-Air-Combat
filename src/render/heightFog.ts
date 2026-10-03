@@ -23,7 +23,7 @@ import { Color, ShaderChunk, ShaderLib, UniformsLib } from 'three'
  * 純畫面。**全部數值是起始值，由試飛裁定。**
  */
 
-/** 霧濃度為基準的高度（世界 y），m。庫斯克的草原在 0 附近，丘陵凸出霧之上 */
+/** 霧濃度為基準的高度（世界 y），m。勒熱夫的雪原在 0 附近，丘陵凸出霧之上 */
 export const HEIGHT_FOG_BASE = 0
 
 /** 密度每降到 1/e 的高度，m */
