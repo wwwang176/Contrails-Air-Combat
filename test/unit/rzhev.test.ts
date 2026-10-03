@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
-  AT_GUNS, at, BATTLE_HALF, battleKeepOut, burnRateOf, CRATER_PATCHES, createRzhev, facing, FRONT_HEADING,
+  GERMAN_AT_GUNS, at, BATTLE_HALF, battleKeepOut, burnRateOf, CRATER_PATCHES, createRzhev, facing, FRONT_HEADING,
   MINEFIELDS, SCAR_ZONE, toLocal,
-  VILLAGE, VILLAGE_BOX, VILLAGE_NAME, FRONT_T34, GERMAN_INFANTRY, GERMAN_MORTARS, RZHEV_HILLS,
-  PANZER_ROUTE_A, PANZER_ROUTE_B, SOVIET_FLAK, SOVIET_INFANTRY, SOVIET_MORTARS, SOVIET_TRUCKS, STALLED_PANZERS,
-  T34_RESERVE_EAST, T34_RESERVE_WEST, WRECK_PANZERS, WRECK_T34, type Spot,
+  VILLAGE, VILLAGE_BOX, VILLAGE_NAME, GERMAN_DUG_PANZERS, SOVIET_INFANTRY, SOVIET_MORTARS, RZHEV_HILLS,
+  SOVIET_ROUTE_A, SOVIET_ROUTE_B, SOVIET_FLAK, GERMAN_INFANTRY, GERMAN_MORTARS, GERMAN_TRUCKS, STALLED_SOVIET_TANKS,
+  GERMAN_RESERVE_EAST, GERMAN_RESERVE_WEST, WRECK_SOVIET_TANKS, WRECK_GERMAN_PANZERS, GERMAN_FLAK,
+  SOVIET_SUPPORT_GUNS, UNIT_SPOTS, type Spot,
 } from '../../src/world/rzhev'
 import { FARM_EXTENT, HILL_GAP, HILL_LIMIT, HILL_PEAK_MAX } from '../../src/world/farmland'
 import { WOBBLE_MAX } from '../../src/world/archipelago'
-import { columnGround, MISSIONS, type ReadyMissionCard } from '../../src/battle/missions'
+import { MISSIONS, type ReadyMissionCard } from '../../src/battle/missions'
 import { SCORCH, TRACKS, TRENCHES } from '../../src/world/rzhev'
 import { RZHEV_SITE } from '../../src/render/terrain'
 import {
@@ -54,6 +55,19 @@ describe('七月的麥田', () => {
 const card = MISSIONS.germany.find((c) => c.id === 'germany-m4') as ReadyMissionCard
 const dist = (a: { x: number; z: number }, b: { x: number; z: number }): number =>
   Math.hypot(a.x - b.x, a.z - b.z)
+/** 點到折線的最短距離 */
+const distToRoute = (p: { x: number; z: number }, pts: readonly { x: number; z: number }[]): number => {
+  let best = Infinity
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const a = pts[i]!
+    const b = pts[i + 1]!
+    const abx = b.x - a.x
+    const abz = b.z - a.z
+    const t = Math.min(1, Math.max(0, ((p.x - a.x) * abx + (p.z - a.z) * abz) / (abx * abx + abz * abz || 1)))
+    best = Math.min(best, Math.hypot(p.x - (a.x + abx * t), p.z - (a.z + abz * t)))
+  }
+  return best
+}
 
 describe('rzhev 地形', () => {
   it('丘陵的膨脹圓兩兩不重疊、峰高不超過上限、外緣在場地內', () => {
@@ -83,7 +97,7 @@ describe('rzhev 地形', () => {
   })
 
   it('縱隊的路線都在場地內，而且不畫成路', () => {
-    for (const route of [PANZER_ROUTE_A, PANZER_ROUTE_B, T34_RESERVE_WEST, T34_RESERVE_EAST]) {
+    for (const route of [SOVIET_ROUTE_A, SOVIET_ROUTE_B, GERMAN_RESERVE_WEST, GERMAN_RESERVE_EAST]) {
       for (const p of route) {
         expect(Math.abs(p.x)).toBeLessThan(FARM_EXTENT / 2)
         expect(Math.abs(p.z)).toBeLessThan(FARM_EXTENT / 2)
@@ -95,9 +109,15 @@ describe('rzhev 地形', () => {
 
 describe('rzhev 佈局', () => {
   const fixed: readonly Spot[] = [
-    ...AT_GUNS, ...FRONT_T34, ...WRECK_PANZERS, ...WRECK_T34, ...STALLED_PANZERS,
-    ...SOVIET_INFANTRY, ...GERMAN_INFANTRY, ...SOVIET_FLAK, ...SOVIET_MORTARS, ...GERMAN_MORTARS, ...SOVIET_TRUCKS,
+    ...GERMAN_AT_GUNS, ...GERMAN_DUG_PANZERS, ...WRECK_SOVIET_TANKS, ...WRECK_GERMAN_PANZERS, ...STALLED_SOVIET_TANKS,
+    ...GERMAN_INFANTRY, ...SOVIET_INFANTRY, ...GERMAN_FLAK, ...SOVIET_FLAK, ...SOVIET_SUPPORT_GUNS,
+    ...GERMAN_MORTARS, ...SOVIET_MORTARS, ...GERMAN_TRUCKS,
   ]
+  /** 德軍（藍）活著、會被炸彈誤傷的固定單位：反坦克砲、固定戰車、步兵、防空、迫擊砲、卡車 */
+  const friendly: readonly Spot[] = [
+    ...GERMAN_AT_GUNS, ...GERMAN_DUG_PANZERS, ...GERMAN_INFANTRY, ...GERMAN_FLAK, ...GERMAN_MORTARS, ...GERMAN_TRUCKS,
+  ]
+  const reserveEnds = [GERMAN_RESERVE_WEST, GERMAN_RESERVE_EAST].map((r) => r[r.length - 1]!)
 
   it('固定單位都在戰場框內', () => {
     for (const s of fixed) {
@@ -107,48 +127,128 @@ describe('rzhev 佈局', () => {
     }
   })
 
-  it('開場活著的德軍單位離每一門反坦克砲至少 500 m', () => {
-    const german = [
-      ...STALLED_PANZERS, ...GERMAN_INFANTRY, ...GERMAN_MORTARS,
-      ...columnGround(card.battle.columns![0]!), ...columnGround(card.battle.columns![1]!),
-    ]
-    for (const g of german) {
-      for (const a of AT_GUNS) expect(dist(g, a)).toBeGreaterThanOrEqual(500)
-    }
+  it('禁區與佈局測試用的全部單位名單，就是上面這十三個陣列', () => {
+    expect(UNIT_SPOTS).toHaveLength(fixed.length)
+    for (const s of fixed) expect(UNIT_SPOTS).toContain(s)
   })
 
-  /** 迫擊砲在射程裡才打得到人：蘇軍的離德軍步兵不超過最大射程、德軍的離蘇軍壕溝不近於最小射程 */
-  it('迫擊砲：蘇軍 6 門、德軍 4 門；兩邊的前沿都在射程之內', () => {
-    expect(SOVIET_MORTARS).toHaveLength(6)
-    expect(GERMAN_MORTARS).toHaveLength(4)
-    for (const m of SOVIET_MORTARS) {
-      const reach = GERMAN_INFANTRY.filter((g) => dist(m, g) >= MORTAR_RANGE_MIN && dist(m, g) <= MORTAR_RANGE_MAX)
-      expect(reach.length, `蘇軍迫擊砲 ${m.x.toFixed(0)},${m.z.toFixed(0)}`).toBeGreaterThanOrEqual(10)
-    }
-    for (const m of GERMAN_MORTARS) {
-      const reach = SOVIET_INFANTRY.filter((g) => dist(m, g) >= MORTAR_RANGE_MIN && dist(m, g) <= MORTAR_RANGE_MAX)
-      expect(reach.length, `德軍迫擊砲 ${m.x.toFixed(0)},${m.z.toFixed(0)}`).toBeGreaterThanOrEqual(10)
-    }
+  it('德軍與蘇軍分在南北兩側：德軍單位在局部縱深較北（lz 較小）、蘇軍在較南', () => {
+    const meanLz = (a: readonly Spot[]): number => a.reduce((n, s) => n + toLocal(s.x, s.z).lz, 0) / a.length
+    expect(meanLz(GERMAN_AT_GUNS)).toBeLessThan(0)
+    expect(meanLz(GERMAN_INFANTRY)).toBeLessThan(meanLz(SOVIET_INFANTRY) - 300)
+    expect(meanLz(GERMAN_FLAK)).toBeLessThan(0)
+    expect(meanLz(SOVIET_FLAK)).toBeGreaterThan(500)
+    expect(meanLz(SOVIET_SUPPORT_GUNS)).toBeGreaterThan(400)
   })
 
-  it('縱隊停住時，德軍與反擊的 T-34 至少隔 250 m', () => {
-    for (const g of [PANZER_ROUTE_A, PANZER_ROUTE_B]) {
-      for (const t of [T34_RESERVE_WEST, T34_RESERVE_EAST]) {
-        expect(dist(g[g.length - 1]!, t[t.length - 1]!)).toBeGreaterThanOrEqual(250)
+  /** 炸彈不分敵我，殺傷半徑約 33 m：玩家炸蘇軍支援砲時離任何一個德軍單位至少兩倍半徑 */
+  it('蘇軍支援砲：10 門、彼此至少 150 m、離每一個德軍單位與預備隊終點至少 66 m', () => {
+    expect(SOVIET_SUPPORT_GUNS).toHaveLength(10)
+    for (let i = 0; i < SOVIET_SUPPORT_GUNS.length; i++) {
+      for (let j = i + 1; j < SOVIET_SUPPORT_GUNS.length; j++) {
+        expect(dist(SOVIET_SUPPORT_GUNS[i]!, SOVIET_SUPPORT_GUNS[j]!), `${i}-${j}`).toBeGreaterThanOrEqual(150)
+      }
+      for (const f of [...friendly, ...reserveEnds]) {
+        expect(dist(SOVIET_SUPPORT_GUNS[i]!, f), `砲 ${i}`).toBeGreaterThanOrEqual(66)
       }
     }
   })
 
-  it('反坦克砲兩兩相距至少 150 m（一顆炸彈只打掉一門），所有單位至少 45 m', () => {
-    for (let i = 0; i < AT_GUNS.length; i++) {
-      for (let j = i + 1; j < AT_GUNS.length; j++) expect(dist(AT_GUNS[i]!, AT_GUNS[j]!), `${i}-${j}`).toBeGreaterThanOrEqual(150)
+  /** `mopUp` 補射的射程：剩下的砲要有德軍的射手在 1,500 m 內，打得到 */
+  it('每一門蘇軍支援砲 1,500 m 內都有一個德軍射手（反坦克砲或固定戰車）', () => {
+    for (const g of SOVIET_SUPPORT_GUNS) {
+      const near = [...GERMAN_AT_GUNS, ...GERMAN_DUG_PANZERS].filter((s) => dist(s, g) <= 1500)
+      expect(near.length, `砲 ${g.x.toFixed(0)},${g.z.toFixed(0)}`).toBeGreaterThanOrEqual(1)
+    }
+  })
+
+  it('德軍防空：8 門、彼此至少 150 m、離每一門反坦克砲至少 150 m、離縱隊路線至少 60 m', () => {
+    expect(GERMAN_FLAK).toHaveLength(8)
+    for (let i = 0; i < GERMAN_FLAK.length; i++) {
+      for (let j = i + 1; j < GERMAN_FLAK.length; j++) expect(dist(GERMAN_FLAK[i]!, GERMAN_FLAK[j]!), `${i}-${j}`).toBeGreaterThanOrEqual(150)
+      for (const a of GERMAN_AT_GUNS) expect(dist(GERMAN_FLAK[i]!, a), `防空 ${i}`).toBeGreaterThanOrEqual(150)
+      for (const r of [SOVIET_ROUTE_A, SOVIET_ROUTE_B, GERMAN_RESERVE_WEST, GERMAN_RESERVE_EAST]) {
+        expect(distToRoute(GERMAN_FLAK[i]!, r), `防空 ${i}`).toBeGreaterThanOrEqual(60)
+      }
+    }
+  })
+
+  it('蘇軍防空：12 門、彼此至少 150 m、離支援砲至少 150 m、離縱隊路線至少 100 m、離每一個德軍單位至少 126 m', () => {
+    expect(SOVIET_FLAK).toHaveLength(12)
+    for (let i = 0; i < SOVIET_FLAK.length; i++) {
+      for (let j = i + 1; j < SOVIET_FLAK.length; j++) expect(dist(SOVIET_FLAK[i]!, SOVIET_FLAK[j]!), `${i}-${j}`).toBeGreaterThanOrEqual(150)
+      for (const g of SOVIET_SUPPORT_GUNS) expect(dist(SOVIET_FLAK[i]!, g), `防空 ${i}`).toBeGreaterThanOrEqual(150)
+      for (const r of [SOVIET_ROUTE_A, SOVIET_ROUTE_B, GERMAN_RESERVE_WEST, GERMAN_RESERVE_EAST]) {
+        expect(distToRoute(SOVIET_FLAK[i]!, r), `防空 ${i}`).toBeGreaterThanOrEqual(100)
+      }
+      for (const f of [...friendly, ...reserveEnds]) expect(dist(SOVIET_FLAK[i]!, f), `防空 ${i}`).toBeGreaterThanOrEqual(126)
+    }
+  })
+
+  it('蘇軍支援砲與防空離路中線至少 70 m、離雷區與障礙線至少 25 m', () => {
+    const reg = { r1: 0, r2: 0, ax: 0, az: 0, bx: 0, bz: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0 }
+    const onRoad = (x: number, z: number): boolean => {
+      regionAt(x, z, reg)
+      return trackGap(x, z, reg) < trackWidthAt(x, z)
+    }
+    const nearRoad = (s: Spot, r: number): boolean => {
+      if (onRoad(s.x, s.z)) return true
+      for (let k = 0; k < 16; k++) {
+        const a = (k / 16) * Math.PI * 2
+        if (onRoad(s.x + Math.cos(a) * r, s.z + Math.sin(a) * r)) return true
+      }
+      return false
+    }
+    const inMine = (s: Spot, room: number): boolean => MINEFIELDS.some((m) => {
+      const dx = s.x - m.x
+      const dz = s.z - m.z
+      return Math.abs(dx * m.ux + dz * m.uz) < m.hu + room && Math.abs(dx * m.vx + dz * m.vz) < m.hv + room
+    })
+    for (const s of [...SOVIET_SUPPORT_GUNS, ...SOVIET_FLAK]) {
+      expect(nearRoad(s, 70), `路 ${s.x.toFixed(0)},${s.z.toFixed(0)}`).toBe(false)
+      expect(inMine(s, 25), `雷區 ${s.x.toFixed(0)},${s.z.toFixed(0)}`).toBe(false)
+      for (const t of TRENCHES) {
+        expect(distToRoute(s, t.points), `壕溝 ${s.x.toFixed(0)},${s.z.toFixed(0)}`).toBeGreaterThanOrEqual(25 + t.width / 2)
+      }
+    }
+  })
+
+  /** 迫擊砲在射程裡才打得到人：德軍的離蘇軍步兵不超過最大射程、蘇軍的離德軍步兵不近於最小射程 */
+  it('迫擊砲：德軍 6 門、蘇軍 4 門；兩邊的前沿都在射程之內', () => {
+    expect(GERMAN_MORTARS).toHaveLength(6)
+    expect(SOVIET_MORTARS).toHaveLength(4)
+    for (const m of GERMAN_MORTARS) {
+      const reach = SOVIET_INFANTRY.filter((g) => dist(m, g) >= MORTAR_RANGE_MIN && dist(m, g) <= MORTAR_RANGE_MAX)
+      expect(reach.length, `德軍迫擊砲 ${m.x.toFixed(0)},${m.z.toFixed(0)}`).toBeGreaterThanOrEqual(10)
+    }
+    for (const m of SOVIET_MORTARS) {
+      const reach = GERMAN_INFANTRY.filter((g) => dist(m, g) >= MORTAR_RANGE_MIN && dist(m, g) <= MORTAR_RANGE_MAX)
+      expect(reach.length, `蘇軍迫擊砲 ${m.x.toFixed(0)},${m.z.toFixed(0)}`).toBeGreaterThanOrEqual(10)
+    }
+  })
+
+  it('縱隊停住時，蘇軍的 T-34 與德軍反擊的預備隊至少隔 250 m；蘇軍縱隊離每一個德軍單位至少 300 m', () => {
+    for (const g of [SOVIET_ROUTE_A, SOVIET_ROUTE_B]) {
+      for (const t of [GERMAN_RESERVE_WEST, GERMAN_RESERVE_EAST]) {
+        expect(dist(g[g.length - 1]!, t[t.length - 1]!)).toBeGreaterThanOrEqual(250)
+      }
+    }
+    for (const route of [SOVIET_ROUTE_A, SOVIET_ROUTE_B]) {
+      const head = route[route.length - 1]!
+      for (const f of friendly) expect(dist(head, f), `${f.x.toFixed(0)},${f.z.toFixed(0)}`).toBeGreaterThanOrEqual(300)
+    }
+  })
+
+  it('反坦克砲與其他單位：德軍反坦克砲兩兩相距至少 150 m，所有單位至少 45 m', () => {
+    for (let i = 0; i < GERMAN_AT_GUNS.length; i++) {
+      for (let j = i + 1; j < GERMAN_AT_GUNS.length; j++) expect(dist(GERMAN_AT_GUNS[i]!, GERMAN_AT_GUNS[j]!), `${i}-${j}`).toBeGreaterThanOrEqual(150)
     }
     for (let i = 0; i < fixed.length; i++) {
       for (let j = i + 1; j < fixed.length; j++) expect(dist(fixed[i]!, fixed[j]!), `${i}-${j}`).toBeGreaterThanOrEqual(45)
     }
   })
 
-  it('德軍縱隊的路線不穿過雷區、離壕溝與反坦克壕至少 25 m（缺口開在路上）', () => {
+  it('蘇軍縱隊的路線不穿過雷區、離壕溝與反坦克壕至少 25 m（缺口開在路上）', () => {
     const inMine = (x: number, z: number): boolean => MINEFIELDS.some((m) => {
       const dx = x - m.x
       const dz = z - m.z
@@ -160,7 +260,7 @@ describe('rzhev 佈局', () => {
       const t = Math.min(1, Math.max(0, ((x - a.x) * abx + (z - a.z) * abz) / (abx * abx + abz * abz || 1)))
       return Math.hypot(x - (a.x + abx * t), z - (a.z + abz * t))
     }
-    for (const route of [PANZER_ROUTE_A, PANZER_ROUTE_B]) {
+    for (const route of [SOVIET_ROUTE_A, SOVIET_ROUTE_B]) {
       for (let k = 0; k + 1 < route.length; k++) {
         const a = route[k]!
         const b = route[k + 1]!
@@ -179,7 +279,7 @@ describe('rzhev 佈局', () => {
     }
   })
 
-  it('航向用局部羅盤度數：0 = 朝蘇軍後方、90 = 局部右手邊、180 = 朝德軍', () => {
+  it('航向用局部羅盤度數：0 = 朝德軍後方、90 = 局部右手邊、180 = 朝蘇軍', () => {
     const right = at(1, 0)
     const origin = at(0, 0)
     const rx = right.x - origin.x
@@ -226,16 +326,16 @@ describe('rzhev 佈局', () => {
     }
   })
 
-  it('兩翼反坦克壕邊各有兩輛殘骸在德軍那一側（南緣），彈坑特別密的地方蓋著它們', () => {
+  it('兩翼反坦克壕邊各有兩輛殘骸在蘇軍那一側（南緣），彈坑特別密的地方蓋著它們', () => {
     const ditches = TRENCHES.filter((t) => t.width === 60)
     expect(ditches).toHaveLength(2)
     for (const d of ditches) {
       const a = toLocal(d.points[0]!.x, d.points[0]!.z)
       const side = Math.sign(a.lx)
-      const wrecks = WRECK_PANZERS.map((w) => toLocal(w.x, w.z))
+      const wrecks = WRECK_SOVIET_TANKS.map((w) => toLocal(w.x, w.z))
         .filter((l) => Math.sign(l.lx) === side && Math.abs(l.lx) > 750)
       expect(wrecks.length, `側 ${side}`).toBeGreaterThanOrEqual(2)
-      // 壕在 lz +200、寬 60；殘骸在壕的德軍那一側（lz 較大）或壓在壕的南緣
+      // 壕在 lz +200、寬 60；殘骸在壕的蘇軍那一側（lz 較大）或壓在壕的南緣
       for (const l of wrecks) {
         expect(l.lz).toBeGreaterThan(200)
         expect(l.lz).toBeLessThan(260)
@@ -246,7 +346,7 @@ describe('rzhev 佈局', () => {
       expect(Math.abs(c.lx)).toBeGreaterThan(900)
       // 兩翼的殘骸都在某一片彈坑特別密的範圍之內
     }
-    for (const w of WRECK_PANZERS.filter((w) => Math.abs(toLocal(w.x, w.z).lx) > 750)) {
+    for (const w of WRECK_SOVIET_TANKS.filter((w) => Math.abs(toLocal(w.x, w.z).lx) > 750)) {
       expect(CRATER_PATCHES.some((p) => Math.hypot(w.x - p.x, w.z - p.z) < p.r), `${w.x},${w.z}`).toBe(true)
     }
   })
@@ -314,7 +414,7 @@ describe('草原田的格局', () => {
   })
 })
 
-describe('庫斯克的戰場對準村與路', () => {
+describe('勒熱夫的戰場對準村與路', () => {
   const inVillage = (x: number, z: number, margin = 0): boolean => {
     const l = toLocal(x, z)
     return Math.abs(l.lx) < VILLAGE_BOX.half + margin
@@ -349,10 +449,7 @@ describe('庫斯克的戰場對準村與路', () => {
   })
 
   it('單位不壓在路上（路中線 60 m 內）、不在主街兩端的 100 m 內；壕溝、雷區與燒田讓開主街帶', () => {
-    const fixed = [
-      ...AT_GUNS, ...FRONT_T34, ...WRECK_PANZERS, ...WRECK_T34, ...STALLED_PANZERS,
-      ...SOVIET_INFANTRY, ...GERMAN_INFANTRY, ...SOVIET_FLAK, ...SOVIET_MORTARS, ...GERMAN_MORTARS, ...SOVIET_TRUCKS,
-    ]
+    const fixed = UNIT_SPOTS
     const reg ={ r1: 0, r2: 0, ax: 0, az: 0, bx: 0, bz: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0 }
     const onRoad = (x: number, z: number): boolean => {
       regionAt(x, z, reg)
@@ -382,8 +479,8 @@ describe('庫斯克的戰場對準村與路', () => {
     }
   })
 
-  it('蘇軍預備隊的路線不穿過村', () => {
-    for (const route of [T34_RESERVE_WEST, T34_RESERVE_EAST]) {
+  it('德軍預備隊的路線不穿過村', () => {
+    for (const route of [GERMAN_RESERVE_WEST, GERMAN_RESERVE_EAST]) {
       for (let i = 0; i + 1 < route.length; i++) {
         const a = route[i]!
         const b = route[i + 1]!
@@ -395,19 +492,20 @@ describe('庫斯克的戰場對準村與路', () => {
   })
 
   it('禁區：單位、壕溝、縱隊路線上與村南緣以南是禁區，村心與遠處不是', () => {
-    const fixed = [
-      ...AT_GUNS, ...FRONT_T34, ...WRECK_PANZERS, ...WRECK_T34, ...STALLED_PANZERS,
-      ...SOVIET_INFANTRY, ...GERMAN_INFANTRY, ...SOVIET_FLAK, ...SOVIET_MORTARS, ...GERMAN_MORTARS, ...SOVIET_TRUCKS,
-    ]
-    for (const s of fixed) expect(battleKeepOut(s.x, s.z), `單位 ${s.x},${s.z}`).toBe(true)
+    for (const s of UNIT_SPOTS) expect(battleKeepOut(s.x, s.z), `單位 ${s.x},${s.z}`).toBe(true)
     for (const t of TRENCHES) for (const p of t.points) expect(battleKeepOut(p.x, p.z), `壕溝 ${p.x},${p.z}`).toBe(true)
-    for (const r of [PANZER_ROUTE_A, PANZER_ROUTE_B, T34_RESERVE_WEST, T34_RESERVE_EAST]) {
+    for (const r of [SOVIET_ROUTE_A, SOVIET_ROUTE_B, GERMAN_RESERVE_WEST, GERMAN_RESERVE_EAST]) {
       for (const p of r) expect(battleKeepOut(p.x, p.z), `路線 ${p.x},${p.z}`).toBe(true)
     }
     expect(battleKeepOut(VILLAGE.x, VILLAGE.z)).toBe(false)
     const south = at(0, VILLAGE_BOX.south + 100)
     expect(battleKeepOut(south.x, south.z)).toBe(true)
     expect(battleKeepOut(VILLAGE.x + 9000, VILLAGE.z)).toBe(false)
+    // 南邊集結段（lz +1,200 以南）只有縱隊路線兩側是禁區，路外不是
+    const onRoute = at(334, 1600)
+    const offRoute = at(1200, 1600)
+    expect(battleKeepOut(onRoute.x, onRoute.z)).toBe(true)
+    expect(battleKeepOut(offRoute.x, offRoute.z)).toBe(false)
   })
 
   it('戰場所在的村是農地框架裡的那個村，而且燒得比別的村多', () => {
@@ -415,8 +513,8 @@ describe('庫斯克的戰場對準村與路', () => {
     expect(burnRateOf(VILLAGE_NAME)).toBeGreaterThan(burnRateOf('v0,0') * 3)
   })
 
-  it('德軍縱隊沿路從南邊推來：集結位置在村南邊（局部縱深為正）', () => {
-    for (const route of [PANZER_ROUTE_A, PANZER_ROUTE_B]) {
+  it('蘇軍縱隊沿路從南邊推來：集結位置在村南邊（局部縱深為正）', () => {
+    for (const route of [SOVIET_ROUTE_A, SOVIET_ROUTE_B]) {
       expect(toLocal(route[0]!.x, route[0]!.z).lz).toBeGreaterThan(300)
     }
   })

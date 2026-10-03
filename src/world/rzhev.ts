@@ -115,11 +115,11 @@ function spot(lx: number, lz: number, deg: number): Spot {
 }
 
 /**
- * 反坦克砲：10 門 ZiS-3，第一段的目標。三個支撐點：W（四門，村西南）、S（兩門，村南口兩側）、
- * E（四門，村東南）。射界約航向 ±27°，各支撐點的砲斜向交叉在丁字路口、中央雷帶與路上；彼此至少
- * 相距 150 m（一顆炸彈只打掉一門）。丁字路口到村南口的走廊任一點至少 3 門在射界內。
+ * 德軍反坦克砲：10 門，守村南的三個支撐點：W（四門，村西南）、S（兩門，村南口兩側）、E（四門，
+ * 村東南）。射界約航向 ±27°，各支撐點的砲斜向交叉在丁字路口、中央雷帶與路上；彼此至少相距
+ * 150 m。丁字路口到村南口的走廊任一點至少 3 門在射界內。**是友軍：不是任務的目標**
  */
-export const AT_GUNS: readonly Spot[] = [
+export const GERMAN_AT_GUNS: readonly Spot[] = [
   spot(-575, -50, 117),
   spot(-500, -225, 116),
   spot(-725, -125, 168),
@@ -133,10 +133,10 @@ export const AT_GUNS: readonly Spot[] = [
 ]
 
 /**
- * 半埋的 T-34：8 輛，不動，360° 的固定火力點，與德軍互射。村南口 2 輛、兩翼壕後各 2 輛、
- * 縱深 2 輛（村西、東北高地坡）。`index` 2（村南口西側）那一輛由劇本打掉
+ * 德軍固定的戰車（IV 號）：8 輛，不動，360° 的固定火力點，與蘇軍互射。村南口 2 輛、兩翼壕後各
+ * 2 輛、縱深 2 輛（村西、東北高地坡）。`index` 2（村南口西側）那一輛由劇本打掉
  */
-export const FRONT_T34: readonly Spot[] = [
+export const GERMAN_DUG_PANZERS: readonly Spot[] = [
   spot(-1000, -80, 180),
   spot(-1350, -80, 180),
   spot(-200, -120, 165),
@@ -148,14 +148,14 @@ export const FRONT_T34: readonly Spot[] = [
 ]
 
 /** 劇本在第幾秒打掉半埋 T-34 的哪一輛 */
-export const FRONT_T34_SCRIPTED = { index: 2, at: 95 } as const
+export const GERMAN_DUG_PANZER_SCRIPTED = { index: 2, at: 95 } as const
 
 /**
- * 開場就燒著的殘骸：IV 號兩輛（衝進中央雷帶時被打掉）、四輛（兩翼各兩輛：想繞過去、被反坦克壕
- * 卡在南緣時被打掉），T-34 一輛（反衝鋒時被打掉）。兩翼的殘骸與履帶痕、彈坑、燒田說明德軍
+ * 開場就燒著的殘骸：蘇軍 T-34 六輛（兩輛衝進中央雷帶時被打掉、四輛在兩翼：想繞過去、被反坦克壕
+ * 卡在南緣時被打掉），德軍 IV 號一輛（反衝鋒時被打掉）。兩翼的殘骸與履帶痕、彈坑、燒田說明蘇軍
  * 已經試過繞，沒有過得去
  */
-export const WRECK_PANZERS: readonly Spot[] = [
+export const WRECK_SOVIET_TANKS: readonly Spot[] = [
   spot(-420, 350, 20),
   spot(380, 300, 340),
   spot(-960, 226, 350),
@@ -163,22 +163,22 @@ export const WRECK_PANZERS: readonly Spot[] = [
   spot(1010, 232, 10),
   spot(1270, 238, 345),
 ]
-export const WRECK_T34: readonly Spot[] = [
+export const WRECK_GERMAN_PANZERS: readonly Spot[] = [
   spot(-130, 168, 150),
 ]
 
-/** 雷帶南緣外停著、會被劇本打掉的 IV 號，與各自的秒數 */
-export const STALLED_PANZERS: readonly (Spot & { readonly killAt: number })[] = [
+/** 雷帶南緣外停著、會被劇本打掉的蘇軍 T-34，與各自的秒數 */
+export const STALLED_SOVIET_TANKS: readonly (Spot & { readonly killAt: number })[] = [
   { ...spot(-650, 470, 10), killAt: 40 },
   { ...spot(700, 470, 350), killAt: 150 },
 ]
 
 /**
- * 蘇軍步兵：31 個班，朝德軍。前七個在前沿與支撐點近接，其餘 17 個沿壕溝每 75 m 左右一個
- * （第一線、第二線、兩翼壕與反坦克壕邊）：蘇軍的步兵是跟著壕溝擺的，一個營的防禦地域有幾百人。
+ * 德軍步兵：31 個班，朝蘇軍。前七個在前沿與支撐點近接，其餘 17 個沿壕溝每 75 m 左右一個
+ * （第一線、第二線、兩翼壕與反坦克壕邊）：守軍的步兵是跟著壕溝擺的，一個營的防禦地域有幾百人。
  * 位置由佈局限制（離單位 ≥ 55 m、離路 ≥ 70 m、離雷區與障礙物、不進村）篩出來
  */
-export const SOVIET_INFANTRY: readonly Spot[] = [
+export const GERMAN_INFANTRY: readonly Spot[] = [
   spot(-500, 90, 180),
   spot(-200, 105, 180),
   spot(200, 105, 180),
@@ -201,11 +201,10 @@ export const SOVIET_INFANTRY: readonly Spot[] = [
 ]
 
 /**
- * 德軍步兵：雷帶南緣外的 22 個班，朝蘇軍。讓開路上的通道；離每一門反坦克砲至少 520 m。
- * 前八個是第一排，其餘 14 個在後面幾排（德軍的步兵跟在戰車後面，一個裝甲擲彈兵營
- * 幾百人）
+ * 蘇軍步兵：雷帶南緣外的 22 個班，朝德軍。讓開路上的通道。前八個是第一排，其餘 14 個在
+ * 後面幾排（突擊的步兵跟在戰車後面，一個步兵營幾百人）
  */
-export const GERMAN_INFANTRY: readonly Spot[] = [
+export const SOVIET_INFANTRY: readonly Spot[] = [
   ...[-760, -560, -360, -170, 260, 460, 580, 800].map((lx, i) => spot(lx, 470 + (i % 2) * 30, 0)),
   ...([
     [-1266, 470], [-981, 470], [-506, 470], [-221, 470], [349, 470], [1014, 470], [1299, 470], [-411, 500],
@@ -214,49 +213,63 @@ export const GERMAN_INFANTRY: readonly Spot[] = [
 ]
 
 /**
- * 蘇軍輕型防空（暫代：Flak 38）：18 門，西、中、東三個支撐點各六門，擺在被護的反坦克砲北側或旁邊
- * （德軍俯衝轟炸機由南往北進，正對著它們飛）。離任何反坦克砲至少 170 m，彼此至少 150 m
+ * 德軍輕型防空（Flak 38）：8 門，沿德軍陣地擺在反坦克砲的北側或旁邊，**打蘇軍戰鬥機**（Yak 從
+ * 北邊進場，要先飛過這一帶）。離任何反坦克砲與彼此至少 150 m，離縱隊路線至少 60 m。
+ * **數量是起始值**：太多會把 Yak 全打光
  */
-export const SOVIET_FLAK: readonly Spot[] = [
+export const GERMAN_FLAK: readonly Spot[] = [
   spot(-800, -400, 180),
-  spot(-600, -560, 180),
-  spot(230, -420, 180),
-  spot(-90, -420, 180),
-  spot(700, -420, 180),
-  spot(780, -150, 180),
   spot(-375, -100, 180),
+  spot(-90, -420, 180),
+  spot(230, -420, 180),
+  spot(700, -420, 180),
   spot(-1000, -150, 180),
-  spot(-375, -650, 180),
-  spot(-925, -300, 180),
-  spot(350, -800, 180),
-  spot(-250, -275, 180),
+  spot(780, -150, 180),
   spot(-250, -500, 180),
-  spot(250, -625, 180),
-  spot(625, -700, 180),
-  spot(425, -125, 180),
-  spot(800, -300, 180),
-  spot(725, -575, 180),
 ]
 
 /**
- * 蘇軍迫擊砲（暫代：立方體）：6 門，兩個排各三門，在第二線壕溝後方、反坦克砲北側（村的兩翼）。
- * 打高拋物線，射程裡的德軍步兵與縱隊都挨得到。位置由佈局限制篩出來（離單位 ≥ 60 m、離路 ≥ 70 m、
+ * 蘇軍輕型防空（暫代：同一個 2 cm 四聯裝的模型）：12 門，隨突擊隊擺在無人地帶以南、支援砲與步兵的
+ * 後面（lz +550 … +900），**打 Ju 87**（Ju 87 由南往北進，先飛過這一帶）。彼此至少 150 m，
+ * 離支援砲至少 150 m，離縱隊路線至少 100 m，離任何德軍單位至少 126 m（炸彈的殺傷半徑約 33 m，
+ * 兩倍再加 60 m）
+ */
+export const SOVIET_FLAK: readonly Spot[] = ([
+  [-1000, 650], [-725, 725], [-450, 775], [-200, 825], [100, 825], [450, 850],
+  [600, 825], [800, 825], [1025, 650], [-1250, 550], [1250, 550], [-50, 900],
+] as const).map(([lx, lz]) => spot(lx, lz, 0))
+
+/**
+ * 蘇軍支援砲：10 門反坦克砲，**第一段的目標**。擺在無人地帶與蘇軍集結區（lz +425 … +675），
+ * 朝北，兩翼與路的兩側各有幾門，壓制德軍的陣地。彼此至少 150 m（一顆炸彈只打掉一門）；離路中線
+ * 至少 70 m、離雷區與障礙線至少 25 m、離縱隊路線至少 100 m；**離每一個德軍單位至少 66 m**
+ * （殺傷半徑約 33 m 的兩倍，炸彈不分敵我）；1,500 m 內至少有一個德軍射手（`mopUp` 補射的
+ * 射程）
+ */
+export const SOVIET_SUPPORT_GUNS: readonly Spot[] = ([
+  [-1100, 425], [-850, 525], [-600, 600], [-325, 550], [-125, 625],
+  [150, 675], [425, 550], [650, 600], [900, 525], [1150, 425],
+] as const).map(([lx, lz]) => spot(lx, lz, 0))
+
+/**
+ * 德軍迫擊砲（暫代：立方體）：6 門，兩個排各三門，在第二線壕溝後方、反坦克砲北側（村的兩翼）。
+ * 打高拋物線，射程裡的蘇軍步兵與縱隊都挨得到。位置由佈局限制篩出來（離單位 ≥ 60 m、離路 ≥ 70 m、
  * 不在雷區、壕溝與障礙物上、離縱隊路線 ≥ 100 m、不進村）
  */
-export const SOVIET_MORTARS: readonly Spot[] = ([
+export const GERMAN_MORTARS: readonly Spot[] = ([
   [-700, -430], [-650, -480], [-700, -530], [350, -480], [350, -530], [300, -430],
 ] as const).map(([lx, lz]) => spot(lx, lz, 180))
 
 /**
- * 德軍迫擊砲（暫代：立方體）：4 門，兩個排各兩門，在步兵與縱隊集結位置的後面（lz +640 …
- * +680）。離每一門反坦克砲至少 560 m
+ * 蘇軍迫擊砲（暫代：立方體）：4 門，兩個排各兩門，在步兵與縱隊集結位置的後面（lz +640 …
+ * +680）
  */
-export const GERMAN_MORTARS: readonly Spot[] = ([
+export const SOVIET_MORTARS: readonly Spot[] = ([
   [-650, 640], [-550, 680], [700, 640], [850, 640],
 ] as const).map(([lx, lz]) => spot(lx, lz, 0))
 
-/** 北方後勤的卡車，停在村的北端兩側，不是目標 */
-export const SOVIET_TRUCKS: readonly Spot[] = [
+/** 德軍後勤的卡車，停在村的北端兩側（德軍的後方在北邊），友軍，不是目標 */
+export const GERMAN_TRUCKS: readonly Spot[] = [
   spot(-260, -1420, 0),
   spot(-260, -1340, 0),
   spot(260, -1420, 0),
@@ -267,23 +280,24 @@ export const SOVIET_TRUCKS: readonly Spot[] = [
  * 縱隊的路線，世界座標。第一點是集結的尾端：第一輛停在路線上往前 `(n − 1) × gap`
  * 的位置，最後一輛停在第一點（`missions/index.ts` 的 `columnGround`）。
  *
- * 【德軍兩支縱隊都走路】A 在斜路上（(334,+696) 到丁字路口 (0,+236)），B 在南路上、跟在 A 後面
- * 一百多公尺，兩支都穿過雷帶的通道（路上沒布雷）、在第一與第二線壕溝的缺口過去。A 停在
- * 村南口外，B 停在第一線壕溝上。開場在雷帶南緣外，離每一門反坦克砲至少 500 m。
+ * 【蘇軍兩支縱隊】開場藏著，集結在戰場框外的南邊（`lz +1,900`），出發後沿斜路與南路進來，**停在
+ * 雷帶的南緣外**：A 的車頭 (40,+450)、B 的車頭 (110,+500)，第 i 輛停在車頭後 `i × gap`，
+ * 車隊沿路排開。不進雷帶、離任何德軍單位至少 300 m（炸彈不分敵我）。藏著是為了摧毀數：
+ * 戰車開場就在場上的話，第一段先炸的會把第二段的數量湊滿。
  *
- * 【蘇軍預備隊分東西兩路】集結在村北、窗口之外（開場藏著），沿村的東西外側南下，終點在
- * 反坦克砲支撐點的北側（離德軍終點至少 250 m）。路線不穿村：主街上的房子不讓出一條空帶。
+ * 【德軍預備隊分東西兩路】集結在村北、窗口之外（開場藏著），沿村的東西外側南下，終點在
+ * 反坦克砲支撐點的北側（離蘇軍終點至少 250 m）。路線不穿村：主街上的房子不讓出一條空帶。
  */
-export const PANZER_ROUTE_A: readonly { x: number; z: number }[] = [
-  at(334, 696), at(83, 350), at(0, 236), at(10, -60), at(10, -130),
+export const SOVIET_ROUTE_A: readonly { x: number; z: number }[] = [
+  at(334, 1900), at(334, 1100), at(334, 696), at(150, 540), at(40, 450),
 ]
-export const PANZER_ROUTE_B: readonly { x: number; z: number }[] = [
-  at(250, 1100), at(334, 696), at(83, 350), at(0, 236), at(10, 90),
+export const SOVIET_ROUTE_B: readonly { x: number; z: number }[] = [
+  at(250, 1900), at(250, 1100), at(334, 696), at(190, 560), at(110, 500),
 ]
-export const T34_RESERVE_WEST: readonly { x: number; z: number }[] = [
+export const GERMAN_RESERVE_WEST: readonly { x: number; z: number }[] = [
   at(-250, -1900), at(-560, -1650), at(-640, -1000), at(-520, -480),
 ]
-export const T34_RESERVE_EAST: readonly { x: number; z: number }[] = [
+export const GERMAN_RESERVE_EAST: readonly { x: number; z: number }[] = [
   at(250, -1900), at(560, -1650), at(640, -1000), at(520, -480),
 ]
 
@@ -512,7 +526,7 @@ export const BATTLE_HAZE = (() => {
  * 高度霧只染得到有幾何的像素，側看沒有一團看得見的霧；塵團補這個，只放在有人活動的地方
  */
 export const RZHEV_DUSTS: readonly { x: number; z: number }[] = [
-  ...AT_GUNS.map((g) => ({ x: g.x, z: g.z })),
+  ...GERMAN_AT_GUNS.map((g) => ({ x: g.x, z: g.z })),
   at(0, -300), at(0, -550), at(0, -800), at(0, -1050), at(0, -1300),
 ]
 
@@ -564,6 +578,8 @@ const UNIT_ROOM = 45
 /** 壕溝、縱隊路線兩側留的寬，m */
 const TRENCH_ROOM = 40
 const ROUTE_ROOM = 60
+/** 縱隊路線最遠的集結點在 lz +1,900，再加上兩側的寬；比這更遠的點不必問 */
+const ROUTE_FAR_LZ = 1900 + ROUTE_ROOM + 40
 
 function nearPolyline(
   x: number, z: number, pts: readonly { x: number; z: number }[], room: number,
@@ -582,9 +598,11 @@ function nearPolyline(
   return false
 }
 
-const UNIT_SPOTS: readonly Spot[] = [
-  ...AT_GUNS, ...FRONT_T34, ...WRECK_PANZERS, ...WRECK_T34, ...STALLED_PANZERS,
-  ...SOVIET_INFANTRY, ...GERMAN_INFANTRY, ...SOVIET_FLAK, ...SOVIET_MORTARS, ...GERMAN_MORTARS, ...SOVIET_TRUCKS,
+/** 戰場上所有固定的單位擺位（含殘骸）。村的房子、樹與菜園讓開它們；佈局測試也用這一份 */
+export const UNIT_SPOTS: readonly Spot[] = [
+  ...GERMAN_AT_GUNS, ...GERMAN_DUG_PANZERS, ...WRECK_SOVIET_TANKS, ...WRECK_GERMAN_PANZERS, ...STALLED_SOVIET_TANKS,
+  ...GERMAN_INFANTRY, ...SOVIET_INFANTRY, ...GERMAN_FLAK, ...SOVIET_FLAK, ...SOVIET_SUPPORT_GUNS,
+  ...GERMAN_MORTARS, ...SOVIET_MORTARS, ...GERMAN_TRUCKS,
 ]
 
 /**
@@ -595,15 +613,17 @@ const UNIT_SPOTS: readonly Spot[] = [
  */
 export function battleKeepOut(x: number, z: number): boolean {
   const l = toLocal(x, z)
-  if (Math.abs(l.lx) > 2000 || l.lz > 1200 || l.lz < -2800) return false
-  if (l.lz > VILLAGE_SOUTH_LZ + 10) return true
-  for (const s of UNIT_SPOTS) {
-    const dx = x - s.x
-    const dz = z - s.z
-    if (dx * dx + dz * dz < UNIT_ROOM * UNIT_ROOM) return true
+  if (Math.abs(l.lx) > 2000 || l.lz > ROUTE_FAR_LZ || l.lz < -2800) return false
+  if (l.lz <= 1200) {
+    if (l.lz > VILLAGE_SOUTH_LZ + 10) return true
+    for (const s of UNIT_SPOTS) {
+      const dx = x - s.x
+      const dz = z - s.z
+      if (dx * dx + dz * dz < UNIT_ROOM * UNIT_ROOM) return true
+    }
+    for (const t of TRENCHES) if (nearPolyline(x, z, t.points, TRENCH_ROOM)) return true
   }
-  for (const t of TRENCHES) if (nearPolyline(x, z, t.points, TRENCH_ROOM)) return true
-  for (const r of [PANZER_ROUTE_A, PANZER_ROUTE_B, T34_RESERVE_WEST, T34_RESERVE_EAST]) {
+  for (const r of [SOVIET_ROUTE_A, SOVIET_ROUTE_B, GERMAN_RESERVE_WEST, GERMAN_RESERVE_EAST]) {
     if (nearPolyline(x, z, r, ROUTE_ROOM)) return true
   }
   return false

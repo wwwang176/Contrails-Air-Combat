@@ -10,9 +10,10 @@ import { GROUND_FLAK_SPEC } from '../../world/shipGuns'
 import { JU87 } from '../../specs/ju87'
 import { YAK1B } from '../../specs/yak1b'
 import {
-  ARTILLERY_ZONE, AT_GUNS, BATTLE_HAZE, COLUMN_GAP, COLUMN_SPEED, COLUMN_TURN_RADIUS, FRONT_T34, FRONT_T34_SCRIPTED,
-  GERMAN_INFANTRY, GERMAN_MORTARS, RZHEV_DUSTS, RZHEV_SMOKES, PANZER_ROUTE_A, PANZER_ROUTE_B, SOVIET_FLAK, SOVIET_INFANTRY,
-  SOVIET_MORTARS, SOVIET_TRUCKS, STALLED_PANZERS, T34_RESERVE_EAST, T34_RESERVE_WEST, WRECK_PANZERS, WRECK_T34,
+  ARTILLERY_ZONE, BATTLE_HAZE, COLUMN_GAP, COLUMN_SPEED, COLUMN_TURN_RADIUS, GERMAN_AT_GUNS, GERMAN_DUG_PANZERS,
+  GERMAN_DUG_PANZER_SCRIPTED, GERMAN_FLAK, GERMAN_INFANTRY, GERMAN_MORTARS, GERMAN_RESERVE_EAST, GERMAN_RESERVE_WEST,
+  GERMAN_TRUCKS, RZHEV_DUSTS, RZHEV_SMOKES, SOVIET_FLAK, SOVIET_INFANTRY, SOVIET_MORTARS, SOVIET_ROUTE_A, SOVIET_ROUTE_B,
+  SOVIET_SUPPORT_GUNS, STALLED_SOVIET_TANKS, WRECK_GERMAN_PANZERS, WRECK_SOVIET_TANKS,
 } from '../../world/rzhev'
 import { POLTAVA_GROUND } from './shared'
 import type { GroundEntry, MissionCard, MissionTrigger } from './types'
@@ -34,38 +35,43 @@ const ASCH_GROUND: readonly GroundEntry[] = [
 ]
 
 /**
- * 庫斯克的固定地面單位。佈局在 `world/rzhev.ts`。
+ * 勒熱夫的固定地面單位。佈局在 `world/rzhev.ts`。德軍（藍）守村南的陣地，蘇軍（紅）在無人地帶以南。
  *
  * 【殘骸與劇本】`killAt: 0` 的是開場就燒著的殘骸；其餘 `killAt` 是地面戰的戲裡
  * 照劇本被打掉的那幾輛。劇本打掉的不算進摧毀數。
+ *
+ * 【紅隊的殘骸與劇本戰車是 `tankDug`，不是 `tank`】同一個 T-34 模型、也會冒煙，但 `tank` 是
+ * 第二段要數的單位：用 `tankDug` 才不會讓第一段先炸掉的戰車把第二段的數量湊滿，
+ * `campaigns.test.ts` 也不准紅隊帶 `killAt` 的條目是任務目標的單位。
  */
 const RZHEV_GROUND: readonly GroundEntry[] = [
-  ...AT_GUNS.map((s): GroundEntry => ({ unit: 'atGun', team: 'red', ...s })),
-  ...FRONT_T34.map((s, i): GroundEntry => ({
-    unit: 'tankDug', team: 'red', ...s,
-    ...(i === FRONT_T34_SCRIPTED.index ? { killAt: FRONT_T34_SCRIPTED.at } : {}),
+  ...GERMAN_AT_GUNS.map((s): GroundEntry => ({ unit: 'atGun', team: 'blue', ...s })),
+  ...GERMAN_DUG_PANZERS.map((s, i): GroundEntry => ({
+    unit: 'panzer4', team: 'blue', ...s,
+    ...(i === GERMAN_DUG_PANZER_SCRIPTED.index ? { killAt: GERMAN_DUG_PANZER_SCRIPTED.at } : {}),
   })),
-  ...WRECK_T34.map((s): GroundEntry => ({ unit: 'tankDug', team: 'red', ...s, killAt: 0 })),
-  ...WRECK_PANZERS.map((s): GroundEntry => ({ unit: 'panzer4', team: 'blue', ...s, killAt: 0 })),
-  ...STALLED_PANZERS.map((s): GroundEntry => ({
-    unit: 'panzer4', team: 'blue', x: s.x, z: s.z, heading: s.heading, killAt: s.killAt,
+  ...WRECK_GERMAN_PANZERS.map((s): GroundEntry => ({ unit: 'panzer4', team: 'blue', ...s, killAt: 0 })),
+  ...WRECK_SOVIET_TANKS.map((s): GroundEntry => ({ unit: 'tankDug', team: 'red', ...s, killAt: 0 })),
+  ...STALLED_SOVIET_TANKS.map((s): GroundEntry => ({
+    unit: 'tankDug', team: 'red', x: s.x, z: s.z, heading: s.heading, killAt: s.killAt,
   })),
-  ...SOVIET_INFANTRY.map((s): GroundEntry => ({ unit: 'infantry', team: 'red', ...s })),
   ...GERMAN_INFANTRY.map((s): GroundEntry => ({ unit: 'infantry', team: 'blue', ...s })),
+  ...SOVIET_INFANTRY.map((s): GroundEntry => ({ unit: 'infantry', team: 'red', ...s })),
+  ...GERMAN_FLAK.map((s): GroundEntry => ({ unit: 'flakLight', team: 'blue', ...s })),
   ...SOVIET_FLAK.map((s): GroundEntry => ({ unit: 'flakLight', team: 'red', ...s })),
-  ...SOVIET_MORTARS.map((s): GroundEntry => ({ unit: 'mortar', team: 'red', ...s })),
+  ...SOVIET_SUPPORT_GUNS.map((s): GroundEntry => ({ unit: 'atGun', team: 'red', ...s })),
   ...GERMAN_MORTARS.map((s): GroundEntry => ({ unit: 'mortar', team: 'blue', ...s })),
-  ...SOVIET_TRUCKS.map((s): GroundEntry => ({ unit: 'truck', team: 'red', ...s })),
+  ...SOVIET_MORTARS.map((s): GroundEntry => ({ unit: 'mortar', team: 'red', ...s })),
+  ...GERMAN_TRUCKS.map((s): GroundEntry => ({ unit: 'truck', team: 'blue', ...s })),
 ]
 
 /**
- * 第一段要炸掉幾門反坦克砲。**不必全部殲滅** —— 炸到這個數，缺口就開了，德軍的戰車往前推，
- * 剩下的由它們打掉（`mopUp`）。史實上德軍當面是一整個裝甲師的一個團，不是十二輛；戰車的數量
- * 夠多，地面戰才有「隊友在打」的分量。**起始值，由試飛裁定。**
+ * 第一段要炸掉幾門蘇軍支援砲。**不必全部殲滅** —— 炸到這個數，蘇軍的第二梯隊戰車就投入，德軍的預備隊
+ * 反擊，剩下的砲由德軍的反坦克砲打掉（`mopUp`）。**起始值，由試飛裁定。**
  */
 const BREAKTHROUGH_GUNS = 7
 
-/** 反坦克砲炸夠數：德軍推進、蘇軍反擊、目標換成反擊的 T-34、剩下的砲被打掉，同一刻 */
+/** 蘇軍支援砲炸夠數：蘇軍戰車縱隊出發、德軍預備隊反擊、目標換成突擊的 T-34、剩下的砲被打掉，同一刻 */
 const RZHEV_BREAKTHROUGH: MissionTrigger = { kind: 'destroyed', atLeast: BREAKTHROUGH_GUNS, unit: 'atGun' }
 
 /** 德軍線的卡片。**這一條線的卡片只住在這裡。** */
@@ -238,45 +244,45 @@ export const GERMANY: readonly MissionCard[] = [
       altitude: 2000,
       ground: RZHEV_GROUND,
       /**
-       * 【兩路德軍開場就在、蘇軍預備隊藏著】四支同一個觸發出發。德軍兩支都走路（A 在斜路、
-       * B 在南路跟在後面）；蘇軍兩支出發前不在場上、從村北沿村的東西外側南下 —— 第一段先炸掉
-       * 它們的話，第二段一開始就達成了
+       * 【四支縱隊全部藏著，同一個觸發出發】蘇軍兩支戰車（各 10 輛）從戰場框外的南邊沿斜路與南路進來、
+       * 停在雷帶南緣外；德軍兩支預備隊（各 10 輛 IV 號）從村北沿村的東西外側南下。蘇軍藏著是為了第二段
+       * 的數量：開場就在場上的話，第一段先炸掉的戰車會把第二段的 8 輛湊滿
        */
       columns: [
         {
-          team: 'blue', route: PANZER_ROUTE_A, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
-          gap: COLUMN_GAP, units: ['panzer4', 'panzer4', 'tiger', ...Array<'panzer4'>(7).fill('panzer4')],
-          depart: RZHEV_BREAKTHROUGH,
-        },
-        {
-          team: 'blue', route: PANZER_ROUTE_B, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
-          gap: COLUMN_GAP, units: ['panzer4', 'tiger', ...Array<'panzer4'>(8).fill('panzer4')],
-          depart: RZHEV_BREAKTHROUGH,
-        },
-        {
-          team: 'red', route: T34_RESERVE_WEST, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
+          team: 'red', route: SOVIET_ROUTE_A, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
           gap: COLUMN_GAP, units: Array<'tank'>(10).fill('tank'),
           depart: RZHEV_BREAKTHROUGH, hidden: true,
         },
         {
-          team: 'red', route: T34_RESERVE_EAST, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
+          team: 'red', route: SOVIET_ROUTE_B, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
           gap: COLUMN_GAP, units: Array<'tank'>(10).fill('tank'),
+          depart: RZHEV_BREAKTHROUGH, hidden: true,
+        },
+        {
+          team: 'blue', route: GERMAN_RESERVE_WEST, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
+          gap: COLUMN_GAP, units: Array<'panzer4'>(10).fill('panzer4'),
+          depart: RZHEV_BREAKTHROUGH, hidden: true,
+        },
+        {
+          team: 'blue', route: GERMAN_RESERVE_EAST, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
+          gap: COLUMN_GAP, units: Array<'panzer4'>(10).fill('panzer4'),
           depart: RZHEV_BREAKTHROUGH, hidden: true,
         },
       ],
-      // 【第一段：反坦克砲炸掉七門】防空、步兵、半埋的 T-34 打得掉但不算
+      // 【第一段：蘇軍支援砲炸掉七門】防空、步兵、殘骸打得掉但不算
       destroyCount: BREAKTHROUGH_GUNS, destroyUnit: 'atGun',
-      // 【炸夠數之後，剩下的砲由前進的德軍坦克打掉】劇本打掉的不算摧毀數；畫面上由地面戰的戲補
-      // 一發命中的砲彈。**起始值，由試飛裁定**
+      // 【炸夠數之後，剩下的砲由德軍的反坦克砲與戰車打掉】只打敵方；劇本打掉的不算摧毀數，畫面上由
+      // 地面戰的戲補一發命中的砲彈。**起始值，由試飛裁定**
       mopUp: { when: RZHEV_BREAKTHROUGH, unit: 'atGun', within: [12, 45] },
-      // 【第二段：反擊的預備隊 T-34 炸掉 8 輛】二十輛裡的八輛，其餘由德軍的戰車對付。**起始值，由試飛裁定**
+      // 【第二段：突擊的 T-34 炸掉 8 輛】二十輛裡的八輛，其餘由德軍的戰車與反坦克砲對付。**起始值，由試飛裁定**
       retarget: {
         when: RZHEV_BREAKTHROUGH, messageKey: 'mission.germany-m4.retarget',
         destroyCount: 8, destroyUnit: 'tank',
       },
       // 【節奏】一台平均 4 秒一發，步兵的班也一樣；再慢從空中看起來像沒在交火。砲兵的彈著 1.6 秒一柱
       theater: {
-        shooters: ['panzer4', 'tiger', 'tank', 'tankDug', 'atGun', 'infantry', 'mortar'],
+        shooters: ['panzer4', 'tank', 'tankDug', 'atGun', 'infantry', 'mortar'],
         period: 4,
         range: 1500,
         artillery: { ...ARTILLERY_ZONE, period: 1.6 },

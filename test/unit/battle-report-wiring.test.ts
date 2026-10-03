@@ -87,6 +87,17 @@ describe('戰果通報的接線', () => {
     expect(b.report.lines[0]).toMatchObject({ kind: 'ground', nameKey: groundUnitNameKey('truck') })
   })
 
+  /** 炸彈不分敵我：玩家炸到友軍（藍隊）的地面目標，不是戰果，不能跳出「擊毀 …」 */
+  it('玩家的炸彈炸掉友軍的地面目標不通報', () => {
+    const b = battle()
+    const t = createGroundTarget(0, 'truck', 'blue', 0, 0, 0)
+    b.world.groundTargets.push(t)
+    b.world.dropBomb(0, 60, 0, 0, -120, 0, BOMB_BLAST_DAMAGE, 0, b.player.index)
+    settle(b)
+    expect(t.alive).toBe(false)
+    expect(b.report.count).toBe(0)
+  })
+
   /**
    * 【為什麼兇手與爆風旗標一定要分成兩格】渲染層靠第六格決定放不放第二團
    * 火。用「兇手 = −1 就是炸彈」代替的話，玩家投的彈兩者同時成立，症狀是

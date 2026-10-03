@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { Color } from 'three'
 import {
-  AT_GUNS, FRONT_T34, GERMAN_INFANTRY, GERMAN_MORTARS, MINEFIELDS, OBSTACLES, PANZER_ROUTE_A, PANZER_ROUTE_B, SOVIET_FLAK,
-  SOVIET_INFANTRY, SOVIET_MORTARS, SOVIET_TRUCKS, STALLED_PANZERS, T34_RESERVE_EAST, T34_RESERVE_WEST, toLocal, TRENCHES,
-  WRECK_PANZERS, WRECK_T34,
+  GERMAN_AT_GUNS, GERMAN_DUG_PANZERS, SOVIET_INFANTRY, SOVIET_MORTARS, MINEFIELDS, OBSTACLES, SOVIET_ROUTE_A, SOVIET_ROUTE_B, SOVIET_FLAK,
+  GERMAN_INFANTRY, GERMAN_MORTARS, GERMAN_TRUCKS, STALLED_SOVIET_TANKS, GERMAN_RESERVE_EAST, GERMAN_RESERVE_WEST, toLocal, TRENCHES,
+  WRECK_SOVIET_TANKS, WRECK_GERMAN_PANZERS,
 } from '../../src/world/rzhev'
 import {
   buildObstacles, coilPath, hedgehogBars, OBSTACLE_COLORS, OBSTACLE_MAX_TRIS, OBSTACLE_SIZE, obstaclePlacements,
@@ -54,7 +54,7 @@ describe('障礙物的佈局', () => {
 
   it('離德軍縱隊與預備隊的路線至少 30 m（縱隊有轉彎半徑，會切內角）', () => {
     for (const p of pieces) {
-      for (const r of [PANZER_ROUTE_A, PANZER_ROUTE_B, T34_RESERVE_WEST, T34_RESERVE_EAST]) {
+      for (const r of [SOVIET_ROUTE_A, SOVIET_ROUTE_B, GERMAN_RESERVE_WEST, GERMAN_RESERVE_EAST]) {
         expect(near(p.x, p.z, r), `${p.kind} ${p.x.toFixed(0)},${p.z.toFixed(0)}`).toBeGreaterThanOrEqual(30)
       }
     }
@@ -72,8 +72,8 @@ describe('障礙物的佈局', () => {
 
   it('離所有單位（含殘骸）至少 10 m', () => {
     const units = [
-      ...AT_GUNS, ...FRONT_T34, ...WRECK_PANZERS, ...WRECK_T34, ...STALLED_PANZERS,
-      ...SOVIET_INFANTRY, ...GERMAN_INFANTRY, ...SOVIET_FLAK, ...SOVIET_MORTARS, ...GERMAN_MORTARS, ...SOVIET_TRUCKS,
+      ...GERMAN_AT_GUNS, ...GERMAN_DUG_PANZERS, ...WRECK_SOVIET_TANKS, ...WRECK_GERMAN_PANZERS, ...STALLED_SOVIET_TANKS,
+      ...GERMAN_INFANTRY, ...SOVIET_INFANTRY, ...SOVIET_FLAK, ...GERMAN_MORTARS, ...SOVIET_MORTARS, ...GERMAN_TRUCKS,
     ]
     for (const p of pieces) {
       for (const u of units) {

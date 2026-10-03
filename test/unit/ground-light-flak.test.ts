@@ -74,6 +74,34 @@ describe('輕型陸砲', () => {
     expect(pf.live).toBe(0)
   })
 
+  /**
+   * 【藍隊的陸砲打紅隊的飛機】勒熱夫是德軍守、蘇軍攻：德軍（藍）的 Flak 38 要打 Yak，蘇軍（紅）的
+   * 要打 Ju 87。目標只看「與砲位不同隊」，不看哪一隊是玩家
+   */
+  it('藍隊的輕砲打紅隊的飛機、不打藍隊的；紅隊的輕砲反過來', () => {
+    const run = (platform: 'blue' | 'red', victim: 'blue' | 'red'): { live: number; team: number } => {
+      const t = createGroundTarget(0, 'flakLight', platform, 0, 0, 0)
+      t.guns = createGroundBattery(GROUND_LIGHT_FLAK_SPEC, 'autocannon', GROUND_LIGHT_FLAK_SPEC.caliber)
+      const p = new Projectiles(512)
+      const flak = createFlak()
+      const dt = 1 / 240
+      const v = target(0, 0, 1500, -800)
+      ;(v as { team: 'blue' | 'red' }).team = victim
+      for (let i = 0; i < 3 * 240; i++) stepGunPlatform(t, [v], p, flak, i * dt, dt, [t])
+      let team = -1
+      for (let i = 0; i < p.capacity; i++) if (p.owner[i] !== -1) { team = p.team[i]!; break }
+      return { live: p.live, team }
+    }
+    const blueVsRed = run('blue', 'red')
+    expect(blueVsRed.live).toBeGreaterThan(0)
+    expect(blueVsRed.team).toBe(0)
+    expect(run('blue', 'blue').live).toBe(0)
+    const redVsBlue = run('red', 'blue')
+    expect(redVsBlue.live).toBeGreaterThan(0)
+    expect(redVsBlue.team).toBe(1)
+    expect(run('red', 'red').live).toBe(0)
+  })
+
   it('省略 tier 仍是重高砲', () => {
     const g = createGroundBattery()
     expect(g[0]!.zone.tier).toBe('flak')

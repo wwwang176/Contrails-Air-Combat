@@ -11,8 +11,8 @@ import {
 } from '../../src/render/steppeRavines'
 import { rzhevVillageKeepOut } from '../../src/render/terrain'
 import {
-  at, battleKeepOut, BELT_BOX, burnRateOf, isLargeVillage, PANZER_ROUTE_A, PANZER_ROUTE_B, shelterbeltFade,
-  T34_RESERVE_EAST, T34_RESERVE_WEST, toLocal,
+  at, battleKeepOut, BELT_BOX, burnRateOf, isLargeVillage, SOVIET_ROUTE_A, SOVIET_ROUTE_B, shelterbeltFade,
+  GERMAN_RESERVE_EAST, GERMAN_RESERVE_WEST, toLocal,
 } from '../../src/world/rzhev'
 import {
   RAVINE_MIN_FADE, RAVINE_MIN_SCALE, RAVINE_STEP, RAVINES, ravineGap,
@@ -176,7 +176,7 @@ describe('沖溝不壓在任務的單位與路線上', () => {
   it('縱隊與預備隊的路線頂點、縱隊的出發位置，離任何溝的中線都在 80 m 以上', () => {
     const card = MISSIONS.germany.find((c) => c.id === 'germany-m4') as ReadyMissionCard
     const pts: { x: number; z: number }[] = [
-      ...PANZER_ROUTE_A, ...PANZER_ROUTE_B, ...T34_RESERVE_WEST, ...T34_RESERVE_EAST,
+      ...SOVIET_ROUTE_A, ...SOVIET_ROUTE_B, ...GERMAN_RESERVE_WEST, ...GERMAN_RESERVE_EAST,
     ]
     for (const col of card.battle.columns ?? []) for (const g of columnGround(col)) pts.push(g)
     expect(pts.length).toBeGreaterThan(20)

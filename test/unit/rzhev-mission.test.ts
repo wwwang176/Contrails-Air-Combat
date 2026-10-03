@@ -5,16 +5,17 @@ import type { GroundTarget } from '../../src/world/groundTargets'
 import { ENTRY_PLANS } from '../../src/battle/entry'
 import { DEFAULT_BATTLE } from '../../src/battle/setup'
 import { ARENA_RADIUS } from '../../src/world/arena'
-import { PANZER_ROUTE_B } from '../../src/world/rzhev'
+import { SOVIET_FLAK, SOVIET_SUPPORT_GUNS } from '../../src/world/rzhev'
 import { AiController } from '../../src/ai/AiController'
 import { YAK1B } from '../../src/specs/yak1b'
 import type { ReinforceBeat } from '../../src/battle/beats'
 
 /**
- * # 德 M4 的兩個節拍：縱隊出發與換目標
+ * # 德 M4（勒熱夫）的兩個節拍：縱隊出發與換目標
  *
- * 用真的卡片建場，**手動**把目標打掉（不跑飛行），只看節拍那一層：反坦克砲全毀的
- * 那一步換成第二段、不判勝；縱隊開始走；藏著的反擊縱隊出現；第二段數到才贏。
+ * 用真的卡片建場，**手動**把目標打掉（不跑飛行），只看節拍那一層：蘇軍支援砲炸夠七門的
+ * 那一步換成第二段、不判勝；四支藏著的縱隊（蘇軍戰車、德軍預備隊）出現並出發；第二段數到才贏。
+ * 德軍（藍）的反坦克砲、固定戰車與防空都是友軍，不算摧毀數、也不被 `mopUp` 打掉。
  */
 
 const card = MISSIONS.germany.find((c) => c.id === 'germany-m4') as ReadyMissionCard
@@ -23,8 +24,8 @@ const DT = 1 / 240
 function battle(): Battle {
   return createBattle({ update() {} }, missionConfigFrom(card), 1)
 }
-function units(b: Battle, id: string): GroundTarget[] {
-  return b.world.groundTargets.filter((t) => t.unit.id === id)
+function units(b: Battle, id: string, team?: 'blue' | 'red'): GroundTarget[] {
+  return b.world.groundTargets.filter((t) => t.unit.id === id && (team === undefined || t.team === team))
 }
 function wreck(t: GroundTarget): void {
   t.hp = 0
@@ -35,23 +36,24 @@ function steps(b: Battle, n: number): void {
 }
 
 describe('德 M4 的縱隊與換目標', () => {
-  it('開場：反擊的 T-34 藏著，德軍縱隊停著', () => {
+  it('開場：四支縱隊都藏著（蘇軍 20 輛 T-34、德軍預備隊 20 輛 IV 號）', () => {
     const b = battle()
     steps(b, 240)
-    for (const t of units(b, 'tank')) {
+    const columns = b.world.groundTargets.filter((t) => t.motion !== null)
+    expect(columns.length).toBe(40)
+    for (const t of columns) {
       expect(t.dormant).toBe(true)
       expect(t.alive).toBe(false)
     }
-    const panzers = b.world.groundTargets.filter((t) => t.motion !== null && t.team === 'blue')
-    expect(panzers.length).toBe(20)
-    for (const t of panzers) expect(t.speed).toBe(0)
+    expect(columns.filter((t) => t.team === 'red' && t.unit.id === 'tank')).toHaveLength(20)
+    expect(columns.filter((t) => t.team === 'blue' && t.unit.id === 'panzer4')).toHaveLength(20)
     expect(b.rules).toMatchObject({ kind: 'destroy', count: 7, unit: 'atGun' })
   })
 
-  it('反坦克砲炸夠七門的那一步換成第二段，不判勝', () => {
+  it('蘇軍支援砲炸夠七門的那一步換成第二段，不判勝', () => {
     const b = battle()
     steps(b, 10)
-    for (const t of units(b, 'atGun')) wreck(t)
+    for (const t of units(b, 'atGun', 'red')) wreck(t)
     steps(b, 1)
     expect(b.mission.outcome).toBe('fighting')
     expect(b.rules).toMatchObject({ kind: 'destroy', count: 8, unit: 'tank' })
@@ -60,25 +62,26 @@ describe('德 M4 的縱隊與換目標', () => {
   })
 
   /**
-   * 【不必全部殲滅】炸到七門缺口就開了；剩下的三門由前進的德軍戰車打掉（劇本，`mopUp`），
-   * 畫面上由地面戰的戲補一發命中的砲彈。劇本打掉的不算進摧毀數。
+   * 【不必全部殲滅】炸到七門缺口就開了；剩下的三門由德軍的反坦克砲與戰車打掉（劇本，`mopUp`），
+   * 畫面上由地面戰的戲補一發命中的砲彈。劇本打掉的不算進摧毀數。**只打敵方**：德軍的反坦克砲也是
+   * `atGun`。
    */
-  describe('炸夠數就進下一段，剩下的砲由戰車打掉', () => {
+  describe('炸夠數就進下一段，剩下的砲由德軍打掉', () => {
     it('六門還不夠：目標不換、縱隊不出發', () => {
       const b = battle()
       steps(b, 10)
-      const guns = units(b, 'atGun')
+      const guns = units(b, 'atGun', 'red')
       for (let i = 0; i < 6; i++) wreck(guns[i]!)
       steps(b, 2 * 240)
       expect(b.rules).toMatchObject({ kind: 'destroy', unit: 'atGun' })
-      for (const t of b.world.groundTargets.filter((x) => x.motion !== null && x.team === 'blue')) expect(t.speed).toBe(0)
+      for (const t of b.world.groundTargets.filter((x) => x.motion !== null)) expect(t.dormant).toBe(true)
       for (const g of guns.slice(6)) expect(g.killAt).toBe(Infinity)
     })
 
     it('第七門炸掉的那一步：換成第二段、縱隊出發、剩下三門排定在 12～45 秒內被打掉', () => {
       const b = battle()
       steps(b, 10)
-      const guns = units(b, 'atGun')
+      const guns = units(b, 'atGun', 'red')
       for (let i = 0; i < 7; i++) wreck(guns[i]!)
       const now = b.world.time
       steps(b, 1)
@@ -94,10 +97,10 @@ describe('德 M4 的縱隊與換目標', () => {
       expect(new Set(left.map((g) => g.killAt)).size).toBe(3)
     })
 
-    it('50 秒後剩下的都死了，標成劇本打掉的、不算進摧毀數；已經炸掉的七門不受影響', () => {
+    it('50 秒後剩下的蘇軍砲都死了，標成劇本打掉的、不算進摧毀數；已經炸掉的七門不受影響', () => {
       const b = battle()
       steps(b, 10)
-      const guns = units(b, 'atGun')
+      const guns = units(b, 'atGun', 'red')
       for (let i = 0; i < 7; i++) wreck(guns[i]!)
       steps(b, 50 * 240)
       for (const g of guns.slice(7)) {
@@ -107,31 +110,47 @@ describe('德 M4 的縱隊與換目標', () => {
       for (const g of guns.slice(0, 7)) expect(g.scripted).toBe(false)
       expect(b.mission.outcome).toBe('fighting')
     })
+
+    /** 德軍的反坦克砲也是 `atGun`：`mopUp` 不分隊伍的話，它們會被一起「打掉」 */
+    it('德軍（藍）的反坦克砲不被 mopUp 動', () => {
+      const b = battle()
+      steps(b, 10)
+      for (const g of units(b, 'atGun', 'red').slice(0, 7)) wreck(g)
+      steps(b, 50 * 240)
+      const german = units(b, 'atGun', 'blue')
+      expect(german).toHaveLength(10)
+      for (const g of german) {
+        expect(g.alive).toBe(true)
+        expect(g.scripted).toBe(false)
+        expect(g.killAt).toBe(Infinity)
+      }
+    })
   })
 
-  it('換段之後縱隊出發，反擊的 T-34 出現', () => {
+  it('換段之後四支縱隊出發：蘇軍 T-34 與德軍預備隊都現身、開動', () => {
     const b = battle()
     steps(b, 10)
-    for (const t of units(b, 'atGun')) wreck(t)
+    for (const t of units(b, 'atGun', 'red')) wreck(t)
     steps(b, 2 * 240)
-    for (const t of units(b, 'tank')) {
+    const columns = b.world.groundTargets.filter((t) => t.motion !== null)
+    expect(columns).toHaveLength(40)
+    for (const t of columns) {
       expect(t.dormant).toBe(false)
       expect(t.alive).toBe(true)
       expect(t.speed).toBeGreaterThan(0)
     }
-    const panzers = b.world.groundTargets.filter((t) => t.motion !== null && t.team === 'blue')
-    for (const t of panzers) expect(t.speed).toBeGreaterThan(0)
   })
 
-  it('第二段：反擊的預備隊 T-34 炸掉 8 輛才贏，半埋的不算', () => {
+  it('第二段：突擊的 T-34 炸掉 8 輛才贏；劇本戰車與殘骸（紅 tankDug）不算、德軍的車不算', () => {
     const b = battle()
     steps(b, 10)
-    for (const t of units(b, 'atGun')) wreck(t)
+    for (const t of units(b, 'atGun', 'red')) wreck(t)
     steps(b, 2)
-    for (const t of units(b, 'tankDug')) wreck(t)
+    for (const t of units(b, 'tankDug', 'red')) wreck(t)
+    for (const t of units(b, 'panzer4')) wreck(t)
     steps(b, 2)
     expect(b.mission.outcome).toBe('fighting')
-    const tanks = units(b, 'tank')
+    const tanks = units(b, 'tank', 'red')
     expect(tanks.length).toBe(20)
     for (let i = 0; i < 7; i++) wreck(tanks[i]!)
     steps(b, 2)
@@ -142,16 +161,17 @@ describe('德 M4 的縱隊與換目標', () => {
   })
 })
 
-describe('庫斯克的進場對準戰場', () => {
+describe('勒熱夫的進場對準戰場', () => {
   const lead = ENTRY_PLANS[card.battle.entry].blue
   const x = lead.across * DEFAULT_BATTLE.lateralOffset
   const z = lead.along * DEFAULT_BATTLE.entryRange + lead.gap
 
-  it('玩家開場離德軍集結地至少 4.5 km，而且橫向對準路（差不到 500 m）', () => {
-    // 離玩家最近的德軍單位：B 縱隊的尾端（路線第一點）
-    const staging = PANZER_ROUTE_B[0]!
-    expect(z - staging.z).toBeGreaterThan(4500)
-    expect(Math.abs(x - staging.x)).toBeLessThan(500)
+  it('玩家開場離蘇軍最近的固定單位至少 4.5 km，而且橫向對準蘇軍支援砲的中心（差不到 500 m）', () => {
+    // 離玩家最近的蘇軍單位：最靠南的防空（Ju 87 由南往北進，先飛過它們）
+    const nearest = SOVIET_FLAK.reduce((a, s) => (s.z > a.z ? s : a))
+    expect(z - nearest.z).toBeGreaterThan(4500)
+    const centerX = SOVIET_SUPPORT_GUNS.reduce((s, g) => s + g.x, 0) / SOVIET_SUPPORT_GUNS.length
+    expect(Math.abs(x - centerX)).toBeLessThan(500)
   })
 
   it('開場位置在競技場裡', () => {

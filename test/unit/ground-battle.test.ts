@@ -99,7 +99,7 @@ describe('用真的卡片開打', () => {
     const burns: { x: number; z: number }[] = []
     const gb = createGroundBattle({ ...card.battle.theater!, smokes: [] }, (x, _y, z) => burns.push({ x, z }))
     const flat = (): number => 0
-    const tank = b.world.groundTargets.find((t) => t.unit.id === 'tankDug' && t.killAt === Infinity)!
+    const tank = b.world.groundTargets.find((t) => t.unit.id === 'panzer4' && t.killAt === Infinity)!
     const gun = b.world.groundTargets.find((t) => t.unit.id === 'atGun')!
     tank.alive = false
     gun.alive = false
@@ -124,7 +124,7 @@ describe('用真的卡片開打', () => {
     const burns: { x: number; z: number }[] = []
     const gb = createGroundBattle({ ...card.battle.theater!, smokes: [] }, (x, _y, z) => burns.push({ x, z }))
     const flat = (): number => 0
-    const tank = b.world.groundTargets.find((t) => t.unit.id === 'tankDug' && t.killAt === Infinity)!
+    const tank = b.world.groundTargets.find((t) => t.unit.id === 'panzer4' && t.killAt === Infinity)!
     tank.alive = false
     const at = (): number => burns.filter((p) => p.x === tank.position.x && p.z === tank.position.z).length
     const end = FIRE_SECONDS + WRECK_SMOKE_SECONDS

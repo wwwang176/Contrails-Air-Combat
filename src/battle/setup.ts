@@ -1409,9 +1409,12 @@ function stepBeats(b: Battle): void {
       for (let k = beat.first; k < beat.first + beat.count; k++) targets[k]!.departAt = now
     } else if (beat.kind === 'mopUp') {
       // 【剩下還活著的排定被打掉的時刻】`stepScriptedKill` 到了 `killAt` 就走擊毀流程、標成劇本打掉的
-      // （不算摧毀數）。索引雜湊把它們散在 `within` 裡，不是同一刻一排爆
+      // （不算摧毀數）。索引雜湊把它們散在 `within` 裡，不是同一刻一排爆。
+      //
+      // 【只打敵方】同一種單位的友軍也在場上（德 M4 的德軍反坦克砲與蘇軍支援砲都是 `atGun`），
+      // 不看隊伍的話友軍會被一起「打掉」
       for (const t of b.world.groundTargets) {
-        if (t.unit.id !== beat.unit || !t.alive || t.scripted || t.killAt !== Infinity) continue
+        if (t.team === 'blue' || t.unit.id !== beat.unit || !t.alive || t.scripted || t.killAt !== Infinity) continue
         const u = (Math.imul(t.index + 1, 2654435761) >>> 0) / 4294967296
         t.killAt = now + beat.within[0] + (beat.within[1] - beat.within[0]) * u
       }
@@ -2280,7 +2283,8 @@ function drainReportBuffer(
 function reportNameKey(b: Battle, kind: ReportKind, index: number): MessageKey | undefined {
   if (kind === 'ground') {
     const t = b.world.groundTargets[index]
-    return t === undefined ? undefined : groundUnitNameKey(t.unit.id)
+    // 【友軍不通報】炸彈不分敵我，玩家炸到自己人不是戰果
+    return t === undefined || t.team === 'blue' ? undefined : groundUnitNameKey(t.unit.id)
   }
   // 擊沉與雷擊命中查的是同一張表
   const s = b.world.ships[index]

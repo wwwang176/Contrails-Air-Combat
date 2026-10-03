@@ -5,7 +5,7 @@ import {
   DUST_CLOUD_LIFT_MAX, DUST_CLOUD_LIFT_MIN, DUST_CLOUD_SHADE, DUST_CLOUD_SPREAD, dustCloudSpot,
 } from '../../src/render/groundBattle'
 import { clearBattleFog, setBattleFog } from '../../src/render/heightFog'
-import { AT_GUNS, BATTLE_HAZE, RZHEV_DUSTS, toLocal } from '../../src/world/rzhev'
+import { GERMAN_AT_GUNS, BATTLE_HAZE, RZHEV_DUSTS, toLocal } from '../../src/world/rzhev'
 import { MISSIONS, type ReadyMissionCard } from '../../src/battle/missions'
 
 /**
@@ -167,9 +167,9 @@ describe('庫斯克的塵團出處', () => {
   })
 
   it('十門反坦克砲各一處，加上沿村主街的五處', () => {
-    expect(RZHEV_DUSTS).toHaveLength(AT_GUNS.length + 5)
-    for (const g of AT_GUNS) expect(RZHEV_DUSTS.some((p) => p.x === g.x && p.z === g.z)).toBe(true)
-    const street = RZHEV_DUSTS.slice(AT_GUNS.length).map((p) => toLocal(p.x, p.z))
+    expect(RZHEV_DUSTS).toHaveLength(GERMAN_AT_GUNS.length + 5)
+    for (const g of GERMAN_AT_GUNS) expect(RZHEV_DUSTS.some((p) => p.x === g.x && p.z === g.z)).toBe(true)
+    const street = RZHEV_DUSTS.slice(GERMAN_AT_GUNS.length).map((p) => toLocal(p.x, p.z))
     for (const l of street) {
       expect(Math.abs(l.lx)).toBeLessThan(1)
       expect(l.lz).toBeLessThan(-200)
