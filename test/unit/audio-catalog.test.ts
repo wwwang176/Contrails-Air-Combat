@@ -122,7 +122,9 @@ describe('撞擊材質', () => {
 })
 
 import { existsSync, readFileSync } from 'node:fs'
-import { ALL_FILES, POOLS, engineFile, fireFile, turretFile, volleyPool } from '../../src/audio/catalog'
+import {
+  ALL_FILES, POOLS, engineFile, fireFile, ownTurretVolleyPools, turretFile, volleyPool,
+} from '../../src/audio/catalog'
 import { ALL_SPECS } from '../../src/battle/skirmish'
 import { JU87 } from '../../src/specs/ju87'
 
@@ -190,6 +192,17 @@ describe('音效目錄', () => {
       expect((manifest[f] as { loop: boolean }).loop, f).toBe(false)
       expect(existsSync(`public/audio/${f}.mp3`), f).toBe(true)
     }
+  })
+
+  /**
+   * 【每一座砲塔都有齊射庫才整架改走齊射】只有一部分有的話（He 111 的機首與兩側是單管 MG 15，背部是
+   * MG 131、腹部是雙聯 MG 15），沒有庫的那幾座自己駕駛時會整個沒聲音 —— 不報錯。所以那種機種維持砲塔循環。
+   */
+  it('自己駕駛時砲塔改走齊射庫的條件：每一座砲塔都有庫（現在只有 Ju 87）', () => {
+    expect(ownTurretVolleyPools(JU87.turrets)).toEqual(['volley-mg15x1'])
+    const switched = ALL_SPECS.filter((s) => ownTurretVolleyPools(s.turrets) !== null).map((s) => s.id)
+    expect(switched).toEqual(['ju87'])
+    expect(ownTurretVolleyPools([])).toBeNull()
   })
 
   it('借用別台引擎聲的只剩 Yak-1B（借 Bf 109 K-4）', () => {

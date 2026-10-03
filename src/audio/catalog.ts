@@ -288,6 +288,25 @@ export function volleyPool(weaponId: string, guns: number): Pool | null {
   return id in POOLS ? id as Pool : null
 }
 
+/**
+ * 自己駕駛時砲塔改走齊射庫（與前機槍同一個機制）的各座砲塔的庫；不符條件回 null，維持砲塔循環。
+ *
+ * 【每一座砲塔都有庫才整架改走】只有一部分有的話（He 111 的機首與兩側是單管 MG 15，背部是
+ * MG 131、腹部是雙聯 MG 15），沒有庫的那幾座自己駕駛時會整個沒聲音 —— 不報錯。
+ */
+export function ownTurretVolleyPools(
+  turrets: readonly { readonly weapon: { readonly id: string }; readonly guns: number }[],
+): Pool[] | null {
+  if (turrets.length === 0) return null
+  const pools: Pool[] = []
+  for (const t of turrets) {
+    const pool = volleyPool(t.weapon.id, t.guns)
+    if (pool === null) return null
+    pools.push(pool)
+  }
+  return pools
+}
+
 export const SINGLE_FILES = {
   /** 進出投彈瞄準視角：彈艙的機械聲 */
   bayToggle: 'reload-1',

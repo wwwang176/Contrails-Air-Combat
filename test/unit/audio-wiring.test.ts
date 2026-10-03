@@ -209,8 +209,8 @@ describe('音效的戰鬥事件接線', () => {
    */
   it('自己那架的後座砲塔走齊射庫：與前機槍同一組分組、同一個事件，並且不進砲塔循環', () => {
     const rebuild = body('function rebuildVolleyGroups(')
-    expect(rebuild).toContain('volleyPool(turrets[i]!.weapon.id, turrets[i]!.guns)')
-    expect(rebuild).toContain('ownTurretVolley = true')
+    expect(rebuild).toContain('ownTurretVolleyPools(player.aircraft.spec.turrets)')
+    expect(rebuild).toContain('ownTurretVolley = rear !== null')
     const q = body('function queueAudioCues(')
     expect(q).toContain('player.turretStates[g.turret]')
     expect(q).toContain('pushCue(cues, CUE.SelfVolley, i, 0, 0)')

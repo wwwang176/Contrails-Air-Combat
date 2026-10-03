@@ -9,7 +9,8 @@ import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality }
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
 import {
-  SINGLE_FILES, engineFile, fireFile, groundGunTier, gunSound, impactSound, turretFile, volleyPool, type Pool,
+  SINGLE_FILES, engineFile, fireFile, groundGunTier, gunSound, impactSound, ownTurretVolleyPools, turretFile,
+  volleyPool, type Pool,
 } from './audio/catalog'
 import {
   STRIKE_HEIGHT, applyFlash, createStorm, rollThunder, stepStorm, type Storm,
@@ -2232,14 +2233,12 @@ function rebuildVolleyGroups(): void {
       volleyGroups.push({ mount: i, turret: -1, pool, db: 0 })
     }
   }
-  // 後座砲塔：有齊射庫的各自一組（沒有的仍是砲塔循環）
-  const turrets = player.aircraft.spec.turrets
-  ownTurretVolley = false
-  for (let i = 0; i < turrets.length; i++) {
-    const pool = volleyPool(turrets[i]!.weapon.id, turrets[i]!.guns)
-    if (pool === null || volleyGroups.length >= prevVolleyFlash.length) continue
-    volleyGroups.push({ mount: -1, turret: i, pool, db: TURRET_VOLLEY_DB })
-    ownTurretVolley = true
+  // 後座砲塔：每一座都有齊射庫的機種（Ju 87）各自一組，其餘維持砲塔循環
+  const rear = ownTurretVolleyPools(player.aircraft.spec.turrets)
+  ownTurretVolley = rear !== null
+  if (rear === null) return
+  for (let i = 0; i < rear.length && volleyGroups.length < prevVolleyFlash.length; i++) {
+    volleyGroups.push({ mount: -1, turret: i, pool: rear[i]!, db: TURRET_VOLLEY_DB })
   }
 }
 
