@@ -188,8 +188,8 @@ describe('音效的戰鬥事件接線', () => {
    * 所以候選要跨幀留到下一幀的 `playCannons`：清除放在播完之後，放在第一趟之前會把它抹掉，
    * 症狀是戰車與反坦克砲整場無聲，而且不報錯。
    */
-  it('地面戰的戰車砲、反坦克砲出聲：回呼記下最近的一發，playCannons 播完才清', () => {
-    expect(ALL).toContain('createGroundBattle(theater, emitFirePuff, smokeTexture, emitMortarBlast, noteGroundShot)')
+  it('地面戰的砲口聲：回呼記下最近的一發，playCannons 播完才清', () => {
+    expect(ALL).toContain('createGroundBattle(theater, emitFirePuff, smokeTexture, onGroundImpact, noteGroundShot)')
     const note = body('function noteGroundShot(')
     expect(note).toContain('const tier = groundGunTier(unit)')
     expect(note).toContain('if (tier === null) return')

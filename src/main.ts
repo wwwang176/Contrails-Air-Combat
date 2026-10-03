@@ -48,7 +48,7 @@ import {
   emitBlast, emitEmber, emitFlakBlasts, emitMist, resetFlakBlastSeed, scaleBlast,
   type BlastParams, type BlastPools,
 } from './render/blast'
-import { MORTAR_BLAST } from './render/mortarBlast'
+import { MORTAR_BLAST, MORTAR_BLAST_SCALE } from './render/mortarBlast'
 import { createFireball, FIREBALL_COUNT, FIREBALL_SPEED } from './render/fireball'
 import { createFlakBursts, emitFlakBursts, resetFlakBurstSeed } from './render/flakBursts'
 import { createFlareLights } from './render/flares'
@@ -897,6 +897,16 @@ const SCALED_BLAST: { -readonly [K in keyof BlastParams]: number } = { ...LAND_B
 let mortarSeed = 0
 const emitMortarBlast = (x: number, y: number, z: number): void => {
   emitBlast(BLAST_POOLS, MORTAR_BLAST, x, y, z, (mortarSeed = (mortarSeed + 1) | 0))
+}
+
+/**
+ * 地面戰的小爆炸（砲彈擊中、迫擊砲彈落地）：畫面是 `emitMortarBlast`，聲音是一般爆炸聲
+ * （`CUE.Explosion`，與飛機、炸彈同一條路），**當量與畫面同一個 `MORTAR_BLAST_SCALE`** ——
+ * 畫面縮小、聲音沒跟著縮的話，一發砲彈聽起來像一顆炸彈。事件在下一幀的 `playCues` 播。
+ */
+const onGroundImpact = (x: number, y: number, z: number): void => {
+  emitMortarBlast(x, y, z)
+  pushCue(cues, CUE.Explosion, x, y, z, MORTAR_BLAST_SCALE)
 }
 
 /**
@@ -1791,7 +1801,7 @@ function startWorld(cfg: BattleConfig): void {
   releaseGroundBattle()
   const theater = pendingMission?.battle.theater
   if (theater !== undefined && world.groundTargets.length > 0) {
-    groundBattle = createGroundBattle(theater, emitFirePuff, smokeTexture, emitMortarBlast, noteGroundShot)
+    groundBattle = createGroundBattle(theater, emitFirePuff, smokeTexture, onGroundImpact, noteGroundShot)
     for (const o of groundBattle.objects) ctx.scene.add(o)
     if (theater.haze !== undefined) {
       setBattleFog({ ...theater.haze, tint: battleFogTint((ctx.scene.fog as FogExp2).color, theater.fogColor) })

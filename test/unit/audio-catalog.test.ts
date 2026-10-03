@@ -31,15 +31,17 @@ describe('艦砲各層的聲音', () => {
  * 與 40 mm 機砲之間：比五吋砲高、小聲，比 40 mm 低、大聲。
  */
 describe('地面戰的砲聲', () => {
-  it('戰車與反坦克砲各歸一層，步兵、迫擊砲、卡車、重高砲不走這條路', () => {
+  it('戰車、反坦克砲、步兵、迫擊砲各歸一層，卡車、重高砲不走這條路', () => {
     for (const id of ['tank', 'tankDug', 'panzer4', 'tiger', 'usTank']) expect(groundGunTier(id), id).toBe('tankGun')
     expect(groundGunTier('atGun')).toBe('atGun')
-    for (const id of ['infantry', 'mortar', 'truck', 'flakHeavy', 'constructor']) expect(groundGunTier(id), id).toBeNull()
+    expect(groundGunTier('infantry')).toBe('infantry')
+    expect(groundGunTier('mortar')).toBe('mortar')
+    for (const id of ['truck', 'flakHeavy', 'constructor']) expect(groundGunTier(id), id).toBeNull()
   })
 
-  it('這兩層都有自己的定義，不是走預設', () => {
+  it('這四層都有自己的定義，不是走預設', () => {
     const fallback = gunSound('no-such-tier')
-    for (const tier of ['tankGun', 'atGun']) expect(gunSound(tier), tier).not.toEqual(fallback)
+    for (const tier of ['tankGun', 'atGun', 'infantry', 'mortar']) expect(gunSound(tier), tier).not.toEqual(fallback)
   })
 
   it('音高與音量介於五吋砲與 40 mm 機砲之間', () => {
@@ -58,6 +60,22 @@ describe('地面戰的砲聲', () => {
     const tank = gunSound('tankGun'), at = gunSound('atGun')
     expect(at.rate).toBeGreaterThanOrEqual(tank.rate)
     expect(at.cutoffHz).toBeGreaterThanOrEqual(tank.cutoffHz)
+  })
+
+  /** 步兵的槍是五吋砲拉到最高、最小聲的那一端：比 20 mm 機砲還高、還小聲 */
+  it('步兵槍聲比 20 mm 機砲音高更高、更小聲', () => {
+    const inf = gunSound('infantry'), mg = gunSound('mg')
+    expect(inf.rate).toBeGreaterThanOrEqual(mg.rate)
+    expect(inf.gainDb).toBeLessThanOrEqual(mg.gainDb)
+    expect(inf.gap).toBeGreaterThan(0)
+  })
+
+  /** 迫擊砲發射是管口悶悶的一聲：音高不高於戰車砲、音色上限壓低 */
+  it('迫擊砲發射聲比戰車砲悶：音高不高、音色上限更低', () => {
+    const mortar = gunSound('mortar'), tank = gunSound('tankGun')
+    expect(mortar.rate).toBeLessThanOrEqual(tank.rate)
+    expect(mortar.cutoffHz).toBeLessThan(tank.cutoffHz)
+    expect(mortar.gap).toBeGreaterThan(0)
   })
 })
 

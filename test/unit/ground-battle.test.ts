@@ -316,23 +316,34 @@ describe('砲口聲的通報', () => {
     gb.dispose()
   })
 
-  it('步兵的槍不通報', () => {
+  it('步兵每開一槍通報一次，砲口在人的高度', () => {
     const { gb, shots } = battle(['infantry'], 0.5)
     const a = createGroundTarget(0, 'infantry', 'blue', 0, 0, 0)
     const b = createGroundTarget(1, 'infantry', 'red', 300, 0, 0)
     for (let t = 0; t < 30; t += 0.1) gb.update([a, b], t, 0.1, flat)
     expect(gb.shots).toBeGreaterThan(10)
-    expect(shots).toHaveLength(0)
+    expect(shots).toHaveLength(gb.shots)
+    expect(new Set(shots.map((s) => s.unit))).toEqual(new Set(['infantry']))
+    for (const s of shots) {
+      expect(s.y).toBeGreaterThan(1)
+      expect(s.y).toBeLessThan(2)
+    }
     gb.dispose()
   })
 
-  it('迫擊砲不通報', () => {
+  /** 開場前就已經在天上飛的彈不是現在發的，沒有砲口聲 */
+  it('迫擊砲每發射一發通報一次；開場時已在飛的不通報', () => {
     const { gb, shots } = battle(['mortar'], 1e6)
     const a = createGroundTarget(0, 'mortar', 'blue', 0, 0, 0)
     const b = createGroundTarget(1, 'tank', 'red', 900, 0, 0)
-    for (let t = 0; t < 60; t += 0.1) gb.update([a, b], t, 0.1, flat)
-    expect(gb.arcShots).toBeGreaterThan(0)
+    gb.update([a, b], 0, 0.1, flat)
+    const inFlightAtOpening = gb.arcShots
+    expect(inFlightAtOpening).toBeGreaterThan(0)
     expect(shots).toHaveLength(0)
+    for (let t = 0.1; t < 60; t += 0.1) gb.update([a, b], t, 0.1, flat)
+    expect(gb.arcShots).toBeGreaterThan(inFlightAtOpening)
+    expect(shots).toHaveLength(gb.arcShots - inFlightAtOpening)
+    expect(new Set(shots.map((s) => s.unit))).toEqual(new Set(['mortar']))
     gb.dispose()
   })
 })
