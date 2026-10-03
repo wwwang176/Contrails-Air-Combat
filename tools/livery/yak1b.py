@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Yak-1B：1943 年蘇軍戰鬥機（庫斯克）。
+Yak-1B：蘇軍戰鬥機。
 
     npx vite-node test/tools/livery-faces.ts -- yak1b <faces.json>
     python tools/livery/yak1b.py <faces.json>             # 預設塗裝 → yak1b.png

@@ -27,18 +27,18 @@ import { steppeLayout } from '../../src/render/steppeVillage'
 import { FIELD_COLORS } from '../../src/render/season'
 import { openHedgeFlora, openHedgeFloraFor, openWoodFlora, openWoodFloraFor } from '../../src/render/flora'
 
-describe('七月的麥田', () => {
+describe('勒熱夫的雪原', () => {
   it('樹林比夏季少很多：同一片地的平均覆蓋率不到夏季的三分之一', () => {
     let summer = 0
-    let july = 0
+    let winter = 0
     for (let z = -6000; z <= 6000; z += 150) {
       for (let x = -6000; x <= 6000; x += 150) {
         summer += openWoodCover(x, z, FIELD_COLORS.summer.woodGate)
-        july += openWoodCover(x, z, FIELD_COLORS.winterSteppe.woodGate)
+        winter += openWoodCover(x, z, FIELD_COLORS.winterSteppe.woodGate)
       }
     }
     expect(summer).toBeGreaterThan(0)
-    expect(july).toBeLessThan(summer / 3)
+    expect(winter).toBeLessThan(summer / 3)
   })
 
   it('夏季與晚秋的門檻就是原本的常數，散佈器是原本那一支', () => {
@@ -463,7 +463,7 @@ describe('rzhev 佈局', () => {
   })
 })
 
-describe('七月麥田的樹籬', () => {
+describe('勒熱夫雪原的樹籬', () => {
   it('田界長樹籬的機率遠低於夏季，夏季與晚秋仍是原本的常數', () => {
     expect(FIELD_COLORS.winterSteppe.hedgeChance).toBeLessThan(0.1)
     expect(FIELD_COLORS.summer.hedgeChance).toBe(HEDGE_CHANCE)
@@ -473,7 +473,7 @@ describe('七月麥田的樹籬', () => {
 })
 
 describe('草原田的格局', () => {
-  it('七月麥田是 steppe，夏季與晚秋是 european', () => {
+  it('勒熱夫的冬季是 steppe，夏季與晚秋是 european', () => {
     expect(FIELD_COLORS.winterSteppe.layout).toBe('steppe')
     expect(FIELD_COLORS.summer.layout).toBe('european')
     expect(FIELD_COLORS.lateAutumn.layout).toBe('european')

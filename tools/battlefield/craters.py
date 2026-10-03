@@ -1,9 +1,9 @@
-# 這張圖集供 1943 年 7 月庫斯克南翼的夏季麥田戰場使用，適合從空中俯視。
+# 這張圖集是戰場地面的彈坑、燒田、履帶痕與壕溝（`src/render/battleScars.ts` 讀它），適合從空中俯視。
 # 1024 × 1024 圖集分成 4 × 4 格：0～7 為彈坑、8～11 為燒田、
 # 12～13 為可上下接續的履帶痕、14～15 為可上下接續的白堊土壕溝。
 # 白堊濺土採低飽和灰白色；透明護邊避免相鄰格子的取樣互相污染。
 # 在 repo 根目錄執行 python tools/battlefield/craters.py 即可重建兩份
-# battlefield.png 與麥田底色預覽；固定亂數種子確保同環境重跑一致。
+# battlefield.png 與麥金色底的預覽圖；固定亂數種子確保同環境重跑一致。
 
 from pathlib import Path
 import hashlib

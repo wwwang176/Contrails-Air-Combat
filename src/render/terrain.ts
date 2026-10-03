@@ -672,7 +672,7 @@ function createInlandTerrain(
   // 墊面各包一層；農地不包，行為不變。墊面是廠區局部座標，樞紐與朝向要一起傳
   //
   // 【戰場的交戰帶不清樹】只清植被的話，地色（`openColorAt`）與遠景的樹點照樣畫著
-  // 林子，近處卻沒有樹 —— 兩邊對不上。七月的門檻下交戰帶裡本來就幾乎沒有林子
+  // 林子，近處卻沒有樹 —— 兩邊對不上。勒熱夫的樹林門檻下交戰帶裡本來就幾乎沒有林子
   const clear = site?.treeClear ?? 0
   const pads = site === undefined ? [] : [
     ...(site.pad === undefined ? [] : [site.pad]), ...(site.padLobes ?? []),
