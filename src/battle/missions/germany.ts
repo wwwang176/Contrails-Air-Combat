@@ -234,6 +234,8 @@ export const GERMANY: readonly MissionCard[] = [
       // 代用的機型。開場空速是 `tas` 的 0.5（約 100 m/s，與 Ju 87 的 81 m/s 同一個量級）：照戰鬥機的
       // 187 m/s 會一開場就超過轟炸機、掉頭回來，機首背對村莊
       blueCount: 6, redCount: 0,
+      // 【冬季塗裝】雪地上的綠飛機太顯眼；Ju 87、Yak-1B 與護航的 Bf 109 都穿白漆。只影響畫面
+      liveries: { ju87: 'winter', yak1b: 'winter', bf109k4: 'winter' },
       blueWaves: { size: 2, depth: 2300, escort: { spec: BF109K4, count: 6, depth: 590, speed: 0.5 } },
       convoyCount: 0, convoyPriority: 1,
       targetDistance: 0, targetRadius: 0, seconds: Infinity,

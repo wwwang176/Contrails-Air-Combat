@@ -284,6 +284,8 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
     // 東西起飛，而且不報錯。護欄在 `missions.test.ts`
     ...(b.blueLoadout === undefined ? {} : { blueLoadout: b.blueLoadout }),
     ...(b.loadouts === undefined ? {} : { loadouts: b.loadouts }),
+    // 【同樣明列】漏抄的症狀是雪地上一架綠飛機，而且不報錯
+    ...(b.liveries === undefined ? {} : { liveries: b.liveries }),
   }
 }
 

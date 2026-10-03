@@ -102,7 +102,8 @@ import { KILL_STRIDE, clearKills, type KillEvents } from './world/kills'
 import { clearDamage, DAMAGE_STRIDE } from './world/damage'
 import { HIT_PARTS, type HitPart } from './world/hit'
 import {
-  AIRCRAFT_MODEL_COUNT, buildAircraft, buildAircraftLod, liveryTexturesFor, preloadAircraftModels, useAircraftLod,
+  AIRCRAFT_MODEL_COUNT, buildAircraft, buildAircraftLod, liveryTexturesFor, preloadAircraftModels, preloadLiveryVariants,
+  useAircraftLod,
   type AircraftModel,
 } from './render/geometry/buildAircraft'
 import { PROP_DISC_RENDER_ORDER } from './render/geometry/assembly'
@@ -570,10 +571,15 @@ function attachLod(v: Visual, id: string): void {
   v.far = false
 }
 
+/** 這一場任務卡指定這個機種穿的塗裝變體；沒指定（遭遇戰、其他任務）是 `undefined` = 預設塗裝 */
+function liveryOf(c: Combatant): string | undefined {
+  return battle.cfg.liveries?.[c.aircraft.spec.id]
+}
+
 const visuals = new Map<Combatant, Visual>()
 function attachVisual(c: Combatant): Visual {
   const v: Visual = {
-    model: buildAircraft(c.aircraft.spec),
+    model: buildAircraft(c.aircraft.spec, liveryOf(c)),
     lod: null,
     far: false,
     position: new Vector3(),
@@ -1572,7 +1578,11 @@ async function loadBattle(): Promise<void> {
     await loading.step('loading.terrain', 0.2)
     buildBattleTerrain()
     await loading.step('loading.forces', 0.5)
-    startWorld(battleConfig())
+    // 【任務卡指定的塗裝變體先載好】`buildAircraft(spec, variant)` 是同步的，樣板要在 `startWorld`
+    // 建模型之前就在快取裡；沒指定的任務與遭遇戰是 no-op
+    const cfg = battleConfig()
+    await preloadLiveryVariants(cfg.liveries)
+    startWorld(cfg)
     // 【地面與植被在載入畫面裡備好】田色的三張貼圖第一次烘、烘圖的著色器第一次編，
     // 植被每幀只補十幾格 —— 留到開場的話第一幀卡半秒，接著兩秒樹一片片長出來。
     // 以玩家的出生點（開場第一幀地形跟著的那一點）先更新一次、把植被排乾
@@ -1599,7 +1609,7 @@ async function loadBattle(): Promise<void> {
     for (const beat of battle.cfg.beats ?? []) {
       if (beat.kind === 'reinforce') for (const s of beat.flight.members) reinforcements.push(s.id)
     }
-    for (const t of await liveryTexturesFor(reinforcements)) ctx.renderer.initTexture(t)
+    for (const t of await liveryTexturesFor(reinforcements, battle.cfg.liveries)) ctx.renderer.initTexture(t)
     // 【在載入畫面後面先畫一次】編好的程式第一次真的拿來畫仍要等 —— ANGLE（D3D11）
     // 把一部分著色器的產生留到第一次繪製，開場那一幀因此卡一兩百毫秒。暫時關掉視錐
     // 剔除畫一次：每一個看得見的物件都畫到（鏡頭後面的自機、視野外的也算），那段
@@ -2860,7 +2870,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
       if (!c.alive) continue
       // 【整隊重生的席位拿一具新模型】舊的那具由殘骸池在落海或被覆蓋時
       // 釋放。配置只發生在復活那一刻
-      v.model = buildAircraft(c.aircraft.spec)
+      v.model = buildAircraft(c.aircraft.spec, liveryOf(c))
       ctx.scene.add(v.model.group)
       attachLod(v, c.aircraft.spec.id)
       v.wrecked = false

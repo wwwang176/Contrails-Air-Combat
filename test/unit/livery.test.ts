@@ -26,10 +26,29 @@ function liveried(o: Object3D): o is Mesh {
 beforeAll(loadGlbTemplatesForNode)
 
 describe('塗裝版面', () => {
-  it('每一型都有塗裝，貼圖檔都在', () => {
+  it('每一型都有塗裝，貼圖檔都在（變體也是）', () => {
     expect(WITH_LIVERY.length).toBe(Object.keys(GLB_MODELS).length)
     for (const [id, def] of WITH_LIVERY) {
       expect(existsSync(`public${def.livery!.url}`), id).toBe(true)
+      for (const [variant, url] of Object.entries(def.liveryVariants ?? {})) {
+        expect(existsSync(`public${url}`), `${id} ${variant}`).toBe(true)
+        expect(existsSync(`textures-src/${url.split('/').pop()}`), `${id} ${variant} 原圖`).toBe(true)
+      }
+    }
+  })
+
+  /**
+   * 變體共用預設塗裝的版面（同一份 UV），所以尺寸要與預設的一樣 —— 不一樣的話同一張版面會對不準，
+   * 而且不會報錯。
+   */
+  it('塗裝變體與預設塗裝同一個尺寸（原圖與遊戲用圖）', () => {
+    for (const [id, def] of WITH_LIVERY) {
+      const base = def.livery!.url
+      for (const [variant, url] of Object.entries(def.liveryVariants ?? {})) {
+        const name = url.split('/').pop()!
+        expect(pngSize(`textures-src/${name}`), `${id} ${variant} 原圖`).toEqual([LIVERY_WIDTH, LIVERY_HEIGHT])
+        expect(pngSize(`public${url}`), `${id} ${variant} 遊戲用圖`).toEqual(pngSize(`public${base}`))
+      }
     }
   })
 

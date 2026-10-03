@@ -299,6 +299,12 @@ export interface MissionBattle {
    * 那一關的紅隊還有掛雷的陸攻，整隊複寫的話魚雷會被換掉。
    */
   readonly loadouts?: Readonly<Record<string, Loadout>>
+  /**
+   * 依機種複寫塗裝，鍵是 `spec.id`、值是機型定義登記的變體名（`GlbAircraft.liveryVariants`），**不分隊伍**。
+   * 德 M4 用它讓 Ju 87、Yak-1B 與護航的 Bf 109 穿冬季塗裝。**省略 = 全部用預設塗裝。**
+   * 只影響畫面，不進模擬；遭遇戰與機庫沒有這個欄位，所以不受影響。
+   */
+  readonly liveries?: Readonly<Record<string, string>>
   /** 敵方（紅隊）的主力機種 */
   readonly redSpec: AircraftSpec
   /**

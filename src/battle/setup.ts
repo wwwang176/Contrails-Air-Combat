@@ -161,6 +161,11 @@ export interface BattleConfig {
    * （存進 `World.loadoutOverrides`）。省略 = 全部照預設表。
    */
   readonly loadouts?: Readonly<Record<string, Loadout>>
+  /**
+   * 依機種複寫塗裝，鍵是 `spec.id`、值是機型定義登記的變體名。**只給畫面讀**（`main.ts` 建模型時），
+   * 不進模擬。省略 = 全部預設塗裝。
+   */
+  readonly liveries?: Readonly<Record<string, string>>
   altitude: number
   tas: number
   /**
