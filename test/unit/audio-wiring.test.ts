@@ -183,6 +183,25 @@ describe('音效的戰鬥事件接線', () => {
     expect(body('function resetAudioState(')).toContain('gunPick.clear()')
   })
 
+  /**
+   * 【地面戰的砲口聲走同一條路】回呼在 `groundBattle.update` 裡（排在 `updateAudio` 之後），
+   * 所以候選要跨幀留到下一幀的 `playCannons`：清除放在播完之後，放在第一趟之前會把它抹掉，
+   * 症狀是戰車與反坦克砲整場無聲，而且不報錯。
+   */
+  it('地面戰的戰車砲、反坦克砲出聲：回呼記下最近的一發，playCannons 播完才清', () => {
+    expect(ALL).toContain('createGroundBattle(theater, emitFirePuff, smokeTexture, emitMortarBlast, noteGroundShot)')
+    const note = body('function noteGroundShot(')
+    expect(note).toContain('const tier = groundGunTier(unit)')
+    expect(note).toContain('if (tier === null) return')
+    expect(note).toContain('if (d >= CANNON_AUDIO_RANGE) return')
+    expect(note).toContain('if (d >= best.dist) return')
+    expect(note).toContain('best.dist = d')
+    const fn = body('function playCannons(')
+    expect(fn).not.toContain('e.dist = Infinity')
+    expect(fn).toContain('best.dist = Infinity')
+    expect(fn.indexOf('best.dist = Infinity')).toBeGreaterThan(fn.indexOf('if (d >= best.dist) continue'))
+  })
+
   it('記錄擊落、空爆、自己被打', () => {
     const fn = body('function queueAudioCues(')
     for (const cue of ['CUE.Explosion', 'CUE.FlakBurst', 'CUE.HitSelf']) expect(fn).toContain(`pushCue(cues, ${cue}`)

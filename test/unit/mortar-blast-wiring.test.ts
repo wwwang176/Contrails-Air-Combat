@@ -9,7 +9,7 @@ describe('迫擊砲彈落地的爆炸', () => {
   /** 配方在 `render/mortarBlast.ts`（炸彈那一份縮小）；`main.ts` 只負責把它接到地面戰的落地回呼 */
   it('用 mortarBlast 的配方，接到地面戰的落地回呼', () => {
     expect(MAIN).toContain("import { MORTAR_BLAST } from './render/mortarBlast'")
-    expect(MAIN).toContain('createGroundBattle(theater, emitFirePuff, smokeTexture, emitMortarBlast)')
+    expect(MAIN).toContain('createGroundBattle(theater, emitFirePuff, smokeTexture, emitMortarBlast, noteGroundShot)')
     const at = MAIN.indexOf('const emitMortarBlast')
     const body = MAIN.slice(at, MAIN.indexOf('\n}\n', at))
     expect(body).toContain('emitBlast(BLAST_POOLS, MORTAR_BLAST,')

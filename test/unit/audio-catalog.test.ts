@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { gunSound, impactSound } from '../../src/audio/catalog'
+import { groundGunTier, gunSound, impactSound } from '../../src/audio/catalog'
 import { SHIP_AA_TIERS } from '../../src/world/shipAA'
 
 /**
@@ -23,6 +23,41 @@ describe('艦砲各層的聲音', () => {
 
   it('沒定義的層走預設，不是沒聲音', () => {
     expect(gunSound('what').gap).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * 【地面戰的砲共用五吋砲的庫，只改音高與音量】戰車砲與反坦克砲（75～88 mm）介於五吋砲
+ * 與 40 mm 機砲之間：比五吋砲高、小聲，比 40 mm 低、大聲。
+ */
+describe('地面戰的砲聲', () => {
+  it('戰車與反坦克砲各歸一層，步兵、迫擊砲、卡車、重高砲不走這條路', () => {
+    for (const id of ['tank', 'tankDug', 'panzer4', 'tiger', 'usTank']) expect(groundGunTier(id), id).toBe('tankGun')
+    expect(groundGunTier('atGun')).toBe('atGun')
+    for (const id of ['infantry', 'mortar', 'truck', 'flakHeavy', 'constructor']) expect(groundGunTier(id), id).toBeNull()
+  })
+
+  it('這兩層都有自己的定義，不是走預設', () => {
+    const fallback = gunSound('no-such-tier')
+    for (const tier of ['tankGun', 'atGun']) expect(gunSound(tier), tier).not.toEqual(fallback)
+  })
+
+  it('音高與音量介於五吋砲與 40 mm 機砲之間', () => {
+    const flak = gunSound('flak'), auto = gunSound('autocannon')
+    for (const tier of ['tankGun', 'atGun']) {
+      const g = gunSound(tier)
+      expect(g.rate, tier).toBeGreaterThan(flak.rate)
+      expect(g.rate, tier).toBeLessThan(auto.rate)
+      expect(g.gainDb, tier).toBeLessThan(flak.gainDb)
+      expect(g.gainDb, tier).toBeGreaterThan(auto.gainDb)
+      expect(g.gap, tier).toBeGreaterThan(0)
+    }
+  })
+
+  it('反坦克砲比戰車砲乾脆：音高不低於戰車砲、音色上限不低於戰車砲', () => {
+    const tank = gunSound('tankGun'), at = gunSound('atGun')
+    expect(at.rate).toBeGreaterThanOrEqual(tank.rate)
+    expect(at.cutoffHz).toBeGreaterThanOrEqual(tank.cutoffHz)
   })
 })
 

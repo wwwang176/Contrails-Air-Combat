@@ -17,6 +17,7 @@ import { createArcTrails } from './arcTrails'
  * 德 M4 的下面一直在打：坦克與反坦克砲互射、步兵開槍、砲兵的彈著揚起塵土、
  * 農舍的煙柱整場不熄、殘骸燒到熄、移動的坦克拖著塵土。**純畫面，不進模擬** —— 誰打中誰
  * 不改任何單位的血量（照劇本被打掉的那幾台由模擬自己處理，`GroundEntry.killAt`）。
+ * 坦克與反坦克砲每開一發另外通報一次砲口的位置（`fired`），聲音由呼叫端放；步兵與迫擊砲不通報。
  *
  * ```
  *   坦克／反坦克砲一發   砲口槍焰＋一小團煙 → 機槍的曳光彈代表砲彈 → 彈著：火花或塵土
@@ -273,10 +274,13 @@ function dustCloudColor(_t: number, out: Color): void {
  * @param smokeTexture 塵土的不透明度貼圖，與爆炸的塵土同一張
  * @param impact 小爆炸，世界座標：迫擊砲彈落地、戰車與反坦克砲的砲彈擊中目標時放。**與炸彈同一份
  *   火球與粒子的配方，只是縮小**（`main.ts` 的 `emitMortarBlast`）；省略 = 沒有表現
+ * @param fired 戰車與反坦克砲開一發時呼叫：開砲的單位 id 與砲口的世界座標。劇本打掉前的最後一發也算。
+ *   步兵與迫擊砲不呼叫；省略 = 不通報。**熱路徑：呼叫端不配置**
  */
 export function createGroundBattle(
   theater: MissionTheater, burn: FirePuffFn, smokeTexture?: Texture,
   impact: (x: number, y: number, z: number) => void = () => {},
+  fired: (unit: GroundUnitId, x: number, y: number, z: number) => void = () => {},
 ): GroundBattle {
   const shooters = new Set<GroundUnitId>(theater.shooters)
   const isTarget = (id: GroundUnitId): boolean => shooters.has(id)
@@ -496,6 +500,7 @@ export function createGroundBattle(
     }
     flash.emit(ox, oy, oz, 0, 0, 0, 1)
     gunSmoke.emit(ox, oy, oz, ux * 2, 0.5, uz * 2, 1)
+    fired(me.unit.id, ox, oy, oz)
     fire(shells, ox, oy, oz, tx, ty, tz, SHELL_SPEED, hit)
   }
 

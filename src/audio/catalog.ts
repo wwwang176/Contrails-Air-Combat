@@ -223,12 +223,14 @@ export function impactSound(material: number): ImpactSound {
  *
  * ```
  *   flak        127 mm 五吋砲     20 發/分    一聲大砲
+ *   tankGun     75～88 mm 戰車砲   15 發/分    地面戰，比五吋砲高一截、小一截
+ *   atGun       75 mm 反坦克砲     15 發/分    地面戰，同上、更乾脆
  *   autocannon   40 mm 機砲      220 發/分    砰、砰、砰
  *   mg           20 mm 機砲      480 發/分    急促的噠噠
  * ```
  *
  * 【共用砲擊庫、只改音高與音色】口徑越小聲音越短越脆。沒有各口徑的獨立素材，
- * 要換成獨立的庫時改這張表就好。
+ * 要換成獨立的庫時改這張表就好。戰車砲與反坦克砲（`groundGunTier`）用的也是五吋砲那一庫。
  *
  * 【`gap` 是每一層各自的上限】20 mm 一座每秒八發，一艘船八個砲位 —— 不限的話
  * 光它就把聲道吃光。同一層在 `gap` 秒內只播一次，聽起來仍然是連續的。
@@ -242,6 +244,8 @@ export interface GunSound {
 
 const GUN_BY_TIER: Record<string, GunSound> = {
   flak: { gainDb: 0, rate: 1, cutoffHz: 22000, gap: 0.12 },
+  tankGun: { gainDb: -3, rate: 1.3, cutoffHz: 14000, gap: 0.15 },
+  atGun: { gainDb: -3, rate: 1.4, cutoffHz: 22000, gap: 0.15 },
   autocannon: { gainDb: -6, rate: 1.6, cutoffHz: 7000, gap: 0.1 },
   mg: { gainDb: -10, rate: 2.2, cutoffHz: 9000, gap: 0.07 },
 }
@@ -250,6 +254,21 @@ const GUN_DEFAULT: GunSound = { gainDb: -6, rate: 1.3, cutoffHz: 22000, gap: 0.1
 
 export function gunSound(tier: string): GunSound {
   return GUN_BY_TIER[tier] ?? GUN_DEFAULT
+}
+
+/**
+ * 地面戰的單位 id → 砲聲的層（`gunSound` 的鍵）。**不在表裡的單位沒有砲口聲** ——
+ * 步兵的槍與迫擊砲（地面戰的戲還沒給它們聲音）、卡車、建物。
+ *
+ * 【用 Map】單位 id 是任意字串，物件查表會撈到 `constructor` 之類原型上的成員。
+ */
+const GROUND_GUN_TIER: ReadonlyMap<string, string> = new Map([
+  ['tank', 'tankGun'], ['tankDug', 'tankGun'], ['panzer4', 'tankGun'], ['tiger', 'tankGun'], ['usTank', 'tankGun'],
+  ['atGun', 'atGun'],
+])
+
+export function groundGunTier(unitId: string): string | null {
+  return GROUND_GUN_TIER.get(unitId) ?? null
 }
 
 /**

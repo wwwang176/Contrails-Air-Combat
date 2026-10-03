@@ -9,7 +9,7 @@ import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality }
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
 import {
-  SINGLE_FILES, engineFile, fireFile, gunSound, impactSound, turretFile, volleyPool, type Pool,
+  SINGLE_FILES, engineFile, fireFile, groundGunTier, gunSound, impactSound, turretFile, volleyPool, type Pool,
 } from './audio/catalog'
 import {
   STRIKE_HEIGHT, applyFlash, createStorm, rollThunder, stepStorm, type Storm,
@@ -59,7 +59,7 @@ import { createGroundModels, type GroundModels } from './render/groundTargets'
 import { createSearchlights, makeGlareTexture, type Searchlights } from './render/searchlights'
 import { createGroundBattle, type GroundBattle } from './render/groundBattle'
 import { BATTLE_FOG, battleFogTint, clearBattleFog, setBattleFog, stepBattleFog } from './render/heightFog'
-import { groundModelUrls, preloadGroundModels } from './render/geometry/ground'
+import { groundModelUrls, preloadGroundModels, type GroundUnitId } from './render/geometry/ground'
 import { settleGroundTargets } from './world/groundTargets'
 import {
   balloonHills, settleBalloons, syncBalloonHills, type BalloonHillSet,
@@ -1791,7 +1791,7 @@ function startWorld(cfg: BattleConfig): void {
   releaseGroundBattle()
   const theater = pendingMission?.battle.theater
   if (theater !== undefined && world.groundTargets.length > 0) {
-    groundBattle = createGroundBattle(theater, emitFirePuff, smokeTexture, emitMortarBlast)
+    groundBattle = createGroundBattle(theater, emitFirePuff, smokeTexture, emitMortarBlast, noteGroundShot)
     for (const o of groundBattle.objects) ctx.scene.add(o)
     if (theater.haze !== undefined) {
       setBattleFog({ ...theater.haze, tint: battleFogTint((ctx.scene.fog as FogExp2).color, theater.fogColor) })
@@ -2398,9 +2398,10 @@ function playHeavyHit(severity: number): void {
  */
 function playCannons(): void {
   const cam = ctx.camera.position
-  for (const e of gunPick.values()) e.dist = Infinity
 
-  // 第一趟：邊緣偵測，每一層留下離鏡頭最近的那一座
+  // 第一趟：邊緣偵測，每一層留下離鏡頭最近的那一座。
+  // 【候選不在這裡清】地面戰的砲口聲（`noteGroundShot`）在 `updateAudio` 之後才寫進來，要留到
+  // 下一幀的這支函式；清除放在第二趟播完之後
   let slot = 0
   const platforms = [world.ships, world.groundTargets] as const
   for (const list of platforms) {
@@ -2432,11 +2433,36 @@ function playCannons(): void {
   for (const [tier, best] of gunPick) {
     if (best.dist === Infinity) continue
     const g = gunSound(tier)
+    // 【不論響不響都清掉】被時段擋下的候選留到下一幀，會把一個過時的位置播出來
+    best.dist = Infinity
     if (elapsed - (lastGunTier.get(tier) ?? -Infinity) < g.gap) continue
     lastGunTier.set(tier, elapsed)
     audio.playPool('cannon', 'cannon', best.x, best.y, best.z, true,
       g.gainDb, false, g.rate, g.cutoffHz)
   }
+}
+
+/**
+ * 地面戰的戰車砲、反坦克砲開一發：記下這一層離鏡頭最近的一發，下一幀的 `playCannons` 播。
+ * 聲音庫與限頻率都與艦砲、重高砲同一套，層名由 `groundGunTier` 查；沒有層的單位（步兵、迫擊砲）
+ * 不出聲。熱路徑：只有第一次見到某一層時才配置。
+ */
+function noteGroundShot(unit: GroundUnitId, x: number, y: number, z: number): void {
+  const tier = groundGunTier(unit)
+  if (tier === null) return
+  const cam = ctx.camera.position
+  const d = Math.hypot(x - cam.x, y - cam.y, z - cam.z)
+  if (d >= CANNON_AUDIO_RANGE) return
+  let best = gunPick.get(tier)
+  if (best === undefined) {
+    best = { dist: Infinity, x: 0, y: 0, z: 0 }
+    gunPick.set(tier, best)
+  }
+  if (d >= best.dist) return
+  best.dist = d
+  best.x = x
+  best.y = y
+  best.z = z
 }
 
 function anyFlash(a: Float32Array): boolean {

@@ -264,6 +264,80 @@ describe('直射砲彈擊中', () => {
 })
 
 /**
+ * 【砲口聲的通報】戰車與反坦克砲每開一發通報一次（`fired` 回呼：單位 id 與砲口的世界座標），
+ * 聲音由呼叫端決定。步兵的槍、迫擊砲不通報。
+ */
+describe('砲口聲的通報', () => {
+  const flat = (): number => 0
+  type Shot = { unit: string; x: number; y: number; z: number }
+  const battle = (shooters: string[], period: number): { gb: ReturnType<typeof createGroundBattle>; shots: Shot[] } => {
+    const shots: Shot[] = []
+    const gb = createGroundBattle({ shooters, period, range: 1500 } as never, () => {}, undefined, undefined,
+      (unit, x, y, z) => { shots.push({ unit, x, y, z }) })
+    return { gb, shots }
+  }
+
+  it('戰車每開一發通報一次，砲口在車頭前方、車身的高度', () => {
+    const { gb, shots } = battle(['tank'], 1)
+    const a = createGroundTarget(0, 'tank', 'blue', 0, 0, 0)
+    const b = createGroundTarget(1, 'tank', 'red', 900, 0, 0)
+    for (let t = 0; t < 30; t += 0.1) gb.update([a, b], t, 0.1, flat)
+    expect(gb.shots).toBeGreaterThan(10)
+    expect(shots).toHaveLength(gb.shots)
+    expect(new Set(shots.map((s) => s.unit))).toEqual(new Set(['tank']))
+    for (const s of shots) {
+      expect(s.y).toBeGreaterThan(0.5)
+      // 射手在 x = 0 朝 +x 打，或在 x = 900 朝 −x 打：砲口離車心約半個車長
+      const fromBlue = Math.abs(s.x) < 50
+      const fromRed = Math.abs(s.x - 900) < 50
+      expect(fromBlue || fromRed).toBe(true)
+    }
+    gb.dispose()
+  })
+
+  it('反坦克砲通報自己的單位 id', () => {
+    const { gb, shots } = battle(['atGun'], 1)
+    const a = createGroundTarget(0, 'atGun', 'blue', 0, 0, 0)
+    const b = createGroundTarget(1, 'atGun', 'red', 600, 0, 0)
+    for (let t = 0; t < 30; t += 0.1) gb.update([a, b], t, 0.1, flat)
+    expect(shots.length).toBeGreaterThan(10)
+    expect(new Set(shots.map((s) => s.unit))).toEqual(new Set(['atGun']))
+    gb.dispose()
+  })
+
+  it('劇本打掉前的最後一發也通報，通報的是開砲的那一台', () => {
+    const { gb, shots } = battle(['tank'], 1e6)
+    const attacker = createGroundTarget(0, 'tank', 'blue', 0, 0, 0)
+    const victim = createGroundTarget(1, 'tank', 'red', 900, 0, 0)
+    victim.killAt = 30
+    for (let t = 0; t < 45; t += 0.1) gb.update([attacker, victim], t, 0.1, flat)
+    expect(shots).toHaveLength(1)
+    expect(Math.abs(shots[0]!.x)).toBeLessThan(50)
+    gb.dispose()
+  })
+
+  it('步兵的槍不通報', () => {
+    const { gb, shots } = battle(['infantry'], 0.5)
+    const a = createGroundTarget(0, 'infantry', 'blue', 0, 0, 0)
+    const b = createGroundTarget(1, 'infantry', 'red', 300, 0, 0)
+    for (let t = 0; t < 30; t += 0.1) gb.update([a, b], t, 0.1, flat)
+    expect(gb.shots).toBeGreaterThan(10)
+    expect(shots).toHaveLength(0)
+    gb.dispose()
+  })
+
+  it('迫擊砲不通報', () => {
+    const { gb, shots } = battle(['mortar'], 1e6)
+    const a = createGroundTarget(0, 'mortar', 'blue', 0, 0, 0)
+    const b = createGroundTarget(1, 'tank', 'red', 900, 0, 0)
+    for (let t = 0; t < 60; t += 0.1) gb.update([a, b], t, 0.1, flat)
+    expect(gb.arcShots).toBeGreaterThan(0)
+    expect(shots).toHaveLength(0)
+    gb.dispose()
+  })
+})
+
+/**
  * 【迫擊砲：高拋物線的間接射擊】不走直射的曳光彈：發射、飛行、落地各一次，落地時小爆炸。
  * 直射的週期設得極大，場上只剩迫擊砲在打。
  */
