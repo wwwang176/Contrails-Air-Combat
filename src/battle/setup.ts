@@ -834,6 +834,18 @@ function settle(c: Combatant, pos: Vector3, q: Quaternion, tas: number): void {
 }
 
 /**
+ * 把一席放回開局的位置、朝開局的方向、以開局的空速。玩家重生用。
+ *
+ * 【為什麼玩家重生要它】`Aircraft.respawn` 一律朝 −Z 平飛。開局機首朝南的擺法
+ * （`strikeFromNorth`）下，只靠它重生的玩家會背對目標飛，而其他飛機（走 `createBattle`
+ * 的路徑）朝著目標。
+ */
+export function placeAtSpawn(b: Battle, seat: number): void {
+  const c = b.world.combatants[seat]!
+  settle(c, c.spawnPosition, b.spawnOrientations[seat]!, c.spawnTas)
+}
+
+/**
  * 造一場 N vs N。
  *
  * 【玩家固定在藍隊中央】開局視野裡兩側都是友機、敵機在正前方 —— 與 M2

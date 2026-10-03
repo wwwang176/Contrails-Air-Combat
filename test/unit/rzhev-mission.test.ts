@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MISSIONS, missionConfigFrom, type ReadyMissionCard } from '../../src/battle/missions'
-import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
+import { createBattle, placeAtSpawn, stepBattle, type Battle } from '../../src/battle/setup'
 import type { GroundTarget } from '../../src/world/groundTargets'
 import { ENTRY_PLANS, type SideEntry } from '../../src/battle/entry'
 import { DEFAULT_BATTLE } from '../../src/battle/setup'
@@ -204,6 +204,31 @@ describe('勒熱夫的進場對準戰場', () => {
   it('兩隊開場位置都在競技場裡', () => {
     expect(Math.hypot(blue.x, blue.z)).toBeLessThan(ARENA_RADIUS)
     expect(Math.hypot(red.x, red.z)).toBeLessThan(ARENA_RADIUS)
+  })
+
+  /**
+   * 【玩家重生走的是另一條路】`Aircraft.respawn` 一律朝 −Z（北）飛，主程式的 `respawnPlayer` 要接著
+   * `placeAtSpawn` 才會回到開局的機首。沒接的話玩家背對村莊飛，其他飛機（`createBattle` 的路徑）卻朝著它。
+   */
+  it('玩家重生之後機首朝著村莊（局部縱深增加），沒有 placeAtSpawn 的話是背對', () => {
+    const b = battle()
+    const seat = b.playerSeat
+    const c = b.world.combatants[seat]!
+    const ahead = (): number => {
+      const v = c.aircraft.state.velocity
+      const p = c.aircraft.state.position
+      const a = toLocal(p.x, p.z)
+      const z = toLocal(p.x + v.x, p.z + v.z)
+      return z.lz - a.lz
+    }
+    expect(ahead(), '建場時').toBeGreaterThan(0)
+    b.world.respawn(c)
+    expect(ahead(), '只有 respawn').toBeLessThan(0)
+    placeAtSpawn(b, seat)
+    expect(ahead(), 'placeAtSpawn 之後').toBeGreaterThan(0)
+    const p = c.aircraft.state.position
+    expect(p.x).toBeCloseTo(c.spawnPosition.x, 6)
+    expect(p.z).toBeCloseTo(c.spawnPosition.z, 6)
   })
 
   /**

@@ -170,7 +170,7 @@ import { DEFAULT_DOCTRINE } from './ai/doctrine'
 import { extendReason } from './ai/rules'
 import type { FlightOrder } from './ai/command'
 import {
-  aliveCount, createBattle, isObjectiveGround, isObjectiveShip, playerFlight, resetBattle,
+  aliveCount, createBattle, isObjectiveGround, isObjectiveShip, placeAtSpawn, playerFlight, resetBattle,
   stepBattle, type Battle,
 } from './battle/setup'
 import { flightOfCombatant, isFlightLeader } from './battle/flights'
@@ -1311,8 +1311,10 @@ function respawnPlayer() {
   // 的 `openingTas`），`cfg.tas` 只是戰鬥機的那一個值 —— 拿它重生轟炸機會
   // 超過 vne。高度是全場一個值，沒有逐機種的版本
   p.aircraft.respawn(input.aimWorld, battle.cfg.altitude, p.spawnTas)
-  p.aircraft.state.position.copy(p.spawnPosition)
-  p.aircraft.prevPosition.copy(p.spawnPosition)
+  // 【位置、機首與速度回到開局的那一組】`respawn` 一律朝 −Z；開局機首朝南的擺法（德 M4）
+  // 不照這一步擺的話，玩家一開場就背對目標。瞄準點跟著機首
+  placeAtSpawn(battle, p.index)
+  input.aimWorld.set(0, 0, -1).applyQuaternion(p.aircraft.state.orientation)
   p.hp = p.aircraft.spec.hp
   p.alive = true
   p.cooldowns.fill(0)
