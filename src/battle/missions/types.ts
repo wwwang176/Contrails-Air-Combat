@@ -138,6 +138,14 @@ export interface MissionWave {
    */
   readonly along?: number
   /**
+   * 橫向槽位的覆寫，以 `schwarmSpacing` 為單位（同 `FlightPlan.lane`）。
+   * **省略 = 從 `WAVE_LANE` 起、逐波次 +1**，也就是生在開場所有小隊的外側。
+   *
+   * 【什麼時候要它】敵機要與玩家正面對頭、而不是從側邊來的關卡（德 M4）：外推 3 格就是軸線外 2.4 km。
+   * 同一刻有兩批的話，兩批要各給一個不同的槽位，否則生在同一點上、重疊，而且不會有任何錯誤。
+   */
+  readonly lane?: number
+  /**
    * 進場高度的覆寫，m。**絕對值，不是相對任務高度的加成。**
    * 省略 = 沿用那一邊開局的高度。
    *

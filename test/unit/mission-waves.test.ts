@@ -3,7 +3,7 @@ import { CAMPAIGNS, MISSIONS, missionConfigFrom } from '../../src/battle/mission
 import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
 import { SCHWARM_SIZE } from '../../src/battle/flights'
 import { MAX_SIDE, MAX_COMBATANTS } from '../../src/battle/skirmish'
-import { sideCount } from '../../src/battle/order'
+import { sideCount, WAVE_LANE } from '../../src/battle/order'
 import { P51D } from '../../src/specs/p51d'
 import { B17G } from '../../src/specs/b17g'
 import { A6M5 } from '../../src/specs/a6m5'
@@ -180,6 +180,20 @@ describe('波次的翻譯', () => {
       return `${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)}`
     })
     expect(new Set(spots).size, spots.join(' | ')).toBe(n)
+  })
+
+  it('lane 覆寫橫向槽位：給了就用給的，省略就從 WAVE_LANE 起逐波次 +1', () => {
+    const wave = {
+      when: { kind: 'clock' as const, at: 1 }, warnKey: WARN, warnLead: 0,
+      side: 'theirs' as const, spec: P51D, count: 1,
+    }
+    const beats = missionConfigFrom(card({
+      waves: [wave, { ...wave, lane: -0.5 }, { ...wave, lane: 0.5 }, wave],
+    })).beats as ReinforceBeat[]
+    const lanes = beats.map((x) => x.flight.lane)
+    expect(lanes.slice(1, 3)).toEqual([-0.5, 0.5])
+    expect(lanes[0]).toBe(WAVE_LANE + 0)
+    expect(lanes[3]).toBe(WAVE_LANE + 3)
   })
 
   it('第二個波次的條件先成立時要等 —— 預留是佇列，不是有名字的位子', () => {

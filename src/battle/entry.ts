@@ -143,25 +143,28 @@ export const BOUNCE: EntryPlan = {
 }
 
 /**
- * 從村北出擊：藍隊從村北（德軍後方）出發、沿路軸朝南飛；紅隊從村南約 2.6 km 朝北飛。德 M4 勒熱夫用。
+ * 村在正中、兩邊對頭：藍隊在村北約 2 km、機首朝南對著村；紅隊在村南約 2 km、機首朝北對著村。德 M4 勒熱夫用。
  *
  * 【為什麼不用 `HEAD_ON`】勒熱夫的戰場跟著村與路擺（`world/rzhev.ts`），局部原點約在世界 (−3,330, +2,660)，
- * 路是 13° 的斜線。`HEAD_ON` 的藍隊在 x = −750、z = +5,000，既不對準路、也離戰場兩公里以上。
- * 這裡藍隊放在局部座標 (0, −2,000)：離最近的蘇軍防空水平約 2.5 km、斜距約 3 km，在輕型防空的射程
- * 2.64 km 之外；紅隊放在 (0, +2,600)，離最近的德軍防空約 2.7 km。`along`／`across` 是把這兩點
- * 換成世界座標再除以 `entryRange`（10,000）與 `lateralOffset`（1,500）。
+ * 路是 13° 的斜線。`HEAD_ON` 的藍隊在 x = −750、z = +5,000，既不對準路、也不繞著村。
+ * 這裡兩邊都在路軸上（局部橫向 0），離村中心（局部縱深 −911.5）各 2 km：藍隊在 −2,911.5、紅隊在
+ * +1,088.5，村正好在兩點的正中。`along`／`across` 是把這兩點換成世界座標再除以 `entryRange`（10,000）
+ * 與 `lateralOffset`（1,500）。
  *
  * 【機首沿路軸】局部航向 0（朝德軍後方）= `FRONT_HEADING` ≈ −0.2265：藍隊朝南是它加 π，紅隊朝北就是它。
  * **座標是從農地框架算出來的**，`rzhev-mission.test.ts` 守著兩邊沒有差開。
  *
- * 【`depth` 的正號是「落後」】藍隊朝南時落後在北邊（−Z）；`waveColumn` 依機首方向換號。
+ * 【紅隊的波次要覆寫橫向槽位】波次預設從 `WAVE_LANE` 起外推，會生在軸線外 2.4 km 以上、擦邊而過，不是對頭；
+ * 卡片用 `MissionWave.lane` 把它們拉回軸線兩側。
+ *
+ * 【落後是機首的反方向】藍隊朝南時落後在北邊；`waveColumn` 用 `depth` 與 `slide` 合成。
  *
  * **兩個距離是起始值，由試飛裁定。**
  */
 export const STRIKE_FROM_NORTH: EntryPlan = {
   id: 'strikeFromNorth',
-  blue: { ...NEUTRAL, along: 0.0711, across: -1.9213, heading: Math.PI - 0.2265 },
-  red: { ...NEUTRAL, along: 0.5193, across: -2.6098, heading: -0.2265 },
+  blue: { ...NEUTRAL, along: -0.0178, across: -1.7848, heading: Math.PI - 0.2265 },
+  red: { ...NEUTRAL, along: 0.372, across: -2.3836, heading: -0.2265 },
 }
 
 /**

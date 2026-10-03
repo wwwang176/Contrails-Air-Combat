@@ -469,7 +469,7 @@ function waveBeat(
       // 它們仍然是那一隊的飛機，只是在路的另一段等你
       entry: w.along === undefined ? base : { ...base, along: w.along },
       duty: 'combat',
-      lane: WAVE_LANE + index,
+      lane: w.lane ?? WAVE_LANE + index,
       tier: index,
       ...(w.takeoff === undefined ? {} : { takeoff: w.takeoff }),
       ...(w.departs === undefined ? {} : { departs: w.departs }),

@@ -224,12 +224,13 @@ export const GERMANY: readonly MissionCard[] = [
       objectiveKey: 'mission.germany-m4.objective', bannerKey: 'mission.germany-m4.banner',
       blueSpec: JU87, redSpec: P51D, convoySpec: null,
       // 【開場沒有敵機】`redCount` 是 0，`redSpec` 只是型別要填；蘇軍戰鬥機走下面的 `waves`
-      // 【從村北出擊】第一批在局部座標 (0, −2,000)、機首朝南，見 `STRIKE_FROM_NORTH`。
-      // 【2 + 2 + 2】三批各兩架，相鄰兩批在北邊前後差 2,300 m：開場速度約 95 m/s，晚約 24 秒到目標；
-      // Ju 87 一輪約 72 秒，三批的俯衝大致錯開三分之一輪。**起始值，由試飛裁定**
+      // 【村在敵我正中】第一批在村中心北邊 2 km（局部座標 (0, −2,911.5)）、機首朝南對著村；Yak 在村中心
+      // 南邊 2 km、機首朝北，兩邊對頭。見 `STRIKE_FROM_NORTH`。
+      // 【2 + 2 + 2】三批各兩架，相鄰兩批往北前後差 2,300 m：開場速度約 81 m/s；Ju 87 一輪約 72 秒，
+      // 三批的俯衝大致錯開三分之一輪。**起始值，由試飛裁定**
       //
-      // 【護航六架】與 Ju 87 同一刻生成：3 + 3 兩個小隊，在轟炸機上方 600 m、落在中間那一批旁邊
-      // （落後 2,300 m）、左右各 ±400 m。Bf 109 K-4 只是代用的機型。開場空速是 `tas` 的 0.45（約 90 m/s，
+      // 【護航六架】與 Ju 87 同一刻生成：3 + 3 兩個小隊，在轟炸機上方 600 m、落在中間那一批的站位後方
+      // （落後 2,800 m）、左右各 ±400 m。Bf 109 K-4 只是代用的機型。開場空速是 `tas` 的 0.5（約 100 m/s，
       // 與 Ju 87 的 81 m/s 同一個量級）：照戰鬥機的 187 m/s 會一開場就超過轟炸機、掉頭回來，機首背對村莊
       blueCount: 6, redCount: 0,
       blueWaves: { size: 2, depth: 2300, escort: { spec: BF109K4, count: 6, depth: 2800, speed: 0.5 } },
@@ -295,7 +296,8 @@ export const GERMANY: readonly MissionCard[] = [
         dusts: RZHEV_DUSTS,
       },
       /**
-       * 【蘇軍戰鬥機六架】開場就預警、5 秒後兩批各三架 Yak-1B 從村南約 2.6 km 朝北進場，不等玩家的戰果。
+       * 【蘇軍戰鬥機六架】開場就預警、5 秒後兩批各三架 Yak-1B 在村中心南邊 2 km 朝北出現，不等玩家的戰果。
+       * 兩批的橫向槽位各 ∓½（±400 m）：預設外推 3 格會生在軸線外 2.4 km，擦邊而過、不是對頭。
        *
        * 【Yak 先打 Ju 87】`bomberPriority` 讓 Ju 87 在 Yak 的目標評分裡值 20 倍，不去纏護航機。
        *
@@ -316,13 +318,13 @@ export const GERMANY: readonly MissionCard[] = [
           when: { kind: 'clock', at: 0 },
           warnKey: 'mission.germany-m4.wave.fighters',
           warnLead: 5,
-          side: 'theirs', spec: YAK1B, count: 3,
+          side: 'theirs', spec: YAK1B, count: 3, lane: -0.5,
         },
         {
           when: { kind: 'clock', at: 0 },
           warnKey: 'mission.germany-m4.wave.fighters',
           warnLead: 5,
-          side: 'theirs', spec: YAK1B, count: 3,
+          side: 'theirs', spec: YAK1B, count: 3, lane: 0.5,
         },
       ],
     },

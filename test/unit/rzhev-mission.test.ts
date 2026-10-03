@@ -6,7 +6,7 @@ import { ENTRY_PLANS, type SideEntry } from '../../src/battle/entry'
 import { DEFAULT_BATTLE } from '../../src/battle/setup'
 import { ARENA_RADIUS } from '../../src/world/arena'
 import { GROUND_LIGHT_FLAK_SPEC } from '../../src/world/shipGuns'
-import { FRONT_HEADING, GERMAN_FLAK, SOVIET_FLAK, SOVIET_SUPPORT_GUNS, toLocal } from '../../src/world/rzhev'
+import { FRONT_HEADING, GERMAN_FLAK, SOVIET_FLAK, toLocal, VILLAGE_BOX } from '../../src/world/rzhev'
 import { AiController } from '../../src/ai/AiController'
 import { YAK1B } from '../../src/specs/yak1b'
 import type { ReinforceBeat } from '../../src/battle/beats'
@@ -177,28 +177,54 @@ describe('勒熱夫的進場對準戰場', () => {
   const slant = (horizontal: number): number => Math.hypot(horizontal, card.battle.altitude!)
   const flakReach = GROUND_LIGHT_FLAK_SPEC.muzzleVelocity * GROUND_LIGHT_FLAK_SPEC.life
 
-  it('藍隊開場在村北、對準路軸（局部橫向差不到 100 m、縱深 −2,300 … −1,700），機首沿路軸朝南', () => {
+  const villageLz = (VILLAGE_BOX.north + VILLAGE_BOX.south) / 2
+
+  it('藍隊開場在村中心北邊 2 km、在路軸上，機首沿路軸朝南對著村', () => {
     const l = toLocal(blue.x, blue.z)
-    expect(Math.abs(l.lx)).toBeLessThan(100)
-    expect(l.lz).toBeGreaterThan(-2300)
-    expect(l.lz).toBeLessThan(-1700)
+    expect(Math.abs(l.lx)).toBeLessThan(50)
+    expect(villageLz - l.lz).toBeGreaterThan(1950)
+    expect(villageLz - l.lz).toBeLessThan(2050)
     expect(Math.cos(plan.blue.heading - (FRONT_HEADING + Math.PI))).toBeGreaterThan(0.999)
   })
 
-  it('藍隊在蘇軍輕型防空的射程之外開場（斜距），而且離支援砲的中心不到 3.5 km', () => {
-    expect(slant(nearestOf(blue, SOVIET_FLAK))).toBeGreaterThan(flakReach)
-    const cx = SOVIET_SUPPORT_GUNS.reduce((s, g) => s + g.x, 0) / SOVIET_SUPPORT_GUNS.length
-    const cz = SOVIET_SUPPORT_GUNS.reduce((s, g) => s + g.z, 0) / SOVIET_SUPPORT_GUNS.length
-    expect(Math.hypot(blue.x - cx, blue.z - cz)).toBeLessThan(3500)
+  it('紅隊開場在村中心南邊 2 km、在路軸上，機首沿路軸朝北對著村', () => {
+    const l = toLocal(red.x, red.z)
+    expect(Math.abs(l.lx)).toBeLessThan(50)
+    expect(l.lz - villageLz).toBeGreaterThan(1950)
+    expect(l.lz - villageLz).toBeLessThan(2050)
+    expect(Math.cos(plan.red.heading - FRONT_HEADING)).toBeGreaterThan(0.999)
   })
 
-  it('紅隊（Yak）開場在村南、對準路軸、機首朝北；在德軍輕型防空的射程之外', () => {
-    const l = toLocal(red.x, red.z)
-    expect(Math.abs(l.lx)).toBeLessThan(100)
-    expect(l.lz).toBeGreaterThan(2300)
-    expect(l.lz).toBeLessThan(3000)
-    expect(Math.cos(plan.red.heading - FRONT_HEADING)).toBeGreaterThan(0.999)
-    expect(slant(nearestOf(red, GERMAN_FLAK))).toBeGreaterThan(flakReach)
+  it('兩隊對頭：機首正相反，村在兩邊開場位置的正中', () => {
+    expect(Math.cos(plan.blue.heading - plan.red.heading)).toBeLessThan(-0.999)
+    const lb = toLocal(blue.x, blue.z)
+    const lr = toLocal(red.x, red.z)
+    expect(Math.abs((lb.lz + lr.lz) / 2 - villageLz)).toBeLessThan(50)
+  })
+
+  /**
+   * 波次預設的橫向槽位從 `WAVE_LANE`（3 格 = 2.4 km）起外推，Yak 會生在軸線外擦邊而過。卡片用 `lane`
+   * 把兩批拉回軸線兩側（∓400 m），而且兩批槽位不同、不會生在同一點上。
+   */
+  it('兩批 Yak 的橫向槽位在軸線兩側、互不重疊，開場位置離軸線不到 500 m', () => {
+    const beats = (missionConfigFrom(card).beats ?? []).filter((x): x is ReinforceBeat => x.kind === 'reinforce')
+    const lanes = beats.map((x) => x.flight.lane)
+    expect(new Set(lanes).size).toBe(lanes.length)
+    for (const x of beats) {
+      expect(Math.abs(x.flight.lane)).toBeLessThanOrEqual(0.5)
+      const e = x.flight.entry
+      const l = toLocal(
+        x.flight.lane * DEFAULT_BATTLE.schwarmSpacing + e.across * DEFAULT_BATTLE.lateralOffset,
+        e.along * DEFAULT_BATTLE.entryRange + e.gap,
+      )
+      expect(Math.abs(l.lx)).toBeLessThan(500)
+      expect(Math.abs(l.lz - (villageLz + 2000))).toBeLessThan(250)
+    }
+  })
+
+  it('藍隊在蘇軍輕型防空的射程之外開場（斜距）；紅隊開場就在德軍輕型防空的射程裡（Yak 一開場就挨打）', () => {
+    expect(slant(nearestOf(blue, SOVIET_FLAK))).toBeGreaterThan(flakReach)
+    expect(slant(nearestOf(red, GERMAN_FLAK))).toBeLessThan(flakReach)
   })
 
   it('兩隊開場位置都在競技場裡', () => {
