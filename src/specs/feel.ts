@@ -398,12 +398,19 @@ export const BOMBER_FEEL: FeelProfile = {
   cd0: GAME_FEEL.cd0 * BOMBER_EXCESS_POWER,
 }
 
+/** 手感輪廓的兩組：戰鬥機 `GAME_FEEL`、轟炸機 `BOMBER_FEEL` */
+export type FeelKind = 'fighter' | 'bomber'
+
 /**
  * 依機種定位挑手感輪廓。**這是唯一該用的入口** —— 直接寫 `GAME_FEEL` 的
  * 呼叫端會靜靜地把轟炸機當戰鬥機處理。
+ *
+ * @param kind 任務卡指名用哪一組（`MissionBattle.feels`），不管機種的角色。**省略 = 依角色挑。**
+ *   德 M4 讓 Ju 87 用戰鬥機那一組：爬回進場高度的時間縮短，極速不動（功率與阻力同倍率）。
  */
-export function feelFor(spec: AircraftSpec): FeelProfile {
-  return spec.role === 'bomber' ? BOMBER_FEEL : GAME_FEEL
+export function feelFor(spec: AircraftSpec, kind?: FeelKind): FeelProfile {
+  if (kind === undefined) return spec.role === 'bomber' ? BOMBER_FEEL : GAME_FEEL
+  return kind === 'bomber' ? BOMBER_FEEL : GAME_FEEL
 }
 
 /**

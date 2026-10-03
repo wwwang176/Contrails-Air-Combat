@@ -5,6 +5,7 @@ import type { ShipClassId } from '../../world/ships'
 import type { ShipGunSpec } from '../../world/shipGuns'
 import type { FlarePoint } from '../beats'
 import type { AircraftSpec } from '../../specs/types'
+import type { FeelKind } from '../../specs/feel'
 import type { Team } from '../../world/World'
 import type { TerrainKind } from '../../world/terrainKind'
 import type { TimeOfDay } from '../../world/timeOfDay'
@@ -305,6 +306,12 @@ export interface MissionBattle {
    * 只影響畫面，不進模擬；遭遇戰與機庫沒有這個欄位，所以不受影響。
    */
   readonly liveries?: Readonly<Record<string, string>>
+  /**
+   * 依機種指名用哪一組手感（`specs/feel.ts`），鍵是 `spec.id`，**不分隊伍**，進場、增援、重生都照它。
+   * 德 M4 讓 Ju 87 用戰鬥機那一組（`{ ju87: 'fighter' }`）：功率與阻力同倍率放大，只動爬升，極速不動。
+   * **省略 = 依機種角色挑**（轟炸機 `BOMBER_FEEL`、戰鬥機 `GAME_FEEL`）。遭遇戰沒有這個欄位。
+   */
+  readonly feels?: Readonly<Record<string, FeelKind>>
   /** 敵方（紅隊）的主力機種 */
   readonly redSpec: AircraftSpec
   /**

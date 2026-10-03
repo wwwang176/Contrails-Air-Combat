@@ -286,6 +286,8 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
     ...(b.loadouts === undefined ? {} : { loadouts: b.loadouts }),
     // 【同樣明列】漏抄的症狀是雪地上一架綠飛機，而且不報錯
     ...(b.liveries === undefined ? {} : { liveries: b.liveries }),
+    // 【同樣明列】漏抄的症狀是 Ju 87 爬得跟轟炸機一樣慢，而且不報錯
+    ...(b.feels === undefined ? {} : { feels: b.feels }),
   }
 }
 

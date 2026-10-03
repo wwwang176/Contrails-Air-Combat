@@ -34,7 +34,7 @@ import { assistCredits } from '../world/assists'
 import { pilotNames } from './names'
 import { createRoster, recordKill, swapPilots, type Roster } from './pilots'
 import { pickTakeover, TAKEOVER_DELAY } from './takeover'
-import { applyFeel, feelFor } from '../specs/feel'
+import { applyFeel, feelFor, type FeelKind } from '../specs/feel'
 import { P51D } from '../specs/p51d'
 import { BF109K4 } from '../specs/bf109k4'
 // 【為什麼再匯出還要 import】`export type { X } from` 不會把 X 帶進本檔的
@@ -166,6 +166,11 @@ export interface BattleConfig {
    * 不進模擬。省略 = 全部預設塗裝。
    */
   readonly liveries?: Readonly<Record<string, string>>
+  /**
+   * 依機種指名用哪一組手感，鍵是 `spec.id`，**不分隊伍**，進場、增援、重生與地上的飛機都照它
+   * （`feeledSpec`）。省略 = 依機種角色挑。
+   */
+  readonly feels?: Readonly<Record<string, FeelKind>>
   altitude: number
   tas: number
   /**
@@ -730,6 +735,21 @@ function unitFrame(cfg: BattleConfig, unit: FlightPlan): UnitFrame {
 type FeelCache = { readonly [T in Team]: Map<AircraftSpec, AircraftSpec> }
 
 /**
+ * 一個機種套過手感的規格，一側算一次、之後共用同一個物件（下游有依物件識別的快取）。
+ * 任務卡的 `feels` 指名了哪一組就用哪一組，沒指名依角色挑（`feelFor`）。
+ */
+function feeledSpec(
+  cache: Map<AircraftSpec, AircraftSpec>, base: AircraftSpec, feels: Readonly<Record<string, FeelKind>> | undefined,
+): AircraftSpec {
+  let spec = cache.get(base)
+  if (spec === undefined) {
+    spec = applyFeel(base, feelFor(base, feels?.[base.id]))
+    cache.set(base, spec)
+  }
+  return spec
+}
+
+/**
  * 停在地上的哪一種單位是一架飛機（`GroundTarget.airframe`）。在地上是地面目標，
  * 離地才是空中那一池的飛機；血量、部位、防護力兩邊相同。
  */
@@ -762,12 +782,7 @@ function spawnMember(
   // 戰鬥機放大，爬升率變成史實的三倍。
   //
   // 【查表在內層】混編小隊裡兩種機各查各的
-  const cache = feeled[unit.team]
-  let spec = cache.get(base)
-  if (spec === undefined) {
-    spec = applyFeel(base, feelFor(base))
-    cache.set(base, spec)
-  }
+  const spec = feeledSpec(feeled[unit.team], base, cfg.feels)
 
   // 【開局速度逐機種】見 `openingTas`。巡航只有轟炸機用得到，而
   // `maxLevelSpeed` 是一次求根搜尋 —— 戰鬥機不必付這個錢。
@@ -1135,7 +1150,7 @@ export function createBattle(
   )
 
   placeFleet(world, cfg.fleet)
-  placeGround(world, cfg.ground, feeled, cfg.flakSpec)
+  placeGround(world, cfg.ground, feeled, cfg.flakSpec, cfg.feels)
   // 【排在艦隊之後】繫在船上的氣球要讀那艘船的位置與艏向
   placeBalloons(world, cfg.balloons)
   const battle: Battle = {
@@ -1254,6 +1269,7 @@ function placeBalloons(world: World, entries: readonly BalloonEntry[] | undefine
  */
 function placeGround(
   world: World, ground: readonly GroundEntry[] | undefined, feeled: FeelCache, flakSpec?: ShipGunSpec,
+  feels?: Readonly<Record<string, FeelKind>>,
 ): void {
   if (ground === undefined) return
   for (const e of ground) {
@@ -1265,12 +1281,7 @@ function placeGround(
     // 手感表拿 —— 離地時交給的那一席用的是同一份（`spawnMember`）
     const base = GROUND_AIRFRAME[e.unit]
     if (base !== undefined) {
-      const cache = feeled[e.team]
-      let spec = cache.get(base)
-      if (spec === undefined) {
-        spec = applyFeel(base, feelFor(base))
-        cache.set(base, spec)
-      }
+      const spec = feeledSpec(feeled[e.team], base, feels)
       t.airframe = spec
       t.hp = spec.hp
       // 【先算好】第一發打到它的子彈才算的話，那一步會在物理迴圈裡配置
