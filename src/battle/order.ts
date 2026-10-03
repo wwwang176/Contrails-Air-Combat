@@ -76,6 +76,13 @@ export interface FlightPlan {
    */
   readonly depth?: number
   /**
+   * 沿 X 的橫向偏移，**公尺**，加在 `lane` 與 `entry.across` 之上。省略 = 0。
+   *
+   * 機首不是正北或正南的擺法，「落後」不在世界 Z 軸上：只給 `depth` 的話，後面的批會斜斜地偏離
+   * 長機的航線。`waveColumn` 用 `depth` 與 `slide` 一起把落後換成沿機首的反方向。
+   */
+  readonly slide?: number
+  /**
    * 疊在 `tier` 之上的高度偏移，**公尺**。省略 = 0。
    *
    * `tier` 的鋸齒相鄰兩層只差 `altitudeSpread / 2`，而被護送的那一群恆在
@@ -595,8 +602,9 @@ export function soloBombers(units: OrderOfBattle, schwarmSpacing: number): Order
  * 【為什麼不用 `stackedEntry`】它按 Schwarm（4 架）切批，批與批橫向錯開、高度分層，而且玩家在中間那一批。
  * 這裡要的是任意批大小、同一條線上的前後間隔，玩家在最前面。
  *
- * 【正號是落後】`depth` 是世界座標的 z，藍隊機首朝 −Z 時落後是 +Z；機首朝 +Z 的擺法（`strikeFromNorth`）
- * 落後是 −Z，`waveColumn` 依 `plan.blue.heading` 的南北向換號。
+ * 【落後是機首的反方向】機首朝 −Z 時落後是 +Z（`depth` 就是世界座標的 z 偏移）；機首朝別的方向
+ * （`strikeFromNorth` 朝南偏西 13°）時，落後的向量是 `(sin h, cos h)`，`depth` 取它的 z 分量、
+ * `slide` 取 x 分量，後面的批與護航才排在長機的正後方，不斜斜地偏開。
  *
  * @param waveSize 一批幾架，1 … `SCHWARM_SIZE`
  * @param depth 相鄰兩批的前後間隔，公尺
@@ -615,14 +623,18 @@ export function waveColumn(
     throw new Error(`批大小要在 1..${SCHWARM_SIZE}，收到 ${waveSize}`)
   }
   const out: FlightPlan[] = []
-  // 機首朝北（cos > 0）落後是 +Z、朝南是 −Z。朝 −Z 的擺法乘 1，結果與沒有這個係數時逐位元相同
-  const behind = Math.sign(Math.cos(plan.blue.heading))
+  // 落後 = 機首的反方向 (sin h, cos h)。機首朝 −Z（h = 0）時 cos = 1、sin = 0：depth 與沒有這個係數時
+  // 逐位元相同，也不帶 slide
+  const h = plan.blue.heading
+  const backZ = Math.cos(h)
+  const backX = Math.sin(h)
   const waves = Math.ceil(blueCount / waveSize)
   for (let g = 0; g < waves; g++) {
     const size = Math.min(waveSize, blueCount - g * waveSize)
     const members: AircraftSpec[] = Array.from({ length: size }, () => blueSpec)
     const flight: FlightPlan = {
-      team: 'blue', members, entry: plan.blue, duty: 'combat', lane: 0, tier: 0, depth: g * depth * behind,
+      team: 'blue', members, entry: plan.blue, duty: 'combat', lane: 0, tier: 0, depth: g * depth * backZ,
+      ...(backX === 0 ? {} : { slide: g * depth * backX }),
     }
     out.push(g === 0 ? { ...flight, player: true } : flight)
   }
@@ -635,7 +647,8 @@ export function waveColumn(
       const size = Math.floor(escort.count / squads) + (f < escort.count % squads ? 1 : 0)
       out.push({
         team: 'blue', members: Array.from({ length: size }, () => escort.spec), entry: plan.blue,
-        duty: 'combat', lane: f - (squads - 1) / 2, tier: ESCORT_TIER, depth: escort.depth * behind,
+        duty: 'combat', lane: f - (squads - 1) / 2, tier: ESCORT_TIER, depth: escort.depth * backZ,
+        ...(backX === 0 ? {} : { slide: escort.depth * backX }),
       })
     }
   }

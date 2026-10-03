@@ -713,7 +713,8 @@ function unitFrame(cfg: BattleConfig, unit: FlightPlan): UnitFrame {
   // 【乘法的順序不能換】原式是
   // `(f − (n−1)/2) × schwarmSpacing + across × lateralOffset`，
   // 而 `lane` 就是那個括號裡的中間值。浮點加法不可交換，順序不能換。
-  const leadX = unit.lane * cfg.schwarmSpacing + entry.across * cfg.lateralOffset
+  // 【`slide` 排在最後】省略時加的是 0，逐位元與舊行為相同
+  const leadX = unit.lane * cfg.schwarmSpacing + entry.across * cfg.lateralOffset + (unit.slide ?? 0)
   // 【`rise` 排在最後】省略時加的是 0，逐位元與舊行為相同
   const leadY = cfg.altitude + entry.climb + altitudeOffset(unit.tier, cfg.altitudeSpread)
     + (unit.rise ?? 0)

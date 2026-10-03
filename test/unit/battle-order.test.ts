@@ -451,13 +451,19 @@ describe('waveColumn', () => {
     expect(trailed.playerSeat).toBeLessThan(2)
   })
 
-  /** 機首朝 +Z 的擺法：落後是 −Z。同一個 `depth`、護航也一起換號 */
-  it('機首朝南的擺法：批與護航的 depth 換成負號；朝北的擺法逐項不變', () => {
-    const south = { ...HEAD_ON, blue: { ...HEAD_ON.blue, heading: Math.PI - 0.2265 } }
+  /** 機首不朝 −Z 的擺法：落後是機首的反方向 (sin h, cos h)，批與護航都排在長機的正後方 */
+  it('機首朝南偏西的擺法：批與護航的落後沿機首的反方向（depth 與 slide 合成）；朝北的擺法逐項不變', () => {
+    const h = Math.PI - 0.2265
+    const south = { ...HEAD_ON, blue: { ...HEAD_ON.blue, heading: h } }
     const escort = { spec: BF109K4, count: 4, depth: 2300 }
     const north = waveColumn(HEAD_ON, B17G, 6, 2, 4000, BF109K4, 0, escort)
     const turned = waveColumn(south, B17G, 6, 2, 4000, BF109K4, 0, escort)
     expect(blue(north).map((f) => f.depth)).toEqual([0, 4000, 8000, 2300])
-    expect(blue(turned).map((f) => f.depth)).toEqual([-0, -4000, -8000, -2300])
+    expect(blue(north).every((f) => f.slide === undefined)).toBe(true)
+    const back = [0, 4000, 8000, 2300]
+    blue(turned).forEach((f, i) => {
+      expect(f.depth!, `depth ${i}`).toBeCloseTo(back[i]! * Math.cos(h), 6)
+      expect(f.slide ?? 0, `slide ${i}`).toBeCloseTo(back[i]! * Math.sin(h), 6)
+    })
   })
 })

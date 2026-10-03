@@ -222,10 +222,12 @@ describe('勒熱夫的進場對準戰場', () => {
     for (let i = 0; i < 6; i++) {
       const p = base.world.combatants[i]!.aircraft.state.position
       const q = trailed.world.combatants[i]!.aircraft.state.position
-      expect(q.x, `x ${i}`).toBeCloseTo(p.x, 6)
       expect(q.y, `y ${i}`).toBeCloseTo(p.y, 6)
-      // 機首朝南，落後在北邊（−Z）
-      expect(q.z - p.z, `z ${i}`).toBeCloseTo(-Math.floor(i / 2) * waves.depth, 6)
+      // 落後 = 機首的反方向：每一批的局部橫向不變（排在長機的正後方），局部縱深往德軍後方退 g × depth
+      const lp = toLocal(p.x, p.z)
+      const lq = toLocal(q.x, q.z)
+      expect(lq.lx, `lx ${i}`).toBeCloseTo(lp.lx, 0)
+      expect(lp.lz - lq.lz, `lz ${i}`).toBeCloseTo(Math.floor(i / 2) * waves.depth, 0)
     }
   })
 })
