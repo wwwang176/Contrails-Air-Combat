@@ -29,7 +29,7 @@ const SEED = Number(process.env['SEED'] ?? 20260913)
 const VERBOSE = process.env['VERBOSE'] !== undefined
 const DEG = 180 / Math.PI
 
-const terrain = createTerrain('kursk')
+const terrain = createTerrain('rzhev')
 const b = createBattle(new AiController(), missionConfigFrom(readyCard('germany-m4')), SEED)
 const w = b.world
 const policy = flatSeaCrashPolicy(terrain.collisionHeightAt)

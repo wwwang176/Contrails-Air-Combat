@@ -9,14 +9,14 @@ import {
   buildRavineFords, buildRavineStripes, FORD_CELL, RAVINE_BOTTOM, RAVINE_HOUSE_CLEAR, RAVINE_RIM_FADE, RAVINE_RIM_SOLID,
   RAVINE_ROAD_CLEAR, RAVINE_SLOPE, steppeRavineFloraFor, STRIPE_SECTION,
 } from '../../src/render/steppeRavines'
-import { kurskVillageKeepOut } from '../../src/render/terrain'
+import { rzhevVillageKeepOut } from '../../src/render/terrain'
 import {
   at, battleKeepOut, BELT_BOX, burnRateOf, isLargeVillage, PANZER_ROUTE_A, PANZER_ROUTE_B, shelterbeltFade,
   T34_RESERVE_EAST, T34_RESERVE_WEST, toLocal,
-} from '../../src/world/kursk'
+} from '../../src/world/rzhev'
 import {
   RAVINE_MIN_FADE, RAVINE_MIN_SCALE, RAVINE_STEP, RAVINES, ravineGap,
-} from '../../src/world/kurskRavines'
+} from '../../src/world/rzhevRavines'
 
 const FLAT = (): number => 0
 const reg: RegionSample = {
@@ -202,7 +202,7 @@ describe('村讓開沖溝', () => {
   const inBand = (p: { x: number; z: number }): boolean => ravineGap(p.x, p.z) < 32 + RAVINE_RIM_SOLID
 
   it('用遊戲實際的禁區蓋出來的村：沒有一間房子在溝帶裡，離溝帶外緣至少 RAVINE_HOUSE_CLEAR', () => {
-    const houses = build(kurskVillageKeepOut)
+    const houses = build(rzhevVillageKeepOut)
     expect(houses.length).toBeGreaterThan(1000)
     for (const h of houses) {
       expect(inBand(h)).toBe(false)

@@ -25,7 +25,7 @@ const SEEDS = (process.env['SEEDS'] ?? '20260913').split(',').map(Number)
 const FLAK = process.env['FLAK'] === undefined ? Infinity : Number(process.env['FLAK'])
 const SAMPLE = 30
 
-const terrain = createTerrain('kursk')
+const terrain = createTerrain('rzhev')
 
 function pct(x: number): string {
   return `${(x * 100).toFixed(0)}%`

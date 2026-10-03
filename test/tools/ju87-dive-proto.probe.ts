@@ -42,7 +42,7 @@ const MIN_DIVE_HEIGHT = 1000
 /** 離目標多高以下才用落點修正的瞄準；以上只追視線 */
 const AIM_FROM = Number(process.env['AIM_FROM'] ?? 99999)
 
-const terrain = createTerrain('kursk')
+const terrain = createTerrain('rzhev')
 const b = createBattle(new AiController(), missionConfigFrom(readyCard('germany-m4')), 20260913)
 const w = b.world
 const policy = flatSeaCrashPolicy(terrain.collisionHeightAt)

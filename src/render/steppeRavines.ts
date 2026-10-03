@@ -4,12 +4,12 @@ import {
   regionAt, trackGap, trackWidthAt, TRACK_WARP_MAX, TRACK_WIDTH_MAX, type RegionSample,
 } from './fields'
 import { FIELD_COLORS } from './season'
-import type { Ravine } from '../world/kurskRavines'
+import type { Ravine } from '../world/rzhevRavines'
 
 /**
  * # 沖溝的畫法（只有平面）
  *
- * 走向在 `world/kurskRavines.ts`。這裡把它畫成三樣東西：
+ * 走向在 `world/rzhevRavines.ts`。這裡把它畫成三樣東西：
  *
  * - **溝帶**（`buildRavineStripes`）：平貼烘進地面貼圖的一條**不透明**的帶子，蓋掉底下的田、
  *   田埂與凹路 —— 田在溝緣停住，像是溝先在那裡、田被它切斷。斷面由外到內：田埂色的邊（田的
@@ -128,7 +128,7 @@ export function ravineKeepOutFor(ravines: readonly Ravine[]): (x: number, z: num
 }
 
 /**
- * 沿溝種樹與灌木。`ravines` 是整張圖的溝（`world/kurskRavines.ts` 的 `RAVINES`）
+ * 沿溝種樹與灌木。`ravines` 是整張圖的溝（`world/rzhevRavines.ts` 的 `RAVINES`）
  */
 export function steppeRavineFloraFor(ravines: readonly Ravine[]): FloraSource {
   const pre = ravines.map(prepare)

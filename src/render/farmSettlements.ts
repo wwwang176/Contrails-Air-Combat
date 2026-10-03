@@ -111,7 +111,7 @@ export interface Settlements {
  * 村與小聚落。
  *
  * @param season 七月麥田（`julyWheat`）是俄國南部的大村；其餘是德國中部的團狀村與綠地村
- * @param war 戰場：不准蓋房子的地方、各村房子燒毀的比例、哪個村是大村（`world/kursk.ts`）。
+ * @param war 戰場：不准蓋房子的地方、各村房子燒毀的比例、哪個村是大村（`world/rzhev.ts`）。
  *            只有草原村讀它；不是大村的畫成小村
  */
 export function farmSettlements(

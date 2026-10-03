@@ -5,7 +5,7 @@ import {
   DUST_CLOUD_LIFT_MAX, DUST_CLOUD_LIFT_MIN, DUST_CLOUD_SHADE, DUST_CLOUD_SPREAD, dustCloudSpot,
 } from '../../src/render/groundBattle'
 import { clearBattleFog, setBattleFog } from '../../src/render/heightFog'
-import { AT_GUNS, BATTLE_HAZE, KURSK_DUSTS, toLocal } from '../../src/world/kursk'
+import { AT_GUNS, BATTLE_HAZE, RZHEV_DUSTS, toLocal } from '../../src/world/rzhev'
 import { MISSIONS, type ReadyMissionCard } from '../../src/battle/missions'
 
 /**
@@ -163,13 +163,13 @@ describe('庫斯克的塵團出處', () => {
   const card = MISSIONS.germany.find((c) => c.id === 'germany-m4') as ReadyMissionCard
 
   it('卡片帶的就是這份名單', () => {
-    expect(card.battle.theater!.dusts).toBe(KURSK_DUSTS)
+    expect(card.battle.theater!.dusts).toBe(RZHEV_DUSTS)
   })
 
   it('十門反坦克砲各一處，加上沿村主街的五處', () => {
-    expect(KURSK_DUSTS).toHaveLength(AT_GUNS.length + 5)
-    for (const g of AT_GUNS) expect(KURSK_DUSTS.some((p) => p.x === g.x && p.z === g.z)).toBe(true)
-    const street = KURSK_DUSTS.slice(AT_GUNS.length).map((p) => toLocal(p.x, p.z))
+    expect(RZHEV_DUSTS).toHaveLength(AT_GUNS.length + 5)
+    for (const g of AT_GUNS) expect(RZHEV_DUSTS.some((p) => p.x === g.x && p.z === g.z)).toBe(true)
+    const street = RZHEV_DUSTS.slice(AT_GUNS.length).map((p) => toLocal(p.x, p.z))
     for (const l of street) {
       expect(Math.abs(l.lx)).toBeLessThan(1)
       expect(l.lz).toBeLessThan(-200)
@@ -177,7 +177,7 @@ describe('庫斯克的塵團出處', () => {
   })
 
   it('每一處連同散佈半徑都在高度霧的圈內', () => {
-    for (const p of KURSK_DUSTS) {
+    for (const p of RZHEV_DUSTS) {
       expect(Math.hypot(p.x - BATTLE_HAZE.x, p.z - BATTLE_HAZE.z) + DUST_CLOUD_SPREAD).toBeLessThan(BATTLE_HAZE.radius)
     }
   })

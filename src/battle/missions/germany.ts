@@ -11,9 +11,9 @@ import { JU87 } from '../../specs/ju87'
 import { YAK1B } from '../../specs/yak1b'
 import {
   ARTILLERY_ZONE, AT_GUNS, BATTLE_HAZE, COLUMN_GAP, COLUMN_SPEED, COLUMN_TURN_RADIUS, FRONT_T34, FRONT_T34_SCRIPTED,
-  GERMAN_INFANTRY, GERMAN_MORTARS, KURSK_DUSTS, KURSK_SMOKES, PANZER_ROUTE_A, PANZER_ROUTE_B, SOVIET_FLAK, SOVIET_INFANTRY,
+  GERMAN_INFANTRY, GERMAN_MORTARS, RZHEV_DUSTS, RZHEV_SMOKES, PANZER_ROUTE_A, PANZER_ROUTE_B, SOVIET_FLAK, SOVIET_INFANTRY,
   SOVIET_MORTARS, SOVIET_TRUCKS, STALLED_PANZERS, T34_RESERVE_EAST, T34_RESERVE_WEST, WRECK_PANZERS, WRECK_T34,
-} from '../../world/kursk'
+} from '../../world/rzhev'
 import { POLTAVA_GROUND } from './shared'
 import type { GroundEntry, MissionCard, MissionTrigger } from './types'
 
@@ -34,12 +34,12 @@ const ASCH_GROUND: readonly GroundEntry[] = [
 ]
 
 /**
- * 庫斯克的固定地面單位。佈局在 `world/kursk.ts`。
+ * 庫斯克的固定地面單位。佈局在 `world/rzhev.ts`。
  *
  * 【殘骸與劇本】`killAt: 0` 的是開場就燒著的殘骸；其餘 `killAt` 是地面戰的戲裡
  * 照劇本被打掉的那幾輛。劇本打掉的不算進摧毀數。
  */
-const KURSK_GROUND: readonly GroundEntry[] = [
+const RZHEV_GROUND: readonly GroundEntry[] = [
   ...AT_GUNS.map((s): GroundEntry => ({ unit: 'atGun', team: 'red', ...s })),
   ...FRONT_T34.map((s, i): GroundEntry => ({
     unit: 'tankDug', team: 'red', ...s,
@@ -66,7 +66,7 @@ const KURSK_GROUND: readonly GroundEntry[] = [
 const BREAKTHROUGH_GUNS = 7
 
 /** 反坦克砲炸夠數：德軍推進、蘇軍反擊、目標換成反擊的 T-34、剩下的砲被打掉，同一刻 */
-const KURSK_BREAKTHROUGH: MissionTrigger = { kind: 'destroyed', atLeast: BREAKTHROUGH_GUNS, unit: 'atGun' }
+const RZHEV_BREAKTHROUGH: MissionTrigger = { kind: 'destroyed', atLeast: BREAKTHROUGH_GUNS, unit: 'atGun' }
 
 /** 德軍線的卡片。**這一條線的卡片只住在這裡。** */
 export const GERMANY: readonly MissionCard[] = [
@@ -228,7 +228,7 @@ export const GERMANY: readonly MissionCard[] = [
       convoyCount: 0, convoyPriority: 1,
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       entry: 'strikeDeep',
-      terrain: 'kursk',
+      terrain: 'rzhev',
       // 【清晨】日出後的低太陽；砲擊與車輛揚起的塵土，地平線一片黃褐
       timeOfDay: 'julyMorning',
       /**
@@ -236,7 +236,7 @@ export const GERMANY: readonly MissionCard[] = [
        * **起始值，由試飛裁定。**
        */
       altitude: 2000,
-      ground: KURSK_GROUND,
+      ground: RZHEV_GROUND,
       /**
        * 【兩路德軍開場就在、蘇軍預備隊藏著】四支同一個觸發出發。德軍兩支都走路（A 在斜路、
        * B 在南路跟在後面）；蘇軍兩支出發前不在場上、從村北沿村的東西外側南下 —— 第一段先炸掉
@@ -246,32 +246,32 @@ export const GERMANY: readonly MissionCard[] = [
         {
           team: 'blue', route: PANZER_ROUTE_A, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
           gap: COLUMN_GAP, units: ['panzer4', 'panzer4', 'tiger', ...Array<'panzer4'>(7).fill('panzer4')],
-          depart: KURSK_BREAKTHROUGH,
+          depart: RZHEV_BREAKTHROUGH,
         },
         {
           team: 'blue', route: PANZER_ROUTE_B, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
           gap: COLUMN_GAP, units: ['panzer4', 'tiger', ...Array<'panzer4'>(8).fill('panzer4')],
-          depart: KURSK_BREAKTHROUGH,
+          depart: RZHEV_BREAKTHROUGH,
         },
         {
           team: 'red', route: T34_RESERVE_WEST, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
           gap: COLUMN_GAP, units: Array<'tank'>(10).fill('tank'),
-          depart: KURSK_BREAKTHROUGH, hidden: true,
+          depart: RZHEV_BREAKTHROUGH, hidden: true,
         },
         {
           team: 'red', route: T34_RESERVE_EAST, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
           gap: COLUMN_GAP, units: Array<'tank'>(10).fill('tank'),
-          depart: KURSK_BREAKTHROUGH, hidden: true,
+          depart: RZHEV_BREAKTHROUGH, hidden: true,
         },
       ],
       // 【第一段：反坦克砲炸掉七門】防空、步兵、半埋的 T-34 打得掉但不算
       destroyCount: BREAKTHROUGH_GUNS, destroyUnit: 'atGun',
       // 【炸夠數之後，剩下的砲由前進的德軍坦克打掉】劇本打掉的不算摧毀數；畫面上由地面戰的戲補
       // 一發命中的砲彈。**起始值，由試飛裁定**
-      mopUp: { when: KURSK_BREAKTHROUGH, unit: 'atGun', within: [12, 45] },
+      mopUp: { when: RZHEV_BREAKTHROUGH, unit: 'atGun', within: [12, 45] },
       // 【第二段：反擊的預備隊 T-34 炸掉 8 輛】二十輛裡的八輛，其餘由德軍的戰車對付。**起始值，由試飛裁定**
       retarget: {
-        when: KURSK_BREAKTHROUGH, messageKey: 'mission.germany-m4.retarget',
+        when: RZHEV_BREAKTHROUGH, messageKey: 'mission.germany-m4.retarget',
         destroyCount: 8, destroyUnit: 'tank',
       },
       // 【節奏】一台平均 4 秒一發，步兵的班也一樣；再慢從空中看起來像沒在交火。砲兵的彈著 1.6 秒一柱
@@ -280,9 +280,9 @@ export const GERMANY: readonly MissionCard[] = [
         period: 4,
         range: 1500,
         artillery: { ...ARTILLERY_ZONE, period: 1.6 },
-        smokes: KURSK_SMOKES,
+        smokes: RZHEV_SMOKES,
         haze: BATTLE_HAZE,
-        dusts: KURSK_DUSTS,
+        dusts: RZHEV_DUSTS,
       },
       /**
        * 【蘇軍戰鬥機六架】開場後 90 秒（預警 5 秒）兩批各三架 Yak-1B 從北邊進場。

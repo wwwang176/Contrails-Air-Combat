@@ -661,7 +661,7 @@ export interface MissionTheater {
   /**
    * 砲兵彈著的有向矩形與平均間隔，s。**中心是世界座標；`across` 是矩形橫向的單位向量
    * （世界），`along` 是縱向的單位向量；半寬與半長沿這兩軸**。戰場跟著路轉
-   * （`world/kursk.ts`），軸對齊的外接矩形會讓彈著落到無人地帶之外
+   * （`world/rzhev.ts`），軸對齊的外接矩形會讓彈著落到無人地帶之外
    */
   readonly artillery?: {
     readonly x: number; readonly z: number

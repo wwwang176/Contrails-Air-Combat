@@ -29,7 +29,7 @@ const SECONDS = Number(process.env['SECONDS'] ?? 60)
 const SEED = 20260913
 
 for (const spec of [HE111, G4M, B17G, P51D, BF109K4, KI84]) {
-  const terrain = createTerrain('kursk')
+  const terrain = createTerrain('rzhev')
   // 隊伍是 `missionConfigFrom` 由卡片的 `blueSpec` 生出來的，換機種要換卡片裡的那一格
   const card = readyCard('germany-m4')
   const cfg = missionConfigFrom({ ...card, battle: { ...card.battle, blueSpec: spec } })

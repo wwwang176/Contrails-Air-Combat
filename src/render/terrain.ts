@@ -43,10 +43,10 @@ import {
   ROAD_WIDTH as ASCH_ROAD_WIDTH, ROADS as ASCH_ROADS,
 } from '../world/asch'
 import {
-  BELT_FRAME, battleKeepOut, burnRateOf, CRATER_PATCHES, createKursk, isLargeVillage, MINEFIELDS, OBSTACLES, SCAR_ZONE,
+  BELT_FRAME, battleKeepOut, burnRateOf, CRATER_PATCHES, createRzhev, isLargeVillage, MINEFIELDS, OBSTACLES, SCAR_ZONE,
   SCORCH, shelterbeltFade,
   TRACKS, TRENCHES,
-} from '../world/kursk'
+} from '../world/rzhev'
 import { buildObstacles } from './geometry/ground/obstacles'
 import { preloadScarAtlas } from './battleScars'
 import type { HeightFieldData } from '../world/heightfield'
@@ -55,7 +55,7 @@ import type { SiteLayout } from './fields'
 import {
   buildRavineFords, buildRavineStripes, ravineKeepOutFor, steppeRavineFloraFor,
 } from './steppeRavines'
-import { RAVINES } from '../world/kurskRavines'
+import { RAVINES } from '../world/rzhevRavines'
 import { excluding } from './floraExclude'
 import { bakeKeepOut, corridorZone, excludingZones, type KeepOutZone } from './keepOutMask'
 import {
@@ -245,7 +245,7 @@ export async function preloadTerrainScenery(kind: TerrainKind): Promise<void> {
   else if (kind === 'poltava') await preloadAirfieldScenery()
   // 【戰場痕跡的圖集要先到】田色在建地形的那一刻就烘進貼圖，那時圖集是空的話取樣
   // 全是透明，彈坑、壕溝一個都烘不進去
-  else if (kind === 'kursk') await preloadScarAtlas()
+  else if (kind === 'rzhev') await preloadScarAtlas()
 }
 
 export function createTerrain(kind: TerrainKind, gfx?: TerrainGfx): Terrain {
@@ -254,7 +254,7 @@ export function createTerrain(kind: TerrainKind, gfx?: TerrainGfx): Terrain {
   if (kind === 'leuna') return createLeunaTerrain(gfx)
   if (kind === 'poltava') return createPoltavaTerrain(gfx)
   if (kind === 'asch') return createAschTerrain(gfx)
-  if (kind === 'kursk') return createKurskTerrain(gfx)
+  if (kind === 'rzhev') return createRzhevTerrain(gfx)
   if (kind === 'leyte') return createLeyteTerrain()
   if (kind === 'sea') return createSeaTerrain()
   return createArchipelagoTerrain()
@@ -561,7 +561,7 @@ const RAVINE_KEEP_OUT = ravineKeepOutFor(RAVINES)
  * 庫斯克的村的禁區：戰場（單位、壕溝、縱隊路線）與沖溝。村的房子、菜園與支路都讓開。
  * 地形與測試用同一支，測的才是遊戲實際蓋出來的村。
  */
-export const kurskVillageKeepOut = (x: number, z: number): boolean => battleKeepOut(x, z) || RAVINE_KEEP_OUT(x, z)
+export const rzhevVillageKeepOut = (x: number, z: number): boolean => battleKeepOut(x, z) || RAVINE_KEEP_OUT(x, z)
 
 /**
  * 庫斯克：沒有墊面、不畫路（路是區塊交界的凹路），交戰帶疊上彈坑、燒田、履帶痕與壕溝
@@ -569,7 +569,7 @@ export const kurskVillageKeepOut = (x: number, z: number): boolean => battleKeep
  * 【彈坑的密度】交戰帶裡一格（24 m）三成有坑，往外 700 m 內降到三分。**起始值，
  * 拿眼睛校**
  */
-export const KURSK_SITE: SiteLayout = {
+export const RZHEV_SITE: SiteLayout = {
   roads: [],
   roadWidth: 0,
   scars: {
@@ -585,11 +585,11 @@ export const KURSK_SITE: SiteLayout = {
  * 庫斯克：農地的算繪路徑、手擺的緩丘、七月的麥田、戰場的痕跡，加上立體的障礙物（反坦克樁、
  * 捷克刺蝟、鐵絲網）當佈景。高度場只建一次，障礙物貼著同一份地面
  */
-function createKurskTerrain(gfx?: TerrainGfx): Terrain {
-  const kursk = createKursk()
-  const solid = outsideZero(kursk.field)
+function createRzhevTerrain(gfx?: TerrainGfx): Terrain {
+  const rzhev = createRzhev()
+  const solid = outsideZero(rzhev.field)
   return createInlandTerrain(
-    kursk, 'julyWheat', KURSK_SITE, () => buildObstacles(OBSTACLES, (x, z) => solid.sample(x, z)), gfx,
+    rzhev, 'julyWheat', RZHEV_SITE, () => buildObstacles(OBSTACLES, (x, z) => solid.sample(x, z)), gfx,
   )
 }
 
@@ -686,7 +686,7 @@ function createInlandTerrain(
   const villageReach = farm.field.cell * (farm.field.size - 1) / 2 + FLORA_RADIUS + 1000
   const villages = dressing === undefined
     ? farmSettlements(villageReach, season, steppe
-      ? { keepOut: kurskVillageKeepOut, burnRate: burnRateOf, large: isLargeVillage } : undefined)
+      ? { keepOut: rzhevVillageKeepOut, burnRate: burnRateOf, large: isLargeVillage } : undefined)
     : null
   let buildings = padClear(villages === null ? dressing!.buildings : villages.flora)
   // 【不長樹的範圍】地圖列出它有的範圍，載入時各合成一張遮罩（`keepOutMask.ts`）。

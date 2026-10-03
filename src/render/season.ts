@@ -4,7 +4,7 @@ import { Color } from 'three'
  * # 季節
  *
  * 田區的地色與樹冠色由季節決定。**農地與群島恆為夏季**；洛伊納
- * （`world/leuna.ts`）是 1944 年 11 月的晚秋；庫斯克（`world/kursk.ts`）是 1943 年
+ * （`world/leuna.ts`）是 1944 年 11 月的晚秋；庫斯克（`world/rzhev.ts`）是 1943 年
  * 7 月的麥田。色值都是起始值，拿眼睛校。
  *
  * 【為什麼是一張查表而不是散在各檔的常數】`fields.ts` 把色值烘進 GLSL

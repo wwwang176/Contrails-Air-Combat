@@ -316,8 +316,8 @@ export const zh = {
   'terrain.poltava.hint': '草原機場',
   'terrain.asch': 'Y-29',
   'terrain.asch.hint': '前進降落場',
-  'terrain.kursk': '庫斯克',
-  'terrain.kursk.hint': '夏季的裝甲戰場',
+  'terrain.rzhev': '庫斯克',
+  'terrain.rzhev.hint': '夏季的裝甲戰場',
   'terrain.sea': '純海面',
   'terrain.sea.hint': '沒有地標',
 

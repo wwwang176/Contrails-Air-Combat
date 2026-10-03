@@ -5,13 +5,13 @@ import { buildingColors } from '../../src/render/floraShapes'
 import { buildBlasts, RIDGE_CLEAR, steppeLayout } from '../../src/render/steppeVillage'
 import { churchRoom } from '../../src/render/settlements'
 import { steppeRavineFloraFor } from '../../src/render/steppeRavines'
-import { RAVINES } from '../../src/world/kurskRavines'
+import { RAVINES } from '../../src/world/rzhevRavines'
 import { regionAt, steppeRidgeGap, trackGap, trackWidthAt } from '../../src/render/fields'
-import { kurskVillageKeepOut, STEPPE_CAPACITY } from '../../src/render/terrain'
+import { rzhevVillageKeepOut, STEPPE_CAPACITY } from '../../src/render/terrain'
 import { createVegetation } from '../../src/render/vegetation'
 import {
   at, battleKeepOut, burnRateOf, isLargeVillage, shelterbeltFade, VILLAGE, VILLAGE_NAME,
-} from '../../src/world/kursk'
+} from '../../src/world/rzhev'
 
 /**
  * 草原街村：房子沿凹路兩列、屋後垂直於街的菜園、只有七月麥田這個季節才用。
@@ -201,7 +201,7 @@ describe('戰場上的村', () => {
   it('戰場的南北軸與兩側各處都不溢位', () => {
     // 地形實際用的設定：只有戰場的村是大村，田界有防風林帶
     const v = createVegetation([
-      farmSettlements(20000, 'julyWheat', { ...war, keepOut: kurskVillageKeepOut, large: isLargeVillage }).flora,
+      farmSettlements(20000, 'julyWheat', { ...war, keepOut: rzhevVillageKeepOut, large: isLargeVillage }).flora,
       steppeBeltFloraFor(shelterbeltFade),
       steppeRavineFloraFor(RAVINES),
     ], () => 0, {

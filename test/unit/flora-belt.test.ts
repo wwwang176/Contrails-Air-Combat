@@ -6,7 +6,7 @@ import {
 import {
   regionAt, steppeNearestEdge, steppeRidgeGap, trackGap, trackWidthAt, villageDistance, type RegionSample, type SteppeEdge,
 } from '../../src/render/fields'
-import { at, BELT_BOX, shelterbeltFade, toLocal } from '../../src/world/kursk'
+import { at, BELT_BOX, shelterbeltFade, toLocal } from '../../src/world/rzhev'
 
 const FLAT = (): number => 0
 const reg: RegionSample = {

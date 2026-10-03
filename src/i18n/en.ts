@@ -314,8 +314,8 @@ export const en: Record<MessageKey, string> = {
   'terrain.poltava.hint': 'Steppe airfield',
   'terrain.asch': 'Y-29',
   'terrain.asch.hint': 'Forward airstrip',
-  'terrain.kursk': 'Kursk',
-  'terrain.kursk.hint': 'Summer tank battlefield',
+  'terrain.rzhev': 'Kursk',
+  'terrain.rzhev.hint': 'Summer tank battlefield',
   'terrain.sea': 'Open sea',
   'terrain.sea.hint': 'No landmarks',
 

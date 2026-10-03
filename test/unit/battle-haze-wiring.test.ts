@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BATTLE_HAZE, BATTLE_HALF, toLocal } from '../../src/world/kursk'
+import { BATTLE_HAZE, BATTLE_HALF, toLocal } from '../../src/world/rzhev'
 import { MISSIONS, type ReadyMissionCard } from '../../src/battle/missions'
 
 /** 【用 import.meta.glob 而不是 fs】`main.ts` 抓 DOM，載進 vitest 會直接爆；讀原始碼 */

@@ -1,6 +1,6 @@
 import { BufferAttribute, BufferGeometry, Color } from 'three'
 import { hash01 } from '../../scatter'
-import { toLocal, type ObstacleKind, type ObstacleLine } from '../../../world/kursk'
+import { toLocal, type ObstacleKind, type ObstacleLine } from '../../../world/rzhev'
 
 /**
  * # 戰場的障礙物：反坦克樁、捷克刺蝟、鐵絲網

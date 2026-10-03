@@ -605,7 +605,7 @@ const SPORADIC_BURN = (): number => 0.04
  * **建築預先算好、依 tile 分桶**，與 `settlementLayout` 同一個做法。
  *
  * @param avoid 教堂不蓋的地方（凹路）
- * @param keepOut 房子、樹、支路與菜園都不准的地方（戰場的單位與壕溝，`world/kursk.ts`）
+ * @param keepOut 房子、樹、支路與菜園都不准的地方（戰場的單位與壕溝，`world/rzhev.ts`）
  * @param burnRate 這個村的房子燒毀的比例，依村名
  * @param large 這個村是不是大村（依村名）。不是的話畫成小村（`SMALL_STREET`）；預設全部是大村
  */

@@ -1402,7 +1402,7 @@ export const FIELD_GLSL = fieldGlsl('summer')
 export interface SiteBelts {
   /**
    * 林帶不進的戰場方框：世界座標的原點、橫向單位向量 `(rx, rz)` 與縱向（朝蘇軍後方）單位向量
-   * `(fx, fz)`、橫向半寬、北緣與南緣的 lz，以及往外漸增到滿的距離，m。**與 `world/kursk.ts` 的
+   * `(fx, fz)`、橫向半寬、北緣與南緣的 lz，以及往外漸增到滿的距離，m。**與 `world/rzhev.ts` 的
    * `shelterbeltFade` 同一組數、同一條式子**，遠處的帶子才與近處種出來的樹對得上
    */
   readonly frame: {
@@ -1940,7 +1940,7 @@ ${list}
  *   `steppeBeltFloraFor` 同一個判準**（`edgeKey` 是 `fieldAt` 與 `steppeNearestEdge` 也在用的
  *   田界身分）
  * - 只畫在遠層（`fieldFar`）：近處有真的樹，這一條在植被圈外才接手
- * - 戰場方框裡不畫、往外漸增：公式與 `world/kursk.ts` 的 `shelterbeltFade` 同一條
+ * - 戰場方框裡不畫、往外漸增：公式與 `world/rzhev.ts` 的 `shelterbeltFade` 同一條
  */
 function beltsGlsl(b: SiteBelts): string {
   const f = b.frame
