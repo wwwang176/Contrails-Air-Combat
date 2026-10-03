@@ -12,6 +12,7 @@ import { KI84, KI84_HISTORICAL } from '../../src/specs/ki84'
 import { A6M5, A6M5_HISTORICAL } from '../../src/specs/a6m5'
 import { G4M, G4M_HISTORICAL } from '../../src/specs/g4m'
 import { JU87, JU87_HISTORICAL } from '../../src/specs/ju87'
+import { YAK1B, YAK1B_HISTORICAL } from '../../src/specs/yak1b'
 import type { AircraftSpec, HistoricalReference } from '../../src/specs/types'
 
 const TOLERANCE = 0.05
@@ -246,6 +247,12 @@ const CASES: {
    * 欄位；它另外給的巡航點與不帶彈升限在下面的 `Ju 87 B-2 手冊錨點` 那一段。
    */
   { spec: JU87, hist: JU87_HISTORICAL, checks: ['ceiling'] },
+  /**
+   * 【五項全守，而且全進 ±1%】來源是機種資料頁，不是試飛報告（見 `specs/yak1b.ts` 檔頭）。
+   * 係數由 `envelope` 對這五項反解；3,000 m 的爬升率（模型 16.6、資料頁 15.0）是沒參與
+   * 校準的交叉驗證，不進斷言。
+   */
+  { spec: YAK1B, hist: YAK1B_HISTORICAL, checks: ALL },
 ]
 
 describe('L2 史實性能（極速／失速／升限／爬升率 ±5%，並另有比值斷言）', () => {

@@ -152,18 +152,21 @@ export type Pool = keyof typeof POOLS
  *
  * 【Ju 87 暫用雙聯 MG 15 的循環】兩挺翼內 MG 17 與 MG 15 是同一顆 7.92 mm 彈、
  * 射速差一成；專屬的循環還沒做。
+ *
+ * 【Yak-1B 暫用 Bf 109 K-4 的循環】同樣是機首的一門機砲加機槍；專屬的循環還沒做。
  */
 const FIRE_OF: Record<string, string> = {
   p51d: 'fire-m2x6', f4f4: 'fire-m2x6', f6f5: 'fire-m2x6',
   bf109k4: 'fire-bf109k4', a6m5: 'fire-a6m5', ki84: 'fire-ki84',
-  ju87: 'turret-mg15x2',
+  ju87: 'turret-mg15x2', yak1b: 'fire-bf109k4',
 }
 
 /**
  * 引擎聲借用別台的檔。**Ju 87 暫用 He 111 的**：同是 Jumo 211 系列（B-2 的
  * 211 D 對 H-6 的 211 F），但那一份是雙發錄的；專屬的還沒做。
+ * **Yak-1B 暫用 Bf 109 K-4 的**：同是液冷倒 V 12 缸、機首單發。
  */
-const ENGINE_OF: Readonly<Record<string, string>> = { ju87: 'he111' }
+const ENGINE_OF: Readonly<Record<string, string>> = { ju87: 'he111', yak1b: 'bf109k4' }
 
 export function engineFile(specId: string): string {
   return `engine-${ENGINE_OF[specId] ?? specId}`

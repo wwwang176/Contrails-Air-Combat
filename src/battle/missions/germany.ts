@@ -8,6 +8,7 @@ import {
 } from '../../world/asch'
 import { GROUND_FLAK_SPEC } from '../../world/shipGuns'
 import { JU87 } from '../../specs/ju87'
+import { YAK1B } from '../../specs/yak1b'
 import {
   ARTILLERY_ZONE, AT_GUNS, BATTLE_HAZE, COLUMN_GAP, COLUMN_SPEED, COLUMN_TURN_RADIUS, FRONT_T34, FRONT_T34_SCRIPTED,
   GERMAN_INFANTRY, GERMAN_MORTARS, KURSK_DUSTS, KURSK_SMOKES, PANZER_ROUTE_A, PANZER_ROUTE_B, SOVIET_FLAK, SOVIET_INFANTRY,
@@ -216,7 +217,7 @@ export const GERMANY: readonly MissionCard[] = [
     battle: {
       objectiveKey: 'mission.germany-m4.objective', bannerKey: 'mission.germany-m4.banner',
       blueSpec: JU87, redSpec: P51D, convoySpec: null,
-      // 【沒有敵機】壓力全在地面的防空。`redSpec` 只是型別要填
+      // 【開場沒有敵機】`redCount` 是 0，`redSpec` 只是型別要填；蘇軍戰鬥機走下面的 `waves`
       // 【2 + 2 + 2】三批各兩架，相鄰兩批前後差 2,300 m：開場速度約 95 m/s，晚約 24 秒到目標；
       // Ju 87 一輪約 72 秒，三批的俯衝大致錯開三分之一輪。**起始值，由試飛裁定**
       blueCount: 6, redCount: 0,
@@ -280,6 +281,19 @@ export const GERMANY: readonly MissionCard[] = [
         haze: BATTLE_HAZE,
         dusts: KURSK_DUSTS,
       },
+      /**
+       * 【蘇軍戰鬥機】開場後 90 秒一對 Yak-1B 從北邊進場（第一輪俯衝之後）。史實上護航的德軍戰鬥機
+       * 也在，這一關沒有排 —— 沒有護航時兩架就足以打掉六架 AI Ju 87（全 AI 量測：212～328 秒全滅），
+       * 數量與時間都是**起始值，由試飛裁定**。
+       */
+      waves: [
+        {
+          when: { kind: 'clock', at: 90 },
+          warnKey: 'mission.germany-m4.wave.fighters',
+          warnLead: 0,
+          side: 'theirs', spec: YAK1B, count: 2,
+        },
+      ],
     },
   },
 ]

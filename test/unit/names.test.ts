@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  ALLIED_NAMES, AXIS_NAMES, JAPAN_NAMES, mulberry32, pilotNames,
+  ALLIED_NAMES, AXIS_NAMES, JAPAN_NAMES, SOVIET_NAMES, mulberry32, pilotNames,
 } from '../../src/battle/names'
 import { ALL_SPECS } from '../../src/battle/skirmish'
 
@@ -50,15 +50,19 @@ describe('機種的陣營（決定名冊）', () => {
     expect(Object.keys(want)).toHaveLength(ALL_SPECS.length)
   })
 
-  it('三本名冊各 24 個，而且彼此不重疊', () => {
+  it('四本名冊各 24 個，而且彼此不重疊', () => {
     // 【為什麼要驗不重疊】同一場只用一本，但「Hans Richter 也在日本名冊裡」
     // 這種事會讓上面那條的來源檢查失去意義
-    for (const pool of [ALLIED_NAMES, AXIS_NAMES, JAPAN_NAMES]) {
+    for (const pool of [ALLIED_NAMES, AXIS_NAMES, JAPAN_NAMES, SOVIET_NAMES]) {
       expect(pool).toHaveLength(24)
       expect(new Set(pool).size).toBe(24)
     }
-    const all = [...ALLIED_NAMES, ...AXIS_NAMES, ...JAPAN_NAMES]
+    const all = [...ALLIED_NAMES, ...AXIS_NAMES, ...JAPAN_NAMES, ...SOVIET_NAMES]
     expect(new Set(all).size).toBe(all.length)
+  })
+
+  it('蘇聯陣營抽到的名字來自蘇聯名冊', () => {
+    for (const n of pilotNames(7, 'soviet', 4)) expect(SOVIET_NAMES).toContain(n)
   })
 })
 

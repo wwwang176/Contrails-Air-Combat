@@ -32,6 +32,7 @@ US_BLUE = (28, 46, 92)
 WHITE = (236, 236, 232)
 BLACK = (22, 22, 24)
 HINOMARU_RED = (176, 30, 34)
+SOVIET_RED = (203, 90, 89)
 
 
 def shade(c, d):
@@ -287,6 +288,28 @@ class Livery:
             layer.putalpha(a)
         self.im.paste(layer, (0, 0), layer)
 
+    def waves(self, views, color, seed, cell_m=1.0, stretch=2.5, coverage=0.45, clip=None, blur_m=0.02):
+        """大面積的波浪斑塊：低頻亂數場取門檻，邊緣是平滑的曲線。蘇軍戰鬥機上表面的暗色塊。
+        `cell_m` 是亂數場一格的寬（m），`stretch` 是沿 z（前後）拉長的倍數，`coverage` 是上色的面積比例；
+        `clip` 是只蓋這一塊的遮罩（畫布解析度）。只塗在 `views` 各自那一格裡"""
+        rnd = random.Random(seed)
+        for view in views:
+            x0, y0, x1, y1 = self.view_box(view)
+            w, h = int(x1 - x0), int(y1 - y0)
+            cw = self.m(cell_m)
+            cell_w, cell_h = (cw * stretch, cw) if view in SIDE else (cw, cw * stretch)
+            sw, sh = max(3, round(w / cell_w)), max(3, round(h / cell_h))
+            lattice = Image.new('L', (sw, sh))
+            lattice.putdata([rnd.randint(0, 255) for _ in range(sw * sh)])
+            field = lattice.resize((w, h), Image.BICUBIC)
+            levels = sorted(field.resize((256, 256), Image.BILINEAR).getdata())
+            thr = levels[int((1 - coverage) * len(levels))]
+            mask = field.point(lambda v: 255 if v >= thr else 0)
+            mask = mask.filter(ImageFilter.GaussianBlur(self.m(blur_m)))
+            if clip is not None:
+                mask = ImageChops.multiply(mask, clip.crop((int(x0), int(y0), int(x0) + w, int(y0) + h)))
+            self.im.paste(Image.new('RGB', (w, h), color), (int(x0), int(y0)), mask)
+
     # ── 標誌與文字：cx, cy 是機體座標，在 view 裡居中 ───────────────
     def us_star(self, view, a, b, r_m, bars=True):
         """美軍國籍標誌。bars=False 是 1942 年那種只有圓裡一顆星"""
@@ -341,6 +364,23 @@ class Livery:
             o = self.m(border)
             self.d.ellipse([cx - r - o, cy - r - o, cx + r + o, cy + r + o], fill=WHITE)
         self.d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=HINOMARU_RED)
+
+    def red_star(self, view, a, b, r_m, border=0.0):
+        """蘇軍紅星。r_m 是尖端到中心的距離；border 是白邊寬（m），0 = 沒有白邊"""
+        cx, cy = self.px(view, a, b)
+
+        def star(r, color):
+            pts = []
+            for k in range(10):
+                rr = r if k % 2 == 0 else r * 0.382
+                t = -math.pi / 2 + k * math.pi / 5
+                pts.append((cx + rr * math.cos(t), cy + rr * math.sin(t)))
+            self.d.polygon(pts, fill=color)
+
+        r = self.m(r_m)
+        if border > 0:
+            star(r + self.m(border), WHITE)
+        star(r, SOVIET_RED)
 
     def text(self, view, a, b, s, height_m, color, outline=None, outline_m=0.02):
         cx, cy = self.px(view, a, b)

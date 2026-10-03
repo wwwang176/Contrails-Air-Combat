@@ -176,6 +176,7 @@ export const en: Record<MessageKey, string> = {
   'mission.germany-m4.objective': 'Destroy the AT guns',
   'mission.germany-m4.banner': 'AT guns are holding the tanks',
   'mission.germany-m4.retarget': 'Destroy the counterattacking T-34s',
+  'mission.germany-m4.wave.fighters': 'Soviet fighters inbound',
 
   'mission.japan-m1.title': 'Over Guadalcanal',
   'mission.japan-m1.summary': 'Fly the Zeke, escort the Bettys, hold off the American fighters and let the Bettys torpedo the ships.',

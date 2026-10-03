@@ -70,6 +70,17 @@ export const JAPAN_NAMES: readonly string[] = [
 ]
 
 /**
+ * 蘇聯飛行員名冊。24 個，名在前、姓在後的羅馬字，全部是虛構的（不用真實王牌的名字）。
+ */
+export const SOVIET_NAMES: readonly string[] = [
+  'Ivan Orlov', 'Pavel Sokolov', 'Nikolai Volkov', 'Mikhail Zaitsev', 'Sergei Kuzmin',
+  'Alexei Morozov', 'Dmitri Lebedev', 'Viktor Pavlov', 'Andrei Fedorov', 'Boris Smirnov',
+  'Yuri Novikov', 'Grigori Kozlov', 'Vasily Petrenko', 'Konstantin Belov', 'Oleg Tarasov',
+  'Leonid Maksimov', 'Anatoly Gusev', 'Stepan Kovalev', 'Fyodor Zhukov', 'Arkady Medvedev',
+  'Roman Davydov', 'Timofei Sidorov', 'Yevgeny Karpov', 'Lev Antonov',
+]
+
+/**
  * 陣營 → 名冊。
  *
  * 【為什麼是 `Record` 而不是三元式】三元式少一個分支是**靜靜地拿到別人的
@@ -80,6 +91,7 @@ const NAMES: Record<Faction, readonly string[]> = {
   allies: ALLIED_NAMES,
   axis: AXIS_NAMES,
   japan: JAPAN_NAMES,
+  soviet: SOVIET_NAMES,
 }
 
 /**
