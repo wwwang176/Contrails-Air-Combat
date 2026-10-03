@@ -325,6 +325,10 @@ export interface MissionBattle {
    */
   readonly bomberPriority?: number
   /**
+   * 藍隊戰鬥機在場上還有敵機時不去掃射地面。**省略 = false。** 見 `MissionTuning.airFirst`。
+   */
+  readonly airFirst?: boolean
+  /**
    * 藍隊**分層擺位**：小隊前後拉開、左右錯開、高度分層，玩家在中間那一隊
    * （`order.ts` 的 `stackedEntry`）。**省略 = 橫隊。**
    *

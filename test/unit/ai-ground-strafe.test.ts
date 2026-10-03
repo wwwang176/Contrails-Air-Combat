@@ -403,4 +403,50 @@ describe('戰鬥機掃射地面目標', () => {
     ai.update(self, DT, out)
     expect(out.aimWorld.dot(toward(self, 300, -1500))).toBeLessThan(0.99)
   })
+
+  /**
+   * # airFirst：場上還有敵機就不掃射地面
+   *
+   * 沒被分到目標的僚機預設去掃地面；護航任務要整隊都留在空戰。
+   */
+  describe('airFirst', () => {
+    /** 長機在前、僚機在後方，敵機遠在南方；僚機沒有被分到空中目標 */
+    function wingWith(enemyAlive: boolean, airFirst: boolean): { ai: AiController; wing: Aircraft; stand: ReturnType<typeof parked> } {
+      const lead = craft(BF109K4, 0, 500, 0)
+      const wing = craft(BF109K4, -200, 500, 100)
+      const enemy = craft(P51D, 0, 500, 9000)
+      const stand = parked('red')
+      const ai = new AiController()
+      ai.board = createTargetBoard([
+        { index: 0, aircraft: lead, team: 'blue', alive: true },
+        { index: 1, aircraft: wing, team: 'blue', alive: true },
+        { index: 2, aircraft: enemy, team: 'red', alive: enemyAlive },
+      ])
+      ai.selfIndex = 1
+      ai.stationReference = lead
+      ai.stationReferenceIndex = 0
+      ai.stationOffset = STATION_OFFSETS[1]!
+      ai.groundTargets = [stand]
+      ai.airFirst = airFirst
+      return { ai, wing, stand }
+    }
+
+    it('對照：不開 airFirst，沒有分到目標的僚機掃射地面', () => {
+      const { ai, wing, stand } = wingWith(true, false)
+      ai.update(wing, DT, createCommand())
+      expect(ai.groundTarget).toBe(stand)
+    })
+
+    it('開了 airFirst、場上有活著的敵機：僚機不掃射', () => {
+      const { ai, wing } = wingWith(true, true)
+      ai.update(wing, DT, createCommand())
+      expect(ai.groundTarget).toBeNull()
+    })
+
+    it('敵機打光之後 airFirst 不再擋：照樣掃射', () => {
+      const { ai, wing, stand } = wingWith(false, true)
+      ai.update(wing, DT, createCommand())
+      expect(ai.groundTarget).toBe(stand)
+    })
+  })
 })

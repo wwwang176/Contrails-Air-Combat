@@ -233,6 +233,12 @@ export interface MissionTuning {
    * 只套開場的座位；增援的座位維持 1。
    */
   readonly bomberPriority?: number
+  /**
+   * 藍隊戰鬥機在場上還有敵機時不去掃射地面。**省略 = false。** 給有我方護航機的關卡：
+   * 沒被分到目標的僚機預設去掃地面，整隊只剩長機在空戰。見 `AiController.airFirst`。
+   * 只套藍隊；俯衝轟炸機不受影響。
+   */
+  readonly airFirst?: boolean
 }
 
 /** 中性值：每一項都等於「沒有這一關」。遭遇戰與殲滅任務用它 */

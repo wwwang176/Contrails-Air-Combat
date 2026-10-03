@@ -293,6 +293,15 @@ export class AiController implements Controller {
   priorityGroundUnit: GroundUnitId | null = null
 
   /**
+   * 場上還有活著的敵機時，戰鬥機不去掃射地面（俯衝轟炸機照常）。false = 沒有空中目標就掃射。
+   *
+   * 【為什麼要它】沒被分到目標的僚機預設去掃射地面（`strafeGround`），長機在空戰時整隊只剩
+   * 長機在打。護航要整隊都留在空戰：沒有目標的僚機改飛站位，跟著長機走。
+   * 任務卡由 `MissionTuning.airFirst` 接進來。
+   */
+  airFirst = false
+
+  /**
    * 轟炸機目前鎖定的打擊目標。船或建築，價值優先（`attackShip`）。
    * 戰鬥機的掃射不讀它，讀的是 `shipAim`。
    */
@@ -399,6 +408,12 @@ export class AiController implements Controller {
     }
     // 【俯衝轟炸機走自己的行為】任務指定了優先地面單位、以及沒有空中目標時排在站位之前，都從這裡進
     if (dives) return this.diveBombGround(self, decide, out, onlyUnit)
+    // 【空戰優先】場上還有敵機就不掃射；清掉掃射狀態，敵機打光之後從進場重新開始
+    if (this.airFirst && this.enemyAircraftAlive(me.team)) {
+      this.groundAim = -1
+      resetGroundStrafe(this.groundStrafe)
+      return false
+    }
     // 【離場途中也挑】挑到的是下一趟要打的那一台；離場拉開到它的回頭門檻才轉回來
     // （`groundStrafeCommand` 換目標時不打斷離場）。
     //
@@ -423,6 +438,17 @@ export class AiController implements Controller {
     this.groundAttackActive = true
     this.groundStrafeActive = true
     return true
+  }
+
+  /** 指派板上有沒有活著的敵機。不配置、只掃一遍候選 */
+  private enemyAircraftAlive(team: string): boolean {
+    const candidates = this.board?.candidates
+    if (candidates === undefined) return false
+    for (let i = 0; i < candidates.length; i++) {
+      const c = candidates[i]!
+      if (c.alive && c.team !== team) return true
+    }
+    return false
   }
 
   /**

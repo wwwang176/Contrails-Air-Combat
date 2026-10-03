@@ -313,6 +313,7 @@ function wireTerrain(force = false): void {
     ctl.priorityGroundUnit = c.team === 'blue'
       ? battle.cfg.tuning.priorityGroundUnit ?? null
       : null
+    ctl.airFirst = c.team === 'blue' && battle.cfg.tuning.airFirst === true
     // 【投彈那兩格跟著一起接】理由與船完全相同，而且它們也是每一場、每一次
     // 重生都要重接：`bombBay` 隨機種變（換裝、接手僚機），`bombDrag` 必須
     // 與 `World` 是同一個值，否則 AI 算的落點與飛出去的那一顆分家。
@@ -1823,6 +1824,7 @@ function startWorld(cfg: BattleConfig): void {
   // 【任務目標也要給代飛】玩家座位的手動控制器不經過 createBattle 的 AI 接線。
   // 省略時寫回 null，避免跨關沿用上一張卡的地面優先目標。
   playerAi.priorityGroundUnit = cfg.tuning.priorityGroundUnit ?? null
+  playerAi.airFirst = cfg.tuning.airFirst === true
   // 【戰術狀態也要清】`playerAi` 是跨關卡重用的同一顆。少了這一行，上一場
   // 【重現一場戰鬥的鑰匙】種子是 `Math.random()` 抽的，不印出來就永遠
   // 找不回這一場。（設定, 種子, 秒數, 座位）四樣湊齊，無頭環境就能把

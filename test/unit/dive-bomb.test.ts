@@ -699,6 +699,22 @@ describe('接線', () => {
     expect(out.upright).toBe(false)
   })
 
+  it('airFirst 開著、場上有敵機：Ju 87 照樣俯衝（airFirst 只管戰鬥機）', () => {
+    const self = stuka()
+    const target = TARGET_AT(0, 0)
+    const ai = wire(self, 0, [{ index: 0, aircraft: self }], [target], 'ju87')
+    ai.board = createTargetBoard([
+      { index: 0, aircraft: self, team: 'blue', alive: true },
+      { index: 1, aircraft: fly(0, 1700, 9000, 0, 150, 180), team: 'red', alive: true },
+    ])
+    ai.airFirst = true
+    // 優先單位的入口直接呼叫 `strafeGround`：擋戰鬥機的那一關要排在俯衝轟炸機的分支之後
+    ai.priorityGroundUnit = 'atGun'
+    ai.update(self, DT, createCommand())
+    expect(ai.diveBombPhase).toBe('flip')
+    expect(ai.groundTarget).toBe(target)
+  })
+
   it('任務指定了優先地面單位：Ju 87 照樣俯衝（另一個入口）', () => {
     const self = stuka()
     const target = TARGET_AT(0, 0)

@@ -256,6 +256,7 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
         ? {}
         : { priorityGroundUnit: b.priorityGroundUnit }),
       ...(b.bomberPriority === undefined ? {} : { bomberPriority: b.bomberPriority }),
+      ...(b.airFirst === undefined ? {} : { airFirst: b.airFirst }),
     },
     ...(beats === undefined ? {} : { beats }),
     // 【轟炸機流的終點】不判勝負，只給 transit 的那幾架一個飛去的點

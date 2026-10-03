@@ -282,16 +282,37 @@ export const GERMANY: readonly MissionCard[] = [
         dusts: KURSK_DUSTS,
       },
       /**
-       * 【蘇軍戰鬥機】開場後 90 秒一對 Yak-1B 從北邊進場（第一輪俯衝之後）。史實上護航的德軍戰鬥機
-       * 也在，這一關沒有排 —— 沒有護航時兩架就足以打掉六架 AI Ju 87（全 AI 量測：212～328 秒全滅），
-       * 數量與時間都是**起始值，由試飛裁定**。
+       * 【蘇軍戰鬥機六架】開場後 90 秒（預警 5 秒）兩批各三架 Yak-1B 從北邊進場。
+       *
+       * 【Yak 先打 Ju 87】`bomberPriority` 讓 Ju 87 在 Yak 的目標評分裡值 20 倍，不去纏護航機。
+       *
+       * 【我方護航四架】同一刻 4 架 Bf 109 K-4 生在地圖中央（`along: 0`），在 Yak 與 Ju 87 之間，
+       * 迎頭撞上 Yak；K-4 只是代用的機型。`airFirst`：場上還有敵機時護航機不去掃射地面，
+       * 否則沒被分到目標的僚機會去掃地面，整隊只剩長機在打 Yak。
+       *
+       * 全 AI 量測：Ju 87 六架在 240 秒還剩一架、270 秒全滅（沒有護航時 177 秒）；護航機四架到 450 秒
+       * 都還活著、Yak 掉一架。架數與時間都是**起始值，由試飛裁定**。
        */
+      bomberPriority: 20,
+      airFirst: true,
       waves: [
         {
-          when: { kind: 'clock', at: 90 },
+          when: { kind: 'clock', at: 85 },
           warnKey: 'mission.germany-m4.wave.fighters',
+          warnLead: 5,
+          side: 'theirs', spec: YAK1B, count: 3,
+        },
+        {
+          when: { kind: 'clock', at: 85 },
+          warnKey: 'mission.germany-m4.wave.fighters',
+          warnLead: 5,
+          side: 'theirs', spec: YAK1B, count: 3,
+        },
+        {
+          when: { kind: 'clock', at: 90 },
+          warnKey: 'mission.germany-m4.wave.escort',
           warnLead: 0,
-          side: 'theirs', spec: YAK1B, count: 2,
+          side: 'mine', spec: BF109K4, count: 4, along: 0,
         },
       ],
     },
