@@ -202,6 +202,24 @@ describe('音效的戰鬥事件接線', () => {
     expect(fn.indexOf('best.dist = Infinity')).toBeGreaterThan(fn.indexOf('if (d >= best.dist) continue'))
   })
 
+  /**
+   * 【單座砲塔的機種每發一個單發，不播循環】Ju 87 只有一座背部機槍，循環停火後還拖約半秒的尾巴。
+   * 槍焰由 0 變正在**物理子步**裡看（一幀可能跑好幾步、一發只亮 0.03 s）；播放在幀裡。
+   * 兩條路只能走一條：這一架在循環的候選裡要被排除，否則停火後循環照響、等於沒修。
+   */
+  it('單座砲塔的機種：子步裡記每一發、幀裡播單發，而且不進砲塔循環的候選', () => {
+    const q = body('function queueAudioCues(')
+    expect(q).toContain('turretShotPool(c.aircraft.spec.id)')
+    expect(q).toContain('pushCue(cues, CUE.TurretShot')
+    expect(q).toContain('!(now > 0 && was <= 0)')
+    const play = body('function playCues(')
+    expect(play).toContain('case CUE.TurretShot:')
+    expect(play).toContain("audio.playPool(pool, 'turret', x, y, z, true, TURRET_SHOT_DB)")
+    const upd = body('function updateAudio(')
+    expect(upd).toContain('turretShotPool(c.aircraft.spec.id) === null')
+    expect(body('function resetAudioState(')).toContain('prevTurretFlash.fill(0)')
+  })
+
   it('記錄擊落、空爆、自己被打', () => {
     const fn = body('function queueAudioCues(')
     for (const cue of ['CUE.Explosion', 'CUE.FlakBurst', 'CUE.HitSelf']) expect(fn).toContain(`pushCue(cues, ${cue}`)

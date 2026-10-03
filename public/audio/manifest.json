@@ -2045,6 +2045,30 @@
    -1.2
   ]
  },
+ "turretshot-mg15x1-1": {
+  "loop": false,
+  "makeupDb": 2.7,
+  "envelopeDb": [
+   0.0,
+   -45.5
+  ]
+ },
+ "turretshot-mg15x1-2": {
+  "loop": false,
+  "makeupDb": 2.7,
+  "envelopeDb": [
+   0.0,
+   -44.1
+  ]
+ },
+ "turretshot-mg15x1-3": {
+  "loop": false,
+  "makeupDb": 2.7,
+  "envelopeDb": [
+   0.0,
+   -46.9
+  ]
+ },
  "ui-1": {
   "loop": false,
   "makeupDb": 9.0,

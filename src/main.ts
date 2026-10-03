@@ -9,8 +9,10 @@ import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality }
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
 import {
-  SINGLE_FILES, engineFile, fireFile, groundGunTier, gunSound, impactSound, turretFile, volleyPool, type Pool,
+  CATEGORY, SINGLE_FILES, engineFile, fireFile, groundGunTier, gunSound, impactSound, turretFile, turretShotPool,
+  volleyPool, type Pool,
 } from './audio/catalog'
+import { MAX_TURRETS } from './weapons/turret'
 import {
   STRIKE_HEIGHT, applyFlash, createStorm, rollThunder, stepStorm, type Storm,
 } from './render/storm'
@@ -2113,6 +2115,19 @@ const turretPick = new Int16Array(64)
 const volleyGroups: { mount: number; pool: Pool }[] = []
 /** 分組代表掛架上一個子步的槍焰 —— 由 0 變正就是剛擊發 */
 const prevVolleyFlash = new Float32Array(8)
+/**
+ * 單座砲塔機種（`turretShotPool`）每座砲塔上一個子步的槍焰，索引是 座位 × `MAX_TURRETS` + 砲塔序號 ——
+ * 由 0 變正就是剛擊發。最多 64 個座位。
+ */
+const prevTurretFlash = new Float32Array(64 * MAX_TURRETS)
+/** 單發的距離上限，m。超過的不記，遠處一群砲手不該把事件佇列灌滿 */
+const TURRET_SHOT_RANGE = CATEGORY.turret.max
+/**
+ * 單發比循環小的分貝。**起始值，由試玩裁定。**
+ * 【同一個數字下單發比循環大】350 ms 的尾音配上 17.5 發/秒，全速連射時同時有六層在響
+ * （與 `fireSelf` 同一個道理，那邊記的是 5.7 dB）
+ */
+const TURRET_SHOT_DB = -6
 /** 多普勒要聽者的速度。鏡頭沒有速度這個量，只能逐幀相減 */
 const prevCamPos = new Vector3()
 const camVel = new Vector3()
@@ -2165,6 +2180,7 @@ function resetAudioState(): void {
   prevBombAge.fill(0)
   lastGunFire.fill(-Infinity)
   lastTurretFire.fill(-Infinity)
+  prevTurretFlash.fill(0)
   turretPick.fill(-1)
   prevPlayerHp = -1
   prevReloading = false
@@ -2249,6 +2265,21 @@ function queueAudioCues(): void {
     const was = prevVolleyFlash[i]!
     prevVolleyFlash[i] = now
     if (now > 0 && was <= 0 && player.alive && !input.godView) pushCue(cues, CUE.SelfVolley, i, 0, 0)
+  }
+  // 單座砲塔的機種：每擊發一次記一筆，停火就沒有聲音。不在耳朵範圍內的不記
+  const eyePos = ctx.camera.position
+  for (let n = 0; n < world.combatants.length; n++) {
+    const c = world.combatants[n]!
+    if (turretShotPool(c.aircraft.spec.id) === null) continue
+    for (let t = 0; t < c.turretStates.length; t++) {
+      const slot = c.index * MAX_TURRETS + t
+      const now = c.turretStates[t]!.flash
+      const was = prevTurretFlash[slot]!
+      prevTurretFlash[slot] = now
+      if (!(now > 0 && was <= 0) || !c.alive) continue
+      const p = c.aircraft.state.position
+      if (p.distanceTo(eyePos) < TURRET_SHOT_RANGE) pushCue(cues, CUE.TurretShot, p.x, p.y, p.z, c.index)
+    }
   }
   const k = world.killEvents
   for (let e = 0; e < k.count; e++) {
@@ -2373,6 +2404,12 @@ function playCues(): void {
       case CUE.Damage: playHeavyHit(x); break
       // 【自己開火的 x 帶的是分組序號】不是座標
       case CUE.SelfVolley: audio.playPool(volleyGroups[x]!.pool, 'fireSelf', 0, 0, 0, false); break
+      // 【第五格帶的是座位索引】查那一架的單發庫，聲音在那一架身上、定位
+      case CUE.TurretShot: {
+        const pool = turretShotPool(world.combatants[scale]?.aircraft.spec.id ?? '')
+        if (pool !== null) audio.playPool(pool, 'turret', x, y, z, true, TURRET_SHOT_DB)
+        break
+      }
     }
   }
 }
@@ -2563,7 +2600,9 @@ function updateAudio(worldSeconds: number): void {
   // 砲塔（自己的轟炸機也算 —— 砲塔由 AI 操作）
   for (let i = 0; i < n; i++) {
     const c = all[i]!
-    AUDIO_VALID[i] = c.alive && turretPick[i]! >= 0 && elapsed - lastTurretFire[i]! < FIRE_HOLD ? 1 : 0
+    // 【單座砲塔的機種不進循環】它們走單發（`CUE.TurretShot`），循環停火後的尾巴就是要避開的東西
+    AUDIO_VALID[i] = c.alive && turretPick[i]! >= 0 && elapsed - lastTurretFire[i]! < FIRE_HOLD
+      && turretShotPool(c.aircraft.spec.id) === null ? 1 : 0
   }
   m = nearestN(AUDIO_POS, AUDIO_VALID, n, cam.x, cam.y, cam.z, TURRET_KEYS)
   for (let j = 0; j < m; j++) {

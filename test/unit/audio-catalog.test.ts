@@ -122,7 +122,7 @@ describe('撞擊材質', () => {
 })
 
 import { existsSync, readFileSync } from 'node:fs'
-import { ALL_FILES, POOLS, engineFile, fireFile, turretFile, volleyPool } from '../../src/audio/catalog'
+import { ALL_FILES, POOLS, engineFile, fireFile, turretFile, turretShotPool, volleyPool } from '../../src/audio/catalog'
 import { ALL_SPECS } from '../../src/battle/skirmish'
 import { JU87 } from '../../src/specs/ju87'
 
@@ -175,6 +175,27 @@ describe('音效目錄', () => {
     for (const f of POOLS['volley-mg17x2']) expect((manifest[f] as { loop: boolean }).loop, f).toBe(false)
     const rear = JU87.turrets.map((t) => turretFile(t.weapon.id, t.guns))
     expect(rear).toEqual(['turret-mg15x1'])
+  })
+
+  /**
+   * 只有一座砲塔的機種（Ju 87）：循環的尾巴（停火後還響約半秒）沒有別座砲塔蓋住，一聽就知道。
+   * 改成每發一個單發，停火就停。多座砲塔的轟炸機照舊用循環。
+   */
+  it('只有一座砲塔的機種用單發：turretShotPool 與砲塔的武器、管數對得上', () => {
+    expect(turretShotPool('ju87')).toBe('turretshot-mg15x1')
+    expect(POOLS['turretshot-mg15x1']).toHaveLength(3)
+    for (const f of POOLS['turretshot-mg15x1']) {
+      expect(manifest[f], f).toBeDefined()
+      expect((manifest[f] as { loop: boolean }).loop, f).toBe(false)
+    }
+    for (const s of ALL_SPECS) {
+      const pool = turretShotPool(s.id)
+      if (pool === null) continue
+      expect(s.turrets.length, s.id).toBe(1)
+      const t = s.turrets[0]!
+      expect(pool, s.id).toBe(`turretshot-${t.weapon.id}x${t.guns}`)
+    }
+    for (const id of ['he111', 'b17g', 'g4m', 'p51d', 'bf109k4', 'yak1b']) expect(turretShotPool(id), id).toBeNull()
   })
 
   it('借用別台引擎聲的只剩 Yak-1B（借 Bf 109 K-4）', () => {

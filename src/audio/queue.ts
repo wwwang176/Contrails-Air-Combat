@@ -27,6 +27,13 @@ export const CUE = {
   Blast: 8,
   /** 子彈打在飛機以外的東西上。**第五格帶的是材質**（`world/material.ts`） */
   MaterialHit: 7,
+  /**
+   * 單座砲塔的機種擊發一次（`turretShotPool`）。**座標是那一架的位置，第五格帶的是座位索引**，
+   * 播的時候查那一架的單發庫。
+   *
+   * 【為什麼記在子步】與 `SelfVolley` 同一個理由：槍焰只亮 0.03 s，一幀可能跑好幾步。
+   */
+  TurretShot: 9,
 } as const
 export type Cue = typeof CUE[keyof typeof CUE]
 

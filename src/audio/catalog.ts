@@ -141,6 +141,8 @@ export const POOLS = {
   'volley-mk108x1': range('volley-mk108x1', 3),
   'volley-mg131x2': range('volley-mg131x2', 3),
   'volley-mg17x2': range('volley-mg17x2', 3),
+  // 單座砲塔的機種（Ju 87 的背部 MG 15）：每發一個單發、單聲道、定位
+  'turretshot-mg15x1': range('turretshot-mg15x1', 3),
   'volley-type97x2': range('volley-type97x2', 3),
   'volley-type99-2x2': range('volley-type99-2x2', 3),
   'volley-ho103x2': range('volley-ho103x2', 3),
@@ -179,6 +181,19 @@ export function fireFile(specId: string): string | null {
 /** 砲塔：武器 id（與 src/weapons/ 相同）與管數 → 檔。雙聯以上一律用雙聯 */
 export function turretFile(weaponId: string, guns: number): string {
   return `turret-${weaponId}x${guns >= 2 ? 2 : 1}`
+}
+
+/**
+ * 砲塔改成「每發一個單發」的機種 → 單發庫。**只有一座砲塔的機種**才用：
+ * 循環停火後還拖約半秒的尾巴，別座砲塔一起響時聽不出來，只剩一座就一聽就知道。
+ * 單發停火就停。多座砲塔的轟炸機仍走 `turretFile` 的循環。
+ *
+ * 【用 Map】機種 id 是任意字串，物件查表會撈到 `constructor` 之類原型上的成員。
+ */
+const TURRET_SHOT_OF: ReadonlyMap<string, Pool> = new Map([['ju87', 'turretshot-mg15x1']])
+
+export function turretShotPool(specId: string): Pool | null {
+  return TURRET_SHOT_OF.get(specId) ?? null
 }
 
 /**

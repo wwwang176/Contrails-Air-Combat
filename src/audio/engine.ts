@@ -117,6 +117,8 @@ const LAYER_MIN_FREE = 16
 const VOICE_QUOTA: Partial<Record<Category, number>> = {
   cannon: 22, impact: 12, flyby: 8, whistle: 6, hitDealt: 6, splash: 8, flakBurst: 14,
   explosion: 8, blast: 8,
+  // 單座砲塔的單發（Ju 87 的背部機槍）：六架 Ju 87 的砲手同時開火也不該吃光池子。砲塔的循環另有聲道
+  turret: 12,
 }
 const LOOP_VOICES: Record<LoopPool, number> = { engine: 8, fire: 6, turret: 6 }
 const LOOP_CATEGORY: Record<LoopPool, Category> = { engine: 'engine', fire: 'fire', turret: 'turret' }
