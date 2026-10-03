@@ -229,11 +229,12 @@ export const GERMANY: readonly MissionCard[] = [
       // 【2 + 2 + 2】三批各兩架，相鄰兩批往北前後差 2,300 m：開場速度約 81 m/s；Ju 87 一輪約 72 秒，
       // 三批的俯衝大致錯開三分之一輪。**起始值，由試飛裁定**
       //
-      // 【護航六架】與 Ju 87 同一刻生成：3 + 3 兩個小隊，在轟炸機上方 600 m、落在中間那一批的站位後方
-      // （落後 2,800 m）、左右各 ±400 m。Bf 109 K-4 只是代用的機型。開場空速是 `tas` 的 0.5（約 100 m/s，
-      // 與 Ju 87 的 81 m/s 同一個量級）：照戰鬥機的 187 m/s 會一開場就超過轟炸機、掉頭回來，機首背對村莊
+      // 【護航六架】與 Ju 87 同一刻生成：3 + 3 兩個小隊，在轟炸機上方 600 m、落在領頭 Ju 87 後方 500～800 m
+      // （`depth` 590 加上每架 0～60 m 的隊形縱深）、左右各 ±400 m，Yak 來時就在玩家身邊。Bf 109 K-4 只是
+      // 代用的機型。開場空速是 `tas` 的 0.5（約 100 m/s，與 Ju 87 的 81 m/s 同一個量級）：照戰鬥機的
+      // 187 m/s 會一開場就超過轟炸機、掉頭回來，機首背對村莊
       blueCount: 6, redCount: 0,
-      blueWaves: { size: 2, depth: 2300, escort: { spec: BF109K4, count: 6, depth: 2800, speed: 0.5 } },
+      blueWaves: { size: 2, depth: 2300, escort: { spec: BF109K4, count: 6, depth: 590, speed: 0.5 } },
       convoyCount: 0, convoyPriority: 1,
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       entry: 'strikeFromNorth',

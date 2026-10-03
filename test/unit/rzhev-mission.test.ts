@@ -328,6 +328,23 @@ describe('德 M4 的 Yak-1B 與 Bf 109 護航', () => {
     }
   })
 
+  it('護航機在領頭 Ju 87 後方 500～800 m、橫向在 700 m 內、比轟炸機高 600 m 上下', () => {
+    const b = createBattle(new AiController(), missionConfigFrom(card), 1)
+    const lead = b.player.aircraft.state.position
+    const l0 = toLocal(lead.x, lead.z)
+    const k4 = b.world.combatants.filter((c) => c.aircraft.spec.id === 'bf109k4')
+    expect(k4).toHaveLength(6)
+    for (const c of k4) {
+      const p = c.aircraft.state.position
+      const l = toLocal(p.x, p.z)
+      expect(l0.lz - l.lz, 'K-4 落後領頭').toBeGreaterThanOrEqual(495)
+      expect(l0.lz - l.lz, 'K-4 落後領頭').toBeLessThanOrEqual(805)
+      expect(Math.abs(l.lx - l0.lx), 'K-4 橫向').toBeLessThanOrEqual(700)
+      expect(p.y - lead.y, 'K-4 高出領頭').toBeGreaterThanOrEqual(595)
+      expect(p.y - lead.y, 'K-4 高出領頭').toBeLessThanOrEqual(655)
+    }
+  })
+
   it('玩家在 Ju 87 裡，不是護航機', () => {
     const b = createBattle(new AiController(), missionConfigFrom(card), 1)
     expect(b.world.combatants[b.playerSeat]!.aircraft.spec.id).toBe('ju87')
