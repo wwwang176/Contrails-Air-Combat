@@ -25,8 +25,8 @@ describe('冬季草原', () => {
       c.getHSL(hsl)
       if (prev === Infinity) first = hsl.l
       last = hsl.l
-      // 亮度是 three 的線性工作空間值，sRGB 的中灰藍（0x8794a6）約 0.31
-      expect(hsl.l, hex.toString(16)).toBeGreaterThan(0.3)
+      // 亮度是 three 的線性工作空間值，sRGB 的淡灰藍（0xa0acba）約 0.42
+      expect(hsl.l, hex.toString(16)).toBeGreaterThan(0.35)
       expect(hsl.s, hex.toString(16)).toBeLessThan(0.3)
       expect(hsl.l).toBeLessThanOrEqual(prev + 1e-9)
       prev = hsl.l

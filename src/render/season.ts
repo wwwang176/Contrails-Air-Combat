@@ -131,23 +131,23 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
    * 樹林那一套，所以 `woodGate` 在這裡不起作用；樹只長在村裡與田界的防風林帶（`flora.ts` 的
    * `steppeBeltFloraFor`）。德 M4 勒熱夫用
    *
-   * 【色盤是雪的明暗，不是作物】八階從帶一點藍的白漸層到中灰藍（薄雪下的殘茬）；相鄰兩階差一截，
-   * 田塊的圖案靠這個明暗讀出來，從高空看每一塊田分得開。**亮度（線性值）> 0.3、飽和度 < 0.3、
-   * 越往後越暗** 由 `season.test.ts` 守著。
+   * 【色盤是雪的明暗，不是作物】八階從帶一點藍的白漸層到淡灰藍（薄雪下的殘茬）；相鄰兩階差一截，
+   * 田塊的圖案靠這個明暗讀出來，從高空看每一塊田分得開，但不能深到變成藍色的田。**亮度（線性值）
+   * > 0.35、飽和度 < 0.3、越往後越暗、頭尾差 > 0.4** 由 `season.test.ts` 守著。
    */
   winterSteppe: {
-    palette: [0xeef2f6, 0xe0e6ec, 0xd0d8e0, 0xc2ccd6, 0xb3beca, 0xa4b0be, 0x95a2b2, 0x8794a6],
-    // 犁過的田：雪被風吹走，露出深色的土
-    ploughed: 0x8e8a82,
+    palette: [0xf0f4f7, 0xe4e9ee, 0xd8dfe6, 0xcdd5dd, 0xc1cbd5, 0xb6c1cd, 0xabb7c4, 0xa0acba],
+    // 犁過的田：雪被風吹走，露出的土蓋著一層薄雪，灰白微暖
+    ploughed: 0xbab9b6,
     // 田埂：露出雪面的枯草，深灰褐
     hedge: 0x827a6c,
     // 凹路：被踩實的雪與泥，灰
     track: 0x8a8d90,
-    wood: 0x6f7f79,
+    wood: 0x8a9893,
     ploughChance: 0.15,
     // 牧草地與荒地的雪，比田更平更白
     open: 0xe2e7eb,
-    openAlt: 0xcdd4db,
+    openAlt: 0xd6dce2,
     woodGate: [0.7, 0.8],
     hedgeChance: 0,
     layout: 'steppe',
