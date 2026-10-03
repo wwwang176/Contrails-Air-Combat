@@ -1,8 +1,3 @@
-import { createHeightField, type HeightFieldData } from './heightfield'
-import { bakeRelief, makeLobes, WOBBLE_MAX, type IslandDesc } from './archipelago'
-import { FARM_CELL, FARM_SIZE, HILL_PEAK_MAX } from './farmland'
-import { drawHillLobes } from './leuna'
-
 /**
  * # 勒熱夫：德 M4 專用的地形與佈局
  *
@@ -318,8 +313,9 @@ export const COLUMN_GAP = 40
  */
 
 /**
- * 手擺的丘陵。村東北的高地（德軍預備隊的東路從它的西側繞下來）；村西南一座緩丘；遠處兩座
- * 讓地平線有起伏。`outerRadius` 由生成器算 `radius × WOBBLE_MAX`。
+ * 手擺的丘陵（錨點）。村東北的高地（德軍預備隊的東路從它的西側繞下來）；村西南一座緩丘；遠處兩座
+ * 讓地平線有起伏。其餘的丘陵由 `world/rzhevHills.ts` 繞著這幾座與戰場、村、沖溝填滿。
+ * `outerRadius` 由生成器算 `radius × WOBBLE_MAX`。
  */
 export const RZHEV_HILLS = [
   { ...at(1100, -2000), radius: 800, peak: 60, pa: 0.9, pb: 3.6, seed: 401 },
@@ -547,22 +543,6 @@ export const RZHEV_SMOKES: readonly { x: number; z: number }[] = [
   at(900, 280),
   at(-1150, 240),
 ]
-
-export function createRzhev(): { field: HeightFieldData; hills: IslandDesc[] } {
-  const field = createHeightField(FARM_SIZE, FARM_CELL)
-  const hills: IslandDesc[] = []
-  for (const h of RZHEV_HILLS) {
-    const outerRadius = h.radius * WOBBLE_MAX
-    const peak = Math.min(HILL_PEAK_MAX, h.peak)
-    hills.push({
-      cx: h.x, cz: h.z, radius: h.radius, outerRadius, peak,
-      lobes: makeLobes(h.x, h.z, h.radius, outerRadius, peak, h.pa, h.pb, drawHillLobes(h.seed)),
-    })
-  }
-  // 基準面是 0：內陸沒有海
-  bakeRelief(field, hills, 0)
-  return { field, hills }
-}
 
 /** 戰場所在的村（`render/farmSettlements.ts` 的名字） */
 export const VILLAGE_NAME = 'v-2,0'

@@ -7,7 +7,7 @@ import { SCENERY_CHUNK, SCENERY_MIN_TRIS, splitByGrid } from './sceneryChunks'
 import { CULL } from './cullRuns'
 import { createFieldClipmap, type ClipLevelSpec, type FieldClipmap } from './fieldClipmap'
 import { floraSplats } from './buildingBake'
-import { farmSettlements } from './farmSettlements'
+import { farmLaneVillages, farmSettlements } from './farmSettlements'
 import { buildBlasts, buildGardens, buildStreets } from './steppeVillage'
 import type { DayPalette } from './timeOfDay'
 import { createIslands } from './island'
@@ -43,10 +43,11 @@ import {
   ROAD_WIDTH as ASCH_ROAD_WIDTH, ROADS as ASCH_ROADS,
 } from '../world/asch'
 import {
-  BELT_FRAME, battleKeepOut, burnRateOf, CRATER_PATCHES, createRzhev, isLargeVillage, MINEFIELDS, OBSTACLES, SCAR_ZONE,
+  BELT_FRAME, battleKeepOut, burnRateOf, CRATER_PATCHES, isLargeVillage, MINEFIELDS, OBSTACLES, SCAR_ZONE,
   SCORCH, shelterbeltFade,
   TRACKS, TRENCHES,
 } from '../world/rzhev'
+import { createRzhev, type HillAvoid } from '../world/rzhevHills'
 import { buildObstacles } from './geometry/ground/obstacles'
 import { preloadScarAtlas } from './battleScars'
 import type { HeightFieldData } from '../world/heightfield'
@@ -582,11 +583,21 @@ export const RZHEV_SITE: SiteLayout = {
 }
 
 /**
+ * 丘陵要躲開的村與小聚落：村的街沿凹路拉長一兩公里，圓心取站址、半徑 700 m；小聚落 300 m。
+ * 地形與測試用同一份
+ */
+export function rzhevHillAvoid(): HillAvoid[] {
+  return farmLaneVillages(14000).map((v) => ({
+    x: v.place.x, z: v.place.z, r: v.place.kind === 'village' ? 700 : 300,
+  }))
+}
+
+/**
  * 勒熱夫：農地的算繪路徑、手擺的緩丘、十一月的雪原、戰場的痕跡，加上立體的障礙物（反坦克樁、
  * 捷克刺蝟、鐵絲網）當佈景。高度場只建一次，障礙物貼著同一份地面
  */
 function createRzhevTerrain(gfx?: TerrainGfx): Terrain {
-  const rzhev = createRzhev()
+  const rzhev = createRzhev(rzhevHillAvoid())
   const solid = outsideZero(rzhev.field)
   return createInlandTerrain(
     rzhev, 'winterSteppe', RZHEV_SITE, () => buildObstacles(OBSTACLES, (x, z) => solid.sample(x, z)), gfx,

@@ -282,8 +282,9 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
    * 【雪的反光】`hemiGround` 調到很亮 —— 地面是雪，朝下的光不是暗的，而是接近天空的亮度。不補的話
    * 白色的地只有直射光照亮，背光面是一片髒灰。
    *
-   * 【照度靠半球光】太陽只有 10° 高，直射光貢獻不到一成；朝上的面總照度要約 2（正午約 2.7）雪才讀得出是
-   * 白的，低了就是一片灰、高了整片過曝、田塊與地物的對比被吃掉。這份照度由 `hemiIntensity` 補，等於陰天的漫射光。
+   * 【照度與起伏】朝上的面總照度要約 2（正午約 2.7）雪才讀得出是白的，低了就是一片灰、高了整片過曝、田塊
+   * 與地物的對比被吃掉。太陽只有 10° 高，朝上的面只吃到 `sunIntensity × 0.17`；但丘陵的向陽坡與背陽坡
+   * 吃到的差就靠這一項，所以它要夠大（4.5），地面的起伏才看得出來；其餘照度由 `hemiIntensity` 補。
    *
    * 【霧比盛夏清晨濃】冷空氣裡的水氣與雪粉；遠景一片白，近處還看得出戰場。
    */
@@ -297,10 +298,10 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     // 仰角 ≈ 10°
     sunDir: [0.93, 0.174, 0.32],
     sunColor: 0xe8eefc,
-    sunIntensity: 1.5,
+    sunIntensity: 4.5,
     hemiSky: 0xdce4ec,
     hemiGround: 0xaab4be,
-    hemiIntensity: 2.0,
+    hemiIntensity: 1.5,
     ambientColor: 0xdfe8f2,
     ambientIntensity: 0.3,
     seaColor: SEA_COLOR,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  GERMAN_AT_GUNS, at, BATTLE_HALF, battleKeepOut, burnRateOf, CRATER_PATCHES, createRzhev, facing, FRONT_HEADING,
+  GERMAN_AT_GUNS, at, BATTLE_HALF, battleKeepOut, burnRateOf, CRATER_PATCHES, facing, FRONT_HEADING,
   MINEFIELDS, SCAR_ZONE, toLocal,
   VILLAGE, VILLAGE_BOX, VILLAGE_NAME, GERMAN_DUG_PANZERS, SOVIET_INFANTRY, SOVIET_MORTARS, RZHEV_HILLS,
   SOVIET_ROUTE_A, SOVIET_ROUTE_B, SOVIET_FLAK, GERMAN_INFANTRY, GERMAN_MORTARS, GERMAN_TRUCKS, STALLED_SOVIET_TANKS,
@@ -12,7 +12,9 @@ import { WOBBLE_MAX } from '../../src/world/archipelago'
 import { columnGround, MISSIONS, type ReadyMissionCard } from '../../src/battle/missions'
 import { motionPose } from '../../src/world/groundMotion'
 import { SCORCH, TRACKS, TRENCHES } from '../../src/world/rzhev'
-import { RZHEV_SITE } from '../../src/render/terrain'
+import { RZHEV_SITE, rzhevHillAvoid } from '../../src/render/terrain'
+import { createRzhev, rollingSpecs, rzhevHillSpecs } from '../../src/world/rzhevHills'
+import { RAVINES, ravineGap } from '../../src/world/rzhevRavines'
 import {
   fieldGlsl, fieldSurfaceColor, HEDGE_CHANCE, openWoodCover, OPEN_WOOD_GATE, regionAt, STEPPE_LAYOUT, trackGap,
   trackWidthAt,
@@ -70,9 +72,12 @@ const distToRoute = (p: { x: number; z: number }, pts: readonly { x: number; z: 
   return best
 }
 
+const avoid = rzhevHillAvoid()
+const terrain = createRzhev(avoid)
+
 describe('rzhev 地形', () => {
   it('丘陵的膨脹圓兩兩不重疊、峰高不超過上限、外緣在場地內', () => {
-    const { hills } = createRzhev()
+    const { hills } = terrain
     for (const h of hills) {
       expect(h.peak).toBeLessThanOrEqual(HILL_PEAK_MAX)
       expect(Math.hypot(h.cx, h.cz) + h.outerRadius).toBeLessThanOrEqual(HILL_LIMIT)
@@ -85,11 +90,78 @@ describe('rzhev 地形', () => {
           .toBeGreaterThanOrEqual(a.outerRadius + b.outerRadius + HILL_GAP)
       }
     }
-    expect(hills.length).toBe(RZHEV_HILLS.length)
+    // 手擺的錨點在前，程序填的在後
+    expect(hills.length).toBeGreaterThan(RZHEV_HILLS.length + 30)
+    RZHEV_HILLS.forEach((a, i) => {
+      expect(hills[i]!.cx).toBe(a.x)
+      expect(hills[i]!.cz).toBe(a.z)
+    })
+  })
+
+  /**
+   * 村、沖溝與戰場那一塊要是平的（房子、溝帶、壕溝都是貼著地面畫的平面）。手擺的錨點不查 —— 它們
+   * 本來就貼著戰場方框的邊；查的是程序填的丘陵與緩坡：膨脹圓離平地區、村與沖溝的中線有間隙。
+   */
+  it('填的丘陵與緩坡躲開戰場平地、村與沖溝', () => {
+    const filled = [...rzhevHillSpecs(avoid).slice(RZHEV_HILLS.length), ...rollingSpecs(avoid)]
+    expect(filled.length).toBeGreaterThan(300)
+    for (const h of filled) {
+      const reach = h.radius * WOBBLE_MAX
+      const l = toLocal(h.x, h.z)
+      for (const z of [
+        { lx0: -1900, lx1: 1900, lz0: -2100, lz1: 1400 }, { lx0: -400, lx1: 800, lz0: 1400, lz1: 2100 },
+      ]) {
+        const gap = Math.hypot(Math.max(z.lx0 - l.lx, 0, l.lx - z.lx1), Math.max(z.lz0 - l.lz, 0, l.lz - z.lz1))
+        expect(gap, `平地區 ${h.x.toFixed(0)},${h.z.toFixed(0)}`).toBeGreaterThanOrEqual(reach)
+      }
+      for (const a of avoid) expect(Math.hypot(h.x - a.x, h.z - a.z), `村 ${a.x.toFixed(0)},${a.z.toFixed(0)}`).toBeGreaterThanOrEqual(reach + a.r)
+      expect(ravineGap(h.x, h.z), `溝 ${h.x.toFixed(0)},${h.z.toFixed(0)}`).toBeGreaterThanOrEqual(reach + 32)
+    }
+  })
+
+  /** 緩坡不登錄成 AI 看得到的丘陵，所以要低到貼地飛也撞不到：最高不超過 40 m */
+  it('緩坡低矮、而且不在回傳的丘陵清單裡', () => {
+    const rolling = rollingSpecs(avoid)
+    expect(Math.max(...rolling.map((h) => h.peak))).toBeLessThanOrEqual(40)
+    expect(terrain.hills.length).toBe(rzhevHillSpecs(avoid).length)
+  })
+
+  /** 負責人要的：地面一眼看得出起伏，丘陵加緩坡蓋到一半以上的地 */
+  it('戰場周圍 6 km 見方裡有一半以上的地高於 2 m', () => {
+    const { field } = terrain
+    const n = field.size
+    const half = ((n - 1) * field.cell) / 2
+    const center = at(0, 0)
+    let high = 0
+    let total = 0
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        const x = i * field.cell - half
+        const z = j * field.cell - half
+        if (Math.abs(x - center.x) > 6000 || Math.abs(z - center.z) > 6000) continue
+        total++
+        if (field.data[j * n + i]! > 2) high++
+      }
+    }
+    expect(high / total).toBeGreaterThan(0.5)
+  })
+
+  it('沖溝沿線的地面是平的：每一個溝點的高度低於 3 m', () => {
+    const { field } = terrain
+    const n = field.size
+    const half = ((n - 1) * field.cell) / 2
+    for (const r of RAVINES) {
+      for (const p of r.points) {
+        const col = Math.round((p.x + half) / field.cell)
+        const row = Math.round((p.z + half) / field.cell)
+        if (col < 0 || row < 0 || col >= n || row >= n) continue
+        expect(field.data[row * n + col]!, `${p.x.toFixed(0)},${p.z.toFixed(0)}`).toBeLessThan(3)
+      }
+    }
   })
 
   it('外圈是平的：場地邊緣高度 0', () => {
-    const { field } = createRzhev()
+    const { field } = terrain
     const n = field.size
     for (let i = 0; i < n; i += 25) {
       expect(field.data[i]).toBe(0)
@@ -386,8 +458,8 @@ describe('rzhev 佈局', () => {
   })
 
   it('丘陵的範圍與 WOBBLE_MAX 一致（生成器與常數表同一份）', () => {
-    const { hills } = createRzhev()
-    hills.forEach((h, i) => expect(h.outerRadius).toBeCloseTo(RZHEV_HILLS[i]!.radius * WOBBLE_MAX, 6))
+    const specs = rzhevHillSpecs(avoid)
+    terrain.hills.forEach((h, i) => expect(h.outerRadius).toBeCloseTo(specs[i]!.radius * WOBBLE_MAX, 6))
   })
 })
 
