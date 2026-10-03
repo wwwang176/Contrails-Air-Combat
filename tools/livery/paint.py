@@ -14,6 +14,7 @@
 用法見各機種的腳本（`tools/livery/<id>.py`）。
 """
 import json, math, os, random
+import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 import export
 
@@ -33,6 +34,8 @@ WHITE = (236, 236, 232)
 BLACK = (22, 22, 24)
 HINOMARU_RED = (176, 30, 34)
 SOVIET_RED = (203, 90, 89)
+# 冬季白漆：偏冷的暖白（水性漆乾了是粉白，不是純白）
+WINTER_WHITE = (233, 235, 232)
 
 
 def shade(c, d):
@@ -40,7 +43,9 @@ def shade(c, d):
 
 
 class Livery:
-    def __init__(self, faces_json):
+    def __init__(self, faces_json, suffix=''):
+        """`suffix` 加在輸出檔名的副檔名前（冬季版 `_winter`）；空字串 = 預設塗裝的檔名"""
+        self.suffix = suffix
         with open(faces_json, encoding='utf-8') as f:
             meta = json.load(f)
         self.id = meta['id']
@@ -310,6 +315,63 @@ class Livery:
                 mask = ImageChops.multiply(mask, clip.crop((int(x0), int(y0), int(x0) + w, int(y0) + h)))
             self.im.paste(Image.new('RGB', (w, h), color), (int(x0), int(y0)), mask)
 
+    def _noise(self, w, h, cell_w, cell_h, rnd):
+        """低頻亂數場，0…1，w×h：隨機格點雙三次放大。格寬、格高（px）決定斑塊的大小與方向"""
+        sw, sh = max(3, round(w / cell_w)), max(3, round(h / cell_h))
+        lat = np.frombuffer(bytes(rnd.randrange(256) for _ in range(sw * sh)), dtype=np.uint8).reshape(sh, sw)
+        field = Image.fromarray(lat, 'L').resize((w, h), Image.BICUBIC)
+        return np.asarray(field, dtype=np.float32) / 255.0
+
+    def whitewash(self, views, seed, color=WINTER_WHITE, coverage=0.75, cell_m=1.0, stretch=2.5,
+                  streak_m=0.14, streak_stretch=7.0, thin=0.72, edges=None, edge_x=(0.0, 1.0),
+                  wear_m=0.2, clip=None, blur_m=0.012):
+        """冬季白漆：地勤用拖把、海綿或噴槍刷上去的水性漆。蓋在上面與側面，下面不動。
+
+        斑駁不均勻：低頻亂數場取門檻成大塊斑，疊上沿前後方向拉長的刷痕；漆層厚薄不一（`thin` 是最薄處的
+        不透明度），薄的地方露出底下的迷彩；翼前緣磨得最快（`edges` 是 `wing_edges` 回傳的函式、`edge_x`
+        是 |x| 的範圍、`wear_m` 是磨掉的帶寬）。`clip` 是只蓋這一塊的遮罩（畫布解析度）。
+
+        **畫在迷彩與蒙皮分片之後、國籍標誌與代號之前**：標誌不會被白漆蓋掉，也不必在圖上認標誌的位置。
+        """
+        rnd = random.Random(seed)
+        for view in views:
+            x0, y0, x1, y1 = self.view_box(view)
+            w, h = int(x1 - x0), int(y1 - y0)
+
+            def field(cell_m_, stretch_):
+                cw = self.m(cell_m_)
+                size = (cw * stretch_, cw) if view in SIDE else (cw, cw * stretch_)
+                return self._noise(w, h, size[0], size[1], rnd)
+
+            patch = field(cell_m, stretch)
+            streak = field(streak_m, streak_stretch)
+            wear = field(0.9, 2.5)
+            combined = 0.75 * patch + 0.25 * streak
+            thr = np.quantile(combined, 1.0 - coverage)
+            alpha = np.clip((combined - thr) / 0.05 + 0.5, 0.0, 1.0)
+            alpha *= thin + (1.0 - thin) * wear
+            if edges is not None and view in PLAN:
+                strip = Image.new('L', (w, h), 0)
+                sd = ImageDraw.Draw(strip)
+                for side in (-1, 1):
+                    xs = [edge_x[0] + (edge_x[1] - edge_x[0]) * k / 20 for k in range(21)]
+                    outer = [(side * x, edges(x)[0]) for x in xs]
+                    inner = [(side * x, edges(x)[0] + wear_m) for x in reversed(xs)]
+                    sd.polygon([(u - x0, v - y0) for u, v in (self.px(view, a, b) for a, b in outer + inner)],
+                               fill=255)
+                strip = strip.filter(ImageFilter.GaussianBlur(self.m(wear_m) * 0.4))
+                alpha *= 1.0 - 0.7 * (np.asarray(strip, dtype=np.float32) / 255.0)
+            mask = Image.fromarray((alpha * 255).astype(np.uint8), 'L')
+            mask = mask.filter(ImageFilter.GaussianBlur(self.m(blur_m)))
+            if clip is not None:
+                mask = ImageChops.multiply(mask, clip.crop((int(x0), int(y0), int(x0) + w, int(y0) + h)))
+            m = np.asarray(mask, dtype=np.float32)[..., None] / 255.0
+            tone = (wear[..., None] - 0.5) * 8.0
+            white = np.clip(np.array(color, dtype=np.float32) + tone, 0, 255)
+            region = np.asarray(self.im.crop((int(x0), int(y0), int(x0) + w, int(y0) + h)), dtype=np.float32)
+            out = region * (1.0 - m) + white * m
+            self.im.paste(Image.fromarray(out.clip(0, 255).astype(np.uint8)), (int(x0), int(y0)))
+
     # ── 標誌與文字：cx, cy 是機體座標，在 view 裡居中 ───────────────
     def us_star(self, view, a, b, r_m, bars=True):
         """美軍國籍標誌。bars=False 是 1942 年那種只有圓裡一顆星"""
@@ -365,8 +427,9 @@ class Livery:
             self.d.ellipse([cx - r - o, cy - r - o, cx + r + o, cy + r + o], fill=WHITE)
         self.d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=HINOMARU_RED)
 
-    def red_star(self, view, a, b, r_m, border=0.0):
-        """蘇軍紅星。r_m 是尖端到中心的距離；border 是白邊寬（m），0 = 沒有白邊"""
+    def red_star(self, view, a, b, r_m, border=0.0, outer=0.0):
+        """蘇軍紅星。r_m 是尖端到中心的距離；border 是白邊寬（m），0 = 沒有白邊；
+        outer 是白邊外面再一圈細紅邊的寬（m），0 = 沒有（冬季白漆上的星星用它襯出來）"""
         cx, cy = self.px(view, a, b)
 
         def star(r, color):
@@ -378,6 +441,8 @@ class Livery:
             self.d.polygon(pts, fill=color)
 
         r = self.m(r_m)
+        if border > 0 and outer > 0:
+            star(r + self.m(border + outer), SOVIET_RED)
         if border > 0:
             star(r + self.m(border), WHITE)
         star(r, SOVIET_RED)
@@ -399,6 +464,9 @@ class Livery:
     def save(self):
         """原圖寫進 textures-src/，再照 export.py 的尺寸表產生遊戲用圖"""
         name = os.path.basename(self.url)
+        if self.suffix:
+            stem, ext = os.path.splitext(name)
+            name = stem + self.suffix + ext
         src = os.path.join(export.SRC, name)
         os.makedirs(export.SRC, exist_ok=True)
         self.im.resize((self.W, self.H), Image.LANCZOS).save(src, optimize=True)

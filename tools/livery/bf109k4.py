@@ -3,7 +3,8 @@
 Bf 109 K-4：1945 年本土防空。
 
     npx vite-node test/tools/livery-faces.ts -- bf109k4 <faces.json>
-    python tools/livery/bf109k4.py <faces.json>
+    python tools/livery/bf109k4.py <faces.json>             # 預設塗裝 → bf109k4.png
+    python tools/livery/bf109k4.py <faces.json> --winter    # 冬季白漆 → bf109k4_winter.png
 
     上面 RLM 81／82 碎片迷彩，下面 RLM 76 淺藍
     機身側面 76 底、81／82 斑點，機背一條碎片迷彩
@@ -12,6 +13,9 @@ Bf 109 K-4：1945 年本土防空。
     黑綠色螺旋槳整流罩
 
     尾翼**不畫**任何標記。
+
+    冬季版：上面與側面蓋斑駁的白漆，機翼前緣磨得最快；本土防空色帶、黑綠色整流罩、十字與
+    機號都畫在白漆上面，所以不被蓋掉。
 """
 import sys
 from paint import Livery, PLAN, SIDE, WHITE, BLACK
@@ -27,8 +31,8 @@ BAND = (4.12, 4.52)
 CROSS_Z = 3.30
 
 
-def main(faces):
-    L = Livery(faces)
+def main(faces, winter=False):
+    L = Livery(faces, '_winter' if winter else '')
     edges = L.wing_edges(['BF109_Wing'], 0.5, 4.8)
     profile = L.fuselage_profile(['BF109_Fuselage'])
 
@@ -40,6 +44,10 @@ def main(faces):
     L.splinter('left', (RLM81, RLM82), 6, seed=8, clip=L.side_above(profile, 0.78))
     L.splinter('right', (RLM81, RLM82), 6, seed=9, clip=L.side_above(profile, 0.78))
     L.panels(PLAN + SIDE, 0.5, 0.5, 2)
+    if winter:
+        L.whitewash(('top',), seed=65, coverage=0.72, cell_m=0.8, edges=edges, edge_x=(0.5, 4.8))
+        L.whitewash(SIDE, seed=66, coverage=0.72, cell_m=0.6, clip=L.side_above(profile, 0.2))
+        L.panels(('top',) + SIDE, 0.5, 0.5, 1, seed=73)
 
     # 本土防空色帶
     band = [(BAND[0], BAND[0] + 0.13, RVD_BLUE), (BAND[0] + 0.13, BAND[1] - 0.13, WHITE),
@@ -62,9 +70,10 @@ def main(faces):
         L.text(v, 2.35, 0.36, '7', 0.5, WHITE, outline=BLACK)
     zc = sum(edges(3.3)) / 2
     for x in (-3.3, 3.3):
-        L.balkenkreuz('top', x, zc, 0.95, style='outline')
+        # 冬季：只描白框的簡化樣式畫在白漆上看不見，翼上十字改回黑十字
+        L.balkenkreuz('top', x, zc, 0.95, style='full' if winter else 'outline')
         L.balkenkreuz('bottom', x, zc, 0.95)
     L.save()
 
 
-main(sys.argv[1])
+main([a for a in sys.argv[1:] if not a.startswith('--')][0], '--winter' in sys.argv)
