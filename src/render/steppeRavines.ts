@@ -22,8 +22,8 @@ import type { Ravine } from '../world/rzhevRavines'
  */
 
 /** 溝坡的雪色（比田稍暗，坡面有陰影）與溝底的灌木色（積雪下露出的枯灌木） */
-export const RAVINE_SLOPE = 0xc3ccd4
-export const RAVINE_BOTTOM = 0x8f9a98
+export const RAVINE_SLOPE = 0xa7b1ba
+export const RAVINE_BOTTOM = 0x5f6c68
 /** 田埂色的邊：實心的寬度與淡出的寬度，m */
 export const RAVINE_RIM_SOLID = 4
 export const RAVINE_RIM_FADE = 4

@@ -14,19 +14,25 @@ describe('冬季草原', () => {
     expect(FIELD_COLORS.winterSteppe.hedgeChance).toBe(0)
   })
 
-  it('田是雪：作物色盤每一階都亮、低彩度，而且越往後只暗不亮', () => {
+  it('田是雪：作物色盤每一階都夠亮、低彩度，越往後只暗不亮，而且頭尾差得開', () => {
     const c = new Color()
     let prev = Infinity
+    let first = 0
+    let last = 0
     for (const hex of FIELD_COLORS.winterSteppe.palette) {
       c.setHex(hex)
       const hsl = { h: 0, s: 0, l: 0 }
       c.getHSL(hsl)
-      // 亮度是 three 的線性工作空間值，sRGB 的淡灰藍（0xccd5de）約 0.63
-      expect(hsl.l, hex.toString(16)).toBeGreaterThan(0.6)
+      if (prev === Infinity) first = hsl.l
+      last = hsl.l
+      // 亮度是 three 的線性工作空間值，sRGB 的中灰藍（0x8794a6）約 0.31
+      expect(hsl.l, hex.toString(16)).toBeGreaterThan(0.3)
       expect(hsl.s, hex.toString(16)).toBeLessThan(0.3)
       expect(hsl.l).toBeLessThanOrEqual(prev + 1e-9)
       prev = hsl.l
     }
+    // 頭尾差一大截，從高空看每塊田才分得開
+    expect(first - last).toBeGreaterThan(0.4)
   })
 
   it('樹覆著雪：闊葉、灌木、針葉的亮度都高於夏季', () => {

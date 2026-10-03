@@ -65,7 +65,7 @@ export interface Blast {
 }
 
 /** 菜園的色：覆雪的畦，深淺略有不同；有幾塊翻過的土在雪下透出灰褐 */
-const GARDEN_COLORS = [0xe2e7eb, 0xdde3e8, 0xd7dde3, 0xcfd2d3, 0xe6eaee, 0xd4dadf, 0xc9cccd] as const
+const GARDEN_COLORS = [0xe2e7eb, 0xcdd4db, 0xb9c2cb, 0xa59f94, 0xe6eaee, 0xc2cbd3, 0x9a968d] as const
 /** 每條菜園的明暗再抖動的範圍（乘數） */
 const GARDEN_SHADE = [0.9, 1.1] as const
 
@@ -74,7 +74,7 @@ function shade(hex: number, k: number): number {
   return (ch(16) << 16) | (ch(8) << 8) | ch(0)
 }
 /** 支路的顏色：被踩實的雪，與凹路同色（`season.ts` 的 `track`） */
-const STREET_COLOR = 0xaeb1b4
+const STREET_COLOR = 0x8a8d90
 
 /**
  * 主路的總長，m：`BASE + pop × PER_POP`，人口沒給時取中間。**實際長度受凹路限制**。
