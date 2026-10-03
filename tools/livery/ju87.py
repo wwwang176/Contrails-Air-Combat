@@ -13,8 +13,9 @@ Ju 87 B-2：1940 年俯衝轟炸聯隊（StG 2）。
 
     尾翼**不畫**任何標記。
 
-    冬季版：在迷彩與蒙皮分片之後、標誌與代號之前，上面與側面（分界線以上）蓋斑駁的白漆，
-    翼前緣磨得最快；十字與代號畫在白漆上面，所以不被蓋掉。
+    冬季版：在迷彩與蒙皮分片之後、標誌與代號之前，上面與側面（分界線以上）噴整片白漆，
+    漆薄的髒污處透出灰灰的底色，磨穿的小碎片（翼前緣最多）露出原本的迷彩；十字與代號畫在
+    白漆上面，所以不被蓋掉。
 """
 import sys
 from paint import Livery, PLAN, SIDE, BLACK
@@ -38,8 +39,8 @@ def main(faces, winter=False):
     L.splinter('right', (RLM70, RLM71), 8, seed=23, clip=L.side_above(profile, 0.3))
     L.panels(PLAN + SIDE, 0.8, 0.6, 2)
     if winter:
-        L.whitewash(('top',), seed=61, coverage=0.78, cell_m=1.2, edges=edges, edge_x=(1.0, 6.6))
-        L.whitewash(SIDE, seed=62, coverage=0.78, cell_m=0.9, clip=L.side_above(profile, 0.3))
+        L.whitewash(('top',), seed=61, dirt=0.35, flake=0.05, cell_m=1.2, edges=edges, edge_x=(1.0, 6.6))
+        L.whitewash(SIDE, seed=62, dirt=0.3, flake=0.06, cell_m=0.9, clip=L.side_above(profile, 0.3))
         L.panels(('top',) + SIDE, 0.8, 0.6, 1, seed=71)
 
     yb, yt = profile(CROSS_Z)

@@ -14,8 +14,8 @@ Bf 109 K-4：1945 年本土防空。
 
     尾翼**不畫**任何標記。
 
-    冬季版：上面與側面蓋斑駁的白漆，機翼前緣磨得最快；本土防空色帶、黑綠色整流罩、十字與
-    機號都畫在白漆上面，所以不被蓋掉。
+    冬季版：上面與側面噴整片白漆，漆薄的髒污處透出灰灰的底色，磨穿的小碎片（機翼前緣最多）露出
+    原本的迷彩；本土防空色帶、黑綠色整流罩、十字與機號都畫在白漆上面，所以不被蓋掉。
 """
 import sys
 from paint import Livery, PLAN, SIDE, WHITE, BLACK
@@ -45,8 +45,8 @@ def main(faces, winter=False):
     L.splinter('right', (RLM81, RLM82), 6, seed=9, clip=L.side_above(profile, 0.78))
     L.panels(PLAN + SIDE, 0.5, 0.5, 2)
     if winter:
-        L.whitewash(('top',), seed=65, coverage=0.72, cell_m=0.8, edges=edges, edge_x=(0.5, 4.8))
-        L.whitewash(SIDE, seed=66, coverage=0.72, cell_m=0.6, clip=L.side_above(profile, 0.2))
+        L.whitewash(('top',), seed=65, dirt=0.3, flake=0.05, cell_m=0.8, edges=edges, edge_x=(0.5, 4.8))
+        L.whitewash(SIDE, seed=66, dirt=0.3, flake=0.06, cell_m=0.6, clip=L.side_above(profile, 0.2))
         L.panels(('top',) + SIDE, 0.5, 0.5, 1, seed=73)
 
     # 本土防空色帶

@@ -9,8 +9,8 @@ Yak-1B：1943 年蘇軍戰鬥機（庫斯克）。
     上面黃綠底、暗色大面積波浪，下面淺藍；機身側面分界壓在一成高，淺藍只包龍骨
     紅星（白邊）：機身兩側、垂直尾翼兩側、兩翼上下
 
-    冬季版：上面與側面（分界線以上）蓋斑駁的水洗白漆，下面仍是淺藍；紅星畫在白漆上面，
-    白邊再加一圈細紅邊（白底上才襯得出來）。
+    冬季版：上面與側面（分界線以上）噴整片水洗白漆，漆薄的髒污處透出灰灰的底色，磨穿的小碎片
+    露出原本的迷彩，下面仍是淺藍；紅星畫在白漆上面，白邊再加一圈細紅邊（白底上才襯得出來）。
 """
 import sys
 from paint import Livery, PLAN, SIDE, SS
@@ -43,8 +43,8 @@ def main(faces, winter=False):
             clip=L.side_above(profile, DEMARCATION))
     L.panels(PLAN + SIDE, 0.8, 0.5, 2)
     if winter:
-        L.whitewash(('top',), seed=63, coverage=0.8, cell_m=0.8, edges=edges, edge_x=(1.0, 4.6))
-        L.whitewash(SIDE, seed=64, coverage=0.8, cell_m=0.6, clip=L.side_above(profile, DEMARCATION))
+        L.whitewash(('top',), seed=63, dirt=0.3, flake=0.05, cell_m=0.8, edges=edges, edge_x=(1.0, 4.6))
+        L.whitewash(SIDE, seed=64, dirt=0.3, flake=0.06, cell_m=0.6, clip=L.side_above(profile, DEMARCATION))
         L.panels(('top',) + SIDE, 0.8, 0.5, 1, seed=72)
 
     for v in SIDE:

@@ -322,16 +322,21 @@ class Livery:
         field = Image.fromarray(lat, 'L').resize((w, h), Image.BICUBIC)
         return np.asarray(field, dtype=np.float32) / 255.0
 
-    def whitewash(self, views, seed, color=WINTER_WHITE, coverage=0.75, cell_m=1.0, stretch=2.5,
-                  streak_m=0.14, streak_stretch=7.0, thin=0.72, edges=None, edge_x=(0.0, 1.0),
-                  wear_m=0.2, clip=None, blur_m=0.012):
-        """冬季白漆：地勤用拖把、海綿或噴槍刷上去的水性漆。蓋在上面與側面，下面不動。
+    def whitewash(self, views, seed, color=WINTER_WHITE, flake=0.05, dirt=0.3, dirt_alpha=0.7,
+                  cell_m=1.0, stretch=2.5, streak_m=0.14, streak_stretch=7.0, chip_m=0.22,
+                  edges=None, edge_x=(0.0, 1.0), wear_m=0.2, clip=None, blur_m=0.01):
+        """冬季白漆：整架噴在原本的塗裝上，整體是白的。蓋在上面與側面，下面不動。
 
-        斑駁不均勻：低頻亂數場取門檻成大塊斑，疊上沿前後方向拉長的刷痕；漆層厚薄不一（`thin` 是最薄處的
-        不透明度），薄的地方露出底下的迷彩；翼前緣磨得最快（`edges` 是 `wing_edges` 回傳的函式、`edge_x`
-        是 |x| 的範圍、`wear_m` 是磨掉的帶寬）。`clip` 是只蓋這一塊的遮罩（畫布解析度）。
+        三層：
+        1. **整體白**：不透明度約 0.97，沿前後方向拉長的刷痕讓它有一點濃淡。
+        2. **髒污**（`dirt` 是佔多大比例、`dirt_alpha` 是那裡的不透明度）：低頻亂數場取門檻成大塊，漆薄、
+           沾了煙灰油污，底下的迷彩透出來是灰灰的，**不是**露出綠色。
+        3. **磨掉的碎片**（`flake` 是佔多大比例、`chip_m` 是碎片大小）：高頻亂數場取門檻成小碎片，磨穿到
+           底漆，露出原本的迷彩色；翼前緣磨得最快（`edges` 是 `wing_edges` 回傳的函式、`edge_x` 是 |x| 的
+           範圍、`wear_m` 是磨損帶的寬），那條帶裡約三成會磨穿。
 
-        **畫在迷彩與蒙皮分片之後、國籍標誌與代號之前**：標誌不會被白漆蓋掉，也不必在圖上認標誌的位置。
+        `clip` 是只蓋這一塊的遮罩（畫布解析度）。**畫在迷彩與蒙皮分片之後、國籍標誌與代號之前**：標誌不會被
+        白漆蓋掉，也不必在圖上認標誌的位置。
         """
         rnd = random.Random(seed)
         for view in views:
@@ -343,13 +348,23 @@ class Livery:
                 size = (cw * stretch_, cw) if view in SIDE else (cw, cw * stretch_)
                 return self._noise(w, h, size[0], size[1], rnd)
 
-            patch = field(cell_m, stretch)
             streak = field(streak_m, streak_stretch)
-            wear = field(0.9, 2.5)
-            combined = 0.75 * patch + 0.25 * streak
-            thr = np.quantile(combined, 1.0 - coverage)
-            alpha = np.clip((combined - thr) / 0.05 + 0.5, 0.0, 1.0)
-            alpha *= thin + (1.0 - thin) * wear
+            smear = field(cell_m, stretch)
+            grime = field(0.3, 5.0)
+            chips = field(chip_m, 1.6)
+            zone = field(cell_m * 1.5, stretch)
+            tone = field(0.9, 2.5)
+            alpha = 0.97 - 0.08 * streak
+            # 髒污：漆薄的大塊（邊緣很軟），底下的迷彩透出來；再疊一層沿氣流方向的細髒污
+            thr = np.quantile(smear, 1.0 - dirt)
+            soiled = np.clip((smear - thr) / 0.2 + 0.5, 0.0, 1.0)
+            alpha *= 1.0 - (1.0 - dirt_alpha) * soiled
+            thr = np.quantile(grime, 0.75)
+            alpha *= 1.0 - 0.12 * np.clip((grime - thr) / 0.1 + 0.5, 0.0, 1.0)
+            # 磨穿：小碎片露出底漆。碎片只出現在磨損帶（約四成的面積）裡，成群而不是均勻撒滿
+            in_zone = np.clip((zone - np.quantile(zone, 0.6)) / 0.1 + 0.5, 0.0, 1.0)
+            thr = np.quantile(chips, 1.0 - min(0.6, flake / 0.4))
+            worn = np.clip((chips - thr) / 0.03 + 0.5, 0.0, 1.0) * in_zone
             if edges is not None and view in PLAN:
                 strip = Image.new('L', (w, h), 0)
                 sd = ImageDraw.Draw(strip)
@@ -360,14 +375,16 @@ class Livery:
                     sd.polygon([(u - x0, v - y0) for u, v in (self.px(view, a, b) for a, b in outer + inner)],
                                fill=255)
                 strip = strip.filter(ImageFilter.GaussianBlur(self.m(wear_m) * 0.4))
-                alpha *= 1.0 - 0.7 * (np.asarray(strip, dtype=np.float32) / 255.0)
-            mask = Image.fromarray((alpha * 255).astype(np.uint8), 'L')
+                edge_w = np.asarray(strip, dtype=np.float32) / 255.0
+                chipped = np.clip((chips - 0.62) / 0.05 + 0.5, 0.0, 1.0)
+                worn = np.maximum(worn, edge_w * chipped)
+            alpha *= 1.0 - worn
+            mask = Image.fromarray((np.clip(alpha, 0.0, 1.0) * 255).astype(np.uint8), 'L')
             mask = mask.filter(ImageFilter.GaussianBlur(self.m(blur_m)))
             if clip is not None:
                 mask = ImageChops.multiply(mask, clip.crop((int(x0), int(y0), int(x0) + w, int(y0) + h)))
             m = np.asarray(mask, dtype=np.float32)[..., None] / 255.0
-            tone = (wear[..., None] - 0.5) * 8.0
-            white = np.clip(np.array(color, dtype=np.float32) + tone, 0, 255)
+            white = np.clip(np.array(color, dtype=np.float32) + (tone[..., None] - 0.5) * 8.0, 0, 255)
             region = np.asarray(self.im.crop((int(x0), int(y0), int(x0) + w, int(y0) + h)), dtype=np.float32)
             out = region * (1.0 - m) + white * m
             self.im.paste(Image.fromarray(out.clip(0, 255).astype(np.uint8)), (int(x0), int(y0)))
