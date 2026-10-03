@@ -85,9 +85,12 @@ export function missionRules(
   // 【炸毀與擊沉並列】同樣是「卡片上有沒有那一格」，同樣排在守住艦隊之前
   if (b.destroyCount !== undefined) {
     // 【單位省略時連鍵都不放】理由同下面的 `huntRole`
-    return b.destroyUnit === undefined
-      ? { kind: 'destroy', count: b.destroyCount }
-      : { kind: 'destroy', count: b.destroyCount, unit: b.destroyUnit }
+    return {
+      kind: 'destroy',
+      count: b.destroyCount,
+      ...(b.destroyUnit === undefined ? {} : { unit: b.destroyUnit }),
+      ...(b.defeatOnBombers === true ? { bombers: true as const } : {}),
+    }
   }
   // 【擊落也並列】三者是同一種形狀：「數到幾個就贏」。`huntRole` 省略時
   // 連鍵都不放 —— `exactOptionalPropertyTypes` 下 `role: undefined` 與
@@ -221,6 +224,7 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
     : b.blueWaves !== undefined
       ? waveColumn(
         plan, b.blueSpec, b.blueCount, b.blueWaves.size, b.blueWaves.depth, b.redSpec, b.redCount,
+        b.blueWaves.escort,
       )
     : b.blueStacked === true
       ? stackedEntry(plan, b.blueSpec, b.blueCount, b.redSpec, b.redCount)
@@ -256,7 +260,7 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
         ? {}
         : { priorityGroundUnit: b.priorityGroundUnit }),
       ...(b.bomberPriority === undefined ? {} : { bomberPriority: b.bomberPriority }),
-      ...(b.airFirst === undefined ? {} : { airFirst: b.airFirst }),
+      ...(b.airOnly === undefined ? {} : { airOnly: b.airOnly }),
     },
     ...(beats === undefined ? {} : { beats }),
     // 【轟炸機流的終點】不判勝負，只給 transit 的那幾架一個飛去的點
@@ -401,7 +405,10 @@ function cardBeats(
     const r = b.retarget
     out.push({
       kind: 'retarget', when: triggerToCondition(r.when), messageKey: r.messageKey,
-      rules: { kind: 'destroy', count: r.destroyCount, unit: r.destroyUnit },
+      rules: {
+        kind: 'destroy', count: r.destroyCount, unit: r.destroyUnit,
+        ...(b.defeatOnBombers === true ? { bombers: true as const } : {}),
+      },
     })
   }
   if (b.mopUp !== undefined) {

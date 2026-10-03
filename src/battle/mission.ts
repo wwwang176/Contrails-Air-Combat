@@ -126,6 +126,11 @@ export type MissionRules =
      * `setup.ts` 的 `inDestroyPool`，這一支只讀已經數好的 `targetsDestroyed`。
      */
     unit?: GroundUnitId
+    /**
+     * 藍隊的轟炸機（`role === 'bomber'`，攻擊隊）全滅就判敗，護航機還活著也一樣。
+     * **省略 = 藍隊全滅才敗。** 藍隊全是戰鬥機的關帶了它會開場判敗。
+     */
+    bombers?: true
   }
   | {
     /**
@@ -234,11 +239,11 @@ export interface MissionTuning {
    */
   readonly bomberPriority?: number
   /**
-   * 藍隊戰鬥機在場上還有敵機時不去掃射地面。**省略 = false。** 給有我方護航機的關卡：
-   * 沒被分到目標的僚機預設去掃地面，整隊只剩長機在空戰。見 `AiController.airFirst`。
+   * 藍隊戰鬥機只打飛機、不掃射地面。**省略 = false。** 給有我方護航機的關卡：沒被分到目標的僚機
+   * 預設去掃地面、敵機進場前整隊也會離開轟炸機。見 `AiController.airOnly`。
    * 只套藍隊；俯衝轟炸機不受影響。
    */
-  readonly airFirst?: boolean
+  readonly airOnly?: boolean
 }
 
 /** 中性值：每一項都等於「沒有這一關」。遭遇戰與殲滅任務用它 */
@@ -616,7 +621,9 @@ export function stepMission(
       out.outcome = 'victory'
       return
     }
-    if (inp.aliveBlue === 0) out.outcome = 'defeat'
+    // 【攻擊隊全滅就敗】轟炸機數 = 藍隊存活數 − 藍隊存活的戰鬥機數
+    const lost = rules.bombers === true ? inp.aliveBlue - inp.aliveBlueFighters === 0 : inp.aliveBlue === 0
+    if (lost) out.outcome = 'defeat'
     return
   }
 

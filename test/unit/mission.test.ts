@@ -465,6 +465,34 @@ describe('stepMission：炸毀', () => {
     expect(s.outcome).toBe('victory')
   })
 
+  describe('bombers：攻擊隊（轟炸機）全滅就敗', () => {
+    const strike: MissionRules = { kind: 'destroy', count: 6, bombers: true }
+
+    it('轟炸機全滅、護航機還活著：敗', () => {
+      const s = createMissionState(strike)
+      stepMission(strike, inputs({ targetsDestroyed: 2, aliveBlue: 4, aliveBlueFighters: 4 }), DT, s)
+      expect(s.outcome).toBe('defeat')
+    })
+
+    it('還有一架轟炸機活著：不算敗', () => {
+      const s = createMissionState(strike)
+      stepMission(strike, inputs({ targetsDestroyed: 2, aliveBlue: 5, aliveBlueFighters: 4 }), DT, s)
+      expect(s.outcome).toBe('fighting')
+    })
+
+    it('對照：沒有 bombers 的規則，護航機還活著就不算敗', () => {
+      const s = createMissionState(rules)
+      stepMission(rules, inputs({ targetsDestroyed: 2, aliveBlue: 4, aliveBlueFighters: 4 }), DT, s)
+      expect(s.outcome).toBe('fighting')
+    })
+
+    it('最後一座炸毀的那一步轟炸機剛好全滅 —— 算贏', () => {
+      const s = createMissionState(strike)
+      stepMission(strike, inputs({ targetsDestroyed: 6, aliveBlue: 4, aliveBlueFighters: 4 }), DT, s)
+      expect(s.outcome).toBe('victory')
+    })
+  })
+
   it('開局的計量是「還差全部」、分母是 6；重設之後也是', () => {
     const s = createMissionState(rules)
     expect(s.metric).toBe(6)

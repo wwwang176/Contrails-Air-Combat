@@ -119,6 +119,17 @@ export const AI_DECISION_HZ = 10
 const FWD = new Vector3(0, 0, -1)
 
 /**
+ * 護航長機守在友軍轟炸機的哪裡（`escortStation`）：後方 150 m、左右各 350 m、上方 450 m。
+ * 索引是 `selfIndex % 2`，兩側輪流。**起始值，由試飛裁定。**
+ *
+ * 【上方 450 m】在轟炸機上方才看得出是護航；也在輕型防空的射程（2,640 m）之內，所以不再高。
+ */
+const ESCORT_OFFSETS: readonly StationOffset[] = [
+  { along: -150, across: 350, up: 450 },
+  { along: -150, across: -350, up: 450 },
+]
+
+/**
  * 保留戰鬥 AI 要去的水平方位，只把俯仰收回水平。這是硬改出後的
  * 「止跌」，不是固定爬升角；因此不會把一次小拉起擴大成高幅豚跳。
  */
@@ -293,13 +304,17 @@ export class AiController implements Controller {
   priorityGroundUnit: GroundUnitId | null = null
 
   /**
-   * 場上還有活著的敵機時，戰鬥機不去掃射地面（俯衝轟炸機照常）。false = 沒有空中目標就掃射。
+   * 戰鬥機只打飛機、不去掃射地面（俯衝轟炸機照常）；沒有空中目標時守在友軍轟炸機旁。
+   * false = 沒有空中目標就掃射。
    *
    * 【為什麼要它】沒被分到目標的僚機預設去掃射地面（`strafeGround`），長機在空戰時整隊只剩
-   * 長機在打。護航要整隊都留在空戰：沒有目標的僚機改飛站位，跟著長機走。
-   * 任務卡由 `MissionTuning.airFirst` 接進來。
+   * 長機在打；敵機還沒進場時整隊也會離開轟炸機去掃地，或沒有目標的長機直飛出場。護航要留在轟炸機旁：
+   * 僚機飛站位跟長機，長機飛站位跟最近的友軍轟炸機（`escortStation`）。
+   * 任務卡由 `MissionTuning.airOnly` 接進來。
    */
-  airFirst = false
+  airOnly = false
+  /** `escortStation` 守著的友軍轟炸機，`board.candidates` 的索引；−1 = 沒有。只在決策拍重選 */
+  private escortIndex = -1
 
   /**
    * 轟炸機目前鎖定的打擊目標。船或建築，價值優先（`attackShip`）。
@@ -408,8 +423,8 @@ export class AiController implements Controller {
     }
     // 【俯衝轟炸機走自己的行為】任務指定了優先地面單位、以及沒有空中目標時排在站位之前，都從這裡進
     if (dives) return this.diveBombGround(self, decide, out, onlyUnit)
-    // 【空戰優先】場上還有敵機就不掃射；清掉掃射狀態，敵機打光之後從進場重新開始
-    if (this.airFirst && this.enemyAircraftAlive(me.team)) {
+    // 【只打飛機】排在俯衝轟炸機的分支之後：它們不受這個旋鈕管
+    if (this.airOnly) {
       this.groundAim = -1
       resetGroundStrafe(this.groundStrafe)
       return false
@@ -440,15 +455,40 @@ export class AiController implements Controller {
     return true
   }
 
-  /** 指派板上有沒有活著的敵機。不配置、只掃一遍候選 */
-  private enemyAircraftAlive(team: string): boolean {
+  /**
+   * 護航：飛站位守在最近的友軍轟炸機（`role === 'bomber'`）旁，偏置見 `ESCORT_OFFSETS`。回傳 true
+   * 代表 `out` 已經寫滿；沒有友軍轟炸機（全滅或本來就沒有）回 false。
+   *
+   * 【站位點只跟水平航跡】`stationPoint` 的高度是轟炸機的高度加偏置，轟炸機俯衝時護航機跟著降到它上方，
+   * 不會追進俯衝。【兩側輪流】左右由 `selfIndex` 的奇偶決定，兩個小隊的長機不會疊在同一點。
+   * 【只在沒有目標時走到這裡】有空中目標就照自由獵手打，打完再回來。
+   */
+  private escortStation(self: Aircraft, decide: boolean, out: Command): boolean {
+    // 【只給戰鬥機】轟炸機自己就是被守的那一個；放行的話它會挑到自己、對著自己飛站位
+    if (self.spec.role !== 'fighter') return false
     const candidates = this.board?.candidates
-    if (candidates === undefined) return false
-    for (let i = 0; i < candidates.length; i++) {
-      const c = candidates[i]!
-      if (c.alive && c.team !== team) return true
+    const me = candidates?.[this.selfIndex]
+    if (candidates === undefined || me === undefined) return false
+    if (decide || this.escortIndex < 0 || !candidates[this.escortIndex]!.alive) {
+      let best = -1
+      let bestD = Infinity
+      for (let i = 0; i < candidates.length; i++) {
+        const c = candidates[i]!
+        if (!c.alive || c.team !== me.team || c.aircraft.spec.role !== 'bomber') continue
+        const d = self.state.position.distanceToSquared(c.aircraft.state.position)
+        if (d < bestD) {
+          bestD = d
+          best = i
+        }
+      }
+      this.escortIndex = best
     }
-    return false
+    if (this.escortIndex < 0) return false
+    stationCommand(
+      self, candidates[this.escortIndex]!.aircraft, ESCORT_OFFSETS[this.selfIndex % 2]!,
+      this.seaHeight, out, this.stationConfig,
+    )
+    return true
   }
 
   /**
@@ -689,6 +729,7 @@ export class AiController implements Controller {
     resetDiveBomb(this.diveBomb)
     this.shipAim.ship = -1
     this.strikeRef.index = -1
+    this.escortIndex = -1
     this.groundAim = -1
     this.groundAttackActive = false
     this.groundStrafeActive = false
@@ -1213,6 +1254,8 @@ export class AiController implements Controller {
         stationCommand(
           self, reference, this.stationOffset, this.seaHeight, raw, this.stationConfig,
         )
+      } else if (this.airOnly && !this.evacuating && this.escortStation(self, decide, raw)) {
+        // 【護航的長機守在友軍轟炸機旁】`raw` 已經寫滿。沒有友軍轟炸機時落到下面的平飛
       } else if (!this.evacuating && this.attackShip(self, decide, dt, raw)) {
         // 【對艦掃射排在站位之後、集合點之前】
         //

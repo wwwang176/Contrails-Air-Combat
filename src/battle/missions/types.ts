@@ -325,9 +325,9 @@ export interface MissionBattle {
    */
   readonly bomberPriority?: number
   /**
-   * 藍隊戰鬥機在場上還有敵機時不去掃射地面。**省略 = false。** 見 `MissionTuning.airFirst`。
+   * 藍隊戰鬥機只打飛機、不掃射地面。**省略 = false。** 見 `MissionTuning.airOnly`。
    */
-  readonly airFirst?: boolean
+  readonly airOnly?: boolean
   /**
    * 藍隊**分層擺位**：小隊前後拉開、左右錯開、高度分層，玩家在中間那一隊
    * （`order.ts` 的 `stackedEntry`）。**省略 = 橫隊。**
@@ -340,7 +340,15 @@ export interface MissionBattle {
    * 藍隊分批前後排開：每 `size` 架一批，相鄰兩批在世界座標 z 上差 `depth` 公尺，前後交錯進場
    * （`order.ts` 的 `waveColumn`）。**省略 = 橫隊。** 只是開場站位，玩家在第一批。
    */
-  readonly blueWaves?: { readonly size: number; readonly depth: number }
+  readonly blueWaves?: {
+    readonly size: number
+    readonly depth: number
+    /**
+     * 與藍隊同一刻生成的護航戰鬥機（`order.ts` 的 `waveColumn`）：分成 `⌈count ÷ 4⌉` 個小隊、
+     * 在轟炸機上方、落後第一批 `depth` m。`blueCount` 只數被護航的那一列。**省略 = 沒有護航。**
+     */
+    readonly escort?: { readonly spec: AircraftSpec; readonly count: number; readonly depth: number }
+  }
   /**
    * 紅隊分兩路夾擊：後半繞著艦隊往右舷轉這麼多，rad。**省略 = 一路壓上來。**
    *
@@ -501,6 +509,11 @@ export interface MissionBattle {
    * 守著。
    */
   readonly destroyCount?: number
+  /**
+   * 藍隊的轟炸機（攻擊隊）全滅就判敗，護航機還活著也一樣。**省略 = 藍隊全滅才敗。**
+   * 只給炸毀關（`destroyCount`），第二段（`retarget`）沿用。
+   */
+  readonly defeatOnBombers?: true
   /**
    * 只算這一種地面單位。**省略 = 敵方地面目標全部都算。**
    *

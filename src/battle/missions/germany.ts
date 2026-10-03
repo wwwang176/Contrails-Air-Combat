@@ -220,8 +220,11 @@ export const GERMANY: readonly MissionCard[] = [
       // 【開場沒有敵機】`redCount` 是 0，`redSpec` 只是型別要填；蘇軍戰鬥機走下面的 `waves`
       // 【2 + 2 + 2】三批各兩架，相鄰兩批前後差 2,300 m：開場速度約 95 m/s，晚約 24 秒到目標；
       // Ju 87 一輪約 72 秒，三批的俯衝大致錯開三分之一輪。**起始值，由試飛裁定**
+      //
+      // 【護航六架】與 Ju 87 同一刻生成：3 + 3 兩個小隊，在轟炸機上方 600 m、落在中間那一批旁邊
+      // （落後 2,300 m）、左右各 ±400 m。Bf 109 K-4 只是代用的機型
       blueCount: 6, redCount: 0,
-      blueWaves: { size: 2, depth: 2300 },
+      blueWaves: { size: 2, depth: 2300, escort: { spec: BF109K4, count: 6, depth: 2300 } },
       convoyCount: 0, convoyPriority: 1,
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       entry: 'strikeDeep',
@@ -286,15 +289,18 @@ export const GERMANY: readonly MissionCard[] = [
        *
        * 【Yak 先打 Ju 87】`bomberPriority` 讓 Ju 87 在 Yak 的目標評分裡值 20 倍，不去纏護航機。
        *
-       * 【我方護航四架】同一刻 4 架 Bf 109 K-4 生在地圖中央（`along: 0`），在 Yak 與 Ju 87 之間，
-       * 迎頭撞上 Yak；K-4 只是代用的機型。`airFirst`：場上還有敵機時護航機不去掃射地面，
-       * 否則沒被分到目標的僚機會去掃地面，整隊只剩長機在打 Yak。
+       * 【護航機只打飛機】`airOnly`：沒被分到目標的僚機預設去掃射地面，敵機進場前整隊也會離開
+       * 轟炸機去掃地、或直飛出場；開了之後沒有空中目標時，僚機飛站位跟長機，長機守在最近的友軍
+       * 轟炸機旁（後 150 m、側 350 m、上 450 m），Yak 進場後去打 Yak。
        *
-       * 全 AI 量測：Ju 87 六架在 240 秒還剩一架、270 秒全滅（沒有護航時 177 秒）；護航機四架到 450 秒
-       * 都還活著、Yak 掉一架。架數與時間都是**起始值，由試飛裁定**。
+       * 【Ju 87 全滅就敗】`defeatOnBombers`：護航機還活著也一樣。
+       *
+       * 全 AI 量測：Ju 87 六架到 420 秒還剩三架（沒有護航時 177 秒全滅），護航六架都活著、Yak 掉兩架。
+       * 架數與時間都是**起始值，由試飛裁定**。
        */
       bomberPriority: 20,
-      airFirst: true,
+      airOnly: true,
+      defeatOnBombers: true,
       waves: [
         {
           when: { kind: 'clock', at: 85 },
@@ -307,12 +313,6 @@ export const GERMANY: readonly MissionCard[] = [
           warnKey: 'mission.germany-m4.wave.fighters',
           warnLead: 5,
           side: 'theirs', spec: YAK1B, count: 3,
-        },
-        {
-          when: { kind: 'clock', at: 90 },
-          warnKey: 'mission.germany-m4.wave.escort',
-          warnLead: 0,
-          side: 'mine', spec: BF109K4, count: 4, along: 0,
         },
       ],
     },
