@@ -192,6 +192,19 @@ export function turretFile(weaponId: string, guns: number): string {
  */
 const TURRET_SHOT_OF: ReadonlyMap<string, Pool> = new Map([['ju87', 'turretshot-mg15x1']])
 
+/**
+ * 單發的距離上限，m。**超過就不記。**
+ *
+ * 【為什麼不跟 `CATEGORY.turret.max` 一樣大】定位的單發要等音波走到才響，等待的期間也佔著聲道。
+ * 一座 17.5 發/秒的槍在距離 d 時同時佔 17.5 × (d / 音速 + 尾音) 個聲道：2.2 km 外要 100 多個，
+ * 配額一滿，連發的下一發就搶掉前一發或被丟掉。450 m 時一座砲塔佔約 30 個，不會單獨把配額吃滿
+ * （`audio-catalog.test.ts` 守這一條）。更遠的砲手本來就小到聽不出來。
+ */
+export const TURRET_SHOT_RANGE = 450
+
+/** 單發最多同時佔幾個聲道（引擎的 `VOICE_QUOTA.turret`）。要夠幾座砲塔同時近距離連發 */
+export const TURRET_SHOT_VOICES = 32
+
 export function turretShotPool(specId: string): Pool | null {
   return TURRET_SHOT_OF.get(specId) ?? null
 }

@@ -215,6 +215,9 @@ describe('音效的戰鬥事件接線', () => {
     const play = body('function playCues(')
     expect(play).toContain('case CUE.TurretShot:')
     expect(play).toContain("audio.playPool(pool, 'turret', x, y, z, true, TURRET_SHOT_DB)")
+    // 距離上限與聲道配額都是目錄的常數（引擎與主程式讀同一份，測試才守得住「不會被自己吃滿」）
+    expect(q).toContain('< TURRET_SHOT_RANGE')
+    expect(ALL).not.toContain('const TURRET_SHOT_RANGE')
     const upd = body('function updateAudio(')
     expect(upd).toContain('turretShotPool(c.aircraft.spec.id) === null')
     expect(body('function resetAudioState(')).toContain('prevTurretFlash.fill(0)')

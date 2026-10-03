@@ -9,8 +9,8 @@ import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality }
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
 import {
-  CATEGORY, SINGLE_FILES, engineFile, fireFile, groundGunTier, gunSound, impactSound, turretFile, turretShotPool,
-  volleyPool, type Pool,
+  SINGLE_FILES, TURRET_SHOT_RANGE, engineFile, fireFile, groundGunTier, gunSound, impactSound, turretFile,
+  turretShotPool, volleyPool, type Pool,
 } from './audio/catalog'
 import { MAX_TURRETS } from './weapons/turret'
 import {
@@ -2120,8 +2120,6 @@ const prevVolleyFlash = new Float32Array(8)
  * 由 0 變正就是剛擊發。最多 64 個座位。
  */
 const prevTurretFlash = new Float32Array(64 * MAX_TURRETS)
-/** 單發的距離上限，m。超過的不記，遠處一群砲手不該把事件佇列灌滿 */
-const TURRET_SHOT_RANGE = CATEGORY.turret.max
 /**
  * 單發比循環小的分貝。**起始值，由試玩裁定。**
  * 【同一個數字下單發比循環大】350 ms 的尾音配上 17.5 發/秒，全速連射時同時有六層在響
