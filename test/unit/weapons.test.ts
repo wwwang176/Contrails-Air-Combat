@@ -8,6 +8,7 @@ import { F6F5_BATTERY } from '../../src/weapons/f6f5'
 import { F4F4_BATTERY } from '../../src/weapons/f4f4'
 import { A6M5_BATTERY } from '../../src/weapons/a6m5'
 import { KI84_BATTERY } from '../../src/weapons/ki84'
+import { JU87_BATTERY } from '../../src/weapons/ju87'
 import { volleyPool } from '../../src/audio/catalog'
 // 跨模組：MK 108 的單發傷害是拿 hp 校準的，所以要讀機體資料。
 // 與 hitbox.test.ts 守「槍口在機翼命中盒內」是同一個模式。
@@ -163,9 +164,9 @@ describe('L3 火力平衡的相對關係', () => {
  * 【齊射庫要對得上武裝】自己開火是一組同型槍播一個 one-shot，素材是照
  * 「武器 id ×挺數」疊出來的。武裝改了而庫沒補，那一組就整個沒聲音 —— 不會報錯。
  */
-describe('自己開火的齊射庫涵蓋所有可駕駛戰鬥機', () => {
+describe('自己開火的齊射庫涵蓋所有可駕駛的有前射武器機種', () => {
   it('每一種前射武器都有對應的庫', () => {
-    for (const b of [P51D_BATTERY, BF109K4_BATTERY, F6F5_BATTERY, F4F4_BATTERY, A6M5_BATTERY, KI84_BATTERY]) {
+    for (const b of [P51D_BATTERY, BF109K4_BATTERY, F6F5_BATTERY, F4F4_BATTERY, A6M5_BATTERY, KI84_BATTERY, JU87_BATTERY]) {
       const count = new Map<string, number>()
       for (const m of b.mounts) count.set(m.weapon.id, (count.get(m.weapon.id) ?? 0) + 1)
       for (const [id, n] of count) expect(volleyPool(id, n), `${id} ×${n}`).not.toBeNull()

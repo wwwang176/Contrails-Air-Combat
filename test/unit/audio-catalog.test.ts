@@ -122,8 +122,9 @@ describe('撞擊材質', () => {
 })
 
 import { existsSync, readFileSync } from 'node:fs'
-import { ALL_FILES, POOLS, engineFile, fireFile, turretFile } from '../../src/audio/catalog'
+import { ALL_FILES, POOLS, engineFile, fireFile, turretFile, volleyPool } from '../../src/audio/catalog'
 import { ALL_SPECS } from '../../src/battle/skirmish'
+import { JU87 } from '../../src/specs/ju87'
 
 const manifest = JSON.parse(readFileSync('public/audio/manifest.json', 'utf8')) as Record<string, unknown>
 
@@ -159,6 +160,21 @@ describe('音效目錄', () => {
     expect(e?.envelopeDb?.length).toBeGreaterThan(10)
     expect(existsSync('public/audio/engine-ju87.mp3')).toBe(true)
     expect(ALL_FILES).toContain('engine-ju87')
+  })
+
+  /**
+   * Ju 87 的前機槍是兩挺翼內 MG 17（1,150 發/分），後座是單管 MG 15（1,050 發/分）。
+   * 前機槍：別人看到它開火是自己的循環（兩挺左右擺開），自己駕駛是齊射庫；後座用單管 MG 15 的砲塔檔。
+   */
+  it('Ju 87 的前機槍有專屬的開火聲與齊射庫，後座 MG 15 用單管砲塔檔', () => {
+    expect(fireFile('ju87')).toBe('fire-ju87')
+    expect(volleyPool('mg17', 2)).toBe('volley-mg17x2')
+    expect(POOLS['volley-mg17x2']).toHaveLength(3)
+    for (const f of ['fire-ju87', ...POOLS['volley-mg17x2']]) expect(manifest[f], f).toBeDefined()
+    expect((manifest['fire-ju87'] as { loop: boolean }).loop).toBe(true)
+    for (const f of POOLS['volley-mg17x2']) expect((manifest[f] as { loop: boolean }).loop, f).toBe(false)
+    const rear = JU87.turrets.map((t) => turretFile(t.weapon.id, t.guns))
+    expect(rear).toEqual(['turret-mg15x1'])
   })
 
   it('借用別台引擎聲的只剩 Yak-1B（借 Bf 109 K-4）', () => {

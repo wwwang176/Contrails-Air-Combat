@@ -140,6 +140,7 @@ export const POOLS = {
   'volley-m2-50calx6': range('volley-m2-50calx6', 3),
   'volley-mk108x1': range('volley-mk108x1', 3),
   'volley-mg131x2': range('volley-mg131x2', 3),
+  'volley-mg17x2': range('volley-mg17x2', 3),
   'volley-type97x2': range('volley-type97x2', 3),
   'volley-type99-2x2': range('volley-type99-2x2', 3),
   'volley-ho103x2': range('volley-ho103x2', 3),
@@ -150,15 +151,14 @@ export type Pool = keyof typeof POOLS
 /**
  * 開火循環依射速合成。翼槍六挺 M2 的三個機種共用一個。
  *
- * 【Ju 87 暫用雙聯 MG 15 的循環】兩挺翼內 MG 17 與 MG 15 是同一顆 7.92 mm 彈、
- * 射速差一成；專屬的循環還沒做。
+ * 【Ju 87 的是兩挺翼內 MG 17（1,150 發/分）】左右擺開；後座的單管 MG 15 走砲塔檔（`turretFile`）。
  *
  * 【Yak-1B 暫用 Bf 109 K-4 的循環】同樣是機首的一門機砲加機槍；專屬的循環還沒做。
  */
 const FIRE_OF: Record<string, string> = {
   p51d: 'fire-m2x6', f4f4: 'fire-m2x6', f6f5: 'fire-m2x6',
   bf109k4: 'fire-bf109k4', a6m5: 'fire-a6m5', ki84: 'fire-ki84',
-  ju87: 'turret-mg15x2', yak1b: 'fire-bf109k4',
+  ju87: 'fire-ju87', yak1b: 'fire-bf109k4',
 }
 
 /**
