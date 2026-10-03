@@ -9,10 +9,8 @@ import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality }
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
 import {
-  SINGLE_FILES, TURRET_SHOT_RANGE, engineFile, fireFile, groundGunTier, gunSound, impactSound, turretFile,
-  turretShotPool, volleyPool, type Pool,
+  SINGLE_FILES, engineFile, fireFile, groundGunTier, gunSound, impactSound, turretFile, volleyPool, type Pool,
 } from './audio/catalog'
-import { MAX_TURRETS } from './weapons/turret'
 import {
   STRIKE_HEIGHT, applyFlash, createStorm, rollThunder, stepStorm, type Storm,
 } from './render/storm'
@@ -2107,25 +2105,24 @@ const lastTurretFire = new Float64Array(64)
 /** 每架轟炸機的砲塔循環用第幾座的聲音；−1 = 還沒挑。見 `noteTurretFire` */
 const turretPick = new Int16Array(64)
 /**
- * 自己那架的前射武器分組：同一種槍算一組，每組記一個代表掛架與它的齊射庫。
+ * 自己那架的槍分組：前射武器同一種槍算一組，每組記一個代表掛架與它的齊射庫；有齊射庫的
+ * 後座砲塔（Ju 87 的 MG 15）各自一組，與前機槍走同一個機制。`mount` 或 `turret` 其中一個是 −1。
  *
  * 【為什麼同一種槍只記一個掛架】`stepCadence` 讓同型槍共用一份射速時鐘，
  * 六挺是一起擊發的；素材也是照這樣疊出來的，一組播一次就好。
  */
-const volleyGroups: { mount: number; pool: Pool }[] = []
-/** 分組代表掛架上一個子步的槍焰 —— 由 0 變正就是剛擊發 */
+const volleyGroups: { mount: number; turret: number; pool: Pool; db: number }[] = []
+/** 分組代表掛架（或砲塔）上一個子步的槍焰 —— 由 0 變正就是剛擊發 */
 const prevVolleyFlash = new Float32Array(8)
 /**
- * 單座砲塔機種（`turretShotPool`）每座砲塔上一個子步的槍焰，索引是 座位 × `MAX_TURRETS` + 砲塔序號 ——
- * 由 0 變正就是剛擊發。最多 64 個座位。
+ * 自己這架有砲塔走齊射庫。為真時砲塔循環不再播自己那一架（上帝視角除外），
+ * 與前機槍的開火循環同一個道理 —— 兩個都響的話一發會聽成兩種聲音。
  */
-const prevTurretFlash = new Float32Array(64 * MAX_TURRETS)
+let ownTurretVolley = false
 /**
- * 單發比循環小的分貝。**起始值，由試玩裁定。**
- * 【同一個數字下單發比循環大】350 ms 的尾音配上 17.5 發/秒，全速連射時同時有六層在響
- * （與 `fireSelf` 同一個道理，那邊記的是 5.7 dB）
+ * 後座機槍比前機槍小的分貝：一挺 MG 15 比兩挺 MG 17 單薄。**起始值，由試玩裁定。**
  */
-const TURRET_SHOT_DB = -6
+const TURRET_VOLLEY_DB = -0.5
 /** 多普勒要聽者的速度。鏡頭沒有速度這個量，只能逐幀相減 */
 const prevCamPos = new Vector3()
 const camVel = new Vector3()
@@ -2178,7 +2175,6 @@ function resetAudioState(): void {
   prevBombAge.fill(0)
   lastGunFire.fill(-Infinity)
   lastTurretFire.fill(-Infinity)
-  prevTurretFlash.fill(0)
   turretPick.fill(-1)
   prevPlayerHp = -1
   prevReloading = false
@@ -2232,7 +2228,18 @@ function rebuildVolleyGroups(): void {
     let guns = 0
     for (const m of mounts) if (m.weapon.id === id) guns++
     const pool = volleyPool(id, guns)
-    if (pool !== null && volleyGroups.length < prevVolleyFlash.length) volleyGroups.push({ mount: i, pool })
+    if (pool !== null && volleyGroups.length < prevVolleyFlash.length) {
+      volleyGroups.push({ mount: i, turret: -1, pool, db: 0 })
+    }
+  }
+  // 後座砲塔：有齊射庫的各自一組（沒有的仍是砲塔循環）
+  const turrets = player.aircraft.spec.turrets
+  ownTurretVolley = false
+  for (let i = 0; i < turrets.length; i++) {
+    const pool = volleyPool(turrets[i]!.weapon.id, turrets[i]!.guns)
+    if (pool === null || volleyGroups.length >= prevVolleyFlash.length) continue
+    volleyGroups.push({ mount: -1, turret: i, pool, db: TURRET_VOLLEY_DB })
+    ownTurretVolley = true
   }
 }
 
@@ -2256,28 +2263,14 @@ function playHitDealt(): void {
 
 /** 物理子步裡呼叫，排在所有事件清除之前。只寫佇列 */
 function queueAudioCues(): void {
-  // 自己開火：每一組同型槍擊發一次記一筆。上帝視角時自己那架改走定位的開火循環
+  // 自己開火：每一組同型槍（或後座砲塔）擊發一次記一筆。上帝視角時自己那架改走定位的循環
   const flash = player.muzzleFlash
   for (let i = 0; i < volleyGroups.length; i++) {
-    const now = flash[volleyGroups[i]!.mount] ?? 0
+    const g = volleyGroups[i]!
+    const now = g.turret >= 0 ? player.turretStates[g.turret]?.flash ?? 0 : flash[g.mount] ?? 0
     const was = prevVolleyFlash[i]!
     prevVolleyFlash[i] = now
     if (now > 0 && was <= 0 && player.alive && !input.godView) pushCue(cues, CUE.SelfVolley, i, 0, 0)
-  }
-  // 單座砲塔的機種：每擊發一次記一筆，停火就沒有聲音。不在耳朵範圍內的不記
-  const eyePos = ctx.camera.position
-  for (let n = 0; n < world.combatants.length; n++) {
-    const c = world.combatants[n]!
-    if (turretShotPool(c.aircraft.spec.id) === null) continue
-    for (let t = 0; t < c.turretStates.length; t++) {
-      const slot = c.index * MAX_TURRETS + t
-      const now = c.turretStates[t]!.flash
-      const was = prevTurretFlash[slot]!
-      prevTurretFlash[slot] = now
-      if (!(now > 0 && was <= 0) || !c.alive) continue
-      const p = c.aircraft.state.position
-      if (p.distanceTo(eyePos) < TURRET_SHOT_RANGE) pushCue(cues, CUE.TurretShot, p.x, p.y, p.z, c.index)
-    }
   }
   const k = world.killEvents
   for (let e = 0; e < k.count; e++) {
@@ -2401,11 +2394,9 @@ function playCues(): void {
       // 【受創的 x 帶的是輕重】0 = 擦到一點、1 = 重擊，見 `damageGainDb`
       case CUE.Damage: playHeavyHit(x); break
       // 【自己開火的 x 帶的是分組序號】不是座標
-      case CUE.SelfVolley: audio.playPool(volleyGroups[x]!.pool, 'fireSelf', 0, 0, 0, false); break
-      // 【第五格帶的是座位索引】查那一架的單發庫，聲音在那一架身上、定位
-      case CUE.TurretShot: {
-        const pool = turretShotPool(world.combatants[scale]?.aircraft.spec.id ?? '')
-        if (pool !== null) audio.playPool(pool, 'turret', x, y, z, true, TURRET_SHOT_DB)
+      case CUE.SelfVolley: {
+        const g = volleyGroups[x]!
+        audio.playPool(g.pool, 'fireSelf', 0, 0, 0, false, g.db)
         break
       }
     }
@@ -2598,9 +2589,9 @@ function updateAudio(worldSeconds: number): void {
   // 砲塔（自己的轟炸機也算 —— 砲塔由 AI 操作）
   for (let i = 0; i < n; i++) {
     const c = all[i]!
-    // 【單座砲塔的機種不進循環】它們走單發（`CUE.TurretShot`），循環停火後的尾巴就是要避開的東西
+    // 【自己那架的後座機槍走齊射庫，不進循環】與前機槍同一個道理（上帝視角時才輪到循環）
     AUDIO_VALID[i] = c.alive && turretPick[i]! >= 0 && elapsed - lastTurretFire[i]! < FIRE_HOLD
-      && turretShotPool(c.aircraft.spec.id) === null ? 1 : 0
+      && !(c === me && flying && ownTurretVolley) ? 1 : 0
   }
   m = nearestN(AUDIO_POS, AUDIO_VALID, n, cam.x, cam.y, cam.z, TURRET_KEYS)
   for (let j = 0; j < m; j++) {

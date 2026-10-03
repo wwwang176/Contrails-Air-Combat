@@ -2045,30 +2045,6 @@
    -1.2
   ]
  },
- "turretshot-mg15x1-1": {
-  "loop": false,
-  "makeupDb": 2.7,
-  "envelopeDb": [
-   0.0,
-   -47.6
-  ]
- },
- "turretshot-mg15x1-2": {
-  "loop": false,
-  "makeupDb": 2.8,
-  "envelopeDb": [
-   0.0,
-   -49.0
-  ]
- },
- "turretshot-mg15x1-3": {
-  "loop": false,
-  "makeupDb": 2.7,
-  "envelopeDb": [
-   0.0,
-   -47.1
-  ]
- },
  "ui-1": {
   "loop": false,
   "makeupDb": 9.0,
@@ -2184,6 +2160,30 @@
   "envelopeDb": [
    0.0,
    -37.3
+  ]
+ },
+ "volley-mg15x1-1": {
+  "loop": false,
+  "makeupDb": 2.7,
+  "envelopeDb": [
+   0.0,
+   -47.6
+  ]
+ },
+ "volley-mg15x1-2": {
+  "loop": false,
+  "makeupDb": 2.8,
+  "envelopeDb": [
+   0.0,
+   -49.0
+  ]
+ },
+ "volley-mg15x1-3": {
+  "loop": false,
+  "makeupDb": 2.7,
+  "envelopeDb": [
+   0.0,
+   -47.1
   ]
  },
  "volley-mg17x2-1": {

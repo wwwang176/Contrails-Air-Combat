@@ -15,10 +15,9 @@ describe('音效事件佇列', () => {
   })
 
   /** 【種類編號不能重複】兩種事件同一個號碼，其中一種會被當成另一種播出來，不報錯 */
-  it('每一種事件的編號都不同，包括砲塔單發', () => {
+  it('每一種事件的編號都不同', () => {
     const ids = Object.values(CUE)
     expect(new Set(ids).size).toBe(ids.length)
-    expect(CUE.TurretShot).toBeDefined()
   })
 
   /** 【沒有當量可言的事件用 1】擊墜、空爆不該因為忘了帶參數就變安靜 */

@@ -2,7 +2,7 @@ import { Audio, Vector3, type Camera } from 'three'
 import { PannedAudio, SilentListener } from './spatial'
 import { azimuthDeg, equalPowerMatrix, inverseDistanceGain, type ListenerPose } from './pan'
 import { assetUrl } from '../core/asset'
-import { CATEGORY, FIRST_FILES, POOLS, TURRET_SHOT_VOICES, type Category, type Pool } from './catalog'
+import { CATEGORY, FIRST_FILES, POOLS, type Category, type Pool } from './catalog'
 import { absorptionDb, dbToGain, distanceCutoffHz, fadeInCurve, soundArrived, voiceLoudnessDb } from './curves'
 import {
   HDR_ABS_FLOOR_DB, HDR_EXEMPT, envelopeAt, hdrDuckDb, hdrFloorDb, stepLoudest,
@@ -117,9 +117,6 @@ const LAYER_MIN_FREE = 16
 const VOICE_QUOTA: Partial<Record<Category, number>> = {
   cannon: 22, impact: 12, flyby: 8, whistle: 6, hitDealt: 6, splash: 8, flakBurst: 14,
   explosion: 8, blast: 8,
-  // 單座砲塔的單發（Ju 87 的背部機槍）：砲手同時開火也不該吃光池子。砲塔的循環另有聲道。
-  // 【不能太小】配額滿了，連發的下一發會搶掉前一發，見 `TURRET_SHOT_VOICES`
-  turret: TURRET_SHOT_VOICES,
 }
 const LOOP_VOICES: Record<LoopPool, number> = { engine: 8, fire: 6, turret: 6 }
 const LOOP_CATEGORY: Record<LoopPool, Category> = { engine: 'engine', fire: 'fire', turret: 'turret' }

@@ -122,10 +122,7 @@ describe('撞擊材質', () => {
 })
 
 import { existsSync, readFileSync } from 'node:fs'
-import {
-  ALL_FILES, POOLS, TURRET_SHOT_RANGE, TURRET_SHOT_VOICES, engineFile, fireFile, turretFile, turretShotPool, volleyPool,
-} from '../../src/audio/catalog'
-import { SPEED_OF_SOUND } from '../../src/audio/curves'
+import { ALL_FILES, POOLS, engineFile, fireFile, turretFile, volleyPool } from '../../src/audio/catalog'
 import { ALL_SPECS } from '../../src/battle/skirmish'
 import { JU87 } from '../../src/specs/ju87'
 
@@ -181,40 +178,18 @@ describe('音效目錄', () => {
   })
 
   /**
-   * 只有一座砲塔的機種（Ju 87）：循環的尾巴（停火後還響約半秒）沒有別座砲塔蓋住，一聽就知道。
-   * 改成每發一個單發，停火就停。多座砲塔的轟炸機照舊用循環。
+   * 自己駕駛 Ju 87 時，後座的單管 MG 15 與前機槍走同一個機制：每發一個齊射 one-shot（`fireSelf`，
+   * 不定位、不吃 HDR、聲道充裕，所以連發的聲音可以重疊、停火就停）。
    */
-  it('只有一座砲塔的機種用單發：turretShotPool 與砲塔的武器、管數對得上', () => {
-    expect(turretShotPool('ju87')).toBe('turretshot-mg15x1')
-    expect(POOLS['turretshot-mg15x1']).toHaveLength(3)
-    for (const f of POOLS['turretshot-mg15x1']) {
+  it('Ju 87 後座的 MG 15 有齊射庫：單聲道、非循環、檔案都在清單裡', () => {
+    const t = JU87.turrets[0]!
+    expect(volleyPool(t.weapon.id, t.guns)).toBe('volley-mg15x1')
+    expect(POOLS['volley-mg15x1']).toHaveLength(3)
+    for (const f of POOLS['volley-mg15x1']) {
       expect(manifest[f], f).toBeDefined()
       expect((manifest[f] as { loop: boolean }).loop, f).toBe(false)
+      expect(existsSync(`public/audio/${f}.mp3`), f).toBe(true)
     }
-    for (const s of ALL_SPECS) {
-      const pool = turretShotPool(s.id)
-      if (pool === null) continue
-      expect(s.turrets.length, s.id).toBe(1)
-      const t = s.turrets[0]!
-      expect(pool, s.id).toBe(`turretshot-${t.weapon.id}x${t.guns}`)
-    }
-    for (const id of ['he111', 'b17g', 'g4m', 'p51d', 'bf109k4', 'yak1b']) expect(turretShotPool(id), id).toBeNull()
-  })
-
-  /**
-   * 【一座砲塔在最遠距離也不能單獨把配額吃滿】定位的單發要等音波走到才響，等待的期間也佔著聲道
-   * （引擎的 `mine` 把等待中的算進去）。一座 17.5 發/秒的 MG 15，距離 d 時同時佔
-   * 射速 × (d / 音速 + 尾音) 個聲道。吃滿了，連發的下一發會把前一發搶掉或被丟掉 ——
-   * 玩家聽到的就是連發被一發一發截斷。
-   */
-  it('單座砲塔單發：一座砲塔在最遠距離佔的聲道不超過配額', () => {
-    const t = JU87.turrets[0]!
-    const perSecond = t.weapon.roundsPerMinute / 60
-    const tail = 0.45
-    const voices = perSecond * (TURRET_SHOT_RANGE / SPEED_OF_SOUND + tail)
-    expect(voices).toBeLessThanOrEqual(TURRET_SHOT_VOICES)
-    // 配額要夠給好幾座砲塔的近距離連發，不是剛好一座
-    expect(TURRET_SHOT_VOICES).toBeGreaterThanOrEqual(2 * perSecond * tail)
   })
 
   it('借用別台引擎聲的只剩 Yak-1B（借 Bf 109 K-4）', () => {
