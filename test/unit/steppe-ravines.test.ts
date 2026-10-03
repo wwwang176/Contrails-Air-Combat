@@ -189,7 +189,7 @@ describe('村讓開沖溝', () => {
   /** 房子與棚子 */
   const houseKinds = new Set<number>([FloraKind.House, FloraKind.SlateHouse, FloraKind.Barn, FloraKind.TarBarn])
   const build = (keepOut: (x: number, z: number) => boolean): { x: number; z: number }[] => {
-    const v = farmSettlements(HALF_V, 'julyWheat', { keepOut, burnRate: burnRateOf, large: isLargeVillage })
+    const v = farmSettlements(HALF_V, 'winterSteppe', { keepOut, burnRate: burnRateOf, large: isLargeVillage })
     const buf = createFloraBuffer(400000)
     v.flora(ORIGIN.x - HALF_V, ORIGIN.z - HALF_V, ORIGIN.x + HALF_V, ORIGIN.z + HALF_V, FLAT, buf)
     const out: { x: number; z: number }[] = []
@@ -239,11 +239,11 @@ describe('沖溝的溝帶', () => {
       expect(col.getY(v)).toBeCloseTo(c.g, 5)
       expect(col.getZ(v)).toBeCloseTo(c.b, 5)
     }
-    same(1, new Color(FIELD_COLORS.julyWheat.hedge))
+    same(1, new Color(FIELD_COLORS.winterSteppe.hedge))
     same(3, new Color(RAVINE_SLOPE))
     same(5, new Color(RAVINE_BOTTOM))
     same(7, new Color(RAVINE_SLOPE))
-    same(9, new Color(FIELD_COLORS.julyWheat.hedge))
+    same(9, new Color(FIELD_COLORS.winterSteppe.hedge))
   })
 
   it('田埂與溝坡在同一個位置：硬邊，田在那裡停住', () => {
@@ -313,7 +313,7 @@ describe('沖溝的渡口', () => {
 
   it('每一格都在凹路上、也在溝帶的範圍裡；顏色是路色', () => {
     const maxReach = Math.max(...RAVINES.map((r) => r.half)) + RAVINE_RIM_SOLID + FORD_CELL
-    const track = new Color(FIELD_COLORS.julyWheat.track)
+    const track = new Color(FIELD_COLORS.winterSteppe.track)
     const col = fords.getAttribute('color')
     for (let q = 0; q < pos.count; q += 4) {
       const x = pos.getX(q) + FORD_CELL / 2

@@ -21,9 +21,9 @@ import type { Ravine } from '../world/rzhevRavines'
  * 與溝的編號決定，tile 的邊界只用來過濾。
  */
 
-/** 溝坡的草色與溝底的灌木色 */
-export const RAVINE_SLOPE = 0x6d7442
-export const RAVINE_BOTTOM = 0x3d4b2b
+/** 溝坡的雪色（比田稍暗，坡面有陰影）與溝底的灌木色（積雪下露出的枯灌木） */
+export const RAVINE_SLOPE = 0xc3ccd4
+export const RAVINE_BOTTOM = 0x8f9a98
 /** 田埂色的邊：實心的寬度與淡出的寬度，m */
 export const RAVINE_RIM_SOLID = 4
 export const RAVINE_RIM_FADE = 4
@@ -211,7 +211,7 @@ export function buildRavineStripes(
   const pos: number[] = []
   const col: number[] = []
   const idx: number[] = []
-  const tint = [new Color(FIELD_COLORS.julyWheat.hedge), new Color(RAVINE_SLOPE), new Color(RAVINE_BOTTOM)]
+  const tint = [new Color(FIELD_COLORS.winterSteppe.hedge), new Color(RAVINE_SLOPE), new Color(RAVINE_BOTTOM)]
   for (const r of ravines) {
     const pts = r.points
     let runStart = -1
@@ -291,7 +291,7 @@ export function buildRavineFords(
   const pos: number[] = []
   const col: number[] = []
   const idx: number[] = []
-  const c = new Color(FIELD_COLORS.julyWheat.track)
+  const c = new Color(FIELD_COLORS.winterSteppe.track)
   for (const r of ravines) {
     // 窗的半邊：全寬的溝帶加一格。每個取樣點再依自己的寬度倍率縮小 `reach`
     const win = r.half + RAVINE_RIM_SOLID + FORD_CELL

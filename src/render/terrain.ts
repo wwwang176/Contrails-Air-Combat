@@ -50,7 +50,7 @@ import {
 import { buildObstacles } from './geometry/ground/obstacles'
 import { preloadScarAtlas } from './battleScars'
 import type { HeightFieldData } from '../world/heightfield'
-import { FIELD_COLORS, type Season } from './season'
+import { canopyColor, FIELD_COLORS, FLORA_COLORS, type Season } from './season'
 import type { SiteLayout } from './fields'
 import {
   buildRavineFords, buildRavineStripes, ravineKeepOutFor, steppeRavineFloraFor,
@@ -577,19 +577,19 @@ export const RZHEV_SITE: SiteLayout = {
     scorch: SCORCH, trenches: TRENCHES, tracks: TRACKS, minefields: MINEFIELDS,
     craterPatches: CRATER_PATCHES,
   },
-  // 防風林帶在植被圈外（4.8～6 km 以遠）由著色器畫成田界上的深色帶；與歐陸的樹籬同一個做法
-  belts: { frame: BELT_FRAME, halfWidth: 9, hex: 0x2d3a22 },
+  // 防風林帶在植被圈外（4.8～6 km 以遠）由著色器畫成田界上的帶；顏色是針葉樹冠色，與近處的林帶同一份
+  belts: { frame: BELT_FRAME, halfWidth: 9, hex: canopyColor(FLORA_COLORS.winterSteppe.conifer).getHex() },
 }
 
 /**
- * 庫斯克：農地的算繪路徑、手擺的緩丘、七月的麥田、戰場的痕跡，加上立體的障礙物（反坦克樁、
+ * 勒熱夫：農地的算繪路徑、手擺的緩丘、十一月的雪原、戰場的痕跡，加上立體的障礙物（反坦克樁、
  * 捷克刺蝟、鐵絲網）當佈景。高度場只建一次，障礙物貼著同一份地面
  */
 function createRzhevTerrain(gfx?: TerrainGfx): Terrain {
   const rzhev = createRzhev()
   const solid = outsideZero(rzhev.field)
   return createInlandTerrain(
-    rzhev, 'julyWheat', RZHEV_SITE, () => buildObstacles(OBSTACLES, (x, z) => solid.sample(x, z)), gfx,
+    rzhev, 'winterSteppe', RZHEV_SITE, () => buildObstacles(OBSTACLES, (x, z) => solid.sample(x, z)), gfx,
   )
 }
 

@@ -30,7 +30,7 @@ describe('七月的麥田', () => {
     for (let z = -6000; z <= 6000; z += 150) {
       for (let x = -6000; x <= 6000; x += 150) {
         summer += openWoodCover(x, z, FIELD_COLORS.summer.woodGate)
-        july += openWoodCover(x, z, FIELD_COLORS.julyWheat.woodGate)
+        july += openWoodCover(x, z, FIELD_COLORS.winterSteppe.woodGate)
       }
     }
     expect(summer).toBeGreaterThan(0)
@@ -41,7 +41,7 @@ describe('七月的麥田', () => {
     expect(FIELD_COLORS.summer.woodGate).toEqual([...OPEN_WOOD_GATE])
     expect(FIELD_COLORS.lateAutumn.woodGate).toEqual([...OPEN_WOOD_GATE])
     expect(openWoodFloraFor(FIELD_COLORS.summer.woodGate)).toBe(openWoodFlora)
-    expect(openWoodFloraFor(FIELD_COLORS.julyWheat.woodGate)).not.toBe(openWoodFlora)
+    expect(openWoodFloraFor(FIELD_COLORS.winterSteppe.woodGate)).not.toBe(openWoodFlora)
   })
 })
 
@@ -277,7 +277,7 @@ describe('rzhev 佈局', () => {
 
 describe('七月麥田的樹籬', () => {
   it('田界長樹籬的機率遠低於夏季，夏季與晚秋仍是原本的常數', () => {
-    expect(FIELD_COLORS.julyWheat.hedgeChance).toBeLessThan(0.1)
+    expect(FIELD_COLORS.winterSteppe.hedgeChance).toBeLessThan(0.1)
     expect(FIELD_COLORS.summer.hedgeChance).toBe(HEDGE_CHANCE)
     expect(FIELD_COLORS.lateAutumn.hedgeChance).toBe(HEDGE_CHANCE)
     expect(openHedgeFloraFor(HEDGE_CHANCE)).toBe(openHedgeFlora)
@@ -286,13 +286,13 @@ describe('七月麥田的樹籬', () => {
 
 describe('草原田的格局', () => {
   it('七月麥田是 steppe，夏季與晚秋是 european', () => {
-    expect(FIELD_COLORS.julyWheat.layout).toBe('steppe')
+    expect(FIELD_COLORS.winterSteppe.layout).toBe('steppe')
     expect(FIELD_COLORS.summer.layout).toBe('european')
     expect(FIELD_COLORS.lateAutumn.layout).toBe('european')
   })
 
   it('草原田的著色器：大格、不對切、每條田界都是田埂；中歐的字串不動', () => {
-    const s = fieldGlsl('julyWheat')
+    const s = fieldGlsl('winterSteppe')
     expect(s).toContain(`const float FIELD_SPACING = ${STEPPE_LAYOUT.spacing.toFixed(1)};`)
     expect(s).toContain('const float SPLIT_CHANCE = 0.000;')
     expect(s).toContain('const float HEDGE_CHANCE = 1.000;')
@@ -310,7 +310,7 @@ describe('草原田的格局', () => {
   })
 
   it('草原田沒有 CPU 版的取色，明講不支援', () => {
-    expect(() => fieldSurfaceColor(0, 0, new Color(), 'julyWheat')).toThrow()
+    expect(() => fieldSurfaceColor(0, 0, new Color(), 'winterSteppe')).toThrow()
   })
 })
 

@@ -1,5 +1,5 @@
 import { BufferAttribute, BufferGeometry, Color } from 'three'
-import { FLORA_COLORS, type Season } from './season'
+import { FIELD_COLORS, FLORA_COLORS, type Season } from './season'
 
 /**
  * 植被與建築的幾何。**每一個都是一堆三角形，不共用頂點。**
@@ -102,20 +102,20 @@ const CENTRAL_EUROPE: BuildingColors = {
 }
 
 /**
- * 俄國南部的農村：石灰刷白的泥牆、麥稈紮的草頂（khata）；附屬的棚子是土黃的泥牆、
- * 更舊更暗的草頂。**`houseSlate` 在草原村是燒毀的房子**：牆與屋頂都燒成焦黑。池的名字
+ * 冬季的俄國農村：石灰刷白的泥牆、覆雪的草頂（屋頂是白的）；附屬的棚子牆是灰褐、屋頂也覆雪但
+ * 比住屋髒一點。**`houseSlate` 在草原村是燒毀的房子**：牆與屋頂都燒成焦黑，在雪上最顯眼。池的名字
  * 沿用 —— 池只認顏色表，形狀都一樣
  */
 const STEPPE_VILLAGE: BuildingColors = {
-  house: { wall: 0xe4dcc6, roof: 0x9b8453 },
+  house: { wall: 0xe8e4da, roof: 0xeef1f3 },
   houseSlate: { wall: 0x2b2722, roof: 0x1a1816 },
-  barn: { wall: 0xa39069, roof: 0x6b5a39 },
-  barnTar: { wall: 0x7a6a50, roof: 0x4a443a },
+  barn: { wall: 0x8f8571, roof: 0xdfe4e8 },
+  barnTar: { wall: 0x6e6454, roof: 0xcfd6db },
 }
 
 /** 這個季節的建築顏色。夏季與晚秋是德國中部那一套（原本的常數） */
 export function buildingColors(season: Season): BuildingColors {
-  return season === 'julyWheat' ? STEPPE_VILLAGE : CENTRAL_EUROPE
+  return FIELD_COLORS[season].layout === 'steppe' ? STEPPE_VILLAGE : CENTRAL_EUROPE
 }
 /**
  * 建築在縮放 1、倍率 1 時的尺寸，m：牆的面寬（x）、進深（z）、牆高、屋頂高。

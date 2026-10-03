@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { Color } from 'three'
 import { farmLaneVillages, farmSettlements } from '../../src/render/farmSettlements'
 import { createFloraBuffer, FloraKind, steppeBeltFloraFor } from '../../src/render/flora'
 import { buildingColors } from '../../src/render/floraShapes'
@@ -48,7 +49,7 @@ describe('草原街村', () => {
   })
 
   it('菜園都是垂直於街的長條，四個角繞成矩形', () => {
-    const { gardens } = farmSettlements(HALF, 'julyWheat')
+    const { gardens } = farmSettlements(HALF, 'winterSteppe')
     expect(gardens.length).toBeGreaterThan(100)
     for (const g of gardens.slice(0, 200)) {
       const [a, b, , d] = g.ring
@@ -62,7 +63,7 @@ describe('草原街村', () => {
   })
 
   it('菜園不是一排整齊的條紋：長短、顏色、兩種作物都有變化，不是每一戶都有', () => {
-    const { gardens } = farmSettlements(HALF, 'julyWheat')
+    const { gardens } = farmSettlements(HALF, 'winterSteppe')
     const lens = gardens.map((g) => Math.hypot(g.ring[3]![0] - g.ring[0]![0], g.ring[3]![1] - g.ring[0]![1]))
     const mean = lens.reduce((a, b) => a + b, 0) / lens.length
     const sd = Math.sqrt(lens.reduce((a, b) => a + (b - mean) ** 2, 0) / lens.length)
@@ -108,7 +109,11 @@ describe('草原街村', () => {
     expect(farmSettlements(HALF, 'summer').gardens).toHaveLength(0)
     expect(farmSettlements(HALF, 'lateAutumn').gardens).toHaveLength(0)
     expect(buildingColors('summer')).toBe(buildingColors('lateAutumn'))
-    expect(buildingColors('julyWheat').house.wall).not.toBe(buildingColors('summer').house.wall)
+    expect(buildingColors('winterSteppe').house.wall).not.toBe(buildingColors('summer').house.wall)
+    // 冬季的屋頂覆雪：比夏季的屋頂亮得多；燒毀的房子仍然是焦黑
+    const lum = (hex: number): number => new Color(hex).getHSL({ h: 0, s: 0, l: 0 }).l
+    expect(lum(buildingColors('winterSteppe').house.roof)).toBeGreaterThan(lum(buildingColors('summer').house.roof) + 0.3)
+    expect(lum(buildingColors('winterSteppe').houseSlate.roof)).toBeLessThan(0.15)
   })
 
   it('同一個種子兩次跑得到同一批房子', () => {
@@ -201,11 +206,11 @@ describe('戰場上的村', () => {
   it('戰場的南北軸與兩側各處都不溢位', () => {
     // 地形實際用的設定：只有戰場的村是大村，田界有防風林帶
     const v = createVegetation([
-      farmSettlements(20000, 'julyWheat', { ...war, keepOut: rzhevVillageKeepOut, large: isLargeVillage }).flora,
+      farmSettlements(20000, 'winterSteppe', { ...war, keepOut: rzhevVillageKeepOut, large: isLargeVillage }).flora,
       steppeBeltFloraFor(shelterbeltFade),
       steppeRavineFloraFor(RAVINES),
     ], () => 0, {
-      season: 'julyWheat', capacity: STEPPE_CAPACITY,
+      season: 'winterSteppe', capacity: STEPPE_CAPACITY,
     })
     for (const lx of [-4000, -2000, 0, 2000, 4000]) {
       for (const lz of [-2500, -1000, 0, 1000, 2500, 4000, 5500]) {
@@ -411,7 +416,7 @@ describe('戰場上的村', () => {
   })
 
   it('不給戰場時每個村只零星燒毀；給了戰場就與直接呼叫生成器的結果相同', () => {
-    const plain = farmSettlements(HALF, 'julyWheat')
+    const plain = farmSettlements(HALF, 'winterSteppe')
     const plainBuf = createFloraBuffer(200000)
     plain.flora(-HALF - 3000, -HALF - 3000, HALF + 3000, HALF + 3000, () => 0, plainBuf)
     let houses = 0
@@ -420,7 +425,7 @@ describe('戰場上的村', () => {
     }
     expect(plain.blasts.length).toBeGreaterThan(0)
     expect(plain.blasts.length / houses).toBeLessThan(0.08)
-    expect(farmSettlements(HALF, 'julyWheat', war).blasts).toEqual(layout.blasts)
+    expect(farmSettlements(HALF, 'winterSteppe', war).blasts).toEqual(layout.blasts)
   })
 })
 
@@ -522,7 +527,7 @@ describe('草原街村避開凹路', () => {
   })
 
   it('菜園的中心與四個角都不在凹路上', () => {
-    const { gardens } = farmSettlements(HALF, 'julyWheat')
+    const { gardens } = farmSettlements(HALF, 'winterSteppe')
     let bad = 0
     for (const g of gardens) {
       if (onRoad(g.x, g.z) || g.ring.some(([x, z]) => onRoad(x, z))) bad++

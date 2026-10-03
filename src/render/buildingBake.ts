@@ -4,7 +4,7 @@ import {
   BRICK_WALL, BROAD_CROWN_R, buildingColors, BUILDING_DEPTH, BUILDING_WIDTH, BUSH_R, CHURCH_WALL, CONE_CROWN_R,
   OLD_ROOF, ROOF, SLATE, TAR_ROOF, WALL,
 } from './floraShapes'
-import { canopyColor, FLORA_COLORS, type Season } from './season'
+import { canopyColor, FIELD_COLORS, FLORA_COLORS, type Season } from './season'
 import { TINT_RANGE } from './vegetation'
 
 /**
@@ -69,7 +69,7 @@ const ROOFS: ReadonlyMap<FloraKind, Splat> = new Map([
  * `buildingColors`）—— 遠處是紅瓦、近處是草頂的話，飛近的時候整個村換色
  */
 function roofsFor(season: Season): ReadonlyMap<FloraKind, Splat> {
-  if (season !== 'julyWheat') return ROOFS
+  if (FIELD_COLORS[season].layout !== 'steppe') return ROOFS
   const bc = buildingColors(season)
   const b = (k: { wall: number; roof: number }): Splat =>
     roof(BUILDING_WIDTH + 1, BUILDING_DEPTH + 1, splatColor(k.roof, k.wall))

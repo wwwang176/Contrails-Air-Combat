@@ -12,7 +12,7 @@ import { BELT_FRAME } from '../../src/world/rzhev'
 const n = (v: number): string => v.toFixed(5)
 
 describe('庫斯克的遠處林帶', () => {
-  const glsl = fieldGlslWithSite('julyWheat', RZHEV_SITE)
+  const glsl = fieldGlslWithSite('winterSteppe', RZHEV_SITE)
 
   it('用田界的身分（edgeKey ^ 0x2be1）與 BELT_CHANCE 判定哪些田界有林帶，只畫在遠層', () => {
     expect(glsl).toContain('fieldHash1(edgeKey ^ 0x2be1u)')
@@ -37,7 +37,7 @@ describe('庫斯克的遠處林帶', () => {
   it('沒有 belts 的場地不產生這一段（歐陸與洛伊納不受影響）', () => {
     const { belts, ...rest } = RZHEV_SITE
     expect(belts).toBeDefined()
-    const without = fieldGlslWithSite('julyWheat', rest)
+    const without = fieldGlslWithSite('winterSteppe', rest)
     expect(without).not.toContain('0x2be1u')
     expect(without).not.toContain('beltFade')
   })

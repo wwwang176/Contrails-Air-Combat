@@ -4,15 +4,15 @@ import { Color } from 'three'
  * # 季節
  *
  * 田區的地色與樹冠色由季節決定。**農地與群島恆為夏季**；洛伊納
- * （`world/leuna.ts`）是 1944 年 11 月的晚秋；庫斯克（`world/rzhev.ts`）是 1943 年
- * 7 月的麥田。色值都是起始值，拿眼睛校。
+ * （`world/leuna.ts`）是 1944 年 11 月的晚秋；勒熱夫（`world/rzhev.ts`）是 1942 年
+ * 11 月的雪原。色值都是起始值，拿眼睛校。
  *
  * 【為什麼是一張查表而不是散在各檔的常數】`fields.ts` 把色值烘進 GLSL
  * 字串、`floraShapes.ts` 把色值寫進頂點色 —— 兩邊都在模組載入時就做完了。
  * 換季節要在建構期給參數，而參數的來源只能有一份。
  */
-export type Season = 'summer' | 'lateAutumn' | 'julyWheat'
-export const SEASONS: readonly Season[] = ['summer', 'lateAutumn', 'julyWheat']
+export type Season = 'summer' | 'lateAutumn' | 'winterSteppe'
+export const SEASONS: readonly Season[] = ['summer', 'lateAutumn', 'winterSteppe']
 
 /**
  * 林子從空中看的顏色 = 樹冠色 × 這個倍率（線性值；畫面上約 0.85 倍）：樹冠的
@@ -127,21 +127,26 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
     layout: 'european',
   },
   /**
-   * 七月的俄國南部森林草原：麥子快熟了，整片是黃綠到麥金；集體農場的大田很少犁著
-   * 空著。`steppe` 格局沒有空地長樹林那一套，所以 `woodGate` 在這裡不起作用；樹只長在村裡
-   * 與田界的防風林帶（`flora.ts` 的 `steppeBeltFloraFor`）。德 M4 庫斯克用
+   * 十一月下旬的勒熱夫：雪蓋住了整片田，只有田埂與被踩過的路露出灰褐。`steppe` 格局沒有空地長
+   * 樹林那一套，所以 `woodGate` 在這裡不起作用；樹只長在村裡與田界的防風林帶（`flora.ts` 的
+   * `steppeBeltFloraFor`）。德 M4 勒熱夫用
+   *
+   * 【色盤是雪的明暗，不是作物】八階從帶一點藍的白漸層到淡灰藍；相鄰兩階只差一點，田塊的圖案靠
+   * 這個細微的明暗讀出來。**亮度（線性值）> 0.6、飽和度 < 0.3** 由 `season.test.ts` 守著。
    */
-  julyWheat: {
-    palette: [0x566a3a, 0x667441, 0x777e48, 0x87884f, 0x989256, 0xa89c5e, 0xb9a665, 0xc9b06c],
-    ploughed: 0x6a5a45,
-    // 田埂：被踩實曬乾的淺土色
-    hedge: 0xb8aa7c,
-    track: 0xa39a80,
-    wood: 0x34402b,
+  winterSteppe: {
+    palette: [0xf6f8fa, 0xf0f3f6, 0xeaeef2, 0xe4e9ee, 0xdee4ea, 0xd8dfe6, 0xd2dae2, 0xccd5de],
+    // 犁過的田在雪下微微發灰
+    ploughed: 0xc9cbcd,
+    // 田埂：露出雪面的枯草，灰褐
+    hedge: 0xb4aea3,
+    // 凹路：被踩實的雪，灰
+    track: 0xaeb1b4,
+    wood: 0x9aa9a3,
     ploughChance: 0.06,
-    // 快熟的麥與乾草原的麥金，黑麥與牧草的黃綠
-    open: 0x9c8f58,
-    openAlt: 0x7f7c4c,
+    // 牧草地與荒地的雪，比田更平更白
+    open: 0xe7ebee,
+    openAlt: 0xdce2e7,
     woodGate: [0.7, 0.8],
     hedgeChance: 0,
     layout: 'steppe',
@@ -152,6 +157,6 @@ export const FLORA_COLORS: Readonly<Record<Season, FloraColors>> = {
   summer: { broadLeaf: 0x3f5233, conifer: 0x2f4530, bushLeaf: 0x33452c },
   // 闊葉樹落葉：樹冠是枯枝的褐灰（形狀不動，只換色）；針葉略暗；灌木褐
   lateAutumn: { broadLeaf: 0x5a4a3c, conifer: 0x2b3d2c, bushLeaf: 0x4d3f30 },
-  // 盛夏乾熱：比夏季略黃、略淺
-  julyWheat: { broadLeaf: 0x46562f, conifer: 0x30452e, bushLeaf: 0x3d4b2c },
+  // 覆雪：闊葉與灌木幾乎是白的，針葉略帶灰綠，才分得出林帶與村裡的樹
+  winterSteppe: { broadLeaf: 0xeef2f5, conifer: 0xd3dfdc, bushLeaf: 0xe3e9ec },
 }

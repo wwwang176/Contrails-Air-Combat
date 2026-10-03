@@ -6,8 +6,39 @@ import {
   createFloraGeometries, disposeFloraGeometries, pointColorOf,
 } from '../../src/render/floraShapes'
 
+describe('冬季草原', () => {
+  it('勒熱夫的冬季是草原格局的季節；夏季麥田已經刪除', () => {
+    expect(SEASONS).toContain('winterSteppe')
+    expect(SEASONS as readonly string[]).not.toContain('julyWheat')
+    expect(FIELD_COLORS.winterSteppe.layout).toBe('steppe')
+    expect(FIELD_COLORS.winterSteppe.hedgeChance).toBe(0)
+  })
+
+  it('田是雪：作物色盤每一階都亮、低彩度，而且越往後只暗不亮', () => {
+    const c = new Color()
+    let prev = Infinity
+    for (const hex of FIELD_COLORS.winterSteppe.palette) {
+      c.setHex(hex)
+      const hsl = { h: 0, s: 0, l: 0 }
+      c.getHSL(hsl)
+      // 亮度是 three 的線性工作空間值，sRGB 的淡灰藍（0xccd5de）約 0.63
+      expect(hsl.l, hex.toString(16)).toBeGreaterThan(0.6)
+      expect(hsl.s, hex.toString(16)).toBeLessThan(0.3)
+      expect(hsl.l).toBeLessThanOrEqual(prev + 1e-9)
+      prev = hsl.l
+    }
+  })
+
+  it('樹覆著雪：闊葉、灌木、針葉的亮度都高於夏季', () => {
+    const lum = (hex: number): number => new Color(hex).getHSL({ h: 0, s: 0, l: 0 }).l
+    for (const k of ['broadLeaf', 'bushLeaf', 'conifer'] as const) {
+      expect(lum(FLORA_COLORS.winterSteppe[k]), k).toBeGreaterThan(lum(FLORA_COLORS.summer[k]) + 0.3)
+    }
+  })
+})
+
 describe('季節', () => {
-  it('兩個季節都有完整的查表，色盤恰好 PALETTE_STEPS 階', () => {
+  it('每個季節都有完整的查表，色盤恰好 PALETTE_STEPS 階', () => {
     for (const s of SEASONS) {
       expect(FIELD_COLORS[s].palette, s).toHaveLength(PALETTE_STEPS)
       expect(FLORA_COLORS[s].broadLeaf, s).toBeGreaterThan(0)

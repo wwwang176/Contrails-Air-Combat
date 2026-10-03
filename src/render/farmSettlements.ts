@@ -2,7 +2,7 @@ import { villageSite, type FloraSource } from './flora'
 import { regionAt, regionSeed, trackGap, trackWidthAt, REGION_SPACING, type RegionSample } from './fields'
 import { settlementLayout } from './settlements'
 import { steppeLayout, type Blast, type GardenStrip, type LaneVillage, type StreetRibbon } from './steppeVillage'
-import type { Season } from './season'
+import { FIELD_COLORS, type Season } from './season'
 import type { Place } from '../world/landFeatures'
 
 /**
@@ -110,7 +110,7 @@ export interface Settlements {
 /**
  * 村與小聚落。
  *
- * @param season 七月麥田（`julyWheat`）是俄國南部的大村；其餘是德國中部的團狀村與綠地村
+ * @param season 草原格局（`FIELD_COLORS[season].layout === 'steppe'`）是俄國的大村；其餘是德國中部的團狀村與綠地村
  * @param war 戰場：不准蓋房子的地方、各村房子燒毀的比例、哪個村是大村（`world/rzhev.ts`）。
  *            只有草原村讀它；不是大村的畫成小村
  */
@@ -126,7 +126,7 @@ export function farmSettlements(
     regionAt(x, z, REG)
     return trackGap(x, z, REG) < trackWidthAt(x, z) + LANE_CLEAR
   }
-  if (season === 'julyWheat') {
+  if (FIELD_COLORS[season].layout === 'steppe') {
     return steppeLayout(farmLaneVillages(half), onLane, war?.keepOut, war?.burnRate, war?.large)
   }
   // 團狀村與綠地村各半：由站址座標的雜湊挑（`eastOfSaale` 在這裡只是村形的開關）
