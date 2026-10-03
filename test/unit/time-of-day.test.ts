@@ -20,14 +20,14 @@ import type { TimeOfDay } from '../../src/world/timeOfDay'
 const ALL = TIME_OF_DAY_IDS.map((id) => DAY_PALETTES[id])
 
 describe('DAY_PALETTES', () => {
-  it('八個時段都在，鍵與 id 一致', () => {
+  it('七個時段都在，鍵與 id 一致', () => {
     expect(TIME_OF_DAY_IDS).toEqual([
-      'dawn', 'noon', 'dusk', 'night', 'novemberNoon', 'storm', 'julyMorning', 'winterMorning',
+      'dawn', 'noon', 'dusk', 'night', 'novemberNoon', 'storm', 'winterMorning',
     ])
     for (const id of TIME_OF_DAY_IDS) expect(DAY_PALETTES[id].id).toBe(id)
   })
 
-  it('winterMorning：太陽很低、陽光偏冷、霧比盛夏清晨濃、地平線是淡灰白（與白霧同色系）', () => {
+  it('winterMorning：太陽很低、陽光偏冷、霧比正午濃、地平線是淡灰白（與白霧同色系）', () => {
     const w = DAY_PALETTES.winterMorning
     const [x, y, z] = w.sunDir
     const elevation = Math.asin(y / Math.hypot(x, y, z))
@@ -35,14 +35,14 @@ describe('DAY_PALETTES', () => {
     expect(elevation).toBeLessThan(15 * Math.PI / 180)
     // 冷：藍分量不低於紅分量
     expect(w.sunColor & 0xff).toBeGreaterThanOrEqual((w.sunColor >> 16) & 0xff)
-    expect(w.fogDensity).toBeGreaterThan(DAY_PALETTES.julyMorning.fogDensity)
+    expect(w.fogDensity).toBeGreaterThan(DAY_PALETTES.noon.fogDensity)
     const horizon = new Color(w.skyHorizon)
     const hsl = { h: 0, s: 0, l: 0 }
     horizon.getHSL(hsl)
     expect(hsl.l).toBeGreaterThan(0.6)
     expect(hsl.s).toBeLessThan(0.25)
-    // 雪的反光：地面半球光比盛夏清晨亮
-    expect(new Color(w.hemiGround).getHSL(hsl).l).toBeGreaterThan(new Color(DAY_PALETTES.julyMorning.hemiGround).getHSL({ h: 0, s: 0, l: 0 }).l + 0.2)
+    // 雪的反光：地面半球光比正午亮
+    expect(new Color(w.hemiGround).getHSL(hsl).l).toBeGreaterThan(new Color(DAY_PALETTES.noon.hemiGround).getHSL({ h: 0, s: 0, l: 0 }).l + 0.2)
   })
 
   it('novemberNoon：太陽仰角二十幾度、霧比正午濃、海色照抄正午', () => {

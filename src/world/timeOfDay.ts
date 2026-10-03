@@ -13,4 +13,4 @@
  * （那一份決定展示頁與遭遇戰選單的按鈕順序）。
  */
 export type TimeOfDay =
-  'dawn' | 'noon' | 'dusk' | 'night' | 'novemberNoon' | 'storm' | 'julyMorning' | 'winterMorning'
+  'dawn' | 'noon' | 'dusk' | 'night' | 'novemberNoon' | 'storm' | 'winterMorning'

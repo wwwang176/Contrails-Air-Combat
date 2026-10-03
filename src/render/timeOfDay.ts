@@ -21,11 +21,11 @@ import type { SceneContext } from './scene'
 export type { TimeOfDay }
 
 /**
- * 【`novemberNoon`、`storm`、`julyMorning`、`winterMorning` 排最後】它們進工具頁的時段按鈕，
+ * 【`novemberNoon`、`storm`、`winterMorning` 排最後】它們進工具頁的時段按鈕，
  * **不進遭遇戰選單** —— `ui/menu.ts` 的那份清單是手寫的四筆，任務卡才會選它們。
  */
 export const TIME_OF_DAY_IDS: readonly TimeOfDay[] = [
-  'dawn', 'noon', 'dusk', 'night', 'novemberNoon', 'storm', 'julyMorning', 'winterMorning',
+  'dawn', 'noon', 'dusk', 'night', 'novemberNoon', 'storm', 'winterMorning',
 ]
 
 /**
@@ -244,38 +244,6 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     fogDensity: FOG_DENSITY * 10,
   },
   /**
-   * 盛夏的戰場清晨：51°N 的七月，日出後一兩個鐘頭，太陽仰角約 14°、從戰場的右手邊
-   * 斜著來；砲擊與車輛揚起的塵土讓地平線泛黃褐。沒有任務使用，只進工具頁的時段按鈕。
-   * 海色照抄正午 —— 內陸用不到。**起始值，拿眼睛校。**
-   *
-   * 【低太陽只換色調與亮度】場景沒有陰影（`scene.ts` 的 `shadowMap`），所以不會有
-   * 長影子，只有天色、整體亮度與地色偏暖。
-   */
-  julyMorning: {
-    id: 'julyMorning',
-    name: '盛夏清晨',
-    skyHorizon: 0xf0c590,
-    skyZenith: 0x5d7fa8,
-    skyPower: 0.7,
-    stars: 0,
-    // 仰角 ≈ 14°
-    sunDir: [0.876, 0.242, 0.418],
-    sunColor: 0xffc88a,
-    sunIntensity: 1.8,
-    hemiSky: 0xc8c4b8,
-    hemiGround: 0x332e24,
-    hemiIntensity: 0.7,
-    ambientColor: 0xffe2c0,
-    ambientIntensity: 0.14,
-    seaColor: SEA_COLOR,
-    seaHorizon: SEA_HORIZON_COLOR,
-    sparkle: 1,
-    foliage: 0.8,
-    // 【塵霾】2 km 的投彈距離上只淡 0.4%、10 km 外淡 9%、30 km 外化掉一半多，
-    // 地平線上是一片黃褐
-    fogDensity: 3.0e-5,
-  },
-  /**
    * 十一月下旬的清晨，雪原：太陽只有 10° 高、陽光冷白，天空與地平線是灰白，**霧也是白的**
    * （霧色等於地平線的天色）。
    *
@@ -286,7 +254,7 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
    * 與地物的對比被吃掉。太陽只有 10° 高，朝上的面只吃到 `sunIntensity × 0.17`；但丘陵的向陽坡與背陽坡
    * 吃到的差就靠這一項，所以它要夠大（4.5），地面的起伏才看得出來；其餘照度由 `hemiIntensity` 補。
    *
-   * 【霧比盛夏清晨濃】冷空氣裡的水氣與雪粉；遠景一片白，近處還看得出戰場。
+   * 【霧比正午濃】冷空氣裡的水氣與雪粉；遠景一片白，近處還看得出戰場。
    */
   winterMorning: {
     id: 'winterMorning',
