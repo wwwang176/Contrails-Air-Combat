@@ -162,11 +162,10 @@ const FIRE_OF: Record<string, string> = {
 }
 
 /**
- * 引擎聲借用別台的檔。**Ju 87 暫用 He 111 的**：同是 Jumo 211 系列（B-2 的
- * 211 D 對 H-6 的 211 F），但那一份是雙發錄的；專屬的還沒做。
- * **Yak-1B 暫用 Bf 109 K-4 的**：同是液冷倒 V 12 缸、機首單發。
+ * 引擎聲借用別台的檔。**Yak-1B 暫用 Bf 109 K-4 的**：同是液冷倒 V 12 缸、機首單發。
+ * 其餘每個機種都有自己的檔（`engine-<機種 id>`）。
  */
-const ENGINE_OF: Readonly<Record<string, string>> = { ju87: 'he111', yak1b: 'bf109k4' }
+const ENGINE_OF: Readonly<Record<string, string>> = { yak1b: 'bf109k4' }
 
 export function engineFile(specId: string): string {
   return `engine-${ENGINE_OF[specId] ?? specId}`
@@ -313,7 +312,7 @@ export const FIRST_FILES: readonly string[] =
   [SINGLE_FILES.uiClick, SINGLE_FILES.uiBack, SINGLE_FILES.uiClose]
 
 export const ALL_FILES: readonly string[] = [
-  ...['p51d', 'bf109k4', 'f4f4', 'f6f5', 'a6m5', 'ki84', 'he111', 'g4m', 'b17g'].map(engineFile),
+  ...['p51d', 'bf109k4', 'f4f4', 'f6f5', 'a6m5', 'ki84', 'he111', 'ju87', 'g4m', 'b17g'].map(engineFile),
   ...new Set(Object.values(FIRE_OF)),
   ...Object.values(POOLS).flat(),
   ...Object.values(SINGLE_FILES),

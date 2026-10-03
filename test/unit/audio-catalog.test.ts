@@ -121,7 +121,7 @@ describe('撞擊材質', () => {
   })
 })
 
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { ALL_FILES, POOLS, engineFile, fireFile, turretFile } from '../../src/audio/catalog'
 import { ALL_SPECS } from '../../src/battle/skirmish'
 
@@ -149,6 +149,24 @@ describe('音效目錄', () => {
       if (s.battery.mounts.length > 0) expect(manifest[f!], s.id).toBeDefined()
       else expect(f, s.id).toBeNull()
     }
+  })
+
+  /** Jumo 211 單發：專屬的低沉引擎聲。He 111 那一份是雙發錄的，帶兩層錯開的拍頻 */
+  it('Ju 87 有自己的引擎聲：循環檔、有包絡、檔案在 public/audio、在載入清單裡', () => {
+    expect(engineFile('ju87')).toBe('engine-ju87')
+    const e = manifest['engine-ju87'] as { loop: boolean; envelopeDb?: number[] } | undefined
+    expect(e?.loop).toBe(true)
+    expect(e?.envelopeDb?.length).toBeGreaterThan(10)
+    expect(existsSync('public/audio/engine-ju87.mp3')).toBe(true)
+    expect(ALL_FILES).toContain('engine-ju87')
+  })
+
+  it('借用別台引擎聲的只剩 Yak-1B（借 Bf 109 K-4）', () => {
+    for (const s of ALL_SPECS) {
+      if (s.id === 'yak1b') expect(engineFile(s.id)).toBe('engine-bf109k4')
+      else expect(engineFile(s.id), s.id).toBe(`engine-${s.id}`)
+    }
+    expect(engineFile('yak1b')).toBe('engine-bf109k4')
   })
 
   it('每種轟炸機砲塔都對得到檔案', () => {
