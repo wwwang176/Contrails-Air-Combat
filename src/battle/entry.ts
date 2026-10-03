@@ -143,22 +143,25 @@ export const BOUNCE: EntryPlan = {
 }
 
 /**
- * 遠方出擊：藍隊從更南邊、對準目標區的橫向位置出發，朝 −Z 飛。德 M4 勒熱夫用。
+ * 從村北出擊：藍隊從村北（德軍後方）出發、沿路軸朝南飛；紅隊從村南約 2.6 km 朝北飛。德 M4 勒熱夫用。
  *
- * 【為什麼要它】勒熱夫的戰場跟著村與路擺（`world/rzhev.ts`），蘇軍的支援砲與防空在 z ≈ +3,100 … +3,500；
- * `HEAD_ON` 的藍隊在 z = +5,000，離最外圈的蘇軍防空只有約 1.5 km、十幾秒就到。`along` 0.85 = z +8,500，
- * 到最外圈的防空約 5 km。
+ * 【為什麼不用 `HEAD_ON`】勒熱夫的戰場跟著村與路擺（`world/rzhev.ts`），局部原點約在世界 (−3,330, +2,660)，
+ * 路是 13° 的斜線。`HEAD_ON` 的藍隊在 x = −750、z = +5,000，既不對準路、也離戰場兩公里以上。
+ * 這裡藍隊放在局部座標 (0, −2,000)：離最近的蘇軍防空水平約 2.5 km、斜距約 3 km，在輕型防空的射程
+ * 2.64 km 之外；紅隊放在 (0, +2,600)，離最近的德軍防空約 2.7 km。`along`／`across` 是把這兩點
+ * 換成世界座標再除以 `entryRange`（10,000）與 `lateralOffset`（1,500）。
  *
- * 【橫向對準路】`across × lateralOffset` = −3,300 m，是村南邊那條路的 x。不對準的話玩家
- * 開場得先轉一個大彎。**座標是從農地框架算出來的**，`rzhev-mission.test.ts` 守著兩邊
- * 沒有差開。
+ * 【機首沿路軸】局部航向 0（朝德軍後方）= `FRONT_HEADING` ≈ −0.2265：藍隊朝南是它加 π，紅隊朝北就是它。
+ * **座標是從農地框架算出來的**，`rzhev-mission.test.ts` 守著兩邊沒有差開。
  *
- * 紅隊的擺位與 `HEAD_ON` 相同：勒熱夫開場沒有敵機，Yak 的波次從這個位置進場。**兩個數字是起始值，由試飛裁定。**
+ * 【`depth` 的正號是「落後」】藍隊朝南時落後在北邊（−Z）；`waveColumn` 依機首方向換號。
+ *
+ * **兩個距離是起始值，由試飛裁定。**
  */
-export const STRIKE_DEEP: EntryPlan = {
-  id: 'strikeDeep',
-  blue: { ...NEUTRAL, along: 0.85, across: -2.2 },
-  red: { ...NEUTRAL, along: -0.5, across: 0.5, heading: Math.PI },
+export const STRIKE_FROM_NORTH: EntryPlan = {
+  id: 'strikeFromNorth',
+  blue: { ...NEUTRAL, along: 0.0711, across: -1.9213, heading: Math.PI - 0.2265 },
+  red: { ...NEUTRAL, along: 0.5193, across: -2.6098, heading: -0.2265 },
 }
 
 /**
@@ -188,7 +191,7 @@ export const ENTRY_PLANS = {
   pursuit: PURSUIT,
   bounce: BOUNCE,
   carrierGuard: CARRIER_GUARD,
-  strikeDeep: STRIKE_DEEP,
+  strikeFromNorth: STRIKE_FROM_NORTH,
 } as const
 
 export type EntryPlanId = keyof typeof ENTRY_PLANS

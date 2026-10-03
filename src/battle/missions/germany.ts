@@ -224,7 +224,8 @@ export const GERMANY: readonly MissionCard[] = [
       objectiveKey: 'mission.germany-m4.objective', bannerKey: 'mission.germany-m4.banner',
       blueSpec: JU87, redSpec: P51D, convoySpec: null,
       // 【開場沒有敵機】`redCount` 是 0，`redSpec` 只是型別要填；蘇軍戰鬥機走下面的 `waves`
-      // 【2 + 2 + 2】三批各兩架，相鄰兩批前後差 2,300 m：開場速度約 95 m/s，晚約 24 秒到目標；
+      // 【從村北出擊】第一批在局部座標 (0, −2,000)、機首朝南，見 `STRIKE_FROM_NORTH`。
+      // 【2 + 2 + 2】三批各兩架，相鄰兩批在北邊前後差 2,300 m：開場速度約 95 m/s，晚約 24 秒到目標；
       // Ju 87 一輪約 72 秒，三批的俯衝大致錯開三分之一輪。**起始值，由試飛裁定**
       //
       // 【護航六架】與 Ju 87 同一刻生成：3 + 3 兩個小隊，在轟炸機上方 600 m、落在中間那一批旁邊
@@ -233,7 +234,7 @@ export const GERMANY: readonly MissionCard[] = [
       blueWaves: { size: 2, depth: 2300, escort: { spec: BF109K4, count: 6, depth: 2300 } },
       convoyCount: 0, convoyPriority: 1,
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
-      entry: 'strikeDeep',
+      entry: 'strikeFromNorth',
       terrain: 'rzhev',
       // 【清晨】十一月日出後的低太陽；雪原與霧，地平線一片灰白
       timeOfDay: 'winterMorning',
@@ -293,7 +294,7 @@ export const GERMANY: readonly MissionCard[] = [
         dusts: RZHEV_DUSTS,
       },
       /**
-       * 【蘇軍戰鬥機六架】開場後 90 秒（預警 5 秒）兩批各三架 Yak-1B 從北邊進場。
+       * 【蘇軍戰鬥機六架】開場就預警、5 秒後兩批各三架 Yak-1B 從村南約 2.6 km 朝北進場，不等玩家的戰果。
        *
        * 【Yak 先打 Ju 87】`bomberPriority` 讓 Ju 87 在 Yak 的目標評分裡值 20 倍，不去纏護航機。
        *
@@ -311,13 +312,13 @@ export const GERMANY: readonly MissionCard[] = [
       defeatOnBombers: true,
       waves: [
         {
-          when: { kind: 'clock', at: 85 },
+          when: { kind: 'clock', at: 0 },
           warnKey: 'mission.germany-m4.wave.fighters',
           warnLead: 5,
           side: 'theirs', spec: YAK1B, count: 3,
         },
         {
-          when: { kind: 'clock', at: 85 },
+          when: { kind: 'clock', at: 0 },
           warnKey: 'mission.germany-m4.wave.fighters',
           warnLead: 5,
           side: 'theirs', spec: YAK1B, count: 3,

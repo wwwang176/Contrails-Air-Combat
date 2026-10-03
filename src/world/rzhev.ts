@@ -33,7 +33,7 @@ import { drawHillLobes } from './leuna'
  *      +236  丁字路口：西路與斜路匯合
  *   +300 … +520  無人地帶：殘骸、砲兵彈著、被打掉的 T-34、蘇軍步兵
  *   +425 … +900  蘇軍支援砲（第一段的目標）、迫擊砲與防空
- *   +1,900  蘇軍兩路縱隊沿斜路與南路的集結位置（戰場框外，開場藏著）
+ *   +1,900 …+1,911  蘇軍兩路縱隊沿斜路與南路的集結位置（戰場框外，開場藏著）
  * ```
  *
  * 【村與單位互相讓開】單位不壓在路上（路中線 ±60 m），也不放在主街兩端的 100 m 內；村的兩翼
@@ -584,8 +584,8 @@ const UNIT_ROOM = 45
 /** 壕溝、縱隊路線兩側留的寬，m */
 const TRENCH_ROOM = 40
 const ROUTE_ROOM = 60
-/** 縱隊路線最遠的集結點在 lz +1,900，再加上兩側的寬；比這更遠的點不必問 */
-const ROUTE_FAR_LZ = 1900 + ROUTE_ROOM + 40
+/** 縱隊路線最遠的集結點在 lz +1,911（B），再加上兩側的寬；比這更遠的點不必問 */
+const ROUTE_FAR_LZ = 1911 + ROUTE_ROOM + 40
 
 function nearPolyline(
   x: number, z: number, pts: readonly { x: number; z: number }[], room: number,

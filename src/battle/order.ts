@@ -595,7 +595,8 @@ export function soloBombers(units: OrderOfBattle, schwarmSpacing: number): Order
  * 【為什麼不用 `stackedEntry`】它按 Schwarm（4 架）切批，批與批橫向錯開、高度分層，而且玩家在中間那一批。
  * 這裡要的是任意批大小、同一條線上的前後間隔，玩家在最前面。
  *
- * 【正號是落後】`depth` 是世界座標的 z，藍隊機首朝 −Z。
+ * 【正號是落後】`depth` 是世界座標的 z，藍隊機首朝 −Z 時落後是 +Z；機首朝 +Z 的擺法（`strikeFromNorth`）
+ * 落後是 −Z，`waveColumn` 依 `plan.blue.heading` 的南北向換號。
  *
  * @param waveSize 一批幾架，1 … `SCHWARM_SIZE`
  * @param depth 相鄰兩批的前後間隔，公尺
@@ -614,12 +615,14 @@ export function waveColumn(
     throw new Error(`批大小要在 1..${SCHWARM_SIZE}，收到 ${waveSize}`)
   }
   const out: FlightPlan[] = []
+  // 機首朝北（cos > 0）落後是 +Z、朝南是 −Z。朝 −Z 的擺法乘 1，結果與沒有這個係數時逐位元相同
+  const behind = Math.sign(Math.cos(plan.blue.heading))
   const waves = Math.ceil(blueCount / waveSize)
   for (let g = 0; g < waves; g++) {
     const size = Math.min(waveSize, blueCount - g * waveSize)
     const members: AircraftSpec[] = Array.from({ length: size }, () => blueSpec)
     const flight: FlightPlan = {
-      team: 'blue', members, entry: plan.blue, duty: 'combat', lane: 0, tier: 0, depth: g * depth,
+      team: 'blue', members, entry: plan.blue, duty: 'combat', lane: 0, tier: 0, depth: g * depth * behind,
     }
     out.push(g === 0 ? { ...flight, player: true } : flight)
   }
@@ -632,7 +635,7 @@ export function waveColumn(
       const size = Math.floor(escort.count / squads) + (f < escort.count % squads ? 1 : 0)
       out.push({
         team: 'blue', members: Array.from({ length: size }, () => escort.spec), entry: plan.blue,
-        duty: 'combat', lane: f - (squads - 1) / 2, tier: ESCORT_TIER, depth: escort.depth,
+        duty: 'combat', lane: f - (squads - 1) / 2, tier: ESCORT_TIER, depth: escort.depth * behind,
       })
     }
   }

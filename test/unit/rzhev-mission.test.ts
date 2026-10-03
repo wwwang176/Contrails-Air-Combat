@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { MISSIONS, missionConfigFrom, type ReadyMissionCard } from '../../src/battle/missions'
 import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
 import type { GroundTarget } from '../../src/world/groundTargets'
-import { ENTRY_PLANS } from '../../src/battle/entry'
+import { ENTRY_PLANS, type SideEntry } from '../../src/battle/entry'
 import { DEFAULT_BATTLE } from '../../src/battle/setup'
 import { ARENA_RADIUS } from '../../src/world/arena'
-import { SOVIET_FLAK, SOVIET_SUPPORT_GUNS } from '../../src/world/rzhev'
+import { GROUND_LIGHT_FLAK_SPEC } from '../../src/world/shipGuns'
+import { FRONT_HEADING, GERMAN_FLAK, SOVIET_FLAK, SOVIET_SUPPORT_GUNS, toLocal } from '../../src/world/rzhev'
 import { AiController } from '../../src/ai/AiController'
 import { YAK1B } from '../../src/specs/yak1b'
 import type { ReinforceBeat } from '../../src/battle/beats'
@@ -21,8 +22,11 @@ import type { ReinforceBeat } from '../../src/battle/beats'
 const card = MISSIONS.germany.find((c) => c.id === 'germany-m4') as ReadyMissionCard
 const DT = 1 / 240
 
+/** 地面節拍的測試不需要空戰：拿掉 Yak 的波次，模擬才不會花時間在飛機身上 */
+const groundCard = { ...card, battle: { ...card.battle, waves: [] } } as ReadyMissionCard
+
 function battle(): Battle {
-  return createBattle({ update() {} }, missionConfigFrom(card), 1)
+  return createBattle({ update() {} }, missionConfigFrom(groundCard), 1)
 }
 function units(b: Battle, id: string, team?: 'blue' | 'red'): GroundTarget[] {
   return b.world.groundTargets.filter((t) => t.unit.id === id && (team === undefined || t.team === team))
@@ -162,20 +166,44 @@ describe('德 M4 的縱隊與換目標', () => {
 })
 
 describe('勒熱夫的進場對準戰場', () => {
-  const lead = ENTRY_PLANS[card.battle.entry].blue
-  const x = lead.across * DEFAULT_BATTLE.lateralOffset
-  const z = lead.along * DEFAULT_BATTLE.entryRange + lead.gap
+  const plan = ENTRY_PLANS[card.battle.entry]
+  const startOf = (e: SideEntry): { x: number; z: number } => ({
+    x: e.across * DEFAULT_BATTLE.lateralOffset, z: e.along * DEFAULT_BATTLE.entryRange + e.gap,
+  })
+  const blue = startOf(plan.blue)
+  const red = startOf(plan.red)
+  const nearestOf = (p: { x: number; z: number }, list: readonly { x: number; z: number }[]): number =>
+    Math.min(...list.map((s) => Math.hypot(s.x - p.x, s.z - p.z)))
+  const slant = (horizontal: number): number => Math.hypot(horizontal, card.battle.altitude!)
+  const flakReach = GROUND_LIGHT_FLAK_SPEC.muzzleVelocity * GROUND_LIGHT_FLAK_SPEC.life
 
-  it('玩家開場離蘇軍最近的固定單位至少 4.5 km，而且橫向對準蘇軍支援砲的中心（差不到 500 m）', () => {
-    // 離玩家最近的蘇軍單位：最靠南的防空（Ju 87 由南往北進，先飛過它們）
-    const nearest = SOVIET_FLAK.reduce((a, s) => (s.z > a.z ? s : a))
-    expect(z - nearest.z).toBeGreaterThan(4500)
-    const centerX = SOVIET_SUPPORT_GUNS.reduce((s, g) => s + g.x, 0) / SOVIET_SUPPORT_GUNS.length
-    expect(Math.abs(x - centerX)).toBeLessThan(500)
+  it('藍隊開場在村北、對準路軸（局部橫向差不到 100 m、縱深 −2,300 … −1,700），機首沿路軸朝南', () => {
+    const l = toLocal(blue.x, blue.z)
+    expect(Math.abs(l.lx)).toBeLessThan(100)
+    expect(l.lz).toBeGreaterThan(-2300)
+    expect(l.lz).toBeLessThan(-1700)
+    expect(Math.cos(plan.blue.heading - (FRONT_HEADING + Math.PI))).toBeGreaterThan(0.999)
   })
 
-  it('開場位置在競技場裡', () => {
-    expect(Math.hypot(x, z)).toBeLessThan(ARENA_RADIUS)
+  it('藍隊在蘇軍輕型防空的射程之外開場（斜距），而且離支援砲的中心不到 3.5 km', () => {
+    expect(slant(nearestOf(blue, SOVIET_FLAK))).toBeGreaterThan(flakReach)
+    const cx = SOVIET_SUPPORT_GUNS.reduce((s, g) => s + g.x, 0) / SOVIET_SUPPORT_GUNS.length
+    const cz = SOVIET_SUPPORT_GUNS.reduce((s, g) => s + g.z, 0) / SOVIET_SUPPORT_GUNS.length
+    expect(Math.hypot(blue.x - cx, blue.z - cz)).toBeLessThan(3500)
+  })
+
+  it('紅隊（Yak）開場在村南、對準路軸、機首朝北；在德軍輕型防空的射程之外', () => {
+    const l = toLocal(red.x, red.z)
+    expect(Math.abs(l.lx)).toBeLessThan(100)
+    expect(l.lz).toBeGreaterThan(2300)
+    expect(l.lz).toBeLessThan(3000)
+    expect(Math.cos(plan.red.heading - FRONT_HEADING)).toBeGreaterThan(0.999)
+    expect(slant(nearestOf(red, GERMAN_FLAK))).toBeGreaterThan(flakReach)
+  })
+
+  it('兩隊開場位置都在競技場裡', () => {
+    expect(Math.hypot(blue.x, blue.z)).toBeLessThan(ARENA_RADIUS)
+    expect(Math.hypot(red.x, red.z)).toBeLessThan(ARENA_RADIUS)
   })
 
   /**
@@ -196,7 +224,8 @@ describe('勒熱夫的進場對準戰場', () => {
       const q = trailed.world.combatants[i]!.aircraft.state.position
       expect(q.x, `x ${i}`).toBeCloseTo(p.x, 6)
       expect(q.y, `y ${i}`).toBeCloseTo(p.y, 6)
-      expect(q.z - p.z, `z ${i}`).toBeCloseTo(Math.floor(i / 2) * waves.depth, 6)
+      // 機首朝南，落後在北邊（−Z）
+      expect(q.z - p.z, `z ${i}`).toBeCloseTo(-Math.floor(i / 2) * waves.depth, 6)
     }
   })
 })

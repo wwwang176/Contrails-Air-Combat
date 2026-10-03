@@ -450,4 +450,14 @@ describe('waveColumn', () => {
     }
     expect(trailed.playerSeat).toBeLessThan(2)
   })
+
+  /** 機首朝 +Z 的擺法：落後是 −Z。同一個 `depth`、護航也一起換號 */
+  it('機首朝南的擺法：批與護航的 depth 換成負號；朝北的擺法逐項不變', () => {
+    const south = { ...HEAD_ON, blue: { ...HEAD_ON.blue, heading: Math.PI - 0.2265 } }
+    const escort = { spec: BF109K4, count: 4, depth: 2300 }
+    const north = waveColumn(HEAD_ON, B17G, 6, 2, 4000, BF109K4, 0, escort)
+    const turned = waveColumn(south, B17G, 6, 2, 4000, BF109K4, 0, escort)
+    expect(blue(north).map((f) => f.depth)).toEqual([0, 4000, 8000, 2300])
+    expect(blue(turned).map((f) => f.depth)).toEqual([-0, -4000, -8000, -2300])
+  })
 })

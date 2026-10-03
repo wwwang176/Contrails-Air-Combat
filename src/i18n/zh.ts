@@ -178,7 +178,7 @@ export const zh = {
   'mission.germany-m4.objective': '炸毀蘇軍支援砲',
   'mission.germany-m4.banner': '蘇軍的砲在壓制我軍陣地',
   'mission.germany-m4.retarget': '炸毀突擊的 T-34',
-  'mission.germany-m4.wave.fighters': '蘇軍戰鬥機出現',
+  'mission.germany-m4.wave.fighters': '敵方戰鬥機攔截',
   'mission.japan-m1.title': '瓜達康納爾上空',
   'mission.japan-m1.summary': '駕駛零戰護送一式陸攻，擋下美軍戰鬥機，讓陸攻用魚雷擊沉敵艦。',
   'mission.japan-m1.place': '所羅門 瓜達康納爾外海',
