@@ -9,14 +9,15 @@ import {
 } from '../../src/world/rzhev'
 import { FARM_EXTENT, HILL_GAP, HILL_LIMIT, HILL_PEAK_MAX } from '../../src/world/farmland'
 import { WOBBLE_MAX } from '../../src/world/archipelago'
-import { MISSIONS, type ReadyMissionCard } from '../../src/battle/missions'
+import { columnGround, MISSIONS, type ReadyMissionCard } from '../../src/battle/missions'
+import { motionPose } from '../../src/world/groundMotion'
 import { SCORCH, TRACKS, TRENCHES } from '../../src/world/rzhev'
 import { RZHEV_SITE } from '../../src/render/terrain'
 import {
   fieldGlsl, fieldSurfaceColor, HEDGE_CHANCE, openWoodCover, OPEN_WOOD_GATE, regionAt, STEPPE_LAYOUT, trackGap,
   trackWidthAt,
 } from '../../src/render/fields'
-import { Color } from 'three'
+import { Color, Quaternion, Vector3 } from 'three'
 import { MORTAR_RANGE_MAX, MORTAR_RANGE_MIN } from '../../src/render/groundBattle'
 import { farmLaneVillages } from '../../src/render/farmSettlements'
 import { createFloraBuffer, FloraKind } from '../../src/render/flora'
@@ -236,6 +237,21 @@ describe('rzhev 佈局', () => {
     for (const route of [SOVIET_ROUTE_A, SOVIET_ROUTE_B]) {
       const head = route[route.length - 1]!
       for (const f of friendly) expect(dist(head, f), `${f.x.toFixed(0)},${f.z.toFixed(0)}`).toBeGreaterThanOrEqual(300)
+    }
+  })
+
+  /** 兩支縱隊在 (334, +696) 匯合後走近乎平行的兩條線；停車位置的相位差太小，兩台 T-34（車長約 6.7 m）會疊在一起 */
+  it('縱隊停妥後，所有車兩兩相距至少 12 m', () => {
+    const pose = {
+      position: new Vector3(), velocity: new Vector3(), orientation: new Quaternion(), angularVelocity: new Vector3(),
+    }
+    const stops = card.battle.columns!.flatMap((c) => columnGround(c).map((e) => {
+      motionPose(e.motion!, 0, 1e9, pose)
+      return { x: pose.position.x, z: pose.position.z }
+    }))
+    expect(stops).toHaveLength(40)
+    for (let i = 0; i < stops.length; i++) {
+      for (let j = i + 1; j < stops.length; j++) expect(dist(stops[i]!, stops[j]!), `${i}-${j}`).toBeGreaterThanOrEqual(12)
     }
   })
 
