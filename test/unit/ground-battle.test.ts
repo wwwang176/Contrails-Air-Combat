@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  BURN_EVERY, BURNS, createGroundBattle, MORTAR_ELEVATION, MORTAR_PERIOD, MORTAR_RANGE_MAX, MORTAR_RANGE_MIN,
+  burstTimesBetween, BURN_EVERY, BURNS, createGroundBattle, INFANTRY_BURST_PERIOD, INFANTRY_BURST_SECONDS,
+  INFANTRY_ROUNDS_PER_SECOND, MORTAR_ELEVATION, MORTAR_PERIOD, MORTAR_RANGE_MAX, MORTAR_RANGE_MIN,
   MORTAR_SCATTER, nearestEnemy, shotTimesBetween, SHOT_JITTER, WRECK_SMOKE_SECONDS,
 } from '../../src/render/groundBattle'
 import { solveArc, type ArcShot } from '../../src/render/arc'
@@ -56,6 +57,98 @@ describe('射擊排程', () => {
 
   it('不同的射手錯開，不會全場同一刻開火', () => {
     expect(times(0, 7, 0, 7)).not.toEqual(times(1, 7, 0, 7))
+  })
+})
+
+/**
+ * # 步兵連發
+ *
+ * 步兵一次打一串（`INFANTRY_ROUNDS_PER_SECOND` 的射速、連發 `INFANTRY_BURST_SECONDS` 秒），然後停一陣再打下一串 ——
+ * 與轟炸機砲塔的機槍同一個節奏。排程同樣是時間的純函數。
+ */
+describe('步兵連發的排程', () => {
+  const rounds = (i: number, t0: number, t1: number): number[] => {
+    const out = new Float64Array(2048)
+    const n = burstTimesBetween(i, INFANTRY_BURST_PERIOD, INFANTRY_BURST_SECONDS, INFANTRY_ROUNDS_PER_SECOND, t0, t1, out)
+    return Array.from(out.subarray(0, n))
+  }
+  const step = 1 / INFANTRY_ROUNDS_PER_SECOND
+  /** 依「間隔大於兩發的間距」把一串發射時間切成一串一串 */
+  const bursts = (times: number[]): number[][] => {
+    const out: number[][] = []
+    for (const t of times) {
+      const last = out[out.length - 1]
+      if (last !== undefined && t - last[last.length - 1]! < step * 1.5) last.push(t)
+      else out.push([t])
+    }
+    return out
+  }
+
+  it('同一段時間同一組結果，切成很多幀算拼起來與一次算相同', () => {
+    const whole = rounds(4, 0, 90)
+    expect(whole.length).toBeGreaterThan(50)
+    expect(rounds(4, 0, 90)).toEqual(whole)
+    const pieces: number[] = []
+    for (let t = 0; t < 90; t += 1 / 60) pieces.push(...rounds(4, t, Math.min(90, t + 1 / 60)))
+    expect(pieces).toEqual(whole)
+  })
+
+  it('區間是左開右閉：不會在兩幀的交界算兩次', () => {
+    const all = rounds(2, 0, 100)
+    const t = all[20]!
+    expect(rounds(2, 0, t)).toContain(t)
+    expect(rounds(2, t, 100)).not.toContain(t)
+  })
+
+  it('一串一串地打：串內每發相隔一個射速的間距，每串發數是連發秒數乘射速', () => {
+    const all = bursts(rounds(7, 0, 300))
+    expect(all.length).toBeGreaterThan(30)
+    const expected = Math.round(INFANTRY_BURST_SECONDS * INFANTRY_ROUNDS_PER_SECOND)
+    // 頭一串與最後一串可能被區間切掉一截，只看中間的
+    for (const b of all.slice(1, -1)) {
+      expect(b).toHaveLength(expected)
+      for (let k = 1; k < b.length; k++) expect(b[k]! - b[k - 1]!).toBeCloseTo(step, 9)
+    }
+  })
+
+  it('串與串之間停一陣：停頓不短於一個週期扣掉連發與兩側抖動，而且至少兩秒', () => {
+    const all = bursts(rounds(7, 0, 300))
+    const burstLength = (Math.round(INFANTRY_BURST_SECONDS * INFANTRY_ROUNDS_PER_SECOND) - 1) * step
+    const minPause = INFANTRY_BURST_PERIOD * (1 - 2 * SHOT_JITTER) - burstLength
+    expect(minPause).toBeGreaterThan(2)
+    for (let k = 1; k < all.length; k++) {
+      expect(all[k]![0]! - all[k - 1]![all[k - 1]!.length - 1]!).toBeGreaterThanOrEqual(minPause - 1e-9)
+    }
+  })
+
+  it('連發加上兩側抖動排得進一個週期：兩串永遠不會疊在一起', () => {
+    expect(INFANTRY_BURST_SECONDS + 2 * SHOT_JITTER * INFANTRY_BURST_PERIOD).toBeLessThan(INFANTRY_BURST_PERIOD)
+  })
+
+  it('不同的射手錯開，不會全場同一刻開火', () => {
+    expect(rounds(0, 0, 20)).not.toEqual(rounds(1, 0, 20))
+  })
+
+  /** 排程是純函數，但接不接上要在戰場裡量：場上的步兵不管卡片的 `period`，照連發打 */
+  it('戰場裡的步兵照這個排程開火：發數與排程一致，串與串之間停頓', () => {
+    const flat = (): number => 0
+    const fired: number[] = []
+    let now = 0
+    const gb = createGroundBattle({ shooters: ['infantry'], period: 1e6, range: 1500 } as never, () => {}, undefined,
+      undefined, () => { fired.push(now) })
+    const a = createGroundTarget(0, 'infantry', 'blue', 0, 0, 0)
+    const b = createGroundTarget(1, 'infantry', 'red', 300, 0, 0)
+    let last = 0
+    for (now = 0; now <= 70; now += 0.1) {
+      gb.update([a, b], now, 0.1, flat)
+      last = now
+    }
+    expect(fired.length).toBe(rounds(0, 0, last).length + rounds(1, 0, last).length)
+    expect(fired.length).toBeGreaterThan(100)
+    // 兩個射手的發射時間混在一起；各自一串的間距是 0.1 s，所以「停頓」要看兩人同時安靜的空檔
+    const quiet = fired.slice(1).map((t, k) => t - fired[k]!)
+    expect(Math.max(...quiet)).toBeGreaterThan(1)
+    gb.dispose()
   })
 })
 
@@ -199,8 +292,9 @@ describe('劇本打掉前的最後一發', () => {
   })
 
   it('補的是砲彈（不是步兵的槍）：只有戰車與砲補，步兵不補', () => {
+    // 步兵在自己的射程（600 m）之外，所以場上唯一可能開火的就是「補最後一發」
     const infantry = createGroundTarget(0, 'infantry', 'blue', 0, 0, 0)
-    const victim = createGroundTarget(1, 'tank', 'red', 400, 0, 0)
+    const victim = createGroundTarget(1, 'tank', 'red', 900, 0, 0)
     victim.killAt = 30
     const gb = createGroundBattle({ shooters: ['tank', 'infantry'], period: 1e6, range: 1500 } as never, () => {})
     run([infantry, victim], 0, 40, gb)

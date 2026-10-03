@@ -290,7 +290,8 @@ export const GERMANY: readonly MissionCard[] = [
         when: RZHEV_BREAKTHROUGH, messageKey: 'mission.germany-m4.retarget',
         destroyCount: 8, destroyUnit: 'tank',
       },
-      // 【節奏】一台平均 4 秒一發，步兵的班也一樣；再慢從空中看起來像沒在交火。砲兵的彈著 1.6 秒一柱
+      // 【節奏】戰車與砲一台平均 4 秒一發，再慢從空中看起來像沒在交火；步兵不吃這個週期，一串一串連發
+      // （`render/groundBattle.ts` 的 `INFANTRY_BURST_*`）。砲兵的彈著 1.6 秒一柱
       theater: {
         shooters: ['panzer4', 'tank', 'tankDug', 'atGun', 'infantry', 'mortar'],
         period: 4,

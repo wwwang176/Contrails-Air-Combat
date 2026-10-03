@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { groundGunTier, gunSound, impactSound } from '../../src/audio/catalog'
+import { INFANTRY_ROUNDS_PER_SECOND } from '../../src/render/groundBattle'
 import { SHIP_AA_TIERS } from '../../src/world/shipAA'
 
 /**
@@ -68,6 +69,11 @@ describe('地面戰的砲聲', () => {
     expect(inf.rate).toBeGreaterThanOrEqual(mg.rate)
     expect(inf.gainDb).toBeLessThanOrEqual(mg.gainDb)
     expect(inf.gap).toBeGreaterThan(0)
+  })
+
+  /** 一串裡每一發相隔 1 / 射速：限頻率的 `gap` 不比它短，一串的槍聲會被吃掉一半 */
+  it('步兵的限頻率比連發的間隔短：一串裡每一發都響得出來', () => {
+    expect(gunSound('infantry').gap).toBeLessThan(1 / INFANTRY_ROUNDS_PER_SECOND)
   })
 
   /** 迫擊砲發射是管口悶悶的一聲：音高不高於戰車砲、音色上限壓低 */

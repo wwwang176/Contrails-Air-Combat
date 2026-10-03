@@ -227,7 +227,7 @@ export function impactSound(material: number): ImpactSound {
  *   atGun       75 mm 反坦克砲     15 發/分    地面戰，同上、更乾脆
  *   autocannon   40 mm 機砲      220 發/分    砰、砰、砰
  *   mg           20 mm 機砲      480 發/分    急促的噠噠
- *   infantry    步槍、機槍                    地面戰，最高最小聲的一端：細碎的啪
+ *   infantry    步槍、機槍      10 發/秒一串    地面戰，最高最小聲的一端：一串細碎的啪，停一陣再來
  *   mortar      迫擊砲發射      5 發/分       地面戰，管口悶悶的一聲
  * ```
  *
@@ -250,7 +250,7 @@ const GUN_BY_TIER: Record<string, GunSound> = {
   atGun: { gainDb: -3, rate: 1.4, cutoffHz: 22000, gap: 0.15 },
   autocannon: { gainDb: -6, rate: 1.6, cutoffHz: 7000, gap: 0.1 },
   mg: { gainDb: -10, rate: 2.2, cutoffHz: 9000, gap: 0.07 },
-  infantry: { gainDb: -12, rate: 2.4, cutoffHz: 9000, gap: 0.1 },
+  infantry: { gainDb: -12, rate: 2.4, cutoffHz: 9000, gap: 0.08 },
   mortar: { gainDb: -6, rate: 1, cutoffHz: 4000, gap: 0.3 },
 }
 

@@ -21,12 +21,13 @@ import { createArcTrails } from './arcTrails'
  *
  * ```
  *   坦克／反坦克砲一發   砲口槍焰＋一小團煙 → 機槍的曳光彈代表砲彈 → 彈著：火花或塵土
- *   步兵一發             沒有槍焰 → 細一半的曳光彈 → 彈著：一小團塵土
+ *   步兵一串連發         沒有槍焰 → 一發一發細一半的曳光彈 → 彈著：一小團塵土；打完停一陣再打下一串
  * ```
  *
  * 【射擊時刻是時間的純函數】`shotTimesBetween`：第 i 台的第 k 發落在
  * `phase(i) + k × period` 附近、抖動 ±`SHOT_JITTER` 個週期。每一幀算 (上一幀, 這一幀]
- * 之間的發數 —— 不吃幀率，切成幾幀算都一樣。
+ * 之間的發數 —— 不吃幀率，切成幾幀算都一樣。步兵用 `burstTimesBetween`：同一個起點，
+ * 之後連發 `INFANTRY_BURST_SECONDS` 秒。
  *
  * 【挑目標在開火那一刻做】範圍內最近的存活敵方。不是每幀掃，所以開銷跟著發數走。
  *
@@ -41,6 +42,18 @@ export const SHOT_JITTER = 0.15
 
 /** 步兵的射程上限，m。步槍與機槍打不到一公里半外的坦克 */
 const INFANTRY_RANGE = 600
+
+/**
+ * 步兵連發：一串 `INFANTRY_BURST_SECONDS` 秒、每秒 `INFANTRY_ROUNDS_PER_SECOND` 發，然後停到下一串。
+ * 與轟炸機砲塔的機槍同一個節奏。**起始值，由試玩裁定。**
+ *
+ * 【週期要容得下連發加兩側抖動】串的起點在格點上抖動 ±`SHOT_JITTER` 個週期；
+ * `INFANTRY_BURST_SECONDS + 2 × SHOT_JITTER × INFANTRY_BURST_PERIOD` 不小於週期的話，兩串會疊在一起，
+ * 發射時間不再遞增。
+ */
+export const INFANTRY_BURST_PERIOD = 7
+export const INFANTRY_BURST_SECONDS = 1.5
+export const INFANTRY_ROUNDS_PER_SECOND = 10
 
 /** 曳光彈的飛行速度，m/s。比真的砲彈慢，從空中才看得到它在飛 */
 const SHELL_SPEED = 450
@@ -173,6 +186,34 @@ export function shotTimesBetween(
   for (let k = k0; k <= k1 && n < out.length; k++) {
     const t = phase + k * period + (2 * hash01(i * 104729 + k) - 1) * reach
     if (t > t0 && t <= t1) out[n++] = t
+  }
+  return n
+}
+
+/**
+ * 連發的射擊時刻：第 `i` 個射手每 `period` 秒打一串，一串 `burstSeconds` 秒、每秒 `roundsPerSecond` 發，
+ * 回傳 (`t0`, `t1`] 內的發數並寫進 `out`（滿了就停）。
+ *
+ * 【與 `shotTimesBetween` 同一個道理】串的起點是 `phase(i) + k × period` 加抖動，時間的純函數 ——
+ * 不吃幀率，切成幾幀算都一樣。串內的每一發是固定間距。
+ */
+export function burstTimesBetween(
+  i: number, period: number, burstSeconds: number, roundsPerSecond: number,
+  t0: number, t1: number, out: Float64Array,
+): number {
+  const phase = hash01(i * 7919 + 13) * period
+  const reach = SHOT_JITTER * period
+  const rounds = Math.max(1, Math.round(burstSeconds * roundsPerSecond))
+  const step = 1 / roundsPerSecond
+  const k0 = Math.max(0, Math.floor((t0 - phase - reach - (rounds - 1) * step) / period))
+  const k1 = Math.floor((t1 - phase + reach) / period)
+  let n = 0
+  for (let k = k0; k <= k1; k++) {
+    const start = phase + k * period + (2 * hash01(i * 104729 + k) - 1) * reach
+    for (let j = 0; j < rounds && n < out.length; j++) {
+      const t = start + j * step
+      if (t > t0 && t <= t1) out[n++] = t
+    }
   }
   return n
 }
@@ -565,6 +606,12 @@ export function createGroundBattle(
             }
             const n = shotTimesBetween(s, MORTAR_PERIOD, t0, time, shotBuf)
             for (let k = 0; k < n; k++) lob(targets, s, Math.round(shotBuf[k]! * 10), groundAt)
+          } else if (me.unit.id === 'infantry') {
+            // 【種子用百分之一秒】一串裡的每一發相隔 0.1 s，取十分之一秒的話相鄰兩發的種子會撞在一起
+            const n = burstTimesBetween(
+              s, INFANTRY_BURST_PERIOD, INFANTRY_BURST_SECONDS, INFANTRY_ROUNDS_PER_SECOND, t0, time, shotBuf,
+            )
+            for (let k = 0; k < n; k++) shoot(targets, s, Math.round(shotBuf[k]! * 100), groundAt)
           } else {
             const n = shotTimesBetween(s, theater.period, t0, time, shotBuf)
             for (let k = 0; k < n; k++) shoot(targets, s, Math.round(shotBuf[k]! * 10), groundAt)
