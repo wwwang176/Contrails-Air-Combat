@@ -133,12 +133,12 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
    *
    * 【色盤是雪的明暗，不是作物】八階從帶一點藍的白漸層到淡灰藍（薄雪下的殘茬）；相鄰兩階差一截，
    * 田塊的圖案靠這個明暗讀出來，從高空看每一塊田分得開，但不能深到變成藍色的田。**亮度（線性值）
-   * > 0.35、飽和度 < 0.3、越往後越暗、頭尾差 > 0.4** 由 `season.test.ts` 守著。
+   * > 0.45、飽和度 < 0.3、越往後越暗、頭尾差 > 0.3** 由 `season.test.ts` 守著。
    */
   winterSteppe: {
-    palette: [0xf0f4f7, 0xe4e9ee, 0xd8dfe6, 0xcdd5dd, 0xc1cbd5, 0xb6c1cd, 0xabb7c4, 0xa0acba],
+    palette: [0xf3f6f8, 0xe8edf1, 0xdfe5ea, 0xd6dde4, 0xcdd5dd, 0xc4cdd6, 0xbbc5cf, 0xb2bdc8],
     // 犁過的田：雪被風吹走，露出的土蓋著一層薄雪，灰白微暖
-    ploughed: 0xbab9b6,
+    ploughed: 0xd2d1ce,
     // 田埂：露出雪面的枯草，深灰褐
     hedge: 0x827a6c,
     // 凹路：被踩實的雪與泥，灰

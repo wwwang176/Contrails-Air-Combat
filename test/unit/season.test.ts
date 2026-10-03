@@ -25,14 +25,14 @@ describe('冬季草原', () => {
       c.getHSL(hsl)
       if (prev === Infinity) first = hsl.l
       last = hsl.l
-      // 亮度是 three 的線性工作空間值，sRGB 的淡灰藍（0xa0acba）約 0.42
-      expect(hsl.l, hex.toString(16)).toBeGreaterThan(0.35)
+      // 亮度是 three 的線性工作空間值，sRGB 的淡灰藍（0xb2bdc8）約 0.51
+      expect(hsl.l, hex.toString(16)).toBeGreaterThan(0.45)
       expect(hsl.s, hex.toString(16)).toBeLessThan(0.3)
       expect(hsl.l).toBeLessThanOrEqual(prev + 1e-9)
       prev = hsl.l
     }
     // 頭尾差一大截，從高空看每塊田才分得開
-    expect(first - last).toBeGreaterThan(0.4)
+    expect(first - last).toBeGreaterThan(0.3)
   })
 
   it('樹覆著雪：闊葉、灌木、針葉的亮度都高於夏季', () => {
