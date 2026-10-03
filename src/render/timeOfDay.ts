@@ -21,11 +21,11 @@ import type { SceneContext } from './scene'
 export type { TimeOfDay }
 
 /**
- * 【`novemberNoon`、`storm`、`julyMorning` 排最後】它們進工具頁的時段按鈕，**不進遭遇戰
- * 選單** —— `ui/menu.ts` 的那份清單是手寫的四筆，任務卡才會選它們。
+ * 【`novemberNoon`、`storm`、`julyMorning`、`winterMorning` 排最後】它們進工具頁的時段按鈕，
+ * **不進遭遇戰選單** —— `ui/menu.ts` 的那份清單是手寫的四筆，任務卡才會選它們。
  */
 export const TIME_OF_DAY_IDS: readonly TimeOfDay[] = [
-  'dawn', 'noon', 'dusk', 'night', 'novemberNoon', 'storm', 'julyMorning',
+  'dawn', 'noon', 'dusk', 'night', 'novemberNoon', 'storm', 'julyMorning', 'winterMorning',
 ]
 
 /**
@@ -274,6 +274,37 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     // 【塵霾】2 km 的投彈距離上只淡 0.4%、10 km 外淡 9%、30 km 外化掉一半多，
     // 地平線上是一片黃褐
     fogDensity: 3.0e-5,
+  },
+  /**
+   * 十一月下旬的清晨，雪原：太陽只有 10° 高、陽光冷白，天空與地平線是灰白，**霧也是白的**
+   * （霧色等於地平線的天色）。
+   *
+   * 【雪的反光】`hemiGround` 調到很亮 —— 地面是雪，朝下的光不是暗的，而是接近天空的亮度。不補的話
+   * 白色的地只有直射光照亮，背光面是一片髒灰。
+   *
+   * 【霧比盛夏清晨濃】冷空氣裡的水氣與雪粉；遠景一片白，近處還看得出戰場。
+   */
+  winterMorning: {
+    id: 'winterMorning',
+    name: '冬季清晨',
+    skyHorizon: 0xe4e9ee,
+    skyZenith: 0x9fb1c4,
+    skyPower: 0.8,
+    stars: 0,
+    // 仰角 ≈ 10°
+    sunDir: [0.93, 0.174, 0.32],
+    sunColor: 0xe8eefc,
+    sunIntensity: 1.5,
+    hemiSky: 0xdce4ec,
+    hemiGround: 0xaab4be,
+    hemiIntensity: 0.95,
+    ambientColor: 0xdfe8f2,
+    ambientIntensity: 0.22,
+    seaColor: SEA_COLOR,
+    seaHorizon: SEA_HORIZON_COLOR,
+    sparkle: 1,
+    foliage: 1,
+    fogDensity: 4.0e-5,
   },
 }
 
