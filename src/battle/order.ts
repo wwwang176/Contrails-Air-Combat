@@ -610,14 +610,17 @@ export function soloBombers(units: OrderOfBattle, schwarmSpacing: number): Order
  * @param depth 相鄰兩批的前後間隔，公尺
  * @param escort 與這一列同時生成的護航戰鬥機。**省略 = 沒有。** 架數平均分成 `⌈count ÷ SCHWARM_SIZE⌉`
  * 個小隊，橫向對稱錯開（±½ × `schwarmSpacing`）、排在 `ESCORT_TIER`（在轟炸機上方）、
- * 落後第一批 `escort.depth` m；`blueCount` 只數被護航的那一列
+ * 落後第一批 `escort.depth` m；`blueCount` 只數被護航的那一列。`escort.speed` 是開場空速佔
+ * `BattleConfig.tas` 的比例，省略 = 與藍隊同一個值（1）
  */
 export function waveColumn(
   plan: EntryPlan,
   blueSpec: AircraftSpec, blueCount: number,
   waveSize: number, depth: number,
   redSpec: AircraftSpec, redCount: number,
-  escort?: { readonly spec: AircraftSpec; readonly count: number; readonly depth: number },
+  escort?: {
+    readonly spec: AircraftSpec; readonly count: number; readonly depth: number; readonly speed?: number
+  },
 ): OrderOfBattle {
   if (!Number.isInteger(waveSize) || waveSize < 1 || waveSize > SCHWARM_SIZE) {
     throw new Error(`批大小要在 1..${SCHWARM_SIZE}，收到 ${waveSize}`)
@@ -646,7 +649,8 @@ export function waveColumn(
     for (let f = 0; f < squads; f++) {
       const size = Math.floor(escort.count / squads) + (f < escort.count % squads ? 1 : 0)
       out.push({
-        team: 'blue', members: Array.from({ length: size }, () => escort.spec), entry: plan.blue,
+        team: 'blue', members: Array.from({ length: size }, () => escort.spec),
+        entry: escort.speed === undefined ? plan.blue : { ...plan.blue, speed: escort.speed },
         duty: 'combat', lane: f - (squads - 1) / 2, tier: ESCORT_TIER, depth: escort.depth * backZ,
         ...(backX === 0 ? {} : { slide: escort.depth * backX }),
       })

@@ -346,8 +346,13 @@ export interface MissionBattle {
     /**
      * 與藍隊同一刻生成的護航戰鬥機（`order.ts` 的 `waveColumn`）：分成 `⌈count ÷ 4⌉` 個小隊、
      * 在轟炸機上方、落後第一批 `depth` m。`blueCount` 只數被護航的那一列。**省略 = 沒有護航。**
+     *
+     * `speed`：護航機的開場空速佔 `BattleConfig.tas` 的比例，省略 = 1。護航機比轟炸機快很多，照戰鬥機的
+     * 開場速度會一開場就超過被護航的轟炸機、掉頭回來歸位，那十幾秒機首背對目標。
      */
-    readonly escort?: { readonly spec: AircraftSpec; readonly count: number; readonly depth: number }
+    readonly escort?: {
+      readonly spec: AircraftSpec; readonly count: number; readonly depth: number; readonly speed?: number
+    }
   }
   /**
    * 紅隊分兩路夾擊：後半繞著艦隊往右舷轉這麼多，rad。**省略 = 一路壓上來。**

@@ -284,6 +284,24 @@ describe('德 M4 的 Yak-1B 與 Bf 109 護航', () => {
     expect(lowestEscort).toBeGreaterThan(highestStuka)
   })
 
+  /**
+   * 護航機照戰鬥機的速度（187 m/s）開場，會一開場就超過 Ju 87（81 m/s）、掉頭回來歸位，機首背對村莊
+   * 十幾秒。開場空速與 Ju 87 同一個量級；而且開場在站位後面，要往前補、不是掉頭。
+   */
+  it('護航機開場空速不到 Ju 87 的 1.5 倍，而且第一秒全部朝著村莊飛', () => {
+    const b = createBattle(new AiController(), missionConfigFrom(card), 1)
+    const speed = (id: string): number => {
+      const l = b.world.combatants.filter((c) => c.aircraft.spec.id === id)
+      return l.reduce((s, c) => s + c.aircraft.state.velocity.length(), 0) / l.length
+    }
+    expect(speed('bf109k4')).toBeLessThan(speed('ju87') * 1.5)
+    for (const c of b.world.combatants) {
+      const v = c.aircraft.state.velocity
+      const p = c.aircraft.state.position
+      expect(toLocal(p.x + v.x, p.z + v.z).lz - toLocal(p.x, p.z).lz, c.aircraft.spec.id).toBeGreaterThan(0)
+    }
+  })
+
   it('玩家在 Ju 87 裡，不是護航機', () => {
     const b = createBattle(new AiController(), missionConfigFrom(card), 1)
     expect(b.world.combatants[b.playerSeat]!.aircraft.spec.id).toBe('ju87')

@@ -451,6 +451,17 @@ describe('waveColumn', () => {
     expect(trailed.playerSeat).toBeLessThan(2)
   })
 
+  it('護航的開場空速倍率：給了就只套在護航小隊上，省略就與藍隊同一個擺法', () => {
+    const escort = { spec: BF109K4, count: 4, depth: 2300 }
+    const plain = blue(waveColumn(HEAD_ON, B17G, 4, 2, 4000, BF109K4, 0, escort))
+    expect(plain.every((f) => f.entry === HEAD_ON.blue)).toBe(true)
+    const slow = blue(waveColumn(HEAD_ON, B17G, 4, 2, 4000, BF109K4, 0, { ...escort, speed: 0.5 }))
+    const escorts = slow.filter((f) => f.members[0]!.id === BF109K4.id)
+    expect(escorts.length).toBeGreaterThan(0)
+    expect(escorts.every((f) => f.entry.speed === 0.5)).toBe(true)
+    expect(slow.filter((f) => f.members[0]!.id === B17G.id).every((f) => f.entry === HEAD_ON.blue)).toBe(true)
+  })
+
   /** 機首不朝 −Z 的擺法：落後是機首的反方向 (sin h, cos h)，批與護航都排在長機的正後方 */
   it('機首朝南偏西的擺法：批與護航的落後沿機首的反方向（depth 與 slide 合成）；朝北的擺法逐項不變', () => {
     const h = Math.PI - 0.2265
