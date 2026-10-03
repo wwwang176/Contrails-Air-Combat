@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { Color, ShaderChunk, ShaderLib, UniformsLib, UniformsUtils } from 'three'
 import {
-  BATTLE_FOG, battleFogEdge, battleFogSampleT, clearBattleFog, HEIGHT_FOG_BASE, HEIGHT_FOG_DENSITY,
-  HEIGHT_FOG_EDGE_START, HEIGHT_FOG_SAMPLE, HEIGHT_FOG_SCALE_HEIGHT, heightFogColumn, installHeightFog,
-  setBattleFog, stepBattleFog,
+  BATTLE_FOG, battleFogEdge, battleFogSampleT, battleFogTint, clearBattleFog, HEIGHT_FOG_BASE,
+  HEIGHT_FOG_DENSITY, HEIGHT_FOG_DUST, HEIGHT_FOG_EDGE_START, HEIGHT_FOG_SAMPLE, HEIGHT_FOG_SCALE_HEIGHT,
+  heightFogColumn, installHeightFog, setBattleFog, stepBattleFog,
 } from '../../src/render/heightFog'
 
 installHeightFog()
@@ -176,5 +176,20 @@ describe('高度霧：水平的淡出與狀態', () => {
     setBattleFog({ x: 0, z: 0, radius: 1000, tint: new Color(1, 1, 1), strength: 0.5 })
     expect(BATTLE_FOG.a.w).toBe(0.5)
     clearBattleFog()
+  })
+})
+
+describe('高度霧：霧色', () => {
+  const sky = new Color(0x9fb1c4)
+
+  it('省略底色時是灰黃的塵煙混四成天色', () => {
+    expect(battleFogTint(sky).getHex()).toBe(new Color(HEIGHT_FOG_DUST).lerp(sky, 0.4).getHex())
+  })
+
+  it('卡片給了底色，底色換成它（仍然混四成天色）；白霧比塵煙亮得多', () => {
+    const white = battleFogTint(sky, 0xe8edf1)
+    expect(white.getHex()).toBe(new Color(0xe8edf1).lerp(sky, 0.4).getHex())
+    const lum = (c: Color): number => c.getHSL({ h: 0, s: 0, l: 0 }).l
+    expect(lum(white)).toBeGreaterThan(lum(battleFogTint(sky)) + 0.15)
   })
 })

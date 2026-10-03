@@ -675,6 +675,12 @@ export interface MissionTheater {
   /** 戰場的高度霧（`render/heightFog.ts`）：圓心與半徑，世界座標，m。省略 = 沒有 */
   readonly haze?: { readonly x: number; readonly z: number; readonly radius: number }
   /**
+   * 高度霧的底色（sRGB 十六進位），再混四成天色（`battleFogTint`）。**省略 = 灰黃的塵煙**。塵團的顏色
+   * 跟著霧（霧色乘 0.85），只在有 `haze` 的戰場有意義。放在 `theater` 底下而不是 `haze` 裡：
+   * `battle-haze-wiring.test.ts` 對 `haze` 做整個物件的比對
+   */
+  readonly fogColor?: number
+  /**
    * 塵團的出處，世界座標：每一處附近持續冒出慢慢長大、往同一個方向飄散的塵團（`render/groundBattle.ts`）。
    * 顏色跟著高度霧（`haze`），所以只在有 `haze` 的戰場有意義。省略 = 沒有
    */

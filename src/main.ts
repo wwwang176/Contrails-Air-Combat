@@ -1782,7 +1782,7 @@ function startWorld(cfg: BattleConfig): void {
     groundBattle = createGroundBattle(theater, emitFirePuff, smokeTexture, emitMortarBlast)
     for (const o of groundBattle.objects) ctx.scene.add(o)
     if (theater.haze !== undefined) {
-      setBattleFog({ ...theater.haze, tint: battleFogTint((ctx.scene.fog as FogExp2).color) })
+      setBattleFog({ ...theater.haze, tint: battleFogTint((ctx.scene.fog as FogExp2).color, theater.fogColor) })
       battleFogOn = true
     }
   }

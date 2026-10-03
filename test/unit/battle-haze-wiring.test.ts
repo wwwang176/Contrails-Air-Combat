@@ -42,6 +42,8 @@ describe('戰場高度霧的接線', () => {
   it('每一場依卡片開霧；離場與換場跟地面戰的戲一起關', () => {
     expect(MAIN).toContain('setBattleFog(')
     expect(MAIN).toContain('theater.haze')
+    // 卡片的霧色底色要傳進去，省略時才用預設的塵煙色；漏接的症狀是霧靜靜維持黃褐色
+    expect(MAIN).toContain('theater.fogColor')
     const release = body('function releaseGroundBattle', '\n}\n')
     expect(release).toContain('clearBattleFog()')
   })

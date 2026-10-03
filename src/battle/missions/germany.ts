@@ -282,6 +282,8 @@ export const GERMANY: readonly MissionCard[] = [
         artillery: { ...ARTILLERY_ZONE, period: 1.6 },
         smokes: RZHEV_SMOKES,
         haze: BATTLE_HAZE,
+        // 白霧：雪原的霧是白的，不是庫斯克的灰黃塵煙。**起始值，拿眼睛校**
+        fogColor: 0xe8edf1,
         dusts: RZHEV_DUSTS,
       },
       /**

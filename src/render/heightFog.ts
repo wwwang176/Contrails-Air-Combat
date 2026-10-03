@@ -130,9 +130,12 @@ export function stepBattleFog(dt: number): void {
   BATTLE_FOG.b.w += dt * CLOUD_SCALE
 }
 
-/** 霧色：灰黃的塵煙混一點天空的霧色。純塵煙在清晨的藍天下髒得突兀，純天色又看不出是煙 */
-export function battleFogTint(sky: Color): Color {
-  return new Color(HEIGHT_FOG_DUST).lerp(sky, 0.4)
+/**
+ * 霧色：底色混四成天空的霧色。純塵煙在清晨的藍天下髒得突兀，純天色又看不出是煙。
+ * 底色省略時是灰黃的塵煙；任務卡可以換（雪原給白，`MissionTheater.fogColor`）
+ */
+export function battleFogTint(sky: Color, base: number = HEIGHT_FOG_DUST): Color {
+  return new Color(base).lerp(sky, 0.4)
 }
 
 const f4 = (v: number): string => v.toFixed(4)
