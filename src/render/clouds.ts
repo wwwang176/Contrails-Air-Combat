@@ -43,15 +43,15 @@ export interface CloudPuff {
 /** 全部雲朵合計最多幾團煙 */
 export const CLOUD_PUFF_CAPACITY = 512
 /** 每這麼多公尺半徑一團煙；一朵雲的團數夾在 `CLOUD_PUFFS_MIN`～`CLOUD_PUFFS_MAX` */
-export const CLOUD_PUFF_SPACING = 8
-export const CLOUD_PUFFS_MIN = 6
+export const CLOUD_PUFF_SPACING = 14
+export const CLOUD_PUFFS_MIN = 4
 export const CLOUD_PUFFS_MAX = 28
 /** 雲頂比雲底高多少，倍半徑 */
 export const CLOUD_DOME = 0.45
 /** 雲底的煙團比雲頂暗多少（1 − 這個 = 雲底的亮度） */
 export const CLOUD_BASE_DARK = 0.28
-/** 每團煙的不透明度 */
-export const CLOUD_ALPHA = 0.9
+/** 每團煙的不透明度。疊太多層、太不透明的話整朵像一團棉花 */
+export const CLOUD_ALPHA = 0.45
 /** 離相機這麼近完全透明、這麼遠才完全不透明，m */
 export const CLOUD_FADE_NEAR = 25
 export const CLOUD_FADE_FAR = 90
