@@ -503,10 +503,6 @@ const PAD_AT = onRoad((COUNT - 1) * ROAD_GAP + 7000, 260, new Vector3())
 
 const S1 = new Vector3()
 const S2 = new Vector3()
-const S3 = new Vector3()
-const UP_AXIS = new Vector3(0, 1, 0)
-/** 爬升離場那一刀的鏡頭偏向哪一側（+1 / −1）：後景那一架要落在主角右邊，不躲進選單 */
-const CLOSE_SIDE = -1
 
 const AIM_A = new Vector3()
 const AIM_B = new Vector3()
@@ -563,6 +559,38 @@ function dutch(out: ReelCamera, deg: number): void {
 /** 燒著的那一段縱隊（前三個落點的中間）：收尾幾刀背景裡的火 */
 const BURNING = onRoad(ROAD_GAP, 0, new Vector3())
 const LAST = COUNT - 1
+/**
+ * 第二架座艙罩後上方看長機翻身那一刀（機身座標：x 右、y 上、z 機尾，m）：座艙命中盒頂
+ * 1.18、外擴 0.5；垂尾命中盒從往後 3.87 m 起。注視點從長機偏向自己機首正前方 `HERO_W`，
+ * 自己的座艙罩與機背落在畫面右下
+ */
+const HERO = PATHS[1]!
+const HERO_CAM_X = 0.4
+const HERO_CAM_Y = 1.8
+const HERO_CAM_Z = 3.3
+const HERO_W = 0.2
+const HERO_FOV = 64
+/**
+ * 第六架機尾後上方看前面幾架翻下去那一刀：垂尾命中盒到往後 7.73 m、頂 1.94，平尾到往後
+ * 7.01 m（都外擴 0.5），鏡頭在它們後上方。注視點從第五架偏向自己機首正前方 `TAIL6_W`
+ */
+const TAIL6 = PATHS[5]!
+const TAIL6_Y = 2.3
+const TAIL6_Z = 8.8
+const TAIL6_W = 0.5
+const TAIL6_FOV = 66
+/**
+ * 第五架後座機槍手位置那一刀：座艙罩後緣右上方（座艙命中盒到往後 2.43 m、頂 1.18，外擴
+ * 0.5；垂尾從往後 3.87 m 起），往後看第六架、注視點偏向燒著的縱隊 `GUNNER_W`
+ * 【偏右】架在機身中線上的話垂尾是正對鏡頭的一條細線，讀不出是尾翼
+ */
+const GUNNER5 = PATHS[4]!
+const GUNNER_X = 0.9
+const GUNNER_Y = 1.9
+const GUNNER_Z = 3.2
+const GUNNER_W = 0.25
+const GUNNER_FOV = 62
+
 /** 第 `i` 架那一枚炸彈落在哪一台車上（落點上那一台，見 `PROPS`） */
 const targetProp = (i: number): number => LEAD_IN + i * PER_GAP
 
@@ -744,9 +772,10 @@ const MOUNT_FIRE: ReelEvent[] = [
 //             跟著它轉、慢慢滾轉；長機在左前方，後面一整排梯隊往右後方排開，底下是田
 //   3.2–6.8   路邊固定機位從車的斜前方拍：縱隊揚著塵迎面開來、從鏡頭旁開過；鏡頭往上抬到
 //             高空的梯隊，zoom in 到六架讀得出來 —— 地面看見了他們
-//   6.8–10.2  長機右後上方往下看：它拉起一下、往左翻成腹部朝上，田在它底下，拉進俯衝往下掉開
-//   10.2–13.6 編隊西側 95 m 跟著隊形飛：第四、五、六架一架接一架往這一側翻過來，前一架
-//             已經拉進俯衝、翼尖拉出白線往下掉
+//   6.8–10.2  第二架座艙罩後上方：自己的左翼在前景，長機在左前方拉起、翻成腹部朝上、拉進
+//             俯衝往下掉；8.8 秒自己也跟著翻，地平線跟著轉
+//   10.2–13.6 第六架機尾後上方順著機背往前看：自己的垂尾、座艙罩與左翼在右下，前方第四、
+//             五架一架接一架翻下去，12.8 秒自己也開始翻
 //   ── 交叉剪接：空中、地面輪流，一刀比一刀短；飛行員往下看與車上往上看互為對照 ──
 //   13.6–15.6 飛行員視角：長機上長焦對準路上的縱隊，一台台車讀得出來，一邊收窄
 //   15.6–17.1 砲塔左後方低角度：砲塔與砲管的剪影在右下、自己的機槍曳光往上竄；急著往上
@@ -764,7 +793,8 @@ const MOUNT_FIRE: ReelEvent[] = [
 //   24.5–26.4 路東邊 110 m：長機那一枚在畫面左邊的戰車上炸開，第二枚接著在右邊炸開
 //   26.4–29.6 縱隊北頭往南沿著路看：後面幾顆一顆接一顆沿路往鏡頭炸過來
 //   29.6–31.8 縱隊南邊 230 m 低空往北看：燒著的縱隊在路的盡頭，最後一架從右邊貼著田拉出來
-//   31.8–33.6 第五架前方 21 m 往後看：整架迎面往南爬升離場，後景是剛拉出來的第六架
+//   31.8–33.6 第五架後座機槍手的位置往後看：自己的垂尾與平尾在右下，第六架剛貼著田拉出來
+//             爬升追上來，再後面是路上燒著的縱隊
 //   33.6–37.6 善後：縱隊北邊遠處、高過樹籬，幾乎不動地看著燒著的縱隊冒起六根煙柱，飛機
 //             是南邊天上的一串小點
 
@@ -809,28 +839,34 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 6.8, subject: 0,
+    from: 6.8, subject: 0, mount: 1,
     camera(t, out) {
-      // 長機右後上方 35 m 往下看（跟著它原本的平飛航線走，慢慢推近）：7.0 秒它拉起一下，
-      // 7.8 秒起往左翻、翻成腹部朝上，田在它底下；9.6 秒它拉進俯衝，往下掉開時切
-      const u = t - 6.8
-      cruise(0, t, out.position).add(S1.set(10 - 1.2 * u, 24 - 1.5 * u, 22 - 2.5 * u))
-      LEAD(t, out.target)
+      // 第二架座艙罩後上方往左前方看：自己的座艙罩與機背在畫面右下，長機在左前方 7.0 秒
+      // 拉起一下、7.8 秒往左翻成腹部朝上、9.6 秒拉進俯衝往下掉；8.8 秒自己也跟著翻，地平線
+      // 跟著轉 —— 下一個就輪到我。上方跟著機身
+      body(HERO, t, HERO_CAM_X, HERO_CAM_Y, HERO_CAM_Z, false, out.position)
+      LEAD(t, S1)
+      body(HERO, t, 0, 0, -300, false, S2)
+      aimBetween(out.position, S1, S2, HERO_W, out.target)
+      bodyUp(HERO, t, out.up)
       shake(t, 0.12, 5, out)
-      out.fov = 48
+      out.fov = HERO_FOV
     },
   },
   {
-    from: 10.2, subject: 4,
+    from: 10.2, subject: 4, mount: 5,
     camera(t, out) {
-      // 編隊西側 95 m、與第五架同高，跟著隊形往北飛、慢慢往前帶：第四架 10.8 秒、第五架
-      // 11.8 秒、第六架 12.8 秒一架接一架往這一側翻過來，翻成腹部朝上之後拉進俯衝、翼尖
-      // 拉出白線，從畫面下緣掉出去。注視點慢慢壓低，往下掉的那一架多留在畫面裡一下
-      const u = t - 10.2
-      cruise(4, t, out.position).add(S1.set(-95, 4, -20 - 3 * u))
-      cruise(4, t, out.target).add(S1.set(-10, -6 - 8 * u, -5))
+      // 第六架機尾後上方順著機背往前看：自己的垂尾、平尾與座艙罩在畫面下段，左前方的第四架
+      // 10.8 秒、第五架 11.8 秒一架接一架翻成腹部朝上、拉進俯衝、翼尖拉出白線往下掉；12.8 秒
+      // 自己也開始翻，整個畫面跟著轉。上方跟著機身
+      // 【跟上一刀分開】上一刀是座艙罩後面看左翼外的長機；這一刀從機尾看，前景是垂尾
+      body(TAIL6, t, 0, TAIL6_Y, TAIL6_Z, false, out.position)
+      PATHS[4]!(t, S1)
+      body(TAIL6, t, 0, 0, -300, false, S2)
+      aimBetween(out.position, S1, S2, TAIL6_W, out.target)
+      bodyUp(TAIL6, t, out.up)
       shake(t, 0.1, 9, out)
-      out.fov = 42
+      out.fov = TAIL6_FOV
     },
   },
   {
@@ -987,24 +1023,16 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 31.8, subject: 4,
+    from: 31.8, subject: LAST, mount: 4,
     camera(t, out) {
-      // 第五架前方偏右 21 m 往後看：整架在畫面裡迎面爬升離場；後景是跟在它後面下方
-      // 160 m、剛貼著田拉出來的第六架（翼尖還拖著白線），再後面是燒著的縱隊。鏡頭慢慢推近、
-      // 往旁邊帶開。地平線水平
-      // 【不貼近】低面數的模型貼到幾公尺內看得出面數，整架入鏡的距離剛好
-      const u = t - 31.8
-      PATHS[4]!(t, S1)
-      PATHS[LAST]!(t, S2)
-      // 架在「第六架 → 第五架」那條線的延長線上、往旁邊偏開：兩架在畫面裡一前一後疊著
-      S3.subVectors(S1, S2).normalize()
-      out.position.copy(S1).addScaledVector(S3, 20 - 1.5 * u)
-      S3.cross(UP_AXIS).normalize()
-      out.position.addScaledVector(S3, CLOSE_SIDE * (8 + 1 * u))
-      out.position.y += 2
-      aimBetween(out.position, S1, S2, 0.22, out.target)
-      shake(t, 0.1, 23, out)
-      out.fov = 50
+      // 後座機槍手的位置：第五架座艙罩後緣上方往後看，自己的機背與垂尾在畫面下緣，跟在
+      // 後面下方的第六架剛貼著田拉出來、爬升追上來，再後面是冒煙的縱隊。上方跟著機身
+      body(GUNNER5, t, GUNNER_X, GUNNER_Y, GUNNER_Z, false, out.position)
+      PATHS[LAST]!(t, S1)
+      aimBetween(out.position, S1, BURNING, GUNNER_W, out.target)
+      bodyUp(GUNNER5, t, out.up)
+      shake(t, 0.12, 23, out)
+      out.fov = GUNNER_FOV
     },
   },
   {
