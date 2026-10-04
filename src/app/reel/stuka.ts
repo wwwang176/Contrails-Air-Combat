@@ -2,7 +2,7 @@ import { Vector3 } from 'three'
 import { JU87 } from '../../specs/ju87'
 import { hash01 } from '../../render/scatter'
 import {
-  BOMB_RELEASE_Y, barrage, bombAt, body, bodyUp, edit, propAt, timeline, velocityAt,
+  BOMB_RELEASE_Y, barrage, bombAt, body, bodyUp, edit, propAt, propTravel, timeline, velocityAt,
   type Cut, type Path, type ReelCamera, type ReelEvent, type ReelPlane, type ReelProp, type Shot,
 } from './kit'
 
@@ -330,26 +330,6 @@ const DROP_UP = bodyUp(LEAD, DROP_AT, new Vector3())
 /** 注視點從「投彈點順著速度走到哪」轉到炸彈本身：投彈後這一段時間裡從一半轉到全跟 */
 const DROP_FOLLOW_AT = 0.5
 const DROP_FOLLOW = 0.6
-/**
- * 脫鉤後鏡頭沿投彈速度走多快：前 `DROP_SLOW_AT` 秒照原速（看炸彈脫離機腹），之後
- * `DROP_SLOW_EASE` 秒內線性收到 `DROP_PACE` 倍；炸彈越掉越遠、往縱隊落下去，視角跟著
- * 收到 `DROP_FOV_END`，注視點往落點偏 `DROP_ROAD`，路上的縱隊移進畫面
- * 【一定要放慢】這一刀跟到落地前（片內約 4 秒）；照原速的話鏡頭跟炸彈一起掉到離地幾十
- * 公尺，落點的火球就在鏡頭旁邊
- */
-const DROP_SLOW_AT = 0.9
-const DROP_SLOW_EASE = 0.8
-const DROP_PACE = 0.55
-const DROP_FOV_END = 16
-const DROP_ROAD = 0.3
-/** 投彈後 `u` 秒鏡頭順著投彈速度走了幾秒份 */
-function dropRun(u: number): number {
-  const k = 1 - DROP_PACE
-  if (u <= DROP_SLOW_AT) return u
-  const v = u - DROP_SLOW_AT
-  if (v <= DROP_SLOW_EASE) return u - k * v * v / (2 * DROP_SLOW_EASE)
-  return u - k * (v - DROP_SLOW_EASE / 2)
-}
 
 // ── 路與縱隊 ───────────────────────────────────────────────
 //
@@ -378,10 +358,16 @@ function onRoad(s: number, side: number, out: Vector3): Vector3 {
 }
 
 /**
- * 第 `i` 個落點那一輛第 0 秒在路上第幾公尺：炸彈落地那一刻開到落點。
- * 落點彼此相隔 `ROAD_GAP`、落地時刻相隔約一秒，所以這幾輛的出發點間距是固定的
+ * 第一顆炸開那一刻全隊踩煞車，`COLUMN_BRAKE.seconds` 秒內停住、之後原地不動（`propTravel`）
  */
-const spawnOnRoad = (i: number): number => i * ROAD_GAP - COLUMN_SPEED * IMPACT_AT[i]!
+const COLUMN_BRAKE = { at: IMPACT_AT[0]!, seconds: 1.5 }
+const COLUMN_MOTION: ReelProp = { id: 'tank', x: 0, z: 0, heading: 0, speed: COLUMN_SPEED, brake: COLUMN_BRAKE }
+/**
+ * 第 `i` 個落點那一輛第 0 秒在路上第幾公尺：炸彈落地那一刻開到落點（含煞車，所以第三顆
+ * 以後的目標是剛好停在落點上）
+ * 【出發點要照煞車算】照等速算的話，煞停之後還沒挨炸的目標停在落點前面，後面幾顆炸空
+ */
+const spawnOnRoad = (i: number): number => i * ROAD_GAP - propTravel(COLUMN_MOTION, IMPACT_AT[i]!)
 
 const PROPS: readonly ReelProp[] = (() => {
   const out: ReelProp[] = []
@@ -404,7 +390,7 @@ const PROPS: readonly ReelProp[] = (() => {
     onRoad(s + jitter, side, p)
     // 每三輛一輛戰車，其餘卡車；落點上一律放戰車
     const id = onImpact || k % 3 === 1 ? 'tank' : 'truck'
-    out.push({ id, x: p.x, z: p.z, heading: COLUMN_HEADING, speed: COLUMN_SPEED })
+    out.push({ id, x: p.x, z: p.z, heading: COLUMN_HEADING, speed: COLUMN_SPEED, brake: COLUMN_BRAKE })
   }
   return out
 })()
@@ -464,17 +450,18 @@ const CAB_Y = 1.7
 const CAB_Z = -2.2
 const ON_VEHICLE = new Vector3()
 
-/** 投彈那一刀跟著炸彈掉到第一顆落地前一點點，硬切到爆炸 */
-const BLAST_CUT = IMPACT_AT[0]! - 0.03
 /**
- * 炸彈往下掉的那一段快轉：片內 `FAST_FROM`～`FAST_TO` 用 `FAST_RATE` 倍速，進出各
- * `FAST_EASE` 秒。炸彈從 590 m 掉到地上要 4 秒，常速跟著看太長；快轉後投彈到爆炸實際約
- * 2.3 秒。炸彈脫離機腹那一段（投彈後 1 秒內）是常速
+ * 投彈那一刀拍到炸彈脫離、飛機拉起就切到爆炸那一刀（`BLAST_CUT`）；炸彈往下掉的那幾秒
+ * 用剪接跳過：切過去之後片內 `JUMP_FROM`～`JUMP_TO` 用 `JUMP_RATE` 倍速，實際只佔約
+ * 0.15 秒，接著常速等 0.6 秒，第一顆落地炸開
+ * 【跳完要留一點常速】倍速是每幀開頭取一次，最後一幀會多跳一步（60 fps 約 0.4 秒、30 fps
+ * 約 0.8 秒）；跳到落地前 0.6 秒才停，最後一步也不會跳過爆炸，火球從頭看得到
  */
-const FAST_FROM = 21.5
-const FAST_TO = BLAST_CUT
-const FAST_RATE = 3
-const FAST_EASE = 0.3
+const BLAST_CUT = 21.6
+const JUMP_FROM = BLAST_CUT
+const JUMP_TO = 23.9
+const JUMP_RATE = 25
+const JUMP_EASE = 0.2
 
 /**
  * 路邊看見編隊那一刀：起訖秒數；機位在第 `SPOT_PASS_PROP` 台戰車 `SPOT_PASS_AT` 秒開到的
@@ -786,10 +773,10 @@ const MOUNT_FIRE: ReelEvent[] = [
 //   19.1–20.2 卡車駕駛室旁往正上方看（超長焦）：長機與僚機迎面衝下來，倒鷗翼與起落架
 //             佔滿畫面
 //   ──
-//   20.2–24.5 長機左下方看機腹：炸彈掛在兩支起落架之間，20.5 秒脫離機腹，飛機拉起往上
-//             離開；之後鏡頭跟著炸彈、快轉（3 倍速，實際約 1.3 秒）往路上的縱隊落下去 ——
-//             第一顆落地前一點點硬切到爆炸
-//   24.5–26.4 路東邊 110 m：長機那一枚在畫面左邊的戰車上炸開，第二枚接著在右邊炸開
+//   20.2–21.6 長機左下方看機腹：炸彈掛在兩支起落架之間，20.5 秒脫離機腹，飛機拉起往上
+//             離開、炸彈往下掉開
+//   21.6–26.4 剪到路東邊 110 m（炸彈往下掉的 2.3 秒剪掉，`JUMP_*`）：縱隊還在開，0.6 秒
+//             後長機那一枚在畫面左邊的戰車上炸開、全隊煞停，第二枚接著在右邊炸開
 //   26.4–29.6 縱隊北頭往南沿著路看：後面幾顆一顆接一顆沿路往鏡頭炸過來
 //   29.6–31.8 縱隊南邊 230 m 低空往北看：燒著的縱隊在路的盡頭，最後一架從右邊貼著田拉出來
 //   31.8–33.6 第五架後座機槍手的位置往後看：自己的垂尾與平尾在右下，第六架剛貼著田拉出來
@@ -943,32 +930,30 @@ const CUTS: readonly Cut[] = [
     camera(t, out) {
       // 長機左下方看機腹：機身橫在畫面裡、機頭朝左。20.5 秒炸彈脫離機腹，
       // 長機 4.5 G 拉起、翼尖拖著白線往畫面上方離開；鏡頭脫鉤（`DROP_CAM`），炸彈往左下
-      // 掉開、注視點轉去跟它；之後鏡頭放慢（`dropRun`），炸彈快轉（`FAST_*`）往路上的縱隊
-      // 落下去，落地前一點點硬切到爆炸。拉起那一下氣流掃過，震一下
+      // 掉開、注視點轉去跟它；1.1 秒後剪到爆炸那一刀（炸彈往下掉的幾秒剪掉，見 `JUMP_*`）。
+      // 拉起那一下氣流掃過，震一下
       if (t < DROP_AT) {
         body(LEAD, t, -DROP_SIDE, DROP_LOW, DROP_BACK, false, out.position)
         body(LEAD, t, 0, BOMB_RELEASE_Y, 0, false, out.target)
         bodyUp(LEAD, t, out.up)
       } else {
         const u = t - DROP_AT
-        const run = dropRun(u)
-        out.position.copy(DROP_CAM).addScaledVector(DROP_V, run)
-        S1.copy(DROP_P).addScaledVector(DROP_V, run)
+        out.position.copy(DROP_CAM).addScaledVector(DROP_V, u)
+        S1.copy(DROP_P).addScaledVector(DROP_V, u)
         bombAt(DROP_P, DROP_V, u, S2)
-        S1.lerp(S2, 0.5 + 0.5 * ramp(t, DROP_AT + DROP_FOLLOW_AT, DROP_FOLLOW))
-        aimBetween(out.position, S1, IMPACTS[0]!, DROP_ROAD * ramp(t, DROP_AT + DROP_FOLLOW_AT + DROP_FOLLOW, 0.6), out.target)
+        out.target.copy(S1).lerp(S2, 0.5 + 0.5 * ramp(t, DROP_AT + DROP_FOLLOW_AT, DROP_FOLLOW))
         out.up.copy(DROP_UP)
       }
       shake(t, 0.1, 23, out)
       jolt(t, DROP_AT + 0.4, 1.0, out.target)
-      out.fov = DROP_FOV + (DROP_FOV_END - DROP_FOV) * ramp(t, DROP_AT + DROP_SLOW_AT, BLAST_CUT - DROP_AT - DROP_SLOW_AT)
+      out.fov = DROP_FOV
     },
   },
   {
     from: BLAST_CUT, subject: null,
     camera(t, out) {
-      // 路東邊 110 m、離地 6 m：長機那一枚在畫面左邊的戰車上炸開（硬切進來就炸），第二枚
-      // 25.5 秒接著在右邊炸開，每一下都震一下
+      // 路東邊 110 m、離地 6 m：剪進來時縱隊還在開，約 0.7 秒後長機那一枚在畫面左邊的戰車上
+      // 炸開，全隊煞停；第二枚 25.5 秒接著在右邊炸開，每一下都震一下
       out.position.copy(BLAST_CAM)
       out.target.copy(BLAST_AIM)
       shake(t, 0.08, 33, out)
@@ -1040,7 +1025,7 @@ const PLANES: readonly ReelPlane[] = [
 export const STUKA: Shot = {
   id: 'stuka',
   duration: AFTER_TO,
-  speed: [{ from: FAST_FROM, to: FAST_TO, rate: FAST_RATE, ease: FAST_EASE }],
+  speed: [{ from: JUMP_FROM, to: JUMP_TO, rate: JUMP_RATE, ease: JUMP_EASE }],
   // 夏日正午：太陽在西南、仰角約 60°。編隊往北飛，太陽在它左後方
   timeOfDay: 'noon',
   faceSun: false,
