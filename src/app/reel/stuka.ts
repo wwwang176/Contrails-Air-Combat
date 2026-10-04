@@ -306,23 +306,28 @@ const DROP_AT = releaseAt(0)
 const DROP_P = body(LEAD, DROP_AT, 0, BOMB_RELEASE_Y, 0, false, new Vector3())
 const DROP_V = velocityAt(LEAD, DROP_AT, new Vector3())
 /**
- * 投彈那一刻鏡頭從長機身上脫鉤：投彈前掛在它尾後上方那一點、上方跟著它的機背；投彈
- * 之後從那一點順著它的俯衝速度直線往下，速度在半秒內收到 `DETACH_PACE` 倍，上方停在
- * 投彈那一刻的機背。炸彈比鏡頭快、往縱隊掉遠，飛機往機背那一側拉走 —— 鏡頭跟不上，
- * 交代「飛機拉走了，炸彈還在往下」
- * 【速度要漸收】一下從 1 倍跳到 0.85 倍，慢動作裡看得出鏡頭頓一下
+ * 投彈那一刀：鏡頭在長機左翼尖外、往機腹那一側 `-DROP_LOW` m、略後（機身座標），上方跟著
+ * 機背 —— 從斜下方看機腹，機身橫在畫面裡、機頭朝左，炸彈在兩支起落架之間的機腹下。
+ * 【要低過翼面】跟機腹差不多高的話，左翼與起落架整片擋在機腹前面
+ * 投彈那一刻脫鉤：之後順著投彈那一刻的速度
+ * 直線往下、上方停在那一刻的機背。飛機拉起往畫面上方離開；炸彈留在鏡頭前，被重力往前
+ * （畫面左）、往機腹那一側（畫面下）帶開 —— 看得到它離開機腹往下掉
+ * 【左側】機頭朝左，炸彈往前帶開時往畫面中間走；在右側的話它往右緣跑，一下就出畫
  */
-const DETACH_BACK = 13
-const DETACH_UPWARD = 3.0
-const DETACH_P = body(LEAD, DROP_AT, 0, DETACH_UPWARD, DETACH_BACK, false, new Vector3())
-const DETACH_UP = bodyUp(LEAD, DROP_AT, new Vector3())
-const DETACH_PACE = 0.85
-const DETACH_EASE = 0.5
-/** 投彈後 `u` 秒鏡頭順著俯衝速度走了幾秒份（速度從 1 倍線性收到 `DETACH_PACE` 倍） */
-function detachRun(u: number): number {
-  const k = 1 - DETACH_PACE
-  return u <= DETACH_EASE ? u - k * u * u / (2 * DETACH_EASE) : u - k * (u - DETACH_EASE / 2)
-}
+const DROP_SIDE = 7
+const DROP_LOW = -8
+const DROP_BACK = 3
+const DROP_FOV = 40
+const DROP_CAM = body(LEAD, DROP_AT, -DROP_SIDE, DROP_LOW, DROP_BACK, false, new Vector3())
+const DROP_UP = bodyUp(LEAD, DROP_AT, new Vector3())
+/**
+ * 注視點從「投彈點順著速度走到哪」轉到炸彈本身：投彈後這一段時間裡從一半轉到全跟；跟上
+ * 之後再往落點偏 `DROP_ROAD`，路從選單後面移到畫面中段，炸彈往哪掉讀得出來
+ * 【偏不多】炸彈與落點在畫面上隔得很開，偏到一半以上炸彈就被推出右緣
+ */
+const DROP_FOLLOW_AT = 0.7
+const DROP_FOLLOW = 0.6
+const DROP_ROAD = 0.3
 
 // ── 路與縱隊 ───────────────────────────────────────────────
 //
@@ -389,32 +394,49 @@ const PROPS: readonly ReelProp[] = (() => {
 const X_PILOT = 13.6
 const X_TANK = 15.6
 const X_PILOT2 = 17.1
-const X_BED = 18.3
+const X_TRUCK = 18.3
 const X_SIDE = 19.2
 const X_CAB = 19.8
 const X_DROP = 20.2
 /**
- * 交叉剪接裡架在車上的三刀各架在哪一台：戰車後方、卡車車斗、卡車駕駛室旁。都不是
+ * 交叉剪接裡架在車上的三刀各架在哪一台：卡車旁、戰車右後方、卡車駕駛室旁。都不是
  * 挨炸的車，也不在 `GROUND_FIRE` 輪流開火的那十台裡 —— 各自另外排一段機槍（`MOUNT_FIRE`），
  * 鏡頭架在上面的那一刀它一定在打
+ * 【鏡頭離地下限 1 m】再扣掉車身顛簸（`jostle` 最多 0.08 m）
  */
-const BED_PROP = 0
+const TRUCK_PROP = 0
 const TANK_PROP = 4
 const CAB_PROP = 6
 /**
- * 車斗那一刀鏡頭在車上的位置（車身座標：x 右、y 離地、z 車尾，m）：站在車斗後段、
- * 頭略高過車身命中盒頂（2.70，外擴 0.3）
+ * 卡車那一刀（車身座標：x 右、y 離地、z 車尾，m）：蹲在車尾右後方（命中盒車尾 3.36，外擴
+ * 0.3）、比車身頂（2.70）低，往前上方看。注視點從長機偏向車尾頂邊右角（`TRUCK_W`）：篷布
+ * 的角在畫面下段，長機在它上方 —— 同一個方位，都落在選單右邊那半
+ * 【要貼近、要低】車尾頂邊離鏡頭水平不到 1 m、高 1.6 m，仰角 60° 上下，才跟仰角約 77° 的
+ * 長機塞得進同一個長焦畫面；再退後，車身就掉出畫面下緣
  */
-const BED_X = 1.0
-const BED_Y = 3.15
-const BED_Z = 3.0
+const TRUCK_X = 1.1
+const TRUCK_Y = 1.1
+const TRUCK_Z = 4.1
+const TRUCK_EDGE_X = 0.9
+const TRUCK_EDGE_Y = 2.7
+const TRUCK_EDGE_Z = 3.3
+const TRUCK_W = 0.33
+const TRUCK_FOV = 26
 /**
- * 戰車那一刀：蹲在車尾後方（命中盒車尾 3.55，外擴 0.3）、比砲塔頂低，往前上方看，車尾
- * 引擎蓋與砲塔的剪影在畫面下緣
- * 【高度】鏡頭離地下限 1 m，再扣掉車身顛簸（`jostle` 最多 0.08 m）
+ * 戰車那一刀：蹲在砲塔左後方（命中盒半寬 1.5，外擴 0.3）、比砲塔低 —— 砲塔與往前伸的砲管
+ * 在注視點右邊，落在選單右邊那半。開頭 `TANK_HOLD` 秒注視點
+ * 偏向砲管前端那一點（`TANK_W`），砲塔與砲管的剪影在下緣；之後抬到長機、視角從
+ * `TANK_FOV0` 收到 `TANK_FOV1`
  */
+const TANK_X = -2.4
 const TANK_Y = 1.1
-const TANK_Z = 4.0
+const TANK_Z = 3.0
+const TANK_GUN_Y = 2.2
+const TANK_GUN_Z = -1.5
+const TANK_W = 0.5
+const TANK_HOLD = 0.35
+const TANK_FOV0 = 80
+const TANK_FOV1 = 14
 /** 駕駛室那一刀：貼著駕駛室右側車門（命中盒半寬 1.21，外擴 0.3）、比車頂低 */
 const CAB_X = 1.6
 const CAB_Y = 1.7
@@ -554,26 +576,29 @@ const LAST = COUNT - 1
 const targetProp = (i: number): number => LEAD_IN + i * PER_GAP
 
 /**
- * 飛行員視角：鏡頭在長機座艙罩後上方（機身座標 y `up`、往後 `back` m），注視點介於
- * 它那一枚的目標車與螺旋槳轂之間（`PILOT_W` = 偏向槳轂的比例）—— 目標在機首線偏機腹
- * 那一側一兩度，機頭在畫面下緣、目標在它上方。上方跟著機背
- * 【垂尾】命中盒頂 1.94、外擴 0.5：鏡頭在它前後範圍裡時要高過 2.44
+ * 飛行員視角：鏡頭在長機座艙罩後上方（機身座標 y `PILOT_UP`、往後 `PILOT_BACK` m），長焦
+ * 對準縱隊，整刀從 `fov0` 收到 `fov1`（對著目標衝過去）。上方跟著機背，路在畫面裡上下走
+ * 向。螺旋槳盤的上緣在畫面下緣，是唯一看得到的機身
+ * 【長焦】縱隊在一公里外，從上往下看一台車只有 3 × 6.7 m：視角 15° 時是十來個像素的
+ * 小點，畫面上讀起來只有田與路
+ * 【要高過槳盤】槳盤半徑約 1.7 m；視線穿過槳盤的話，整個長焦畫面蒙上一層半透明的灰
+ * 【垂尾】命中盒從往後 3.87 m 起（外擴 0.5），鏡頭在它前面
  */
-const PILOT_W = 0.3
-const PILOT_UP = 2.5
-const PILOT_BACK = 4.0
-const PILOT_FOV = 36
-const PILOT2_UP = 2.0
-const PILOT2_BACK = 3.2
-const PILOT2_FOV = 26
-function pilotView(t: number, up: number, back: number, fov: number, out: ReelCamera): void {
-  body(LEAD, t, 0, up, back, false, out.position)
+const PILOT_UP = 2.8
+const PILOT_BACK = 3.2
+const PILOT_FOV0 = 7
+const PILOT_FOV1 = 5
+const PILOT2_FOV0 = 3.4
+const PILOT2_FOV1 = 2.6
+/** `w` = 注視點從縱隊中段（前兩個落點的中間）偏向長機那一枚目標的比例 */
+function pilotView(t: number, from: number, to: number, fov0: number, fov1: number, w: number, out: ReelCamera): void {
+  body(LEAD, t, 0, PILOT_UP, PILOT_BACK, false, out.position)
   propAt(PROPS[targetProp(0)]!, t, S1)
-  body(LEAD, t, 0, 0, -4.5, false, S2)
-  aimBetween(out.position, S1, S2, PILOT_W, out.target)
+  propAt(PROPS[targetProp(1)]!, t, S2)
+  out.target.copy(S2).lerp(S1, 0.5 + 0.5 * w)
   bodyUp(LEAD, t, out.up)
-  shake(t, 0.12, 27, out)
-  out.fov = fov
+  out.fov = fov0 + (fov1 - fov0) * Math.min(1, Math.max(0, (t - from) / (to - from)))
+  shake(t, 0.15 * out.fov / 16, 27, out)
 }
 
 /** 車在開：鏡頭跟著車身慢晃加一點顛，疊進 `p` */
@@ -591,24 +616,24 @@ function lookUpAtLead(t: number, k: number, w: number, seed: number, out: ReelCa
   aimBetween(out.position, S1, S2, w, out.target)
   shake(t, 0.35 * Math.pow(out.fov / 40, 0.6), seed, out)
 }
-/** 戰車、車斗、駕駛室三刀：注視點偏向路面的比例與視角（度）。長機一刀比一刀大 */
-const TANK_W = 0.32
-const TANK_FOV = 66
-const BED_W = 0
-const BED_FOV = 15
+/** 駕駛室那一刀：注視點偏向路面的比例與視角（度） */
 const CAB_W = 0
 const CAB_FOV = 6
 
 /**
- * 寧靜那一刀：路東邊 `QUIET_SIDE` m、離地 1.3 m，往路上第一個落點南邊 `QUIET_LOOK` m 看
- * （長機那一枚的目標 23.9 秒開到那裡，落地時再往右開出幾公尺）。長焦、注視點貼地，畫面
- * 上緣的仰角約 10°：拉出的飛機都在那之上
+ * 寧靜那一刀：在第一個落點北邊 `QUIET_AHEAD` m、路東邊 `QUIET_SIDE` m、離地 1.1 m，順著路
+ * 往南看路上第 `QUIET_LOOK` m 那一點。縱隊迎面開來、一台接一台往遠處疊，近的偏右、遠的收向
+ * 注視點，整串落在選單右邊那半；長機那一枚的目標在第三、四台的位置。畫面上緣的仰角約
+ * 10°：拉出的飛機都在那之上
+ * 【離路 20 m】車距約 22 m、這 2 秒開 17 m，鏡頭放在路邊哪裡都會有一台從旁邊開過去；
+ * 離路近的話它擦身而過、貼到幾公尺內，看得出低面數
  */
-const QUIET_SIDE = 24
-const QUIET_LOOK = 3
-const QUIET_FOV = 40
-const QUIET_CAM = onRoad(-QUIET_LOOK, QUIET_SIDE, new Vector3()).setY(1.1)
-const QUIET_AIM = onRoad(-QUIET_LOOK, 0, new Vector3()).setY(1.8)
+const QUIET_AHEAD = 80
+const QUIET_SIDE = 20
+const QUIET_LOOK = 12
+const QUIET_FOV = 26
+const QUIET_CAM = onRoad(QUIET_AHEAD, QUIET_SIDE, new Vector3()).setY(1.1)
+const QUIET_AIM = onRoad(QUIET_LOOK, 0, new Vector3()).setY(1.6)
 /**
  * 爆炸那一刀：路東邊 `BLAST_SIDE` m、離地 6 m，廣角對著前兩個落點之間偏南的一點（第一個
  * 落點在左、第二個在右），兩個都在選單右邊的畫面裡
@@ -696,7 +721,7 @@ const GROUND_FIRE: ReelEvent[] = (() => {
  * 竄向畫面裡的長機。都在寧靜那一刀之前打完
  */
 const MOUNT_FIRE: ReelEvent[] = [
-  { at: X_BED - 0.6, kind: 'groundFire', prop: BED_PROP, actor: 0, seconds: 2.6, miss: 20 },
+  { at: X_TRUCK - 0.6, kind: 'groundFire', prop: TRUCK_PROP, actor: 0, seconds: 2.6, miss: 20 },
   { at: X_TANK - 0.6, kind: 'groundFire', prop: TANK_PROP, actor: 0, seconds: 2.0, miss: 20 },
   { at: X_CAB - 0.6, kind: 'groundFire', prop: CAB_PROP, actor: 0, seconds: 2.0, miss: 20 },
 ]
@@ -711,19 +736,19 @@ const MOUNT_FIRE: ReelEvent[] = [
 //   10.2–13.6 編隊西側 95 m 跟著隊形飛：第四、五、六架一架接一架往這一側翻過來，前一架
 //             已經拉進俯衝、翼尖拉出白線往下掉
 //   ── 交叉剪接：空中、地面輪流，一刀比一刀短；飛行員往下看與車上往上看互為對照 ──
-//   13.6–15.6 長機座艙後上方越過機頭往下看：路上的縱隊在機頭前方，曳光從下面往上竄
-//   15.6–17.1 戰車車尾後方往前上方看：砲塔的剪影在下緣，自己的機槍曳光往上竄，高處一串
-//             斯圖卡衝下來
-//   17.1–18.3 長機座艙後上方、焦段更長：縱隊大了一圈
-//   18.3–19.2 卡車車斗上往正上方看（長焦）：長機與後面幾架迎面排成一串，大了一圈
+//   13.6–15.6 飛行員視角：長機上長焦對準路上的縱隊，一台台車讀得出來，一邊收窄
+//   15.6–17.1 砲塔左後方低角度：砲塔與砲管的剪影在右下、自己的機槍曳光往上竄；急著往上
+//             抬、收長焦，刀尾一串斯圖卡迎面衝下來
+//   17.1–18.3 飛行員視角再一次，焦段長一倍：長機那一枚的目標與旁邊的車佔滿畫面
+//   18.3–19.2 卡車車尾右後方往上看：篷布的角在下段，曳光從它後面竄出，上方一串斯圖卡
 //   19.2–19.8 長機西側 13 m 機身特寫：機頭朝右下往下衝，曳光貼著它往上竄
 //   19.8–20.2 卡車駕駛室旁往正上方看（超長焦）：長機與僚機迎面衝下來，倒鷗翼與起落架
 //             佔滿畫面
 //   ──
-//   20.2–22.4 長機尾後上方：20.5 秒炸彈脫離機腹（0.3 倍速慢動作，實際約 4.3 秒），它拉起
-//             甩出畫面，鏡頭留在俯衝線上，炸彈往縱隊掉遠
-//   22.4–24.5 路東邊 24 m 貼地往路上看：縱隊照常開、揚著塵，長機那一枚的目標開進畫面；
-//             沒有曳光、沒有飛機 —— 落地前一點點硬切到爆炸
+//   20.2–22.4 長機左下方看機腹：炸彈掛在兩支起落架之間，20.5 秒脫離機腹（0.3 倍速慢動作，
+//             實際約 4.3 秒），飛機拉起往上離開、炸彈往下掉開，鏡頭跟著炸彈、路移進畫面
+//   22.4–24.5 路東邊 20 m 貼地順著路往南看：縱隊迎面開來、揚著塵，一台台往遠處疊，一台從
+//             右邊開過；沒有曳光、沒有飛機 —— 長機那一枚落地前一點點硬切到爆炸
 //   24.5–26.4 路東邊 110 m：長機那一枚在畫面左邊的戰車上炸開，第二枚接著在右邊炸開
 //   26.4–29.6 縱隊北頭往南沿著路看：後面幾顆一顆接一顆沿路往鏡頭炸過來
 //   29.6–31.8 縱隊南邊 230 m 低空往北看：燒著的縱隊在路的盡頭，最後一架從右邊貼著田拉出來
@@ -799,38 +824,46 @@ const CUTS: readonly Cut[] = [
   {
     from: X_PILOT, subject: null, mount: 0,
     camera(t, out) {
-      // 飛行員視角：長機座艙罩後上方（座艙命中盒頂 1.18，外擴 0.5），越過機頭往下看。
-      // 機頭在畫面下緣，路上的縱隊在機頭前方，地面的機槍曳光從下面往上竄。上方跟著機身
-      pilotView(t, PILOT_UP, PILOT_BACK, PILOT_FOV, out)
+      // 飛行員視角：長機座艙罩後上方，長焦對準路上的縱隊，一邊往前衝一邊收窄。地面的機槍
+      // 曳光從下面往上竄
+      pilotView(t, X_PILOT, X_TANK, PILOT_FOV0, PILOT_FOV1, 0, out)
     },
   },
   {
     from: X_TANK, subject: 0, groundMount: TANK_PROP,
     camera(t, out) {
-      // 戰車車尾後方、比砲塔頂低，往前上方看（廣角）：砲塔頂與艙蓋的剪影在畫面下緣，自己
-      // 這台的機槍曳光往上竄，高處一串斯圖卡排成一線衝下來
-      onVehicle(TANK_PROP, t, 0.4, TANK_Y, TANK_Z, out.position)
+      // 砲塔左後方、蹲得比砲塔低：開頭砲塔與砲管的剪影在畫面右下、長機在上緣；鏡頭急著
+      // 往上抬、收長焦，刀尾長機在畫面中間、讀得出倒鷗翼。自己這台的機槍曳光往上竄
+      // 【長機一直在畫面裡】抬頭的起點就把它放在上緣，不是從砲塔搖上去才出現
+      onVehicle(TANK_PROP, t, TANK_X, TANK_Y, TANK_Z, out.position)
       jostle(t, out.position)
-      out.fov = TANK_FOV
-      lookUpAtLead(t, TANK_PROP, TANK_W, 2, out)
+      const k = easeInOut(t, X_TANK + TANK_HOLD, X_PILOT2 - X_TANK - TANK_HOLD)
+      LEAD(t, S1)
+      onVehicle(TANK_PROP, t, 0, TANK_GUN_Y, TANK_GUN_Z, S2)
+      aimBetween(out.position, S1, S2, TANK_W * (1 - k), out.target)
+      out.fov = TANK_FOV0 + (TANK_FOV1 - TANK_FOV0) * k
+      shake(t, 0.35 * Math.pow(out.fov / 40, 0.6), 2, out)
     },
   },
   {
     from: X_PILOT2, subject: null, mount: 0,
     camera(t, out) {
-      // 飛行員視角再一次：鏡頭往前挪、焦段更長，縱隊比上一次大了一圈
-      pilotView(t, PILOT2_UP, PILOT2_BACK, PILOT2_FOV, out)
+      // 飛行員視角再一次：焦段長一倍、對準長機那一枚的目標，一台台車與揚塵讀得出來
+      pilotView(t, X_PILOT2, X_TRUCK, PILOT2_FOV0, PILOT2_FOV1, 1, out)
     },
   },
   {
-    from: X_BED, subject: 0, groundMount: BED_PROP,
+    from: X_TRUCK, subject: 0, groundMount: TRUCK_PROP,
     camera(t, out) {
-      // 卡車車斗上往正上方看（長焦）：自己這台的機槍曳光從鏡頭旁往上竄，長機與後面幾架
-      // 排成一串衝下來，比戰車那一刀大得多。車在開：慢晃加一點顛
-      onVehicle(BED_PROP, t, BED_X, BED_Y, BED_Z, out.position)
+      // 卡車車尾右後方、比車身低，往前上方看：車尾篷布的角在畫面下段，自己這台的機槍曳光
+      // 從它後面往上竄，長機與後面幾架排成一串衝下來。車在開：慢晃加一點顛
+      onVehicle(TRUCK_PROP, t, TRUCK_X, TRUCK_Y, TRUCK_Z, out.position)
       jostle(t, out.position)
-      out.fov = BED_FOV
-      lookUpAtLead(t, BED_PROP, BED_W, 1, out)
+      LEAD(t, S1)
+      onVehicle(TRUCK_PROP, t, TRUCK_EDGE_X, TRUCK_EDGE_Y, TRUCK_EDGE_Z, S2)
+      aimBetween(out.position, S1, S2, TRUCK_W, out.target)
+      out.fov = TRUCK_FOV
+      shake(t, 0.25 * Math.pow(out.fov / 40, 0.6), 1, out)
     },
   },
   {
@@ -866,32 +899,34 @@ const CUTS: readonly Cut[] = [
   {
     from: X_DROP, subject: null,
     camera(t, out) {
-      // 長機尾後 13 m、機背那一側 3 m，順著機首往下看：20.5 秒炸彈脫離機腹（慢動作，
-      // `SLOW_*`），長機 4.5 G 拉起、翼尖拖著白線往畫面上方甩出去；鏡頭留在俯衝線上
-      // （`DETACH_P`），炸彈跑在鏡頭前面往縱隊掉。投彈前上方跟著機背，之後停在投彈那一刻
-      // 的機背，不跟著機身翻。拉起那一下氣流掃過，震一下。飛機出畫之後慢慢收窄，炸彈與
-      // 路上的縱隊才不會縮成小點
+      // 長機左下方看機腹：機身橫在畫面裡、機頭朝左。20.5 秒炸彈脫離機腹（慢動作，
+      // `SLOW_*`），長機 4.5 G 拉起、翼尖拖著白線往畫面上方離開；鏡頭脫鉤留在原來的
+      // 速度上（`DROP_CAM`），炸彈往左下掉開、注視點慢慢轉去跟它，背景是底下的田與路。
+      // 拉起那一下氣流掃過，震一下
       if (t < DROP_AT) {
-        body(LEAD, t, 0, DETACH_UPWARD, DETACH_BACK, false, out.position)
-        body(LEAD, t, 0, BOMB_RELEASE_Y, 0, false, S1)
+        body(LEAD, t, -DROP_SIDE, DROP_LOW, DROP_BACK, false, out.position)
+        body(LEAD, t, 0, BOMB_RELEASE_Y, 0, false, out.target)
         bodyUp(LEAD, t, out.up)
       } else {
-        out.position.copy(DETACH_P).addScaledVector(DROP_V, detachRun(t - DROP_AT))
-        bombAt(DROP_P, DROP_V, t - DROP_AT, S1)
-        out.up.copy(DETACH_UP)
+        const u = t - DROP_AT
+        out.position.copy(DROP_CAM).addScaledVector(DROP_V, u)
+        S1.copy(DROP_P).addScaledVector(DROP_V, u)
+        bombAt(DROP_P, DROP_V, u, S2)
+        S1.lerp(S2, 0.5 + 0.5 * ramp(t, DROP_AT + DROP_FOLLOW_AT, DROP_FOLLOW))
+        aimBetween(out.position, S1, IMPACTS[0]!, DROP_ROAD * ramp(t, DROP_AT + DROP_FOLLOW_AT + DROP_FOLLOW, 0.6), out.target)
+        out.up.copy(DROP_UP)
       }
-      aimBetween(out.position, S1, IMPACTS[0]!, 0.3, out.target)
       shake(t, 0.1, 23, out)
       jolt(t, DROP_AT + 0.4, 1.0, out.target)
-      out.fov = 60 - 18 * ramp(t, DROP_AT + 1.0, 1.0)
+      out.fov = DROP_FOV
     },
   },
   {
     from: QUIET_FROM, subject: null,
     camera(t, out) {
-      // 暴風雨前的寧靜：路東邊 `QUIET_SIDE` m、離地 1.3 m 的固定機位，長焦往路上看。
-      // 縱隊照常往右開、揚著塵，長機那一枚的目標正開進畫面；沒有曳光、沒有飛機（停火見
-      // `GROUND_FIRE`；拉出的飛機仰角都在畫面上緣之上）。目標挨炸前一點點硬切到爆炸
+      // 暴風雨前的寧靜：路東邊貼地的固定機位，順著路往南看。縱隊迎面開來、揚著塵，一台
+      // 從右邊開過鏡頭旁；沒有曳光、沒有飛機（停火見 `GROUND_FIRE`；拉出的飛機仰角都在畫面
+      // 上緣之上）。長機那一枚的目標挨炸前一點點硬切到爆炸
       out.position.copy(QUIET_CAM)
       out.target.copy(QUIET_AIM)
       shake(t, 0.05, 31, out)
