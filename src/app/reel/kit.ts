@@ -204,6 +204,11 @@ export interface Cut {
    * 不要求離機身中心 6 m
    */
   readonly mount?: number
+  /**
+   * 鏡頭架在第幾台地面物件上（車斗、砲塔後方）。測試對這一刀只要求離地 1.5 m 以上、
+   * 離那台車（`propAt`）不超過 20 m、不在它的命中盒裡，不套其他刀離地 6 m 那一條
+   */
+  readonly groundMount?: number
   readonly camera: CameraFn
 }
 

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { PerspectiveCamera, Quaternion, Vector3 } from 'three'
 import {
-  BOMB_RELEASE_Y, createReelCamera, pickIsland, rampedOffset, reelShots, TORPEDO_SPEED, torpedoAt, torpedoEntry,
-  type Shot,
+  BOMB_RELEASE_Y, createReelCamera, pickIsland, propAt, rampedOffset, reelShots, TORPEDO_SPEED, torpedoAt,
+  torpedoEntry, type Cut, type Shot,
 } from '../../src/app/reelShots'
+import { groundUnitOf } from '../../src/world/groundTargets'
 import { createArchipelago } from '../../src/world/archipelago'
 import { createFlight, flightPose } from '../../src/app/reelFlight'
 import { REEL_MAX_PLANES } from '../../src/app/menuReel'
@@ -44,6 +45,14 @@ function overShipBy(shot: Shot, k: number, t: number, p: Vector3, margin: number
 const archipelago = createArchipelago()
 const island = pickIsland(archipelago.islands)!
 const ship0 = new Vector3()
+const prop0 = new Vector3()
+
+/** 第 `t` 秒用的是哪一刀（與 `edit` 同一條：`from` 不超過 `t` 的最後一刀） */
+function cutAt(shot: Shot, t: number): Cut {
+  let pick = shot.cuts[0]!
+  for (const c of shot.cuts) if (c.from <= t) pick = c
+  return pick
+}
 
 function shipAt(shot: Shot, k: number, t: number, out: Vector3): Vector3 {
   const s = shot.ships[k]!
@@ -169,9 +178,29 @@ describe.each(shots.map((s) => [s.id, s] as const))(
       }
     })
 
-    it('鏡頭在海面上至少 6 m，經過船的上空時高過桅杆', () => {
+    it('鏡頭在海面上至少 6 m，經過船的上空時高過桅杆；架在車上的刀離地 1.5 m、貼著那台車、不進車身', () => {
       for (const t of times) {
         shot.camera(t, cam)
+        const mount = cutAt(shot, t).groundMount
+        if (mount !== undefined) {
+          const p = shot.props?.[mount]
+          expect(p, `t=${t.toFixed(1)} 架在不存在的地面物件 ${mount}`).toBeDefined()
+          expect(cam.position.y, `t=${t.toFixed(1)}`).toBeGreaterThanOrEqual(1.5)
+          propAt(p!, t, prop0)
+          const dx = cam.position.x - prop0.x
+          const dz = cam.position.z - prop0.z
+          expect(Math.hypot(dx, dz), `t=${t.toFixed(1)} 離車`).toBeLessThanOrEqual(20)
+          // 世界 → 車體：繞 Y 轉 −heading
+          const c = Math.cos(p!.heading)
+          const n = Math.sin(p!.heading)
+          const lx = dx * c - dz * n
+          const lz = dx * n + dz * c
+          const inHull = groundUnitOf(p!.id).hull.some((b) =>
+            Math.abs(lx - b.center.x) < b.half.x + 0.3 && Math.abs(lz - b.center.z) < b.half.z + 0.3
+            && Math.abs(cam.position.y - b.center.y) < b.half.y + 0.3)
+          expect(inHull, `t=${t.toFixed(1)} 鏡頭在車身裡`).toBe(false)
+          continue
+        }
         expect(cam.position.y, `t=${t.toFixed(1)}`).toBeGreaterThanOrEqual(6)
         for (let k = 0; k < shot.ships.length; k++) {
           if (overShip(shot, k, t, cam.position)) {
@@ -309,6 +338,7 @@ describe.each(shots.map((s) => [s.id, s] as const))(
       for (const c of shot.cuts) {
         if (c.subject !== null) expect(c.subject).toBeLessThan(n)
         if (c.mount !== undefined) expect(c.mount).toBeLessThan(n)
+        if (c.groundMount !== undefined) expect(c.groundMount).toBeLessThan(shot.props?.length ?? 0)
       }
     })
   },
