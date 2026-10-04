@@ -345,18 +345,23 @@ const RIDE_FROM = 25.3
 const RIDE_TO = 27.6
 
 /**
- * 戰車上看見編隊壓過來那一刀：起點；跟的那台（縱隊前段第二台 T-34，走路的西側）；
- * 鏡頭在車身座標的位置（x 右、y 離地、z 車尾，m）：車頭前方 2.4 m、比車頂低 1 m，
- * 跟著車走。
- * 【在車頭前、比車頂低】編隊在仰角 55～60°，中焦（55°）要拍到它，畫面下緣就在仰角 5°
- * 上下 —— 只有高過鏡頭、又在視線正前方幾公尺內的車體進得了畫面。架在車頂上或車身旁，
- * 車身不是在畫面下緣之下，就是在鏡頭側面（主角讓到畫面右邊時，側面那一塊被裁掉）
+ * 路邊看見編隊那一刀：起訖秒數；拍路時正對著的那一點（第 `SPOT_PASS_PROP` 台戰車在
+ * `SPOT_PASS_AT` 秒開到的地方 —— 它那時正好開過畫面中段）與機位偏東幾公尺；往上搖的
+ * 起點與長度；zoom in 的起點（到刀尾收完）；拍路、搖上天、收到編隊上的視角（度）
  */
 const SPOT_FROM = 3.2
-const SPOT_RIDE = 19
-const SPOT_X = -1.0
-const SPOT_Y = 1.6
-const SPOT_Z = -5.0
+const SPOT_TO = 6.8
+const SPOT_PASS_PROP = 13
+const SPOT_PASS_AT = 3.9
+const SPOT_SIDE = 32
+const SPOT_TILT_AT = 4.3
+const SPOT_TILT_LEN = 1.0
+const SPOT_ZOOM_AT = 5.4
+const SPOT_FOV_ROAD = 34
+const SPOT_FOV_SKY = 22
+const SPOT_FOV_ZOOM = 4.5
+const SPOT_ROAD = propAt(PROPS[SPOT_PASS_PROP]!, SPOT_PASS_AT, new Vector3()).setY(2)
+const SPOT_CAM = SPOT_ROAD.clone().addScaledVector(ROAD_RIGHT, SPOT_SIDE).setY(6)
 
 /**
  * 第 `k` 台車第 `t` 秒車身座標 (x 右、y 上、z 車尾) 那一點的局部座標，寫進 `out`。
@@ -487,8 +492,8 @@ const GROUND_FIRE: ReelEvent[] = (() => {
 //
 //   0.0–3.2   編隊裡：鏡頭在長機正後方、比隊形快一點往前滑，從第二架左邊 14 m 掠過，鏡頭
 //             跟著它轉、慢慢滾轉；長機在左前方，後面一整排梯隊往右後方排開，底下是田
-//   3.2–6.8   縱隊前段一台 T-34 車頭前回頭往南上方看：砲塔與砲管從畫面下緣頂上來，
-//             整串梯隊在高空朝縱隊壓過來 —— 他們朝我們來了
+//   3.2–6.8   路邊固定機位橫拍：縱隊一台接一台揚著塵開過畫面；鏡頭往南上方搖到高空的
+//             梯隊，zoom in 到六架讀得出來 —— 地面看見了他們
 //   6.8–10.2  長機右後上方往下看：它拉起一下、往左翻成腹部朝上，田在它底下，拉進俯衝往下掉開
 //   10.2–13.8 編隊西側 95 m 跟著隊形飛：第四、五、六架一架接一架往這一側翻過來，前一架
 //             已經拉進俯衝、翼尖拉出白線往下掉
@@ -524,19 +529,22 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: SPOT_FROM, subject: null, groundMount: SPOT_RIDE,
+    from: SPOT_FROM, subject: null,
     camera(t, out) {
-      // 他們朝我們來了：縱隊前段一台 T-34 的車頭前、比車頂低，跟著車往北開、回頭往南上方
-      // 看。戰車的砲塔與砲管從畫面下緣頂上來；整串梯隊在南邊高空平飛、直直朝縱隊壓過來，
-      // 越來越近、越來越高，注視點跟著慢慢抬。下一刀長機就拉起翻身
-      // 【回頭往南看】編隊從南邊來；車上仰看炸點的那一刀是最後一台卡車、往前（北）看
-      onVehicle(SPOT_RIDE, t, SPOT_X, SPOT_Y, SPOT_Z, out.position)
-      out.position.y += 0.04 * Math.sin(2 * Math.PI * 2.1 * t) + 0.025 * Math.sin(2 * Math.PI * 3.3 * t + 2)
-      cruise(2.5, t, S1)
-      onVehicle(SPOT_RIDE, t, SPOT_X, SPOT_Y, 60, S2)
-      aimBetween(out.position, S1, S2, 0.42 - 0.025 * ramp(t, SPOT_FROM, 3.6), out.target)
-      shake(t, 0.15, 3, out)
-      out.fov = 55
+      // 地面看見了上面的飛機：路東邊 32 m、離地 6 m 的固定機位，正對著路橫拍（路在畫面裡
+      // 左右橫過）。先是縱隊一台接一台從畫面左邊往右開過、車尾揚著塵（3.9 秒一台 T-34 正好
+      // 開過畫面中段）；4.3 秒起鏡頭往南上方搖，搖到高空正往這邊飛來的整個梯隊，停穩之後
+      // 5.4 秒起 zoom in，收到最後慢慢停住，六架的機身與倒鷗翼讀得出來。下一刀長機就拉起翻身
+      // 【拍路時不動】只有車在動，看得出縱隊在開；鏡頭跟著車搖的話讀不出車的速度
+      // 【搖完才收】一邊搖一邊收長焦的話，編隊還沒到畫面中央就被收出畫外
+      // 【晃動跟著視角縮】以角度計的晃動在長焦下會被放大，量照視角等比收小
+      out.position.copy(SPOT_CAM)
+      cruise(2.5, t, S2)
+      const tilt = ramp(t, SPOT_TILT_AT, SPOT_TILT_LEN)
+      aimBetween(out.position, SPOT_ROAD, S2, tilt, out.target)
+      const zoom = ramp(t, SPOT_ZOOM_AT, SPOT_TO - SPOT_ZOOM_AT)
+      out.fov = SPOT_FOV_ROAD + (SPOT_FOV_SKY - SPOT_FOV_ROAD) * tilt + (SPOT_FOV_ZOOM - SPOT_FOV_SKY) * zoom
+      shake(t, 0.004 * out.fov, 3, out)
     },
   },
   {
