@@ -114,7 +114,8 @@ function readyBriefing(card: ReadyMissionCard): Briefing {
     const escort = b.blueWaves?.escort
     if (escort !== undefined) addUnit(mine, escort.spec, escort.count)
     for (const w of b.waves ?? []) {
-      if (w.side === 'theirs' && w.when.kind === 'clock' && w.when.at === 0) addUnit(foe, w.spec, w.count)
+      const onField = w.departs !== undefined || (w.when.kind === 'clock' && w.when.at === 0)
+      if (w.side === 'theirs' && onField) addUnit(foe, w.spec, w.count)
     }
   }
 

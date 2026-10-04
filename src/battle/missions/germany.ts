@@ -314,6 +314,8 @@ export const GERMANY: readonly MissionCard[] = [
       // 【第三張任務卡限定】先完成機場掃射；已升空的 P-51 只有形成直接射擊威脅
       // 時才插隊。AI 核心只看單位 id，不知道 germany-m3，也不污染其他關卡。
       priorityGroundUnit: 'parkedP51',
+      // 四批都從停機位出發：簡報列 P-51D ×16，等於下面要擊毀的架數
+      briefsOpening: true,
       // 【停機線上的 P-51 全部擊毀】地上打掉的、起飛後被擊落的都算（每一架只算
       // 一次，見 `setup.ts` 的 `destroyedInPool`），所以這就是「所有野馬」。
       // 油桶堆與防空車打得掉但不算

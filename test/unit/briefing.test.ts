@@ -76,7 +76,7 @@ describe('briefingOf —— 擊落（德 M1）', () => {
 describe('briefingOf —— 打擊（德 M3）', () => {
   const b = briefingOf(readyCard('germany-m3'))
 
-  it('目標照卡，起飛的波次不上簡報', () => {
+  it('目標照卡，沒有出擊前不該知道的欄位', () => {
     expect(b.objective).toBe(t(readyCard('germany-m3').battle.objectiveKey))
     expect(noSecrets(b)).toEqual([])
   })
@@ -87,9 +87,12 @@ describe('briefingOf —— 打擊（德 M3）', () => {
     expect(b.mine).toEqual([{ id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 10 }])
   })
 
-  it('沒開 briefsOpening，clock 0 的起飛批次也不列進敵方', () => {
-    expect(readyCard('germany-m3').battle.waves?.some((w) => w.when.kind === 'clock' && w.when.at === 0)).toBe(true)
-    expect(b.foe).toEqual([])
+  it('敵方是停在地上的 P-51D ×16：四批都列進來（不只 clock 0 的兩批），等於要擊毀的架數', () => {
+    const card = readyCard('germany-m3')
+    expect(card.battle.waves).toHaveLength(4)
+    expect(card.battle.waves!.filter((w) => w.when.kind === 'clock' && w.when.at === 0)).toHaveLength(2)
+    expect(b.foe).toEqual([{ id: 'p51d', name: 'P-51D', role: 'fighter', count: 16 }])
+    expect(b.foe![0]!.count).toBe(card.battle.destroyCount)
   })
 })
 

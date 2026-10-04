@@ -376,11 +376,15 @@ export interface MissionBattle {
     }
   }
   /**
-   * 簡報把開場的陣容列出來：`blueWaves.escort` 進我方欄，`waves` 裡 `clock: 0` 的敵方批次進敵方欄
-   * （同機種併成一列）。**省略 = 簡報只列 `blueSpec`、`redSpec`、`convoySpec`。**
+   * 簡報把開場的陣容列出來：`blueWaves.escort` 進我方欄，`waves` 裡開場就在場上的敵方批次進敵方欄
+   * （同機種併成一列）。開場就在場上 = `clock: 0` 進場，或從停機位出發（`departs`，從開場就停在地上）。
+   * **省略 = 簡報只列 `blueSpec`、`redSpec`、`convoySpec`。**
    *
    * 【為什麼要卡片自己舉手】`waves` 多半是戰鬥中才進場的增援，玩家出擊前不知道，簡報不寫；`clock: 0` 的批次
-   * 在別的關卡是空中巡邏或起飛的野馬，也不算「對面的陣容」。只有開場就預警、不等戰果的那一批才是。
+   * 在別的關卡是空中巡邏，也不算「對面的陣容」。
+   *
+   * 【為什麼 `departs` 不看時間】停機位上的飛機一架不少地擺在地上，晚到的批次只是晚滑出去；
+   * 只看 `clock: 0` 會少列後面的批次。
    */
   readonly briefsOpening?: true
   /**
