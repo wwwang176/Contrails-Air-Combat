@@ -108,6 +108,11 @@ export interface ShipGunSpec {
   readonly burstSmoke: number
   readonly burstBlast: number
   readonly burstShake: number
+  /**
+   * 射界錐的半角，度。**省略 = 照那一層的預設**（`SHIP_AA_ARC_DEFAULTS`）。
+   * 陸上砲位的錐軸是天頂，所以最低仰角 = 90° − 它
+   */
+  readonly halfAngleDeg?: number
 }
 
 /**
@@ -222,6 +227,16 @@ export const GROUND_LIGHT_FLAK_SPEC: ShipGunSpec = {
   muzzleVelocity: 880, roundsPerMinute: 480, life: 3.0, caliber: 20,
   damage: 2.5, hp: 160, boxHalf: 1.0, rotationRate: 60 * DEG,
   ...NOT_FLAK,
+}
+
+/**
+ * M16 防空半履帶車（四聯 .50）。火力與 `GROUND_LIGHT_FLAK_SPEC` 相同，差在
+ * **射界壓到仰角 5°**：M45 砲架放得到水平以下，低空掃射的飛機照樣挨打。
+ * 用 Flak 38 那一份的話仰角 25° 以下打不到，100 m 掃射時一座只開火十分之一秒
+ */
+export const GROUND_M16_SPEC: ShipGunSpec = {
+  ...GROUND_LIGHT_FLAK_SPEC,
+  halfAngleDeg: 85,
 }
 
 /**
@@ -628,7 +643,7 @@ function leadInBody(
   // 【就地填一個模組級的錐】寫成物件字面值的話每次呼叫配置一個 —— 而這一支
   // 每個砲位每步至少跑一次，搜尋時還會跑滿全部候選。
   ARC.axis = g.axis
-  ARC.halfAngle = SHIP_AA_ARC_DEFAULTS[g.zone.tier].halfAngleDeg * DEG
+  ARC.halfAngle = (spec.halfAngleDeg ?? SHIP_AA_ARC_DEFAULTS[g.zone.tier].halfAngleDeg) * DEG
   return inArc(ARC, out)
 }
 

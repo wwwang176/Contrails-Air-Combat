@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { MISSIONS, CAMPAIGNS, convoyGround, missionConfigFrom } from '../../src/battle/missions'
 import { EVACUATE_Z, LEYTE_ROAD } from '../../src/world/leyte'
+import { FIELD_CENTER, HOLD_ROWS, RUNWAY } from '../../src/world/asch'
 import { ALL_SPECS, MAX_SIDE } from '../../src/battle/skirmish'
 import { createBattle, stepBattle } from '../../src/battle/setup'
 import type { MissionCard, ReadyMissionCard } from '../../src/battle/missions'
@@ -210,18 +211,29 @@ describe('德 M1 梅澤堡上空', () => {
 describe('德 M3 底板行動', () => {
   const card = MISSIONS.germany.find((m) => m.id === 'germany-m3') as ReadyMissionCard
 
-  it('Y-29、拂曉、8 架 K-4、開場沒有敵機在前方；停機線全部都要打掉', () => {
+  it('Y-29、拂曉、10 架 K-4、開場沒有敵機在天上；停機線全部都要打掉', () => {
     const b = card.battle
     expect(b.terrain).toBe('asch')
     expect(b.timeOfDay).toBe('dawn')
     expect(b.blueSpec.id).toBe('bf109k4')
-    expect(b.blueCount).toBe(8)
+    expect(b.blueCount).toBe(10)
     expect(b.redSpec.id).toBe('p51d')
     expect(b.redCount).toBe(0)
     expect(b.destroyCount).toBe(b.ground!.filter((e) => e.unit === 'parkedP51').length)
     expect(b.destroyUnit).toBe('parkedP51')
     expect(b.priorityGroundUnit).toBe('parkedP51')
     expect(missionConfigFrom(card).tuning.priorityGroundUnit).toBe('parkedP51')
+  })
+
+  it('玩家在機場東邊約 7.5 km、朝西飛，橫切跑道', () => {
+    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
+    const s = b.player.aircraft.state
+    const east = s.position.x - FIELD_CENTER.x
+    expect(east).toBeGreaterThan(6000)
+    expect(east).toBeLessThan(9000)
+    expect(Math.abs(s.position.z - FIELD_CENTER.z)).toBeLessThan(RUNWAY.z1)
+    expect(s.velocity.x).toBeLessThan(0)
+    expect(Math.abs(s.velocity.z)).toBeLessThan(Math.abs(s.velocity.x) * 0.05)
   })
 
   it('地面優先權只在需要它的卡上：德 M3 打停放的 P-51、日 M2 打卡車', () => {
@@ -256,27 +268,29 @@ describe('德 M3 底板行動', () => {
   it('每一架只算一次、不管死在哪裡：起飛的也要打下來才判勝', () => {
     const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
     const parked = b.world.groundTargets.filter((t) => t.unit.id === 'parkedP51')
-    // 停機墊上先打掉 5 架
+    // 停機墊上先打掉 5 架（地面目標的前 12 架是停機墊，後 4 架在跑道頭）
     for (const t of parked.slice(0, 5)) t.alive = false
     const before = b.world.combatants.length
-    // 第一批在第 0 秒開始滑行：剩下的 7 格裡 4 格滑出去
+    // 第 0 秒兩批一起出發：跑道頭的 4 架，加上停機墊剩下的 7 格裡 4 格
+    const first = card.battle.waves!.filter((w) => w.when.kind === 'clock' && w.when.at === 0)
+    const moving = first.reduce((s, w) => s + w.count, 0)
     stepBattle(b, 1 / 240)
-    expect(b.world.combatants.slice(before)).toHaveLength(4)
+    expect(b.world.combatants.slice(before)).toHaveLength(moving)
     const taxiing = parked.filter((t) => t.taxi !== null)
-    expect(taxiing).toHaveLength(4)
+    expect(taxiing).toHaveLength(moving)
     // 【滑行中的不算摧毀】它還活著，只是在滑行道上
     expect(b.mission.metric).toBe(parked.length - 5)
-    // 停機墊上剩下的 3 架全部打掉：滑出去的 4 架還在，不算贏
+    // 還停著的全部打掉：滑出去的還在，不算贏
     for (const t of parked) if (t.taxi === null) t.alive = false
     stepBattle(b, 1 / 240)
-    expect(b.mission.metric).toBe(4)
+    expect(b.mission.metric).toBe(moving)
     expect(b.mission.outcome).toBe('fighting')
-    // 3 架在滑行道上打掉
-    for (const t of taxiing.slice(0, 3)) t.alive = false
+    // 最先滾行的那一架留著，其餘在滑行道上打掉
+    const last = taxiing.reduce((a, t) => (t.taxi!.delay < a.taxi!.delay ? t : a))
+    for (const t of taxiing) if (t !== last) t.alive = false
     stepBattle(b, 1 / 240)
     expect(b.mission.outcome).toBe('fighting')
     // 最後一架等它離地，在天上打下來
-    const last = taxiing[3]!
     while (!last.departed) {
       stepBattle(b, 1 / 240)
       expect(b.world.time).toBeLessThan(180)
@@ -287,19 +301,43 @@ describe('德 M3 底板行動', () => {
     expect(b.mission.outcome).toBe('victory')
   })
 
-  it('12 架停放的 P-51、2 堆油桶、6 座輕砲，全部是敵方的', () => {
+  it('16 架 P-51（停機墊 12、跑道頭 4）、2 堆油桶、12 輛美軍的 M16 防空車，全部是敵方的', () => {
     const units = card.battle.ground!.map((e) => e.unit)
     const count = (id: string) => units.filter((u) => u === id).length
-    expect(count('parkedP51')).toBe(12)
+    expect(count('parkedP51')).toBe(16)
     expect(count('fuelDump')).toBe(2)
-    expect(count('flakLight')).toBe(6)
-    expect(units).toHaveLength(20)
+    expect(count('usFlakTrack')).toBe(12)
+    expect(units).toHaveLength(30)
     expect(card.battle.ground!.every((e) => e.team === 'red')).toBe(true)
   })
 
-  it('敵機全部從地上來：每一批是一個小隊從停機墊滑出去，席位加起來等於停機線', () => {
+  /**
+   * 【玩家約 37 秒到場】跑道頭那一批開場就滑上跑道，到場前全部離地。
+   * 【排隊不疊在一起】四架滑到同一個起飛點，後到的要等前一架滾行出去；
+   * 抵達間隔比滾行間隔短的話，兩架會停在同一點
+   */
+  it('跑道頭那 4 架第 0 秒出發，第 36 秒前全部升空，途中任兩架不疊在一起', () => {
+    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
+    const hold = b.world.groundTargets.filter((t) =>
+      t.unit.id === 'parkedP51' && HOLD_ROWS.some((h) => h.x === t.position.x && h.z === t.position.z))
+    expect(hold).toHaveLength(4)
+    let closest = Infinity
+    while (b.world.time < 36) {
+      stepBattle(b, 1 / 240)
+      const onGround = hold.filter((t) => !t.departed)
+      for (let i = 0; i < onGround.length; i++) {
+        for (let j = i + 1; j < onGround.length; j++) {
+          closest = Math.min(closest, onGround[i]!.position.distanceTo(onGround[j]!.position))
+        }
+      }
+    }
+    for (const t of hold) expect(t.departed, `${t.position.x}`).toBe(true)
+    expect(closest).toBeGreaterThanOrEqual(15)
+  })
+
+  it('敵機全部從地上來：每一批是一個小隊從停機墊或跑道頭滑出去，席位加起來等於停機線', () => {
     const takeoff = card.battle.waves!
-    expect(takeoff).toHaveLength(3)
+    expect(takeoff).toHaveLength(4)
     for (const w of takeoff) {
       expect(w.count).toBe(4)
       expect(w.side).toBe('theirs')
@@ -316,7 +354,7 @@ describe('德 M3 底板行動', () => {
     for (const c of b.world.combatants) expect(c.aircraft.state.position.y, `${c.index}`).toBeGreaterThan(100)
     for (let i = 0; i < 240; i++) stepBattle(b, 1 / 240)
     expect(b.mission.outcome).toBe('fighting')
-    expect(b.world.groundTargets.filter((t) => t.guns.length > 0)).toHaveLength(6)
+    expect(b.world.groundTargets.filter((t) => t.guns.length > 0)).toHaveLength(12)
   })
 })
 

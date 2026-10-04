@@ -391,7 +391,7 @@ describe('洛伊納', () => {
   it('給了真實地物的地形不撒隨機的村', () => {
     const src = readFileSync('src/render/terrain.ts', 'utf8').replace(/\r\n/g, '\n')
     expect(src).toMatch(/const villages = dressing === undefined\s*\? farmSettlements\(villageReach, season,[\s\S]*?\)\s*: null/)
-    expect(src).toContain('padClear(villages === null ? dressing!.buildings : villages.flora)')
+    expect(src).toContain('padClear(villages === null ? dressing!.buildings : villages.flora, buildingClear)')
     expect(src.match(/farmSettlements\(/g)).toHaveLength(1)
   })
 

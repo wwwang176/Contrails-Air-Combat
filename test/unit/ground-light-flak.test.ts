@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import {
-  createGroundBattery, GROUND_FLAK_SPEC, GROUND_LIGHT_FLAK_SPEC, shipOwner, stepGunPlatform,
+  createGroundBattery, GROUND_FLAK_SPEC, GROUND_LIGHT_FLAK_SPEC, GROUND_M16_SPEC, shipOwner, stepGunPlatform,
 } from '../../src/world/shipGuns'
 import { createGroundTarget } from '../../src/world/groundTargets'
 import { Projectiles } from '../../src/world/Projectiles'
@@ -102,6 +102,27 @@ describe('輕型陸砲', () => {
     expect(run('red', 'red').live).toBe(0)
   })
 
+  /**
+   * 【M16 能平射】四聯 .50 的砲架壓得到水平以下，掃射的飛機逃不掉；Flak 38 那一份
+   * 仍是仰角 25° 以上。仰角 8° 的目標 M16 開火、Flak 38 不開；仰角 3° 兩者都不開
+   */
+  it('M16 打得到仰角 5° 以上的低空目標，Flak 38 只打 25° 以上', () => {
+    const fire = (spec: typeof GROUND_LIGHT_FLAK_SPEC, y: number, z: number): number => {
+      const t = createGroundTarget(0, 'usFlakTrack', 'red', 0, 0, 0)
+      t.guns = createGroundBattery(spec, 'autocannon', spec.caliber)
+      const p = new Projectiles(512)
+      const flak = createFlak()
+      const dt = 1 / 240
+      for (let i = 0; i < 3 * 240; i++) stepGunPlatform(t, [target(0, 0, y, z)], p, flak, i * dt, dt, [t])
+      return p.live
+    }
+    // 仰角 atan(100 / 700) ≈ 8.1°
+    expect(fire(GROUND_M16_SPEC, 100, -700)).toBeGreaterThan(0)
+    expect(fire(GROUND_LIGHT_FLAK_SPEC, 100, -700)).toBe(0)
+    // 仰角 atan(40 / 800) ≈ 2.9°
+    expect(fire(GROUND_M16_SPEC, 40, -800)).toBe(0)
+  })
+
   it('省略 tier 仍是重高砲', () => {
     const g = createGroundBattery()
     expect(g[0]!.zone.tier).toBe('flak')
@@ -117,12 +138,15 @@ describe('輕型陸砲', () => {
         { unit: 'flakLight', team: 'red', x: 0, z: -6000, heading: 0 },
         { unit: 'flakHeavy', team: 'red', x: 100, z: -6000, heading: 0 },
         { unit: 'truck', team: 'red', x: 200, z: -6000, heading: 0 },
+        { unit: 'usFlakTrack', team: 'red', x: 300, z: -6000, heading: 0 },
       ],
     }
     const b = createBattle(IDLE, cfg, 1)
-    const [light, heavy, truck] = b.world.groundTargets
+    const [light, heavy, truck, m16] = b.world.groundTargets
     expect(light!.guns[0]!.spec).toBe(GROUND_LIGHT_FLAK_SPEC)
     expect(light!.guns[0]!.zone.tier).toBe('autocannon')
+    expect(m16!.guns[0]!.spec).toBe(GROUND_M16_SPEC)
+    expect(m16!.guns[0]!.zone.tier).toBe('autocannon')
     expect(heavy!.guns[0]!.zone.tier).toBe('flak')
     expect(truck!.guns).toHaveLength(0)
   })

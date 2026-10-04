@@ -40,6 +40,11 @@
       /* 【非有不可】上面那條 `canvas { display: block }` 是作者樣式，
          會壓過 [hidden] 的 UA 樣式 —— 少了這一行，選單期間 HUD 藏不起來 */
       #hud[hidden], #hud-mask[hidden] { display: none; }
+      /* 主選單短片的暗場：換景時全黑，過渡時間要與 `REEL_FADE`（0.6 秒）一致。
+         層級在畫布之上、選單（#ui，2）之下 */
+      #reel-fade { position: fixed; inset: 0; z-index: 1; background: #000; opacity: 1;
+        transition: opacity .6s ease; pointer-events: none; }
+      #reel-fade[hidden] { display: none; }
 
       /* ── 共用 ────────────────────────────────────────── */
       /* 【捲軸也是這張桌子的一部分】任務列表、機庫的卷宗架、結算名單都在捲，
@@ -160,19 +165,50 @@
         z-index: 1; background: currentColor;
         -webkit-mask: var(--ac) center/contain no-repeat; mask: var(--ac) center/contain no-repeat; }
 
-      /* ① 開場 */
-      .cover { position: relative; padding: 26px 60px 22px; text-align: center; }
+      /* ① 開場的標題墊一張紙卡 */
+      .cover { position: relative; padding: 26px 60px 22px; }
       .cover::after { content: ''; position: absolute; left: 22px; top: -1px; width: 8px; height: 8px;
         border-radius: 50%; background: rgba(0,0,0,.5); box-shadow: 30px 0 0 rgba(0,0,0,.5); }
 
-      /* ①b 主選單 ／ ①c 陣營：直式卡 */
+      /* ① 開場與 ①b 主選單：標題與按鈕／三條橫幅靠左，右邊留給背景的短片（app/menuReel.ts）。
+         【兩頁同一欄】同樣的左緣與欄寬，各自垂直置中；短片的主角兩頁都在右邊
+         （`main.ts` 量 `.rows` 的右緣）。
+         【形狀與陣營頁刻意不同】陣營頁是三張直卡；兩層都用直卡的話，玩家只剩
+         返回鍵分得出自己在第幾層。
+         【遮罩左濃右淡】左邊的字要讀得清楚，右邊是短片的主角 */
+      #ui .screen#menu, #ui .screen#landing {
+        align-items: flex-start; padding-left: max(24px, 6vw);
+        background: linear-gradient(90deg, rgba(var(--veil), .66) 0%, rgba(var(--veil), .42) 36%, rgba(var(--veil), 0) 68%);
+      }
+      .menu-title { margin-bottom: 6px; text-shadow: 0 2px 10px rgba(0,0,0,.6); }
+      .rows { display: flex; flex-direction: column; gap: 14px; width: min(560px, 44vw); }
+      /* 開場：紙卡與「開始遊戲」上下置中對齊成一欄 */
+      .landing-col { display: flex; flex-direction: column; align-items: center; gap: 22px; }
+      /* 【量尺】與主選單三條橫幅同寬的空欄，`main.ts` 量它的右緣定短片主角的位置 ——
+         兩頁量到同一個值，換頁時主角才不動。高度 0、負的上邊界抵掉 `.screen` 的間距，
+         不影響垂直置中 */
+      .landing-ruler { height: 0; margin-top: -22px; }
+      .menurow { position: relative; display: grid; grid-template-columns: 210px 1fr auto;
+        align-items: center; gap: 0 22px; padding: 8px 24px 8px 8px; text-align: left; }
+      .menurow .photo { height: 118px; }
+      .menurow .txt { display: flex; flex-direction: column; }
+      .menurow .t { font: 700 22px/1.2 var(--f-body); }
+      .menurow .d { margin-top: 5px; font-size: 13px; }
+      .menurow::after { content: '›'; font-size: 30px; line-height: 1; color: var(--paper-dim); }
+      .menurow:hover::after { color: var(--sel); }
+      .menurow:hover .photo img { filter: grayscale(.7) sepia(.06) contrast(1.08) brightness(1); }
+
+      /* ①c 陣營：直式卡 */
       .cards { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; }
+      /* 這一頁在哪一層：「任務模式 › 選擇陣營」、「任務模式 › 德軍 › 梅澤堡上空」。
+         兩頁都在返回鍵與內容之間的同一個位置 */
+      .trail { margin: 0 0 12px; font-size: 13px; letter-spacing: .06em; color: var(--dim); }
+      .trail b { color: var(--strong); }
       .tallcard { position: relative; width: 322px; padding: 0 0 18px; text-align: left;
         display: flex; flex-direction: column; background: var(--card); }
       .tallcard .photo { height: 292px; margin: 10px 10px 14px; }
       .tallcard .t { margin: 0 20px; font: 700 19px/1.2 var(--f-body); }
       .tallcard .d { margin: 6px 20px 0; font-size: 12.5px; }
-      .tallcard .m { margin: 12px 20px 0; padding-top: 8px; border-top: 1px solid rgba(0,0,0,.18); font-size: 11px; }
       /* 【還 30% 的顏色】sepia 同時降下來 —— 不降的話那點顏色會被褐調吃掉 */
       .tallcard:hover .photo img { filter: grayscale(.7) sepia(.06) contrast(1.08) brightness(1); }
       #campaign .tallcard { width: 300px; }
@@ -537,23 +573,36 @@
         /* 【返回鍵貼在畫面頂端、FPS 右邊】原本掛在紙的左上角外側，那要 54px 的頁首 */
         .back { position: fixed; top: 6px; left: 64px; padding: 6px 12px 6px 10px; font-size: 13px; }
         h1 { font-size: 30px; }
-        .cover { padding: 16px 36px 14px; }
         .go { padding: 9px 30px; font-size: 15px; min-width: 108px; }
         .ask { min-width: 0; padding: 14px 22px 16px; gap: 12px; }
         .ask h2 { font-size: 18px; }
 
-        /* 主選單、陣營：三張卡一排，照片的高度跟著畫面高 */
+        /* 主選單：標題收掉，三條橫幅的高度跟著畫面高（扣掉頁首 46、頁尾 10、兩道間距） */
+        .menu-title { display: none; }
+        /* 開場只有標題與一顆按鈕，標題留著 */
+        #landing .menu-title { display: block; }
+        .landing-ruler { margin-top: -12px; }
+        .cover { padding: 16px 36px 14px; }
+        #ui .screen#menu, #ui .screen#landing { padding-left: 64px; }
+        .rows { gap: 8px; width: min(400px, 48vw); }
+        .menurow { grid-template-columns: 120px 1fr auto; gap: 0 14px; padding: 6px 16px 6px 6px; }
+        .menurow .photo { height: min(96px, calc((100vh - 92px) / 3 - 14px)); height: min(96px, calc((100dvh - 92px) / 3 - 14px)); }
+        .menurow .t { font-size: 18px; }
+        .menurow .d { margin-top: 2px; font-size: 12px; }
+        /* 陣營：三張卡一排，照片的高度跟著畫面高 */
         .cards { flex-wrap: nowrap; gap: 12px; }
         .tallcard, #campaign .tallcard { width: min(250px, calc((100vw - 48px) / 3)); padding-bottom: 10px; }
         .tallcard .photo { margin: 8px; height: min(234px, calc(100vh - 130px)); height: min(234px, calc(100dvh - 130px)); }
-        #campaign .tallcard .photo { height: calc(100vh - 190px); height: calc(100dvh - 190px); }
+        /* 【扣 214】頁首、路徑那一行、卡片下半的三行字 */
+        .trail { margin: 0 0 6px; font-size: 12px; }
+        #campaign .tallcard .photo { height: calc(100vh - 214px); height: calc(100dvh - 214px); }
         .tallcard .t { margin: 0 12px; font-size: 16px; }
         .tallcard .d { margin: 3px 12px 0; font-size: 11.5px; line-height: 1.45; }
-        .tallcard .m { margin: 6px 12px 0; padding-top: 5px; font-size: 10px; line-height: 1.45; }
 
         /* 簡報：兩欄照舊，整塊填滿畫面高，兩欄各自捲；出擊鈕黏在右下 */
+        /* 【扣 82】頁首 46、路徑那一行 26、頁尾 10 */
         .brief { grid-template-columns: 200px 1fr; width: calc(100vw - 24px); box-sizing: border-box;
-          height: calc(100vh - 56px); height: calc(100dvh - 56px); }
+          height: calc(100vh - 82px); height: calc(100dvh - 82px); }
         .brief > .left { padding: 10px; overflow-y: auto; }
         .brief > .right { min-height: 0; padding: 12px 16px; overflow-y: auto; }
         .brief h2 { font-size: 16px; }
@@ -653,6 +702,8 @@
   </head>
   <body>
     <canvas id="scene"></canvas>
+    <!-- 主選單短片的暗場（app/menuReel.ts）。蓋在畫布上、選單之下 -->
+    <div id="reel-fade"></div>
     <!-- 壓在世界上的滿版遮罩（投彈暗角、黑視／紅視）與貼著飛機的敵我標示、
          目標框。【要與 #hud 分開】整張 #hud 會跟著鏡頭震動平移旋轉：遮罩移開
          之後邊上沒有像素可以蓋，標示則是已經隨鏡頭震過一次。這一張不震 -->
@@ -718,8 +769,11 @@
     <div id="ui">
       <!-- ① 開場：遮罩 30%。獨立一頁，不併進主選單 -->
       <section id="landing" class="screen" style="--v:.30">
-        <div class="cover paperbit"><h1>CONTRAILS AIR: COMBAT</h1></div>
-        <button class="go" data-act="start" style="padding:14px 54px" data-i18n="landing.start">開始遊戲</button>
+        <div class="landing-col">
+          <div class="cover paperbit"><h1 class="menu-title">CONTRAILS AIR: COMBAT</h1></div>
+          <button class="go" data-act="start" style="padding:14px 54px" data-i18n="landing.start">開始遊戲</button>
+        </div>
+        <div class="rows landing-ruler" aria-hidden="true"></div>
       </section>
 
       <!-- ①b 主選單：遮罩 50%。狀態行由 menu.ts 算出來填 -->
@@ -735,21 +789,22 @@
       <!-- 暫停時重看教學。只在暫停選單開著、這一場有卡可看時出現（ui/menu.ts） -->
       <button id="help" class="gear help" data-act="help" hidden data-i18n="pause.tutorial">教學</button>
       <section id="menu" class="screen" style="--v:.50" hidden>
-        <div class="cards">
-          <button class="tallcard paperbit" data-act="mission">
+        <h1 class="menu-title">CONTRAILS AIR: COMBAT</h1>
+        <div class="rows">
+          <button class="menurow paperbit" data-act="mission">
             <span class="photo"><i class="tape tl"></i><img src="/ui/mission.jpg" alt=""></span>
-            <span class="t" data-i18n="menu.mission">任務模式</span>
-            <span class="d" data-i18n="menu.mission.sub">參與史實戰役</span>
+            <span class="txt"><span class="t" data-i18n="menu.mission">任務模式</span>
+              <span class="d" data-i18n="menu.mission.sub">參與史實戰役</span></span>
           </button>
-          <button class="tallcard paperbit" data-act="skirmish">
-            <span class="photo"><i class="tape br"></i><img src="/ui/skirmish.jpg" alt=""></span>
-            <span class="t" data-i18n="menu.skirmish">遭遇戰</span>
-            <span class="d" data-i18n="menu.skirmish.sub">建立自己的戰役</span>
+          <button class="menurow paperbit" data-act="skirmish">
+            <span class="photo"><i class="tape tl"></i><img src="/ui/skirmish.jpg" alt=""></span>
+            <span class="txt"><span class="t" data-i18n="menu.skirmish">遭遇戰</span>
+              <span class="d" data-i18n="menu.skirmish.sub">建立自己的戰役</span></span>
           </button>
-          <button class="tallcard paperbit" data-act="hangar">
+          <button class="menurow paperbit" data-act="hangar">
             <span class="photo"><i class="tape tl"></i><img src="/ui/hangar.jpg" alt=""></span>
-            <span class="t" data-i18n="menu.hangar">機庫</span>
-            <span class="d" data-i18n="menu.hangar.sub">檢視每一架飛機</span>
+            <span class="txt"><span class="t" data-i18n="menu.hangar">機庫</span>
+              <span class="d" data-i18n="menu.hangar.sub">檢視每一架飛機</span></span>
           </button>
         </div>
       </section>
@@ -771,6 +826,7 @@
       <section id="campaign" class="screen" style="--v:.60" hidden>
         <div class="pane">
           <button class="back" data-act="back" data-i18n="back.menu">主選單</button>
+          <div class="trail"><span data-i18n="menu.mission">任務模式</span> › <b data-i18n="campaign.pick">選擇陣營</b></div>
           <div class="cards" id="campaign-cards"></div>
         </div>
       </section>
@@ -779,6 +835,7 @@
       <section id="mission" class="screen" style="--v:.70" hidden>
         <div class="pane">
           <button class="back" data-act="back" data-i18n="back.campaign">陣營</button>
+          <div class="trail" id="mission-trail"></div>
           <div class="brief">
             <div class="left">
               <div class="camphead">

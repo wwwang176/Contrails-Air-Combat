@@ -303,6 +303,14 @@ function build(fn: (s: Soup) => void): BufferGeometry {
   return finish(s)
 }
 
+/**
+ * 村裡那一種建築的形狀，牆與屋頂換成指定的顏色。縮放 1 時的尺寸是
+ * `BUILDING_*`，底面中心在原點、面寬沿 x。非索引，只有 position／color／normal
+ */
+export function buildingGeometry(wall: number, roof: number): BufferGeometry {
+  return build((s) => { building(s, wall, roof) })
+}
+
 /** 有幾何的那八個池。遠處那三個走 `gl.POINTS`，沒有幾何 */
 export type MeshPool = Exclude<PoolName, PointPool>
 

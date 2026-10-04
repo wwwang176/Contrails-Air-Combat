@@ -38,8 +38,9 @@ import {
   ROAD_WIDTH as POLTAVA_ROAD_WIDTH, ROADS as POLTAVA_ROADS, RUNWAY_CONCRETE,
 } from '../world/poltava'
 import {
-  createAsch, FIELD_CENTER as ASCH_CENTER, FIELD_PAD as ASCH_PAD, FIELD_TREE_CLEAR as ASCH_TREE_CLEAR,
-  PAD_GRASS as ASCH_GRASS, PAVED as ASCH_PAVED, PSP_STEEL,
+  createAsch, FIELD_BUILDING_CLEAR as ASCH_BUILDING_CLEAR, FIELD_CENTER as ASCH_CENTER,
+  FIELD_LOBES as ASCH_LOBES, FIELD_PAD as ASCH_PAD,
+  FIELD_TREE_CLEAR as ASCH_TREE_CLEAR, PAD_GRASS as ASCH_GRASS, PAVED as ASCH_PAVED, PSP_STEEL,
   ROAD_WIDTH as ASCH_ROAD_WIDTH, ROADS as ASCH_ROADS,
 } from '../world/asch'
 import {
@@ -50,6 +51,7 @@ import {
 import { createRzhev, type HillAvoid } from '../world/rzhevHills'
 import { buildObstacles } from './geometry/ground/obstacles'
 import { preloadScarAtlas } from './battleScars'
+import { aschClumpFlora, buildAschScenery } from './aschScenery'
 import type { HeightFieldData } from '../world/heightfield'
 import { canopyColor, FIELD_COLORS, FLORA_COLORS, type Season } from './season'
 import type { SiteLayout } from './fields'
@@ -249,9 +251,16 @@ export async function preloadTerrainScenery(kind: TerrainKind): Promise<void> {
   else if (kind === 'rzhev') await preloadScarAtlas()
 }
 
-export function createTerrain(kind: TerrainKind, gfx?: TerrainGfx): Terrain {
-  if (kind === 'farmland') return createFarmlandTerrain(gfx)
-  if (kind === 'autumnFarmland') return createAutumnFarmlandTerrain(gfx)
+/**
+ * @param farmSite 只對 `'farmland'`／`'autumnFarmland'` 有效：拿到這張農地的山丘之後給一塊
+ *   廠區（選單短片用 —— 原點要避開山丘，所以廠區要等高度場生成之後才定得下來）
+ */
+export function createTerrain(
+  kind: TerrainKind, gfx?: TerrainGfx,
+  farmSite?: (hills: readonly IslandDesc[]) => SiteLayout,
+): Terrain {
+  if (kind === 'farmland') return createFarmlandTerrain(gfx, farmSite)
+  if (kind === 'autumnFarmland') return createAutumnFarmlandTerrain(gfx, farmSite)
   if (kind === 'leuna') return createLeunaTerrain(gfx)
   if (kind === 'poltava') return createPoltavaTerrain(gfx)
   if (kind === 'asch') return createAschTerrain(gfx)
@@ -450,8 +459,11 @@ function createArchipelagoTerrain(): Terrain {
   }
 }
 
-function createFarmlandTerrain(gfx?: TerrainGfx): Terrain {
-  return createInlandTerrain(createFarmland(), 'summer', undefined, undefined, gfx)
+function createFarmlandTerrain(
+  gfx?: TerrainGfx, farmSite?: (hills: readonly IslandDesc[]) => SiteLayout,
+): Terrain {
+  const farm = createFarmland()
+  return createInlandTerrain(farm, 'summer', farmSite?.(farm.hills), undefined, gfx)
 }
 
 /** 碴石：調車場的街廓 */
@@ -510,8 +522,11 @@ function createLeunaTerrain(gfx?: TerrainGfx): Terrain {
  * 晚秋的內陸：農地的高度場，洛伊納的晚秋色盤。**沒有廠區的墊面與佈景** ——
  * 德 M1 在路途上攔截，地上不該有工廠。
  */
-function createAutumnFarmlandTerrain(gfx?: TerrainGfx): Terrain {
-  return createInlandTerrain(createFarmland(), 'lateAutumn', undefined, undefined, gfx)
+function createAutumnFarmlandTerrain(
+  gfx?: TerrainGfx, farmSite?: (hills: readonly IslandDesc[]) => SiteLayout,
+): Terrain {
+  const farm = createFarmland()
+  return createInlandTerrain(farm, 'lateAutumn', farmSite?.(farm.hills), undefined, gfx)
 }
 
 /** 波爾塔瓦機場的墊面（草）、跑道／滑行道／停機位（水泥）、連外道路與鐵路 */
@@ -533,20 +548,34 @@ function createPoltavaTerrain(gfx?: TerrainGfx): Terrain {
   return createInlandTerrain(createPoltava(), 'summer', POLTAVA_SITE, buildAirfieldScenery, gfx)
 }
 
-/** Y-29 的墊面（草）、跑道／滑行帶／停機墊（鋼板網）、連外道路 */
+/** Y-29 的墊面（草，含作業區與營區）、跑道／滑行帶／停機墊（鋼板網）、連外道路 */
 export const ASCH_SITE: SiteLayout = {
   pivot: { x: ASCH_CENTER.x, z: ASCH_CENTER.z },
   pad: ASCH_PAD,
+  padLobes: ASCH_LOBES,
   padHex: ASCH_GRASS,
   treeClear: ASCH_TREE_CLEAR,
+  buildingClear: ASCH_BUILDING_CLEAR,
+  flora: aschClumpFlora,
   roads: ASCH_ROADS,
   roadWidth: ASCH_ROAD_WIDTH,
   patches: ASCH_PAVED.map((r) => ({ ...r, hex: PSP_STEEL })),
 }
 
-/** Y-29：農地的算繪路徑、極緩的丘、深秋的枯色、沒有佈景 */
+/**
+ * 墊面外不長樹、不蓋村莊的兩圈，m。村莊省略時跟著樹；沒有墊面的地圖兩者都是 0
+ */
+export function siteClearances(site?: SiteLayout): { trees: number; buildings: number } {
+  const trees = site?.treeClear ?? 0
+  return { trees, buildings: site?.buildingClear ?? trees }
+}
+
+/** Y-29：農地的算繪路徑、極緩的丘、深秋的枯色、營房與車場的佈景 */
 function createAschTerrain(gfx?: TerrainGfx): Terrain {
-  return createInlandTerrain(createAsch(), 'lateAutumn', ASCH_SITE, undefined, gfx)
+  const farm = createAsch()
+  return createInlandTerrain(
+    farm, 'lateAutumn', ASCH_SITE, () => buildAschScenery((x, z) => farm.field.sample(x, z)), gfx,
+  )
 }
 
 /**
@@ -673,23 +702,23 @@ function createInlandTerrain(
   //
   // 【戰場的交戰帶不清樹】只清植被的話，地色（`openColorAt`）與遠景的樹點照樣畫著
   // 林子，近處卻沒有樹 —— 兩邊對不上。勒熱夫的樹林門檻下交戰帶裡本來就幾乎沒有林子
-  const clear = site?.treeClear ?? 0
-  const pads = site === undefined ? [] : [
-    ...(site.pad === undefined ? [] : [site.pad]), ...(site.padLobes ?? []),
-  ].map((r) => ({
-    x0: r.x0 - clear, x1: r.x1 + clear,
-    z0: r.z0 - clear, z1: r.z1 + clear,
-    ...(site.pivot === undefined ? {} : { pivot: site.pivot }),
-    ...(site.heading === undefined ? {} : { heading: site.heading }),
-  }))
-  const padClear = (s: FloraSource): FloraSource => pads.reduce((src, r) => excluding(src, r), s)
+  // （它沒有墊面、也沒有 `treeClear`，所以下面不排除任何東西）
+  const { trees: treeClear, buildings: buildingClear } = siteClearances(site)
+  const padClear = (s: FloraSource, clear = treeClear): FloraSource => (site === undefined
+    ? s
+    : [...(site.pad === undefined ? [] : [site.pad]), ...(site.padLobes ?? [])].reduce((src, r) => excluding(src, {
+      x0: r.x0 - clear, x1: r.x1 + clear,
+      z0: r.z0 - clear, z1: r.z1 + clear,
+      ...(site.pivot === undefined ? {} : { pivot: site.pivot }),
+      ...(site.heading === undefined ? {} : { heading: site.heading }),
+    }), s))
   // 【空地的樹林門檻跟著季節】與地色（`openDeclGlsl`）讀同一份 `woodGate`
   const openWoods = openWoodFloraFor(FIELD_COLORS[season].woodGate)
   const openHedges = openHedgeFloraFor(FIELD_COLORS[season].hedgeChance)
   // 【草原田的田裡沒有樹】田界是田埂、牧草地是草；樹只長在村裡（`steppeVillage.ts`）、田界的
   // 防風林帶（`steppeBeltFloraFor`）與沖溝（`steppeRavineFloraFor`）。地色不畫林子，所以不必與地色對
   let fields = (steppe ? [steppeBeltFloraFor(shelterbeltFade), steppeRavineFloraFor(RAVINES)]
-    : open ? [openHedges, openWoods] : [farmHedgeFlora, farmWoodFlora]).map(padClear)
+    : open ? [openHedges, openWoods] : [farmHedgeFlora, farmWoodFlora]).map((s) => padClear(s))
   // 【建築：植被與烘圖是同一個散佈器】兩邊各包一份的話，遠處的屋頂色塊與近處的
   // 房子對不上。真實地物的建築已經避開河道；程序村沒有，要包河廊
   // 程序生成的地圖的村用洛伊納那一套生成器（`farmSettlements.ts`），蓋到植被圈伸得到
@@ -699,7 +728,7 @@ function createInlandTerrain(
     ? farmSettlements(villageReach, season, steppe
       ? { keepOut: rzhevVillageKeepOut, burnRate: burnRateOf, large: isLargeVillage } : undefined)
     : null
-  let buildings = padClear(villages === null ? dressing!.buildings : villages.flora)
+  let buildings = padClear(villages === null ? dressing!.buildings : villages.flora, buildingClear)
   // 【不長樹的範圍】地圖列出它有的範圍，載入時各合成一張遮罩（`keepOutMask.ts`）。
   // 野生的樹（河岸林、河漫灘的林子）避開村鎮、礦坑、高速公路；田裡的樹（樹籬、田裡
   // 的林地）另外避開河漫灘與河廊。遮罩蓋到植被圈伸得到的地方，外面逐點算
@@ -728,6 +757,10 @@ function createInlandTerrain(
     splatted.push(bank)
   }
   fields.push(buildings)
+  if (site?.flora !== undefined) {
+    fields.push(site.flora)
+    splatted.push(site.flora)
+  }
   for (const s of dressing?.flora ?? []) {
     const src = padClear(excludingZones(s, wildOut))
     fields.push(src)

@@ -263,14 +263,13 @@ export const zh = {
   'role.fighter': '戰鬥機',
   'role.bomber': '轟炸機',
 
+  'campaign.pick': '選擇陣營',
   'campaign.allies': '美軍',
   'campaign.germany': '德軍',
   'campaign.japan': '日軍',
   'campaign.allies.blurb': '歐洲的護航與打擊，太平洋的艦隊防空。',
   'campaign.germany.blurb': '本土到東西兩線：攔截轟炸機流，夜襲與掃射機場。',
   'campaign.japan.blurb': '瓜島、雷伊泰到倫內爾島：掩護雷擊隊，截斷補給車隊。',
-  'campaign.ready': '可出擊 {n}',
-  'campaign.total': '/ {n} 關',
 
   'brief.soon': '準備中',
   'brief.soonBody': '這一關還在製作中。',
