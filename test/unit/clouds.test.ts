@@ -1,39 +1,44 @@
 import { describe, expect, it } from 'vitest'
 import { Color, ShaderLib, Texture } from 'three'
 import {
-  CLOUD_PUFFS_MAX, CLOUD_PUFFS_MIN, cloudColorOf, cloudPuff, cloudPuffCount, createClouds, injectCloudFade,
-  type CloudPuff,
+  CLOUD_ATLAS_SIDE, CLOUD_PUFFS_MAX, CLOUD_PUFFS_MIN, cloudColorOf, cloudPuff, cloudPuffCount, createClouds,
+  injectCloudPuff, type CloudPuff,
 } from '../../src/render/clouds'
-import { injectBillboard } from '../../src/render/particles'
 import { DAY_PALETTES } from '../../src/render/timeOfDay'
 
-describe('injectCloudFade：靠近相機就淡掉', () => {
-  it('對 three 真正的 basic 著色器（先注入廣告板）有作用', () => {
+const blank = (): CloudPuff => ({ dx: 0, dy: 0, dz: 0, size: 0, shade: 0, tile: 0, flip: false })
+
+describe('injectCloudPuff：雲塊的著色器', () => {
+  it('對 three 真正的 basic 著色器有作用：貼圖集取張、上方對齊世界上方、靠近淡出', () => {
     const shader = { vertexShader: ShaderLib.basic.vertexShader, fragmentShader: ShaderLib.basic.fragmentShader }
-    injectBillboard(shader, false)
     const beforeV = shader.vertexShader
     const beforeF = shader.fragmentShader
-    injectCloudFade(shader)
+    injectCloudPuff(shader)
     expect(shader.vertexShader).not.toBe(beforeV)
     expect(shader.fragmentShader).not.toBe(beforeF)
+    expect(shader.vertexShader).not.toContain('#include <project_vertex>')
+    expect(shader.vertexShader).toContain('vMapUv = (tuv')
+    expect(shader.vertexShader).toContain('viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)')
     expect(shader.vertexShader).toContain('vCloudDist = -mvPosition.z')
     expect(shader.fragmentShader).toContain('smoothstep(')
     expect(shader.fragmentShader).toContain('vCloudDist')
   })
 })
 
-describe('cloudPuff：一朵雲的煙團', () => {
+describe('cloudPuff：一朵雲的雲塊', () => {
   const c = { x: 100, y: 1500, z: -40, radius: 80 }
-  const p: CloudPuff = { dx: 0, dy: 0, dz: 0, size: 0, shade: 0 }
+  const p = blank()
 
-  it('同一個種子每次一樣；都在雲底以上、水平不超過 0.75 倍半徑', () => {
+  it('同一個種子每次一樣；都在雲底以上、水平不超過 0.75 倍半徑；貼圖在貼圖集範圍內', () => {
     for (let k = 0; k < cloudPuffCount(c.radius); k++) {
       const a = { ...cloudPuff(c, 3, k, p) }
-      const b = cloudPuff(c, 3, k, { dx: 0, dy: 0, dz: 0, size: 0, shade: 0 })
+      const b = cloudPuff(c, 3, k, blank())
       expect(b).toEqual(a)
       expect(a.dy).toBeGreaterThanOrEqual(0)
       expect(Math.hypot(a.dx, a.dz)).toBeLessThanOrEqual(0.75 * c.radius + 1e-9)
       expect(a.size).toBeGreaterThan(0)
+      expect(a.tile).toBeGreaterThanOrEqual(0)
+      expect(a.tile).toBeLessThan(CLOUD_ATLAS_SIDE * CLOUD_ATLAS_SIDE)
     }
   })
 

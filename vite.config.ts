@@ -15,6 +15,7 @@ const TOOLS = {
   daylight: 'tools/daylight.html',
   blast: 'tools/blast.html',
   smoke: 'tools/smoke.html',
+  clouds: 'tools/clouds.html',
   torpedo: 'tools/torpedo.html',
   recovery: 'tools/recovery.html',
   clipmap: 'tools/clipmap.html',

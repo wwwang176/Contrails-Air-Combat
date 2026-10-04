@@ -1,0 +1,239 @@
+import { Color, TextureLoader, Vector3 } from 'three'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import Stats from 'three/addons/libs/stats.module.js'
+import { createScene } from '../render/scene'
+import { createTerrain } from '../render/terrain'
+import { preloadPlantScenery } from '../render/geometry/ground/plantScenery'
+import { applyTimeOfDay, DAY_PALETTES, type TimeOfDay } from '../render/timeOfDay'
+import { buildAircraft, preloadAircraftModels } from '../render/geometry/buildAircraft'
+import { CLOUD_ATLAS_URL, cloudColorOf, cloudPuffCount, createClouds, type CloudSpec } from '../render/clouds'
+import { hash01 } from '../render/scatter'
+import { JU87 } from '../specs/ju87'
+import { assetUrl } from '../core/asset'
+
+/**
+ * 雲朵展示區：一片靜止的雲層（`render/clouds.ts`）與一架穿雲的斯圖卡，幾種鏡頭輪著看 ——
+ * 雲塊廣告板在環繞、穿過、正上下看、鏡頭滾轉時會不會穿幫，都在這裡驗。
+ */
+
+type CameraMode = 'orbit' | 'fly' | 'dive' | 'ground' | 'roll' | 'chase'
+
+/** 雲層高度（雲底），m；斯圖卡飛在雲頂附近 */
+const LAYER = 1500
+const STUKA_Y = LAYER + 25
+const STUKA_SPEED = 85
+/** 斯圖卡往返的範圍：z 從 +RUN 飛到 −RUN 再接回來 */
+const RUN = 1600
+
+const DESCRIPTIONS: Record<CameraMode, string> = {
+  orbit: '環繞整片雲層。拖曳旋轉、滾輪縮放。',
+  fly: '以 100 m/s 平飛穿過雲層，擦過與穿過雲朵。',
+  dive: '從雲層上方往下俯衝，正上方往下看穿過雲層。',
+  ground: '站在地面往上看雲層，鏡頭慢慢搖。',
+  roll: '平飛穿雲，鏡頭每秒滾 60°：雲塊要保持正立、不跟著轉。',
+  chase: '跟在斯圖卡後上方，看雲當參照物。',
+}
+
+/** 面板上符合 `selector` 的按鈕 */
+const buttons = (selector: string): HTMLButtonElement[] =>
+  Array.from(document.querySelectorAll<HTMLButtonElement>(selector))
+
+const canvas = document.getElementById('scene') as HTMLCanvasElement
+const statsRoot = document.getElementById('stats') as HTMLElement
+const description = document.getElementById('description') as HTMLParagraphElement
+const statsInfo = document.createElement('div')
+statsRoot.appendChild(statsInfo)
+const performanceStats = new Stats()
+performanceStats.dom.style.cssText = 'position:static;display:block;margin:8px 0 0 auto'
+statsRoot.appendChild(performanceStats.dom)
+
+const ctx = createScene(canvas, 'noon')
+ctx.camera.far = 30000
+ctx.camera.updateProjectionMatrix()
+await preloadPlantScenery()
+const terrain = createTerrain('farmland')
+ctx.scene.add(terrain.object)
+
+await preloadAircraftModels()
+const stuka = buildAircraft(JU87)
+ctx.scene.add(stuka.group)
+
+const atlas = await new TextureLoader().loadAsync(assetUrl(CLOUD_ATLAS_URL))
+const clouds = createClouds(atlas)
+ctx.scene.add(clouds.object)
+
+/** 第 `n` 朵以內的雲：前幾朵擺在斯圖卡的航線兩旁（看得到擦過），其餘撒在周圍 */
+function cloudField(n: number): CloudSpec[] {
+  const out: CloudSpec[] = []
+  for (let k = 0; k < n; k++) {
+    const r = 50 + hash01(k * 11 + 1) * 70
+    if (k < 4) {
+      const side = k % 2 === 0 ? 1 : -1
+      out.push({ x: side * (r * 0.4 + 30 * hash01(k * 11 + 2)), y: LAYER - 10 * hash01(k * 11 + 3), z: 900 - k * 550, radius: r })
+    } else {
+      const a = hash01(k * 11 + 4) * Math.PI * 2
+      const d = 400 + hash01(k * 11 + 5) * 1600
+      out.push({ x: Math.cos(a) * d, y: LAYER - 40 + 80 * hash01(k * 11 + 6), z: Math.sin(a) * d, radius: r })
+    }
+  }
+  return out
+}
+
+let activeTime: TimeOfDay = 'noon'
+let amount = 8
+let field = cloudField(amount)
+const CLOUD_COLOR = new Color()
+
+function rebuildClouds(): void {
+  field = cloudField(amount)
+  clouds.set(field, cloudColorOf(DAY_PALETTES[activeTime], CLOUD_COLOR))
+}
+
+function setTimeOfDay(tod: TimeOfDay): void {
+  activeTime = tod
+  applyTimeOfDay(ctx, terrain, tod)
+  rebuildClouds()
+  for (const b of buttons('[data-time]')) b.classList.toggle('on', b.dataset['time'] === tod)
+}
+
+const controls = new OrbitControls(ctx.camera, canvas)
+controls.target.set(0, LAYER, 0)
+ctx.camera.position.set(1100, LAYER + 350, 1300)
+controls.update()
+
+let mode: CameraMode = 'orbit'
+let modeClock = 0
+
+function setMode(m: CameraMode): void {
+  mode = m
+  modeClock = 0
+  controls.enabled = m === 'orbit'
+  ctx.camera.up.set(0, 1, 0)
+  if (m === 'orbit') {
+    ctx.camera.position.set(1100, LAYER + 350, 1300)
+    controls.target.set(0, LAYER, 0)
+    controls.update()
+  }
+  description.textContent = DESCRIPTIONS[m]
+  for (const b of buttons('[data-cam]')) b.classList.toggle('on', b.dataset['cam'] === m)
+}
+
+// 自動鏡頭時一拖曳就交回環繞
+canvas.addEventListener('pointerdown', () => {
+  if (mode !== 'orbit') {
+    setMode('orbit')
+  }
+})
+
+for (const b of buttons('[data-cam]')) {
+  b.addEventListener('click', () => setMode(b.dataset['cam'] as CameraMode))
+}
+for (const b of buttons('[data-time]')) {
+  b.addEventListener('click', () => setTimeOfDay(b.dataset['time'] as TimeOfDay))
+}
+for (const b of buttons('[data-amount]')) {
+  b.addEventListener('click', () => {
+    amount = Number(b.dataset['amount'])
+    rebuildClouds()
+    for (const o of buttons('[data-amount]')) o.classList.toggle('on', o === b)
+  })
+}
+
+const FORWARD = new Vector3()
+const TARGET = new Vector3()
+
+/** 斯圖卡在第 `t` 秒的位置：沿 −Z 往返 */
+function stukaAt(t: number, out: Vector3): Vector3 {
+  const span = (2 * RUN) / STUKA_SPEED
+  const u = (t % span) / span
+  return out.set(0, STUKA_Y, RUN - u * 2 * RUN)
+}
+
+function placeCamera(dt: number, elapsed: number): void {
+  modeClock += dt
+  const cam = ctx.camera
+  switch (mode) {
+    case 'orbit':
+      controls.update()
+      return
+    case 'fly':
+    case 'roll': {
+      const span = (2 * RUN) / 100
+      const u = (modeClock % span) / span
+      cam.position.set(40 * Math.sin(u * Math.PI * 6), LAYER + 15 + 20 * Math.sin(u * Math.PI * 4), RUN - u * 2 * RUN)
+      TARGET.set(cam.position.x * 0.5, cam.position.y - 25, cam.position.z - 300)
+      if (mode === 'roll') {
+        const a = modeClock * Math.PI / 3
+        FORWARD.subVectors(TARGET, cam.position).normalize()
+        cam.up.set(0, 1, 0).applyAxisAngle(FORWARD, a)
+      }
+      cam.lookAt(TARGET)
+      return
+    }
+    case 'dive': {
+      // 從航線上第三朵雲（雲量少時取最後一朵）的正上方往下衝、穿過它
+      const c = field[Math.min(2, field.length - 1)]!
+      const u = (modeClock % 10) / 10
+      cam.position.set(c.x + 20, LAYER + 900 - u * 1400, c.z + 60 - u * 120)
+      TARGET.set(c.x + 15, cam.position.y - 400, cam.position.z - 40)
+      cam.up.set(0, 0, -1)
+      cam.lookAt(TARGET)
+      return
+    }
+    case 'ground': {
+      const a = modeClock * 0.05
+      cam.position.set(0, 2, 900)
+      TARGET.set(Math.sin(a) * 900, LAYER, 900 - Math.cos(a) * 900)
+      cam.lookAt(TARGET)
+      return
+    }
+    case 'chase': {
+      stukaAt(elapsed, TARGET)
+      cam.position.set(TARGET.x + 18, TARGET.y + 8, TARGET.z + 40)
+      cam.lookAt(TARGET.x, TARGET.y, TARGET.z - 60)
+      return
+    }
+  }
+}
+
+setTimeOfDay('noon')
+setMode('orbit')
+
+let last = performance.now()
+let elapsed = 0
+/** 定格：時間不走（截圖對時用） */
+let paused = false
+
+function frame(now: number): void {
+  performanceStats.begin()
+  const dt = paused ? 0 : Math.min((now - last) / 1000, 0.1)
+  last = now
+  elapsed += dt
+  stukaAt(elapsed, stuka.group.position)
+  stuka.group.rotation.set(0, 0, 0)
+  placeCamera(dt, elapsed)
+  terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
+  ctx.renderer.render(ctx.scene, ctx.camera)
+  performanceStats.end()
+  let puffs = 0
+  for (const c of field) puffs += cloudPuffCount(c.radius)
+  statsInfo.textContent = `雲　${field.length} 朵／${puffs} 團\n時段　${activeTime}\n鏡頭　${mode}`
+  requestAnimationFrame(frame)
+}
+
+;(window as unknown as Record<string, unknown>)['__clouds'] = {
+  setMode, setTimeOfDay,
+  /** 換到 `m` 鏡頭的第 `t` 秒並定格（截圖對時用）；`resume()` 繼續走 */
+  freeze(m: CameraMode, t: number) {
+    setMode(m)
+    modeClock = t
+    paused = true
+  },
+  resume() { paused = false },
+  /** 量測用：場景、相機、雲層與這一批雲的位置 */
+  get ctx() { return ctx },
+  get controls() { return controls },
+  get clouds() { return clouds },
+  get field() { return field },
+}
+requestAnimationFrame(frame)

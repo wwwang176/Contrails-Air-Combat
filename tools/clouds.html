@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>雲朵展示區 — Contrails Air: Combat</title>
+    <style>
+      html, body {
+        margin: 0; height: 100%; overflow: hidden; background: #101923;
+        color: #dce8f2; font: 13px/1.5 ui-monospace, Consolas, monospace;
+      }
+      canvas { display: block; }
+      #panel, #stats {
+        position: fixed; padding: 12px 14px; border: 1px solid #375067;
+        border-radius: 6px; background: rgba(10, 18, 26, .86);
+        backdrop-filter: blur(4px);
+      }
+      #panel { top: 12px; left: 12px; width: 300px; }
+      #panel h1 { margin: 0 0 4px; font-size: 14px; color: #9fc8e5; }
+      #panel p { margin: 0 0 10px; color: #8ea7ba; }
+      .label { margin: 9px 0 5px; color: #7896ab; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+      button {
+        padding: 7px 9px; color: #dce8f2; background: #172a3c;
+        border: 1px solid #375067; border-radius: 4px; cursor: pointer;
+        font: inherit; text-align: left;
+      }
+      button:hover { background: #203b53; }
+      button.on { background: #2f628e; border-color: #6ba6d1; }
+      #stats { top: 12px; right: 12px; min-width: 200px; white-space: pre; text-align: right; }
+      #hint { position: fixed; right: 12px; bottom: 12px; color: #69869b; text-align: right; }
+    </style>
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+    <section id="panel">
+      <h1>雲朵展示區</h1>
+      <p id="description">環繞整片雲層。拖曳旋轉、滾輪縮放。</p>
+      <div class="label">鏡頭</div>
+      <div class="grid">
+        <button data-cam="orbit" class="on">環繞</button>
+        <button data-cam="fly">平飛穿雲</button>
+        <button data-cam="dive">俯衝往下看</button>
+        <button data-cam="ground">從地面仰看</button>
+        <button data-cam="roll">滾轉穿雲</button>
+        <button data-cam="chase">跟拍斯圖卡</button>
+      </div>
+      <div class="label">時段</div>
+      <div class="grid">
+        <button data-time="dawn">黎明</button>
+        <button data-time="noon" class="on">正午</button>
+        <button data-time="dusk">黃昏</button>
+        <button data-time="novemberNoon">十一月正午</button>
+        <button data-time="storm">暴雨</button>
+      </div>
+      <div class="label">雲量</div>
+      <div class="grid">
+        <button data-amount="3">3 朵</button>
+        <button data-amount="8" class="on">8 朵</button>
+        <button data-amount="16">16 朵</button>
+      </div>
+    </section>
+    <div id="stats"></div>
+    <div id="hint">自動鏡頭時拖曳會切回環繞</div>
+    <script type="module" src="/src/tools/clouds.ts"></script>
+  </body>
+</html>

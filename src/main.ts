@@ -1,6 +1,6 @@
 import './render/heightFogInstall'
 import { Color, Euler, Quaternion, Vector3, type FogExp2, type Mesh, type Object3D } from 'three'
-import { cloudColorOf, createClouds } from './render/clouds'
+import { CLOUD_ATLAS_URL, cloudColorOf, createClouds } from './render/clouds'
 import { FixedStepAccumulator, MAX_FRAME_SECONDS, clampFrameSeconds } from './core/loop'
 import { createPerfOverlay } from './core/perf'
 import { createRangeProbe } from './hud/rangeProbe'
@@ -848,7 +848,7 @@ ctx.scene.add(blastDust.object)
 const reelTrackDust = createDust(256, 1, smokeTexture)
 ctx.scene.add(reelTrackDust.object)
 /** 天上的靜止雲朵（`render/clouds.ts`）。短片換段時由舞台的 `setClouds` 換一批 */
-const clouds = createClouds(smokeTexture)
+const clouds = createClouds(new TextureLoader().load(assetUrl(CLOUD_ATLAS_URL)))
 ctx.scene.add(clouds.object)
 const CLOUD_COLOR = new Color()
 const blastMist = createWaterMist(undefined, BLAST_PACE, smokeTexture)
