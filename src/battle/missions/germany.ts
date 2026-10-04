@@ -153,6 +153,8 @@ export const GERMANY: readonly MissionCard[] = [
       // 平常（遭遇戰、其他任務、機庫）它仍是轟炸機的手感。**起始值，由試玩裁定**
       feels: { ju87: 'fighter' },
       blueWaves: { size: 2, depth: 2300, escort: { spec: BF109K4, count: 6, depth: 590, speed: 0.5 } },
+      // 護航與 Yak 都是開場的陣容：簡報列出 K-4 ×6 與 Yak-1B ×6
+      briefsOpening: true,
       convoyCount: 0, convoyPriority: 1,
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       entry: 'strikeFromNorth',

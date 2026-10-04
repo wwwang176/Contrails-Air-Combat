@@ -61,6 +61,16 @@ export const SIDE_OF: Record<string, Campaign> = {
 }
 
 /**
+ * 只在任務簡報露面的機種，與它們的陣營章（蘇軍的紅星；`SIDE_OF` 只有三條戰役線）。
+ *
+ * 【不進 `ALL_SPECS`、不進 `HANGAR_ORDER`】遭遇戰與機庫都從那兩張表取機種，所以這裡的機種玩家選不到、
+ * 卷宗架上也沒有。徽章要 `public/ui/sil/<id>.png` 的側影，由 `silhouette.test.ts` 對這張表守著。
+ */
+export const MISSION_ONLY_SIDE: Readonly<Record<string, 'soviet'>> = {
+  yak1b: 'soviet',
+}
+
+/**
  * 機種在畫面上的排列：**先分陣營（美 德 日），同陣營裡戰鬥機在前、轟炸機在
  * 後**，組內的先後就是這張表的順序。機庫的卷宗架與編組頁的機種選單共用它。
  * 加新機種就把 id 插進它該在的那一段。

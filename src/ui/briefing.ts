@@ -77,6 +77,13 @@ export const SHORT_NAME: Record<string, string> = {
 export const shortName = (spec: AircraftSpec): string => SHORT_NAME[spec.id] ?? spec.name
 
 
+/** 加一架機種進這一欄；已經有同機種就併進那一列 */
+function addUnit(rows: BriefingUnit[], spec: AircraftSpec, count: number): void {
+  const at = rows.findIndex((u) => u.id === spec.id)
+  if (at < 0) rows.push({ id: spec.id, name: shortName(spec), role: spec.role, count })
+  else rows[at] = { ...rows[at]!, count: rows[at]!.count + count }
+}
+
 function readyBriefing(card: ReadyMissionCard): Briefing {
   const b = card.battle
   const mine: BriefingUnit[] = [
@@ -101,6 +108,14 @@ function readyBriefing(card: ReadyMissionCard): Briefing {
     if (rules.kind === 'convoy') (rules.owner === 'blue' ? mine : foe).push(unit)
     else if (b.convoyDuty === 'strike') mine.push(unit)
     else if (b.convoyDuty === 'stream') foe.push(unit)
+  }
+
+  if (b.briefsOpening === true) {
+    const escort = b.blueWaves?.escort
+    if (escort !== undefined) addUnit(mine, escort.spec, escort.count)
+    for (const w of b.waves ?? []) {
+      if (w.side === 'theirs' && w.when.kind === 'clock' && w.when.at === 0) addUnit(foe, w.spec, w.count)
+    }
   }
 
   const facts: BriefingFact[] = [

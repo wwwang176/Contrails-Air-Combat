@@ -376,6 +376,14 @@ export interface MissionBattle {
     }
   }
   /**
+   * 簡報把開場的陣容列出來：`blueWaves.escort` 進我方欄，`waves` 裡 `clock: 0` 的敵方批次進敵方欄
+   * （同機種併成一列）。**省略 = 簡報只列 `blueSpec`、`redSpec`、`convoySpec`。**
+   *
+   * 【為什麼要卡片自己舉手】`waves` 多半是戰鬥中才進場的增援，玩家出擊前不知道，簡報不寫；`clock: 0` 的批次
+   * 在別的關卡是空中巡邏或起飛的野馬，也不算「對面的陣容」。只有開場就預警、不等戰果的那一批才是。
+   */
+  readonly briefsOpening?: true
+  /**
    * 紅隊分兩路夾擊：後半繞著艦隊往右舷轉這麼多，rad。**省略 = 一路壓上來。**
    *
    * 【它繞的是世界原點】`MissionFleet.center` 就在原點，兩者是同一個點。

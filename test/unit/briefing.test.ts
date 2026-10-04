@@ -86,6 +86,30 @@ describe('briefingOf —— 打擊（德 M3）', () => {
     expect(fact(b, 'period')).toBe(formatMonth(1945, 1))
     expect(b.mine).toEqual([{ id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 10 }])
   })
+
+  it('沒開 briefsOpening，clock 0 的起飛批次也不列進敵方', () => {
+    expect(readyCard('germany-m3').battle.waves?.some((w) => w.when.kind === 'clock' && w.when.at === 0)).toBe(true)
+    expect(b.foe).toEqual([])
+  })
+})
+
+describe('briefingOf —— 勒熱夫（德 M4）', () => {
+  const b = briefingOf(readyCard('germany-m4'))
+
+  it('開場的陣容都列出來：Ju 87 ×6 加護航 Bf 109 K-4 ×6；敵方 Yak-1B ×6（兩批併成一列）', () => {
+    expect(readyCard('germany-m4').battle.waves).toHaveLength(2)
+    expect(b.mine).toEqual([
+      { id: 'ju87', name: 'Ju 87', role: 'bomber', count: 6 },
+      { id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 6 },
+    ])
+    expect(b.foe).toEqual([{ id: 'yak1b', name: 'Yak-1B', role: 'fighter', count: 6 }])
+  })
+
+  it('空域與時期，沒有出擊前不該知道的欄位', () => {
+    expect(fact(b, 'place')).toBe(t('mission.germany-m4.place'))
+    expect(fact(b, 'period')).toBe(formatMonth(1942, 11))
+    expect(noSecrets(b)).toEqual([])
+  })
 })
 
 describe('briefingOf —— 其他', () => {
