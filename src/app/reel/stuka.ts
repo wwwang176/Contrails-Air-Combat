@@ -344,12 +344,22 @@ const RIDE_AT = new Vector3()
 const RIDE_FROM = 25.3
 const RIDE_TO = 27.6
 
-/** 發現目標那一刀：起訖秒數、注視的那一台（縱隊中段）、視角從廣角收到長焦（度） */
+/**
+ * 地面看見編隊那一刀：起訖秒數；機位在路上第幾公尺（從第一個落點量起，縱隊北頭前方）、
+ * 偏東幾公尺；開頭盯著的那一台（縱隊前段）；往上搖的起點與長度；看路與看天的視角（度）
+ */
 const SPOT_FROM = 3.2
 const SPOT_TO = 6.8
-const SPOT_PROP = 10
-const SPOT_FOV_WIDE = 60
-const SPOT_FOV_TELE = 4
+const SPOT_ROAD_S = 360
+const SPOT_SIDE = 18
+const SPOT_PROP = 15
+const SPOT_TILT_AT = 4.1
+const SPOT_TILT_LEN = 1.3
+/** 搖到天上之後 zoom in 的起點，到刀尾收完 */
+const SPOT_ZOOM_AT = 5.2
+const SPOT_FOV_ROAD = 22
+const SPOT_FOV_SKY = 16
+const SPOT_FOV_ZOOM = 4.5
 
 /**
  * 第 `k` 台車第 `t` 秒車身座標 (x 右、y 上、z 車尾) 那一點的局部座標，寫進 `out`。
@@ -480,8 +490,8 @@ const GROUND_FIRE: ReelEvent[] = (() => {
 //
 //   0.0–3.2   編隊裡：鏡頭在長機正後方、比隊形快一點往前滑，從第二架左邊 14 m 掠過，鏡頭
 //             跟著它轉、慢慢滾轉；長機在左前方，後面一整排梯隊往右後方排開，底下是田
-//   3.2–6.8   長機左翼上方往前下方看、鏡頭從廣角收成長焦：田裡那條路上的一串小點，
-//             收到最後看得出是戰車與卡車 —— 發現目標
+//   3.2–6.8   縱隊北頭前方路邊長焦往南看：縱隊揚著塵迎面開來，鏡頭往上搖到天上，
+//             zoom in 到高空往這邊飛的整個梯隊 —— 地面的人看見了他們
 //   6.8–10.2  長機右後上方往下看：它拉起一下、往左翻成腹部朝上，田在它底下，拉進俯衝往下掉開
 //   10.2–13.8 編隊西側 95 m 跟著隊形飛：第四、五、六架一架接一架往這一側翻過來，前一架
 //             已經拉進俯衝、翼尖拉出白線往下掉
@@ -517,23 +527,26 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: SPOT_FROM, subject: null, mount: 0,
+    from: SPOT_FROM, subject: null,
     camera(t, out) {
-      // 發現目標：長機左翼後緣後上方、往前下方看。開頭是廣角，自己的左翼橫在畫面下半、
-      // 越過它是一整片田與那條路，縱隊在路上只是一串小點；鏡頭一邊往下壓、收成長焦，一邊
-      // 把注視點移到縱隊中段，視線從翼後緣後面擦過去，收到最後車輛一台台看得出是戰車與
-      // 卡車。下一刀長機就拉起翻身
-      // 【架在翼後緣後面】縱隊在前下方約 60°：架在翼面正上方的話，往下看的視線被整片機翼擋住
-      // 【晃動跟著視角縮】以角度計的晃動在長焦下會被放大成整個畫面在跳，量照視角等比收小
-      const u = Math.min(1, Math.max(0, (t - SPOT_FROM) / (SPOT_TO - SPOT_FROM)))
-      const zoom = u * u * (3 - 2 * u)
-      body(LEAD, t, -4.0, 1.6, 4.0, false, out.position)
+      // 地面的人看見了上面的飛機：縱隊北頭前方路邊、離地 6 m 的固定機位，長焦往南沿著路看。
+      // 先是縱隊迎面開過來、車尾揚著塵（長焦把一整串車壓在一起）；4.1 秒起鏡頭往上搖，
+      // 搖過車頂、搖到天上高空往這邊飛來的整個梯隊，5.2 秒起 zoom in 到編隊上，收到最後
+      // 六架的機身與倒鷗翼讀得出來。下一刀長機就拉起翻身
+      // 【架在縱隊前方】編隊從南邊飛來，鏡頭在縱隊北邊往南看：車與飛機在同一個方向，
+      // 往上一搖就到；架在縱隊南邊的話要回頭轉 110°
+      // 【晃動跟著視角縮】以角度計的晃動在長焦下會被放大，量照視角等比收小
+      onRoad(SPOT_ROAD_S, SPOT_SIDE, out.position)
+      out.position.y = 6
       propAt(PROPS[SPOT_PROP]!, t, S1)
-      body(LEAD, t, -4.0, -10, -30, false, S2)
-      aimBetween(out.position, S1, S2, 0.55 * (1 - zoom), out.target)
-      bodyUp(LEAD, t, out.up)
-      out.fov = SPOT_FOV_WIDE + (SPOT_FOV_TELE - SPOT_FOV_WIDE) * zoom
-      shake(t, 0.1 * out.fov / SPOT_FOV_WIDE, 3, out)
+      S1.y = 3
+      cruise(2.5, t, S2)
+      const tilt = ramp(t, SPOT_TILT_AT, SPOT_TILT_LEN)
+      aimBetween(out.position, S1, S2, tilt, out.target)
+      // 搖到天上之後 zoom in 到編隊上：從看得到整片天空收到六架填滿畫面中段
+      const zoom = ramp(t, SPOT_ZOOM_AT, SPOT_TO - SPOT_ZOOM_AT)
+      out.fov = SPOT_FOV_ROAD + (SPOT_FOV_SKY - SPOT_FOV_ROAD) * tilt + (SPOT_FOV_ZOOM - SPOT_FOV_SKY) * zoom
+      shake(t, 0.004 * out.fov, 3, out)
     },
   },
   {
