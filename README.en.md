@@ -10,8 +10,8 @@ https://wwwang176.github.io/Contrails-Air-Combat/
 
 ## Features
 
-- **Three campaigns, nine missions**: from European bomber routes and night raids in the East to Pacific fleet defence and low-level torpedo runs.
-- **Nine WWII aircraft**: each with its own speed, climb, turn, firepower and payload.
+- **Three campaigns, ten missions**: from European bomber routes, night raids and snowfield dive-bombing in the East to Pacific fleet defence and low-level torpedo runs.
+- **Ten WWII aircraft**: each with its own speed, climb, turn, firepower and payload.
 - **Energy-based dogfighting**: dive to gain speed; hard turns and climbs bleed energy.
 - **Varied objectives**: escort, interception, air superiority, level bombing, airfield strafing, convoy interdiction and torpedo attacks.
 - **Formation AI**: wingmen hold formation, cover their leader and pick their own targets.
@@ -29,7 +29,7 @@ https://wwwang176.github.io/Contrails-Air-Combat/
   </tr>
   <tr>
     <td valign="top"><strong>USA</strong><br>Escort and strike over Europe, fleet defence off Okinawa.<br><br><small>Over Berlin · The Leuna Refinery · Off Okinawa</small></td>
-    <td valign="top"><strong>Germany</strong><br>Intercept the bomber streams, raid by night and strafe airfields at low level.<br><br><small>Over Merseburg · Night over Poltava · Operation Bodenplatte</small></td>
+    <td valign="top"><strong>Germany</strong><br>Intercept the bomber streams, dive-bomb on the snowfield, raid by night and strafe airfields at low level.<br><br><small>Over Merseburg · Rzhev · Night over Poltava · Operation Bodenplatte</small></td>
     <td valign="top"><strong>Japan</strong><br>Escort over Guadalcanal, cut the supply lines at Leyte and torpedo the fleet off Rennell Island.<br><br><small>Over Guadalcanal · The Leyte Front · Rennell Island</small></td>
   </tr>
 </table>
@@ -39,7 +39,7 @@ https://wwwang176.github.io/Contrails-Air-Combat/
 | Side | Fighters | Bombers |
 | --- | --- | --- |
 | USA | P-51D Mustang, F6F-5 Hellcat, F4F-4 Wildcat | B-17G Flying Fortress |
-| Germany | Bf 109 K-4 | He 111 H-6 |
+| Germany | Bf 109 K-4 | He 111 H-6, Ju 87 B-2 Stuka |
 | Japan | Ki-84 Frank, A6M5 Zeke | G4M Betty |
 
 The hangar shows each aircraft's looks, performance and history; skirmish lets you mix aircraft from both sides freely.
