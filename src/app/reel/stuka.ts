@@ -1067,9 +1067,8 @@ export const STUKA: Shot = {
     // 俯衝線上零星幾朵高砲黑雲（縱隊上空 400～1300 m）；主角是地面的機槍曳光
     ...barrage(601, 13.0, 24.0, 0.7, (_t, out) => out.copy(BURNING).setY(850),
       { x: 260, yLo: -400, yHi: 450, z: 300 }, edit(CUTS), 70),
-    // 一架兩枚、隔 0.06 秒：落點相差不到 3 m，疊成一團比單枚大的爆炸（一枚 500 kg）。
-    // 用 `blast` 疊大火球的話，150 m 外就看得出低面數火球的稜角，冷卻時像一顆暗紅的石頭
-    ...PATHS.map((_, i) => ({ at: releaseAt(i), kind: 'bomb' as const, actor: i, count: 2, interval: 0.06 })),
+    // 一架一枚（500 kg）。投彈那一刀從機腹下近看，兩枚前後只差幾公尺會疊成一團讀不清
+    ...PATHS.map((_, i) => ({ at: releaseAt(i), kind: 'bomb' as const, actor: i, count: 1, interval: 0 })),
     ...GROUND_FIRE,
     ...MOUNT_FIRE,
     ...CROSS_FIRE,
