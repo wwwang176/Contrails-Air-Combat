@@ -337,6 +337,10 @@ const PAD_AT = onRoad((COUNT - 1) * ROAD_GAP + 7000, 260, new Vector3())
 
 const S1 = new Vector3()
 const S2 = new Vector3()
+const S3 = new Vector3()
+const UP_AXIS = new Vector3(0, 1, 0)
+/** 爬升離場那一刀的鏡頭偏向哪一側（+1 / −1）：後景那一架要落在主角右邊，不躲進選單 */
+const CLOSE_SIDE = -1
 
 const AIM_A = new Vector3()
 const AIM_B = new Vector3()
@@ -456,7 +460,7 @@ const GROUND_FIRE: ReelEvent[] = (() => {
 //             炸開，第三架在天上拉出白線改出
 //   27.0–29.6 縱隊北頭往南沿著路看：後面三顆一顆接一顆沿路往鏡頭炸過來
 //   29.6–31.8 縱隊南邊 230 m 低空往北看：燒著的縱隊在路的盡頭，最後一架從右邊貼著田拉出來
-//   31.8–33.6 第五架機首右側：鏡頭沿著機鼻往後滑過螺旋槳與發動機罩，它在爬升
+//   31.8–33.6 第五架前方 21 m 往後看：整架迎面往南爬升離場，後景是剛拉出來的第六架
 //   33.6–35.6 最後一架左後下方：它與前面幾架往南爬升，越來越遠
 
 const CUTS: readonly Cut[] = [
@@ -632,14 +636,23 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 31.8, subject: 4, mount: 4,
+    from: 31.8, subject: 4,
     camera(t, out) {
-      // 第五架機首右側 3.4 m（螺旋槳盤半徑 2.2 m 外），從槳盤前方往後滑過發動機罩：
-      // 它在爬升，機首、散熱器與起落架整流罩一路滑過畫面
+      // 第五架前方偏右 21 m 往後看：整架在畫面裡迎面爬升離場；後景是跟在它後面下方
+      // 160 m、剛貼著田拉出來的第六架（翼尖還拖著白線），再後面是燒著的縱隊。鏡頭慢慢推近、
+      // 往旁邊帶開。地平線水平
+      // 【不貼近】低面數的模型貼到幾公尺內看得出面數，整架入鏡的距離剛好
       const u = t - 31.8
-      body(PATHS[4]!, t, 3.4, 0.5, -6.5 + 2.6 * u, false, out.position)
-      body(PATHS[4]!, t, 0, 0.1, -2.6 + 1.2 * u, false, out.target)
-      bodyUp(PATHS[4]!, t, out.up)
+      PATHS[4]!(t, S1)
+      PATHS[LAST]!(t, S2)
+      // 架在「第六架 → 第五架」那條線的延長線上、往旁邊偏開：兩架在畫面裡一前一後疊著
+      S3.subVectors(S1, S2).normalize()
+      out.position.copy(S1).addScaledVector(S3, 20 - 1.5 * u)
+      S3.cross(UP_AXIS).normalize()
+      out.position.addScaledVector(S3, CLOSE_SIDE * (8 + 1 * u))
+      out.position.y += 2
+      aimBetween(out.position, S1, S2, 0.22, out.target)
+      shake(t, 0.1, 23, out)
       out.fov = 50
     },
   },
