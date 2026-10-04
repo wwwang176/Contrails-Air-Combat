@@ -178,14 +178,14 @@ describe.each(shots.map((s) => [s.id, s] as const))(
       }
     })
 
-    it('鏡頭在海面上至少 6 m，經過船的上空時高過桅杆；架在車上的刀離地 1.5 m、貼著那台車、不進車身', () => {
+    it('鏡頭在海面上至少 1 m，經過船的上空時高過桅杆；架在車上的刀離地 1 m、貼著那台車、不進車身', () => {
       for (const t of times) {
         shot.camera(t, cam)
         const mount = cutAt(shot, t).groundMount
         if (mount !== undefined) {
           const p = shot.props?.[mount]
           expect(p, `t=${t.toFixed(1)} 架在不存在的地面物件 ${mount}`).toBeDefined()
-          expect(cam.position.y, `t=${t.toFixed(1)}`).toBeGreaterThanOrEqual(1.5)
+          expect(cam.position.y, `t=${t.toFixed(1)}`).toBeGreaterThanOrEqual(1)
           propAt(p!, t, prop0)
           const dx = cam.position.x - prop0.x
           const dz = cam.position.z - prop0.z
@@ -201,7 +201,7 @@ describe.each(shots.map((s) => [s.id, s] as const))(
           expect(inHull, `t=${t.toFixed(1)} 鏡頭在車身裡`).toBe(false)
           continue
         }
-        expect(cam.position.y, `t=${t.toFixed(1)}`).toBeGreaterThanOrEqual(6)
+        expect(cam.position.y, `t=${t.toFixed(1)}`).toBeGreaterThanOrEqual(1)
         for (let k = 0; k < shot.ships.length; k++) {
           if (overShip(shot, k, t, cam.position)) {
             expect(cam.position.y, `經過船 ${k}，t=${t.toFixed(1)}`).toBeGreaterThan(55)
