@@ -213,6 +213,26 @@ function cruise(i: number, t: number, out: Vector3): Vector3 {
 
 const PATHS: readonly Path[] = Array.from({ length: COUNT }, (_, i) => stuka(i))
 const LEAD = PATHS[0]!
+
+/**
+ * 長機的左僚機：巡航時在長機左後上方，晚長機 0.3 秒做同一套動作，跟著它一起俯衝、
+ * 拉出（不投彈）。俯衝時在長機西邊 20 m、上方約 40 m —— 側拍長機那一刀的後景。
+ * 梯隊裡另外五架彼此隔一秒、上下差 130 m，任兩架都塞不進同一個側拍的畫面
+ */
+const WING_DELAY = 0.3
+const WING_X = -20
+const WING_Y = 3
+const WING_Z = 12
+const WING: Path = (t, out) => {
+  canon(t - LEAD_AT - WING_DELAY, out)
+  out.x += WING_X
+  out.y += WING_Y
+  out.z += WING_Z - V0 * WING_DELAY
+  const w = 1 - ramp(t, LEAD_AT + WING_DELAY - 3.2, 3.0)
+  out.x += w * 1.0 * Math.sin(0.41 * t + 5.1)
+  out.y += w * 1.2 * Math.sin(0.47 * t + 2.3)
+  return out
+}
 /** 跟拍俯衝、投彈的那一架：第二架。長機在它下方先投 */
 const HERO = 1
 const HERO_PATH = PATHS[HERO]!
@@ -374,32 +394,43 @@ function dutch(out: ReelCamera, deg: number): void {
 const BURNING = onRoad(ROAD_GAP, 0, new Vector3())
 const LAST = COUNT - 1
 
+/** 側拍長機、曳光從畫面中間穿過的那一刀（見刀表） */
+const CROSSFIRE_FROM = 17.6
+const CROSSFIRE_TO = 20.0
 /**
- * 縱隊朝俯衝的斯圖卡打的機槍：每一輛車從 10.5 秒（長機拉進俯衝）打到 31.5 秒（最後一架
- * 拉出），一段 3.6～4.8 秒、停半秒到一秒再換一架打。每一段挑那時正在俯衝或拉出的一架，
- * 各車的起點錯開，同一時間總有十幾道。瞄點偏開 25～45 m，曳光從飛機旁邊擦過去。
- * 炸毀的車自己停火
+ * 那一刀裡曳光瞄長機時偏開多少，m。鏡頭在長機南側 30 m 外（曳光從北邊的縱隊打上來），
+ * 偏 14 m 以內的彈道碰不到鏡頭，又從長機與後面兩架之間穿過
+ */
+const CROSSFIRE_MISS = 14
+
+/**
+ * 縱隊朝俯衝的斯圖卡打的機槍：每隔一台（十台）輪流打，每 6 秒打一段 2.8～3.2 秒，
+ * 各車的起點錯開，同一時間約五道。從 10.5 秒（長機拉進俯衝）打到 31.5 秒（最後一架
+ * 拉出），每一段挑那時正在俯衝或拉出的一架打，瞄點偏開 25～45 m，曳光從飛機旁邊擦過去。
+ * 側拍長機那一刀裡全部改瞄長機、偏開 `CROSSFIRE_MISS`。炸毀的車自己停火
  * 【曳光只飛 1.2 秒】850 m/s 打不到一公里外：俯衝的前半段，曳光是往上竄、在半空熄掉
  */
 const GROUND_FIRE: ReelEvent[] = (() => {
   const out: ReelEvent[] = []
   const from = 10.5
   const to = 31.5
-  for (let k = 0; k < PROPS.length; k++) {
-    let at = from + ((k * 0.37) % 2.2)
+  for (let k = 1; k < PROPS.length; k += 2) {
+    // 十台的起點均勻錯開在一個 6 秒的週期裡，同一時間才穩定在五道上下
+    let at = from + ((k - 1) / 2) * 0.6
     for (let j = 0; at < to; j++) {
-      const seconds = Math.min(3.6 + hash01(k * 17 + j + 5) * 1.2, to - at)
+      const seconds = Math.min(2.8 + hash01(k * 17 + j + 5) * 0.4, to - at)
       const mid = at + seconds / 2
       // 那一刻在俯衝線上的：拉進俯衝之後、拉出到一半之前
       const live: number[] = []
       for (let i = 0; i < COUNT; i++) if (mid > peelAt(i) + PULL_IN_AT && mid < releaseAt(i) + 4.5) live.push(i)
-      if (live.length > 0) {
+      const cross = mid > CROSSFIRE_FROM && mid < CROSSFIRE_TO
+      if (cross || live.length > 0) {
         out.push({
-          at, kind: 'groundFire', prop: k, actor: live[(k + j) % live.length]!, seconds,
-          miss: 25 + hash01(k * 29 + j + 11) * 20,
+          at, kind: 'groundFire', prop: k, actor: cross ? 0 : live[(k + j) % live.length]!, seconds,
+          miss: cross ? CROSSFIRE_MISS : 25 + hash01(k * 29 + j + 11) * 20,
         })
       }
-      at += seconds + 0.5 + hash01(k * 31 + j + 3) * 0.5
+      at += 6.0
     }
   }
   return out
@@ -410,14 +441,15 @@ const GROUND_FIRE: ReelEvent[] = (() => {
 //   0.0–3.2   編隊裡：鏡頭在長機正後方、比隊形快一點往前滑，從第二架左邊 14 m 掠過，鏡頭
 //             跟著它轉、慢慢滾轉；長機在左前方，後面一整排梯隊往右後方排開，底下是田
 //   3.2–6.8   長機左前上方、梯隊斜線的延長線上往後看（長焦）：六架一架疊一架排進畫面深處
-//   6.8–9.8   長機右後上方往下看：它拉起一下、往左翻成腹部朝上，田在它底下
-//   9.8–11.6  第四架左下方仰看：機腹與固定式起落架襯著天，它拉起、開始翻身
-//   11.6–14.6 編隊西側 95 m 跟著隊形飛：第五、六架一架接一架往這一側翻過來，前一架已經
-//             拉進俯衝、翼尖拉出白線往下掉
-//   14.6–17.0 第六架左肩後上方：自己的座艙罩與左翼在下緣，跟著它翻過去、往下拉，前幾架在
-//             機首前方已經往下衝
-//   17.0–19.2 長機正上方往下看：它往田裡直直衝下去、越來越小
-//   19.2–21.8 第二架尾巴後方順著機首往下看：長機在下方、路上的縱隊在正前方越來越大；
+//   6.8–10.2  長機右後上方往下看：它拉起一下、往左翻成腹部朝上，田在它底下，拉進俯衝往下掉開
+//   10.2–13.8 編隊西側 95 m 跟著隊形飛：第四、五、六架一架接一架往這一側翻過來，前一架
+//             已經拉進俯衝、翼尖拉出白線往下掉
+//   13.8–15.8 第六架左肩後上方：接它翻到一半，自己的座艙罩與左翼在下緣，跟著它翻過去、
+//             往下拉，前幾架在機首前方已經往下衝
+//   15.8–17.6 長機正上方往下看：它往田裡直直衝下去、越來越小
+//   17.6–20.0 長機南側下方跟拍：前景是往下衝的長機，後面上方是第二、三架，縱隊打上來的
+//             曳光從中間穿過去
+//   20.0–21.8 第二架尾巴後方順著機首往下看：長機在下方、路上的縱隊在正前方越來越大；
 //             長機 20.5 秒投彈、拉出白線改出，自己 21.5 秒投彈
 //   21.8–24.4 跟著第二架那一枚往下掉：完好的縱隊在下面越來越大
 //   24.4–27.0 路東邊的田上仰看：長機那一枚 24.5 秒、跟拍的那一枚 25.5 秒在路上的戰車上
@@ -460,7 +492,7 @@ const CUTS: readonly Cut[] = [
     from: 6.8, subject: 0,
     camera(t, out) {
       // 長機右後上方 35 m 往下看（跟著它原本的平飛航線走，慢慢推近）：7.0 秒它拉起一下，
-      // 7.8 秒起往左翻、翻成腹部朝上，田在它底下；9.6 秒它拉進俯衝、開始往下掉時切
+      // 7.8 秒起往左翻、翻成腹部朝上，田在它底下；9.6 秒它拉進俯衝，往下掉開時切
       const u = t - 6.8
       cruise(0, t, out.position).add(S1.set(10 - 1.2 * u, 24 - 1.5 * u, 22 - 2.5 * u))
       LEAD(t, out.target)
@@ -469,25 +501,12 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 9.8, subject: 3,
+    from: 10.2, subject: 4,
     camera(t, out) {
-      // 第四架左下方 12 m 往上看：機腹、固定式起落架襯著天。10.0 秒它拉起一下，10.8 秒
-      // 開始往左翻，機腹轉過去時切
-      const u = t - 9.8
-      cruise(3, t, out.position).add(S1.set(-7, -10, -3 + 1.5 * u))
-      // 注視點偏機尾 3 m：主角讓到畫面右邊時，機尾才不會出畫
-      PATHS[3]!(t, out.target).add(S1.set(0, -0.8, 3))
-      shake(t, 0.12, 7, out)
-      out.fov = 52
-    },
-  },
-  {
-    from: 11.6, subject: 4,
-    camera(t, out) {
-      // 編隊西側 95 m、與第五架同高，跟著隊形往北飛、慢慢往前帶：第五架 11.8 秒、第六架
-      // 12.8 秒往這一側翻過來，翻成腹部朝上之後拉進俯衝、翼尖拉出白線，從畫面下緣掉出去。
-      // 注視點偏低，往下掉的那一架多留在畫面裡一下
-      const u = t - 11.6
+      // 編隊西側 95 m、與第五架同高，跟著隊形往北飛、慢慢往前帶：第四架 10.8 秒、第五架
+      // 11.8 秒、第六架 12.8 秒一架接一架往這一側翻過來，翻成腹部朝上之後拉進俯衝、翼尖
+      // 拉出白線，從畫面下緣掉出去。注視點慢慢壓低，往下掉的那一架多留在畫面裡一下
+      const u = t - 10.2
       cruise(4, t, out.position).add(S1.set(-95, 4, -20 - 3 * u))
       cruise(4, t, out.target).add(S1.set(-10, -6 - 8 * u, -5))
       shake(t, 0.1, 9, out)
@@ -495,10 +514,11 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 14.6, subject: 4, mount: 5,
+    from: 13.8, subject: 4, mount: 5,
     camera(t, out) {
-      // 第六架左肩後上方、座艙罩後面（垂尾 |x| 0.37，外擴 0.5）：自己的座艙罩與左翼在畫面
-      // 下緣，跟著它翻過去、拉進俯衝，前一架在機首前下方已經往下衝。上方跟著機身
+      // 第六架左肩後上方、座艙罩後面（垂尾 |x| 0.37，外擴 0.5）：接上一刀它翻到一半，自己的
+      // 座艙罩與左翼在畫面下緣，跟著它翻過去、拉進俯衝，前一架在機首前下方已經往下衝。
+      // 上方跟著機身
       body(PATHS[5]!, t, -1.5, 2.3, 6.0, false, out.position)
       PATHS[4]!(t, S1)
       body(PATHS[5]!, t, 0, -40, -300, false, S2)
@@ -508,11 +528,11 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 17.0, subject: 0,
+    from: 15.8, subject: 0,
     camera(t, out) {
       // 長機正上方往下看：鏡頭沿著它自己剛飛過的那一段往下落、速度只有它的四成，它在田上
-      // 越來越小（30 m → 200 m）。畫面上方是北，路與縱隊在上半
-      LEAD(16.75 + 0.4 * (t - 17.0), out.position).add(S1.set(5, 0, 4))
+      // 越來越小。畫面上方是北，路與縱隊在上半
+      LEAD(15.55 + 0.4 * (t - 15.8), out.position).add(S1.set(5, 0, 4))
       LEAD(t, out.target)
       shake(t, 0.1, 11, out)
       out.up.set(0, 0, -1)
@@ -520,7 +540,24 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 19.2, subject: 0, mount: HERO,
+    from: CROSSFIRE_FROM, subject: 0,
+    camera(t, out) {
+      // 長機東側 45 m 跟拍、往西看，鏡頭正立不歪（上方是世界的上方）：前景的長機機首朝下
+      // 往畫面下方衝，後景是它的左僚機，在它後面西邊 20 m、上方 40 m 一起衝下來。縱隊從
+      // 北邊（畫面右下）打上來的曳光往上穿過兩架之間。鏡頭跟著長機往下掉、慢慢推近
+      // 【鏡頭在長機東側】曳光從北邊下方打上來、瞄點離長機 14 m 內（`CROSSFIRE_MISS`），
+      // 鏡頭在 40 m 外的側面，彈道碰不到它
+      const u = t - CROSSFIRE_FROM
+      LEAD(t, out.position).add(S1.set(46 - 2.5 * u, -6, 4))
+      LEAD(t, S1)
+      WING(t, S2)
+      aimBetween(out.position, S1, S2, 0.4, out.target)
+      shake(t, 0.1, 22, out)
+      out.fov = 62
+    },
+  },
+  {
+    from: CROSSFIRE_TO, subject: 0, mount: HERO,
     camera(t, out) {
       // 第二架尾巴後方 13 m、機背那一側 3 m，順著機首往下看：長機在下方，縱隊在正前方
       // 越來越大，地面的機槍曳光往上竄。長機 20.5 秒投彈、拉起；21.5 秒自己的炸彈從機腹
@@ -619,7 +656,10 @@ const CUTS: readonly Cut[] = [
   },
 ]
 
-const PLANES: readonly ReelPlane[] = PATHS.map((path) => ({ spec: JU87, path }))
+const PLANES: readonly ReelPlane[] = [
+  ...PATHS.map((path) => ({ spec: JU87, path })),
+  { spec: JU87, path: WING, extra: true },
+]
 
 export const STUKA: Shot = {
   id: 'stuka',
