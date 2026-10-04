@@ -42,12 +42,37 @@ export interface ReelProp {
    * 位置是 `propAt`。**炸毀就停在那一點** —— 瞄炸彈要用落地那一刻的 `propAt`
    */
   readonly speed?: number
+  /**
+   * 從第 `brake.at` 秒起踩煞車，`brake.seconds` 秒內平順停住（速度照 smoothstep 降到 0），
+   * 之後停在原地。省略 = 一直開
+   */
+  readonly brake?: { readonly at: number, readonly seconds: number }
+}
+
+/**
+ * 開了多遠，m：等速 `speed` 開到 `brake.at`，之後 `brake.seconds` 秒內煞停（多開
+ * `speed · seconds / 2`）。放映機與 `propAt` 都用它 —— 兩邊不一致的話炸彈會炸空
+ */
+export function propTravel(p: ReelProp, t: number): number {
+  const s = p.speed ?? 0
+  if (p.brake === undefined || t <= p.brake.at) return s * t
+  const d = Math.max(1e-6, p.brake.seconds)
+  const u = Math.min(1, (t - p.brake.at) / d)
+  return s * p.brake.at + s * d * (u - u * u * u + u * u * u * u / 2)
+}
+
+/** 地面物件在第 `t` 秒的速度，m/s（煞車時照 smoothstep 降到 0） */
+export function propSpeedAt(p: ReelProp, t: number): number {
+  const s = p.speed ?? 0
+  if (p.brake === undefined || t <= p.brake.at) return s
+  const u = Math.min(1, (t - p.brake.at) / Math.max(1e-6, p.brake.seconds))
+  return s * (1 - u * u * (3 - 2 * u))
 }
 
 /** 地面物件在第 `t` 秒的位置（局部座標，y = 0；還沒炸毀的話） */
 export function propAt(p: ReelProp, t: number, out: Vector3): Vector3 {
-  const s = p.speed ?? 0
-  return out.set(p.x - Math.sin(p.heading) * s * t, 0, p.z - Math.cos(p.heading) * s * t)
+  const d = propTravel(p, t)
+  return out.set(p.x - Math.sin(p.heading) * d, 0, p.z - Math.cos(p.heading) * d)
 }
 
 /**

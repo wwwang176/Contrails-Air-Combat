@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { PerspectiveCamera, Quaternion, Vector3 } from 'three'
 import {
-  BOMB_RELEASE_Y, createReelCamera, pickIsland, propAt, rampedOffset, reelShots, speedAt, TORPEDO_SPEED, torpedoAt,
+  BOMB_RELEASE_Y, createReelCamera, pickIsland, propAt, propSpeedAt, propTravel, rampedOffset, reelShots, speedAt,
+  TORPEDO_SPEED, torpedoAt,
   torpedoEntry, type Cut, type Shot,
 } from '../../src/app/reelShots'
 import { groundUnitOf } from '../../src/world/groundTargets'
@@ -67,6 +68,26 @@ describe('rampedOffset：平順加上去的加速度', () => {
     expect(acc(4.9)).toBeCloseTo(0, 3)
     expect(acc(6)).toBeCloseTo(4, 1)
     expect(acc(8)).toBeCloseTo(8, 2)
+  })
+})
+
+describe('propTravel／propSpeedAt：地面物件的煞車', () => {
+  const p = { id: 'tank' as const, x: 0, z: 0, heading: 0, speed: 8, brake: { at: 20, seconds: 1.5 } }
+  it('煞車前等速、煞停後不動，停在 speed·at + speed·seconds/2', () => {
+    expect(propTravel(p, 10)).toBeCloseTo(80, 9)
+    expect(propTravel(p, 21.5)).toBeCloseTo(8 * 20 + 8 * 1.5 / 2, 9)
+    expect(propTravel(p, 30)).toBeCloseTo(propTravel(p, 21.5), 9)
+    expect(propSpeedAt(p, 25)).toBe(0)
+  })
+  it('速度就是開了多遠的微分，煞車前後都連續', () => {
+    const h = 1e-4
+    for (let t = 18; t < 23; t += 0.05) {
+      const diff = (propTravel(p, t + h) - propTravel(p, t - h)) / (2 * h)
+      expect(diff, `t=${t.toFixed(2)}`).toBeCloseTo(propSpeedAt(p, t), 2)
+    }
+  })
+  it('沒有煞車就一直等速開', () => {
+    expect(propTravel({ id: 'tank', x: 0, z: 0, heading: 0, speed: 8 }, 30)).toBeCloseTo(240, 9)
   })
 })
 

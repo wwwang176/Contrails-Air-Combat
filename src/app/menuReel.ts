@@ -21,7 +21,8 @@ import { mountDirection } from '../weapons/types'
 import type { AircraftSpec } from '../specs/types'
 import { createFlight, flightPose, openSeaOrigin, type Flight } from './reelFlight'
 import {
-  BOMB_RELEASE_Y, bombAt, createReelCamera, pickIsland, reelShots, speedAt, torpedoAt, torpedoEntry,
+  BOMB_RELEASE_Y, bombAt, createReelCamera, pickIsland, propSpeedAt, propTravel, reelShots, speedAt,
+  torpedoAt, torpedoEntry,
   type ReelDecor, type ReelEvent, type ReelGround, type ReelPoint, type ReelTerrainKind, type Shot,
 } from './reelShots'
 import type { SiteLayout } from '../render/fields'
@@ -166,6 +167,8 @@ export const REEL_FADE = 0.6
 const SMOKE_INTERVAL = 0.015
 /** 螺旋槳轉速，rad/s */
 const PROP_SPIN = 55
+/** 地面物件慢過這個速度（煞停中）就不再揚塵，m/s */
+const TRACK_DUST_MIN_SPEED = 1
 /** 防空曳光的射速（每艘），發/秒；初速 m/s */
 const AA_RATE = 14
 const AA_SPEED = 850
@@ -1107,16 +1110,20 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       shipWakes.bindOcean(terrain.oceanHeight)
       shipWakes.step(ships, dt, time, terrain.heightAt)
     }
-    // 開動的地面物件照時間往前開、貼著地形；炸毀的停在原地（`propAt` 是同一條）。
-    // 開著的每隔 `TRACK_DUST_EVERY` 秒在車尾貼地揚一團塵
+    // 開動的地面物件照時間往前開、貼著地形；炸毀的停在原地。開了多遠是 `propTravel`
+    // （含煞車），與 `propAt` 同一條。還在動的每隔 `TRACK_DUST_EVERY` 秒在車尾貼地揚一團塵
+    const specs = shot.props ?? []
     for (let k = 0; k < props.length; k++) {
       const g = props[k]!
       if (g.speed === 0 || !g.alive) continue
+      const spec = specs[k]!
       const sin = Math.sin(g.heading)
       const cos = Math.cos(g.heading)
-      const x = g.spawn.x - sin * g.speed * t
-      const z = g.spawn.z - cos * g.speed * t
+      const d = propTravel(spec, t)
+      const x = g.spawn.x - sin * d
+      const z = g.spawn.z - cos * d
       g.position.set(x, terrain.collisionHeightAt(x, z), z)
+      if (propSpeedAt(spec, t) < TRACK_DUST_MIN_SPEED) continue
       trackClock[k]! -= dt
       if (trackClock[k]! > 0) continue
       trackClock[k]! += TRACK_DUST_EVERY
