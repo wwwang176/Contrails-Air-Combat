@@ -843,6 +843,9 @@ function syncFireSmokeLighting(): void {
 }
 const blastDust = createDust(undefined, BLAST_PACE, smokeTexture)
 ctx.scene.add(blastDust.object)
+/** 短片開動的車在車尾揚起的塵：與地面戰的行進揚塵同一個配方（壽命倍率 1，見 `render/groundBattle.ts`） */
+const reelTrackDust = createDust(256, 1, smokeTexture)
+ctx.scene.add(reelTrackDust.object)
 const blastMist = createWaterMist(undefined, BLAST_PACE, smokeTexture)
 ctx.scene.add(blastMist.object)
 const blastJets = createWaterJets({
@@ -1151,7 +1154,7 @@ function shakeFlakBursts(events: BurstEvents): void {
  */
 const POOLS = [
   fireball, smoke, spray, sparks, blastSparks, splashes, debris, vortex, flakBursts, wakes,
-  blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, blastMist, blastJets,
+  blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, blastMist, blastJets, reelTrackDust,
   // 【船火那兩份也在這裡】漏清煙池的話上一場的煙殘留 12 秒；漏清 `shipFires`
   // 更糟 —— 上一場的火點會用同一個船索引附到新一場的船上，燒滿 60 秒
   shipFireSmoke, wreckFireSmoke, shipFires, groundFires, steam,
@@ -3872,6 +3875,9 @@ const menuReel: MenuReel = createMenuReel({
     shipFire(x, y, z) {
       emitFirePuff(x, y, z)
     },
+    trackDust(x, y, z) {
+      reelTrackDust.emit(x, y, z, 0, 0.8, 0, 0.6)
+    },
     groundKill(x, y, z, fires) {
       // 與 `emitGroundKills` 同一套：落地的火、閃光；火點沿黃金角撒在半徑 8 m 內
       emitBlast(BLAST_POOLS, LAND_BLAST, x, y, z, (reelBlastSeed = (reelBlastSeed + 97) | 0))
@@ -3971,6 +3977,7 @@ function drawMenuBackground(frameSeconds: number): void {
   stepEffects(fx, elapsed)
   spray.step(fx)
   vortex.step(fx)
+  reelTrackDust.step(fx)
   // 短片地上的煙囪與冷卻塔冒白煙（炸毀的就停）
   emitPlantSteam(fx, menuReel.props)
   // 短片投下的炸彈點的地面火、魚雷的航跡。【擠在一起的火少冒煙】短片的地面火也要

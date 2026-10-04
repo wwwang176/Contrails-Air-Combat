@@ -65,7 +65,7 @@ const MISS_NEAR = 8
 const MISS_FAR = 25
 
 /** 移動中的坦克每隔幾秒在車尾補一團塵土 */
-const TRACK_DUST_EVERY = 0.35
+export const TRACK_DUST_EVERY = 0.35
 /** 長燒的煙每隔幾秒補一朵火 */
 export const BURN_EVERY = 0.3
 

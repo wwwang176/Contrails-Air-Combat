@@ -27,6 +27,7 @@ import {
 import type { SiteLayout } from '../render/fields'
 import { createBombs, createTorpedoes, type BombVisuals, type OrdnancePool } from '../render/bombs'
 import { createGroundModels, type GroundModels } from '../render/groundTargets'
+import { TRACK_DUST_EVERY } from '../render/groundBattle'
 import { createGroundTarget, type GroundTarget } from '../world/groundTargets'
 import { createHitResult, hitAircraft, segmentPointDistanceSq } from '../world/hit'
 import { clearImpacts, createImpacts, pushImpact, type ImpactEvents } from '../world/events'
@@ -80,6 +81,8 @@ export interface ReelFx {
   shipHit(x: number, y: number, z: number): void
   /** 船上的火點冒一朵火與黑煙（船火那一套煙柱） */
   shipFire(x: number, y: number, z: number): void
+  /** 開動的車在車尾貼地揚起一團塵（與地面戰的行進揚塵同一個配方） */
+  trackDust(x: number, y: number, z: number): void
   /** 清掉所有共用特效與殘骸池 */
   clear(): void
 }
@@ -417,6 +420,8 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   let shipModels: ShipModels | null = null
   let shipWakes: ShipWakes | null = null
   let props: GroundTarget[] = []
+  /** 每一台開動的車距下一團車尾揚塵還有幾秒（與 `props` 同索引）。換段時重建 */
+  let trackClock = new Float32Array(0)
   let groundModels: GroundModels | null = null
   /** 佈景建築：整批一顆網格；`decor` 是每一件在合併幾何裡的頂點範圍與世界位置 */
   let decorMesh: Mesh | null = null
@@ -584,6 +589,9 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       g.spawn.y = g.position.y
       return g
     })
+    // 【起點錯開】全部從 0 起算的話整條縱隊同一幀一起冒，讀起來是一排節拍
+    trackClock = new Float32Array(props.length)
+    for (let k = 0; k < props.length; k++) trackClock[k] = hash01(k * 13 + 5) * TRACK_DUST_EVERY
     if (props.length > 0) {
       groundModels = createGroundModels(props)
       group.add(groundModels.object)
@@ -1081,12 +1089,21 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       shipWakes.bindOcean(terrain.oceanHeight)
       shipWakes.step(ships, dt, time, terrain.heightAt)
     }
-    // 開動的地面物件照時間往前開、貼著地形；炸毀的停在原地（`propAt` 是同一條）
-    for (const g of props) {
+    // 開動的地面物件照時間往前開、貼著地形；炸毀的停在原地（`propAt` 是同一條）。
+    // 開著的每隔 `TRACK_DUST_EVERY` 秒在車尾貼地揚一團塵
+    for (let k = 0; k < props.length; k++) {
+      const g = props[k]!
       if (g.speed === 0 || !g.alive) continue
-      const x = g.spawn.x - Math.sin(g.heading) * g.speed * t
-      const z = g.spawn.z - Math.cos(g.heading) * g.speed * t
+      const sin = Math.sin(g.heading)
+      const cos = Math.cos(g.heading)
+      const x = g.spawn.x - sin * g.speed * t
+      const z = g.spawn.z - cos * g.speed * t
       g.position.set(x, terrain.collisionHeightAt(x, z), z)
+      trackClock[k]! -= dt
+      if (trackClock[k]! > 0) continue
+      trackClock[k]! += TRACK_DUST_EVERY
+      const back = g.unit.realLength / 2
+      fx.trackDust(x + sin * back, g.position.y + 0.5, z + cos * back)
     }
     // 地面物件：炸毀的換殘骸、停放飛機的槳照時間轉
     groundModels?.update(props, camera.position, dt)
