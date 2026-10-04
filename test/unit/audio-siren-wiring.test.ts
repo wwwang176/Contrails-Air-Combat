@@ -51,7 +51,7 @@ describe('警笛：主程式', () => {
 
   /** 【自己的不定位、坐在座艙裡才有】上帝視角時鏡頭在世界裡，不定位的聲音會變成「在耳邊」 */
   it('自己的警笛：只有坐在座艙裡且這型有檔才播，音量與音高來自 sirenParams', () => {
-    expect(fn).toMatch(/sirenParams\(vneRatio, SIREN\)/)
+    expect(fn).toMatch(/sirenParams\(vneRatio, noseDownRad\(me\.aircraft\.state\.orientation\), SIREN\)/)
     expect(fn).toMatch(/audio\.selfLoop\('siren', flying && sirenSelf !== null \? sirenSelf : null, SIREN\.rate, SIREN\.gainDb\)/)
     expect(fn).toMatch(/const sirenSelf = sirenFile\(spec\.id\)/)
   })
@@ -81,9 +81,9 @@ describe('警笛：主程式', () => {
     expect(fn).toMatch(/audio\.assign\('siren', c\.index, sirenFile\(c\.aircraft\.spec\.id\)!, p\.x, p\.y, p\.z,\s*SIREN_RATE\[c\.index\]! \* dopplerRate\(p, c\.aircraft\.state\.velocity, cam, camVel\), SIREN_GAIN\[c\.index\]!\)/)
   })
 
-  /** 【每一幀、每一架】用的是這一架自己的指示空速，不是自己的 */
-  it('每架的速度比用它自己的指示空速與極速', () => {
-    expect(fn).toMatch(/sirenParams\(indicatedAirspeed\(c\.aircraft\.diag\.aero\.tas, c\.aircraft\.diag\.air\.sigma\) \/ c\.aircraft\.spec\.limits\.vne, SIREN\)/)
+  /** 【每一幀、每一架】用的是這一架自己的指示空速與機頭朝下的角度，不是自己的 */
+  it('每架的速度比與機頭角度用它自己的指示空速、極速與姿態', () => {
+    expect(fn).toMatch(/sirenParams\(\s*indicatedAirspeed\(c\.aircraft\.diag\.aero\.tas, c\.aircraft\.diag\.air\.sigma\) \/ c\.aircraft\.spec\.limits\.vne,\s*noseDownRad\(c\.aircraft\.state\.orientation\), SIREN\)/)
   })
 
   it('警笛的暫存是模組層級的，熱路徑不配置', () => {

@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
+import { Quaternion, Vector3 } from 'three'
 import {
   engineRate, windParams, shakeInterval, shakeGainDb, dbToGain, soundArrived, distanceCutoffHz,
   hitFeedback, damageGainDb, absorptionDb, voiceLoudnessDb, blastGainDb, blastRate, dopplerRate, hitRate,
-  fadeInCurve, sirenParams, SIREN_AUDIBLE_DB, SIREN_BASE_HZ, SIREN_RATE_MAX,
+  fadeInCurve, noseDownRad, sirenParams, SIREN_AUDIBLE_DB, SIREN_BASE_HZ, SIREN_RATE_MAX,
 } from '../../src/audio/curves'
 
 describe('淡入曲線', () => {
@@ -49,37 +50,117 @@ describe('風切', () => {
   })
 })
 
+describe('機頭朝下的角度', () => {
+  const q = (yawDeg: number, pitchDeg: number, rollDeg: number): Quaternion => {
+    const rad = Math.PI / 180
+    const yaw = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), yawDeg * rad)
+    const pitch = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), pitchDeg * rad)
+    const roll = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), rollDeg * rad)
+    return yaw.multiply(pitch).multiply(roll)
+  }
+
+  /** 機體軸：機首 −Z、右翼 +X，繞 +X 轉正角是機首上仰，所以朝下 30° 是 −30° */
+  it('機首朝下為正、朝上為負；水平是 0', () => {
+    expect(noseDownRad(q(0, -30, 0))).toBeCloseTo(30 * Math.PI / 180, 6)
+    expect(noseDownRad(q(0, 20, 0))).toBeCloseTo(-20 * Math.PI / 180, 6)
+    expect(noseDownRad(q(0, 0, 0))).toBeCloseTo(0, 9)
+    expect(noseDownRad(q(0, -90, 0))).toBeCloseTo(Math.PI / 2, 6)
+  })
+
+  /** 【只看機頭指向】航向與滾轉不影響：側滾著俯衝、朝哪個方向俯衝都一樣 */
+  it('不受航向與滾轉影響', () => {
+    for (const yaw of [0, 77, 180, -120]) for (const roll of [0, 45, 135, -90]) {
+      expect(noseDownRad(q(yaw, -25, roll)), `yaw ${yaw} roll ${roll}`).toBeCloseTo(25 * Math.PI / 180, 6)
+    }
+  })
+})
+
 describe('俯衝警笛', () => {
   const o = { rate: 0, gainDb: 0 }
-  const at = (s: number): { rate: number; gainDb: number } => {
-    sirenParams(s, o)
+  const DEG = Math.PI / 180
+  /** `s` 指示空速÷極速，`down` 機頭朝下幾度（預設 45°：已經在俯衝，只看速度那一項） */
+  const at = (s: number, down = 45): { rate: number; gainDb: number } => {
+    sirenParams(s, down * DEG, o)
     return { rate: o.rate, gainDb: o.gainDb }
   }
   const grid = Array.from({ length: 121 }, (_, i) => i / 100)
 
-  /** 【平飛不響】Ju 87 平飛極速約 0.57 倍 vne；巡航飛過去就響的話，「俯衝時才有」就不成立 */
-  it('平飛最高速（0.57）聽不見：低於可聞門檻', () => {
-    expect(at(0.57).gainDb).toBeLessThan(SIREN_AUDIBLE_DB)
-    expect(at(0).gainDb).toBeLessThan(SIREN_AUDIBLE_DB)
+  /**
+   * 【機頭沒朝下就不響，不管多快】觸發看的是機頭朝下 10° 以上。平飛、爬升、快速的水平飛行都不能響，
+   * 否則「俯衝時才有」就不成立
+   */
+  it('機頭朝下不到 10° 時任何速度都聽不見：平飛、爬升、水平加速', () => {
+    for (const down of [0, 5, 9, 10, -20, -90]) {
+      for (const s of grid) expect(at(s, down).gainDb, `down ${down} s=${s}`).toBeLessThan(SIREN_AUDIBLE_DB)
+    }
   })
 
   /**
-   * 【AI 俯衝實測 0.65–0.76、多半 0.69 上下】隊友與敵人的警笛要在自己的俯衝裡達到接近全音量，
-   * 否則整段俯衝都在 −25 dB 以下，上帝視角幾乎聽不到
+   * 【10°–45° 漸變，不是切開關】9° 與 10° 之間不能出現一跳，也不能在十幾度就全開。
+   * 固定速度掃角度：線性音量單調不降，相鄰兩格（0.1°）的差在任何地方都不到 1%；45° 以上全開（速度那一項再算）。
+   * 角度這一項是線性音量：中點（27.5°）是一半，也就是 −6 dB。
    */
-  it('AI 俯衝的典型速度（0.69）只比全開小 6 dB 以內，0.72 以上全音量', () => {
-    expect(at(0.65).gainDb).toBeGreaterThan(SIREN_AUDIBLE_DB)
-    expect(at(0.69).gainDb).toBeGreaterThan(-6)
-    expect(at(0.72).gainDb).toBeCloseTo(0, 6)
+  it('10°–45° 之間音量平順升起，45° 以上不再變', () => {
+    const lin = (d: number): number => 10 ** (at(0.72, d).gainDb / 20)
+    let prev = lin(0)
+    for (let d = 0.1; d <= 60; d += 0.1) {
+      const g = lin(d)
+      expect(g, `down ${d.toFixed(1)}`).toBeGreaterThanOrEqual(prev - 1e-9)
+      expect(g - prev, `down ${d.toFixed(1)}`).toBeLessThan(0.01)
+      prev = g
+    }
+    expect(at(0.72, 45).gainDb).toBeCloseTo(0, 6)
+    expect(at(0.72, 80).gainDb).toBeCloseTo(0, 6)
+    expect(at(0.72, 27.5).gainDb).toBeCloseTo(-6.02, 1)
+  })
+
+  /** 【十幾度就要聽得見】觸發角度是 10°，漸變不能把它推到二十幾度（在 dB 上平滑的話 20° 只剩 −40 dB） */
+  it('15° 已經聽得見（約 −17 dB），20° 約 −11 dB', () => {
+    expect(at(0.72, 15).gainDb).toBeGreaterThan(-18)
+    expect(at(0.72, 15).gainDb).toBeLessThan(-16)
+    expect(at(0.72, 20).gainDb).toBeGreaterThan(-12)
+    expect(at(0.72, 20).gainDb).toBeLessThan(-10)
+  })
+
+  /**
+   * 【速度條件放寬】高度不夠的淺俯衝速度上不去（0.50–0.60 倍極速）。放寬前是 0.58 起、0.72 全開，
+   * 淺俯衝完全聽不到；現在 0.45 起就聽得見、0.62 全開。
+   */
+  it('速度條件放寬：0.45 起聽得見、淺俯衝的速度（0.50–0.60）已經不小聲、0.62 以上全開', () => {
+    expect(at(0.45).gainDb).toBeGreaterThan(SIREN_AUDIBLE_DB)
+    expect(at(0.5).gainDb).toBeGreaterThan(-32)
+    expect(at(0.55).gainDb).toBeGreaterThan(-13)
+    expect(at(0.58).gainDb).toBeGreaterThan(-5)
+    expect(at(0.62).gainDb).toBeCloseTo(0, 6)
     expect(at(1.2).gainDb).toBeCloseTo(0, 6)
   })
 
-  it('越快越大聲、越高：音量與音高都單調不降', () => {
+  /** 【速度條件還在】沒有氣流吹不響：機頭朝下再多，速度太低（0.40 以下）也不響 */
+  it('速度太低（0.40 以下）機頭朝下也聽不見', () => {
+    for (const down of [15, 45, 90]) {
+      for (const s of [0, 0.2, 0.4]) expect(at(s, down).gainDb, `down ${down} s=${s}`).toBeLessThan(SIREN_AUDIBLE_DB)
+    }
+  })
+
+  /**
+   * 【AI 俯衝實測 0.65–0.76、多半 0.69 上下】隊友與敵人的警笛整段俯衝都要是全音量，
+   * 否則上帝視角幾乎聽不到
+   */
+  it('AI 俯衝的速度（0.65–0.76）全開', () => {
+    for (const s of [0.65, 0.69, 0.76]) expect(at(s, 75).gainDb, `s=${s}`).toBeCloseTo(0, 6)
+  })
+
+  it('越快越大聲、越高：音量與音高都單調不降（機頭朝下 45°）', () => {
     for (let i = 1; i < grid.length; i++) {
       const a = at(grid[i - 1]!), b = at(grid[i]!)
       expect(b.gainDb, `s=${grid[i]}`).toBeGreaterThanOrEqual(a.gainDb - 1e-9)
       expect(b.rate, `s=${grid[i]}`).toBeGreaterThanOrEqual(a.rate - 1e-9)
     }
+  })
+
+  /** 【音高只跟速度走】角度只管觸發與音量；同樣速度下淺俯衝與陡俯衝音高一樣 */
+  it('音高與機頭角度無關', () => {
+    for (const s of grid) expect(at(s, 12).rate, `s=${s}`).toBeCloseTo(at(s, 80).rate, 9)
   })
 
   /** 【先大聲、再拉高】音量爬完（0.72）的時候，音高才走了不到一半 */
@@ -105,12 +186,13 @@ describe('俯衝警笛', () => {
   })
 
   /** 【壞值不得傳下去】NaN 進到 AudioParam 會讓整條匯流排變成靜音，而且不報錯 */
-  it('非有限值給最小聲、最低音，不是 NaN', () => {
+  it('非有限值給最小聲、最低音，不是 NaN（速度或角度壞掉都一樣）', () => {
     for (const bad of [NaN, Infinity, -Infinity]) {
-      const r = at(bad)
-      expect(Number.isFinite(r.gainDb)).toBe(true)
-      expect(Number.isFinite(r.rate)).toBe(true)
-      expect(r.gainDb).toBeLessThan(SIREN_AUDIBLE_DB)
+      for (const r of [at(bad), at(0.7, bad)]) {
+        expect(Number.isFinite(r.gainDb)).toBe(true)
+        expect(Number.isFinite(r.rate)).toBe(true)
+        expect(r.gainDb).toBeLessThan(SIREN_AUDIBLE_DB)
+      }
     }
   })
 })

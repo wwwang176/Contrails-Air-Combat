@@ -16,19 +16,35 @@ export function windParams(vneRatio: number, out: { cutoffHz: number; gainDb: nu
 }
 
 /**
- * 俯衝警笛：指示空速 ÷ 極速 → 音量（dB）與播放速度。寫進 out —— 每幀呼叫，不配置。
+ * 機頭朝下的角度，rad（朝上是負的），由姿態四元數直接算 —— 不配置，每幀每架都能呼叫。
+ *
+ * 機體軸：機首 −Z、右翼 +X。機首的世界 y 分量是 2(wx − yz)，朝下的正弦就是它的負值。
+ * 只看機頭指到哪，航向與滾轉不影響。
+ */
+export function noseDownRad(q: { x: number; y: number; z: number; w: number }): number {
+  return Math.asin(clamp(2 * (q.y * q.z - q.w * q.x), -1, 1))
+}
+
+/**
+ * 俯衝警笛：指示空速 ÷ 極速（`vneRatio`）與機頭朝下的角度（`noseDown`，rad）→ 音量（dB）與播放速度。
+ * 寫進 out —— 每幀呼叫，不配置。
+ *
+ * 【音量是兩項相加，各項都是 dB、都不大於 0；兩個條件都要成立才響】
  *
  * ```
- *   速度比     0.57        0.58      0.65      0.69       0.72      1.00
- *   音量       平飛最高速   開始      −25 dB    −5.9 dB    全開      全開
- *   播放速度   0.72        0.72                0.79       0.80      0.97（上限）
+ *   角度   機頭朝下 10° 以下不響；10° → 45° 線性音量從 0 升到全開（15° 約 −17 dB、20° 約 −11 dB、30° 約 −5 dB）
+ *   速度   0.40 以下 −50 dB（不響）；0.40 → 0.62 平順升到 0（0.45 起聽得見、0.55 約 −12 dB、0.58 約 −4 dB）
  * ```
  *
- * 【音量先爬、音高後走】平飛最高速約 0.57 倍極速（AI 巡航實測 0.45–0.55），音量從 0.58 才開始爬，
- * 巡航時聽不到；AI 俯衝的指示空速實測 0.65–0.76 倍極速（多半在 0.69 上下），0.72 全開 ——
- * 全開點放在更高的話，隊友與敵人的警笛整段俯衝都在 −25 dB 以下。
- * 音高也從 0.58 起線性升到極速，音量全開時只走了三分之一。
+ * 【角度與速度都要有】平飛、爬升、水平加速不響，不管多快（沒有朝下就不是俯衝）；機頭朝下但速度上不去
+ * 也不響（沒有氣流吹不響）。
+ * 【速度條件放寬】高度不夠的淺俯衝速度上不去（0.50–0.60 倍極速）。放寬前是 0.58 起、0.72 全開，
+ * 現在 0.40 起、0.62 全開 —— 平飛由角度條件擋掉，速度這一項不必再擋巡航速度（AI 巡航實測 0.45–0.55）。
+ * 【10°–45° 漸變，角度這一項是線性音量】9° 與 10° 之間音量不能一跳，也不能在十幾度就全開（太生硬）。
+ * 在 dB 上平滑的話，20° 只剩 −40 dB、幾乎聽不見，等於觸發角度被推到 20° 以上；線性音量從 10° 起就聽得見、45° 全開。
+ * 【0.62 全開】AI 俯衝的指示空速實測 0.65–0.76 倍極速（多半在 0.69 上下），整段俯衝都是全音量。
  *
+ * 【音量先爬、音高後走】音高只看速度，從 0.58 起線性升到極速，音量全開時才剛開始走。
  * 【音高範圍 308–416 Hz】循環的基準是 428 Hz（播放速度 1），整體比基準低約 20%：從 308 Hz 升到 416 Hz 為止。
  * 地面聽到的警笛要經過距離低通，基準的音高會讓諧波集中在被濾掉的那一段，聽起來又高又扁。
  *
@@ -39,15 +55,22 @@ export const SIREN_AUDIBLE_DB = -45
 export const SIREN_BASE_HZ = 428
 export const SIREN_RATE_MAX = 416 / SIREN_BASE_HZ
 const SIREN_FLOOR_DB = -50
-const SIREN_GAIN_START = 0.58
-const SIREN_GAIN_FULL = 0.72
+const SIREN_ANGLE_START = (10 * Math.PI) / 180
+const SIREN_ANGLE_FULL = (45 * Math.PI) / 180
+const SIREN_GAIN_START = 0.40
+const SIREN_GAIN_FULL = 0.62
 const SIREN_PITCH_START = 0.58
 const SIREN_RATE_MIN = 308 / SIREN_BASE_HZ
+const smooth = (t: number): number => t * t * (3 - 2 * t)
 
-export function sirenParams(vneRatio: number, out: { rate: number; gainDb: number }): void {
+export function sirenParams(vneRatio: number, noseDown: number, out: { rate: number; gainDb: number }): void {
   const s = Number.isFinite(vneRatio) ? vneRatio : 0
-  const t = clamp((s - SIREN_GAIN_START) / (SIREN_GAIN_FULL - SIREN_GAIN_START), 0, 1)
-  out.gainDb = SIREN_FLOOR_DB * (1 - t * t * (3 - 2 * t))
+  const a = Number.isFinite(noseDown) ? noseDown : 0
+  // log10(0) = −Infinity，取 max 之後就是地板；不會有 NaN
+  const angle = Math.max(
+    SIREN_FLOOR_DB, 20 * Math.log10(clamp((a - SIREN_ANGLE_START) / (SIREN_ANGLE_FULL - SIREN_ANGLE_START), 0, 1)))
+  const speed = SIREN_FLOOR_DB * (1 - smooth(clamp((s - SIREN_GAIN_START) / (SIREN_GAIN_FULL - SIREN_GAIN_START), 0, 1)))
+  out.gainDb = angle + speed
   out.rate = SIREN_RATE_MIN + (SIREN_RATE_MAX - SIREN_RATE_MIN) * clamp((s - SIREN_PITCH_START) / (1 - SIREN_PITCH_START), 0, 1)
 }
 

@@ -21,8 +21,8 @@ import { nearestN } from './audio/nearest'
 import { nearMiss } from './audio/nearMiss'
 import { LAYER_DB } from './audio/pick'
 import {
-  SIREN_AUDIBLE_DB, blastGainDb, blastRate, damageGainDb, dopplerRate, engineRate, hitFeedback, shakeGainDb,
-  hitRate, shakeInterval, sirenParams, windParams,
+  SIREN_AUDIBLE_DB, blastGainDb, blastRate, damageGainDb, dopplerRate, engineRate, hitFeedback, noseDownRad,
+  shakeGainDb, hitRate, shakeInterval, sirenParams, windParams,
 } from './audio/curves'
 import { DAY_PALETTES, applyTimeOfDay } from './render/timeOfDay'
 import { FAR_LAND_NAME } from './render/leyteGround'
@@ -2576,7 +2576,9 @@ function updateAudio(worldSeconds: number): void {
     const c = all[i]!
     AUDIO_VALID[c.index] = 0
     if (!c.alive || c.retired || (c === me && flying) || sirenFile(c.aircraft.spec.id) === null) continue
-    sirenParams(indicatedAirspeed(c.aircraft.diag.aero.tas, c.aircraft.diag.air.sigma) / c.aircraft.spec.limits.vne, SIREN)
+    sirenParams(
+      indicatedAirspeed(c.aircraft.diag.aero.tas, c.aircraft.diag.air.sigma) / c.aircraft.spec.limits.vne,
+      noseDownRad(c.aircraft.state.orientation), SIREN)
     SIREN_RATE[c.index] = SIREN.rate
     SIREN_GAIN[c.index] = SIREN.gainDb
     if (SIREN.gainDb > SIREN_AUDIBLE_DB) AUDIO_VALID[c.index] = 1
@@ -2631,9 +2633,9 @@ function updateAudio(worldSeconds: number): void {
   const vneRatio = indicatedAirspeed(me.aircraft.diag.aero.tas, me.aircraft.diag.air.sigma) / spec.limits.vne
   windParams(vneRatio, WIND)
   audio.selfLoop('wind', flying ? SINGLE_FILES.wind : null, 1, WIND.gainDb, WIND.cutoffHz)
-  // 俯衝警笛：自己的（不定位）。音量與音高隨空速，平飛時聽不見；沒有警笛檔的機種是 null
+  // 俯衝警笛：自己的（不定位）。機頭朝下 10° 以上才響（10–45° 漸變），音量與音高隨空速；沒有警笛檔的機種是 null
   const sirenSelf = sirenFile(spec.id)
-  sirenParams(vneRatio, SIREN)
+  sirenParams(vneRatio, noseDownRad(me.aircraft.state.orientation), SIREN)
   audio.selfLoop('siren', flying && sirenSelf !== null ? sirenSelf : null, SIREN.rate, SIREN.gainDb)
   // 警告蜂鳴：飛出邊界，或速度進了紅線（與 HUD 的紅線警告同一個門檻）
   const warn = flying && ((hudFrame.arenaShow && arena.outside) || vneRatio >= OVERSPEED_FULL)
