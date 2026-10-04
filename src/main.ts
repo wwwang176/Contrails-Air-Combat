@@ -1,6 +1,5 @@
 import './render/heightFogInstall'
-import { Color, Euler, Quaternion, Vector3, type FogExp2, type Mesh, type Object3D } from 'three'
-import { cloudColorOf, createClouds } from './render/clouds'
+import { Euler, Quaternion, Vector3, type FogExp2, type Mesh, type Object3D } from 'three'
 import { FixedStepAccumulator, MAX_FRAME_SECONDS, clampFrameSeconds } from './core/loop'
 import { createPerfOverlay } from './core/perf'
 import { createRangeProbe } from './hud/rangeProbe'
@@ -847,10 +846,6 @@ ctx.scene.add(blastDust.object)
 /** 短片開動的車在車尾揚起的塵：與地面戰的行進揚塵同一個配方（壽命倍率 1，見 `render/groundBattle.ts`） */
 const reelTrackDust = createDust(256, 1, smokeTexture)
 ctx.scene.add(reelTrackDust.object)
-/** 天上的靜止雲朵（`render/clouds.ts`）。短片換段時由舞台的 `setClouds` 換一批 */
-const clouds = createClouds(smokeTexture)
-ctx.scene.add(clouds.object)
-const CLOUD_COLOR = new Color()
 const blastMist = createWaterMist(undefined, BLAST_PACE, smokeTexture)
 ctx.scene.add(blastMist.object)
 const blastJets = createWaterJets({
@@ -3762,9 +3757,6 @@ const REEL_SMOKE_SIZE = 0.32
 /** 短片的高砲：一朵雲走與戰鬥同一條路（黑雲池 + 爆點小火球 + 閃光） */
 const REEL_BURSTS = createBursts(1)
 
-/** 短片現在的時段。雲色照它（`setClouds` 在 `setTimeOfDay` 之後呼叫） */
-let menuTimeOfDay: TimeOfDay = 'noon'
-
 /** 開場與主選單的左欄 */
 const reelRows = Array.from(document.querySelectorAll<HTMLElement>('#landing .rows, #menu .rows'))
 /** 選單頁的主角位置（畫面寬度的成數）；開場與主選單每次重量，量到之前用這個值 */
@@ -3780,10 +3772,6 @@ const menuReel: MenuReel = createMenuReel({
   setTerrain: setMenuTerrain,
   setTimeOfDay(tod) {
     setMenuTimeOfDay(tod)
-  },
-  setClouds(list) {
-    if (list.length === 0) clouds.clear()
-    else clouds.set(list, cloudColorOf(DAY_PALETTES[menuTimeOfDay], CLOUD_COLOR))
   },
   fade: document.getElementById('reel-fade') as HTMLElement,
   subjectX() {
@@ -3963,7 +3951,6 @@ let reelBlastSeed = 0
  * 留著的話機庫裡也在下雨
  */
 function setMenuTimeOfDay(tod: TimeOfDay): void {
-  menuTimeOfDay = tod
   applyTimeOfDay(ctx, terrain, tod)
   syncFireSmokeLighting()
   if (tod === 'storm' && storm === null) {

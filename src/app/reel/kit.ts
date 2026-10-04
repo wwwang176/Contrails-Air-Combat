@@ -4,7 +4,6 @@ import type { TimeOfDay } from '../../world/timeOfDay'
 import type { ShipClassId } from '../../world/ships'
 import type { GroundUnitId } from '../../render/geometry/ground'
 import type { DecorKind } from '../../render/geometry/ground/plantDecor'
-import type { CloudSpec } from '../../render/clouds'
 import { hash01 } from '../../render/scatter'
 import { WRECK_TERMINAL } from '../../render/wrecks'
 import { createFlight, flightPose, type Path } from '../reelFlight'
@@ -292,12 +291,6 @@ export interface Shot {
   readonly speed?: readonly SpeedRamp[]
   /** 跳接（省略 = 不跳）。見 `TimeJump` */
   readonly jumps?: readonly TimeJump[]
-  /**
-   * 靜止的雲朵（省略 = 沒有）：**局部座標**的雲底中心與水平半徑，執行時跟著原點與 `yaw`
-   * 轉到世界。畫法見 `render/clouds.ts`（雲頂比雲底高約 0.45 倍半徑；離相機 25～90 m 淡出）。
-   * 測試要求鏡頭不鑽進任何一朵雲的範圍
-   */
-  readonly clouds?: readonly CloudSpec[]
   readonly timeOfDay: TimeOfDay
   /** 局部 −Z 轉到太陽的水平方位 */
   readonly faceSun: boolean

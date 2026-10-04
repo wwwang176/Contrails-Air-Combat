@@ -26,7 +26,6 @@ import {
   type ReelDecor, type ReelEvent, type ReelGround, type ReelPoint, type ReelTerrainKind, type Shot,
 } from './reelShots'
 import type { SiteLayout } from '../render/fields'
-import type { CloudSpec } from '../render/clouds'
 import { createBombs, createTorpedoes, type BombVisuals, type OrdnancePool } from '../render/bombs'
 import { createGroundModels, type GroundModels } from '../render/groundTargets'
 import { TRACK_DUST_EVERY } from '../render/groundBattle'
@@ -120,8 +119,6 @@ export interface ReelStage {
    */
   setTerrain(kind: ReelTerrainKind, site?: ReelSiteRequest): void
   setTimeOfDay(tod: TimeOfDay): void
-  /** 換成這一批雲（世界座標，空陣列 = 沒有雲）。雲色照現在的時段，所以在 `setTimeOfDay` 之後呼叫 */
-  setClouds(list: readonly CloudSpec[]): void
   /** 全黑的那一層。opacity 由這裡寫，過渡時間在 CSS */
   readonly fade: HTMLElement
   /**
@@ -567,12 +564,6 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     stage.setTimeOfDay(next.timeOfDay)
     // 【地形沒重建時 layout 不會被叫】原點照樣要算；山丘相同，算出來的也相同
     placeOrigin(next, stage.terrain().islands)
-    // 雲：局部座標轉到世界（沒有雲的段給空陣列，把上一段的雲拿掉）
-    stage.setClouds((next.clouds ?? []).map((c) => {
-      V1.set(c.x, c.y, c.z)
-      toWorld(V1)
-      return { x: V1.x, y: V1.y, z: V1.z, radius: c.radius }
-    }))
 
     next.planes.forEach((p, i) => {
       // 【配角不出場時仍佔著索引】事件表用索引指演員，抽掉一格會讓後面全部錯位
@@ -1252,8 +1243,6 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       camera.up.set(0, 1, 0)
       // 【視窗位移要拿掉】戰鬥與機庫用同一台相機
       camera.clearViewOffset()
-      // 【雲要拿掉】雲是舞台的，留著的話機庫與戰鬥的天上掛著短片的雲
-      stage.setClouds([])
       // 【暗場要藏起來，不是留著全黑】它蓋在畫布上 —— 留著的話機庫與戰鬥整片黑
       stage.fade.hidden = true
     },

@@ -146,19 +146,6 @@ describe.each(shots.map((s) => [s.id, s] as const))(
       }
     })
 
-    it('鏡頭不鑽進任何一朵雲（雲心在雲底上方 1/4 半徑、水平半徑 R、上下半徑 R/2 的橢球）', () => {
-      for (const c of shot.clouds ?? []) {
-        for (const t of times) {
-          shot.camera(t, cam)
-          const dx = (cam.position.x - c.x) / c.radius
-          const dy = (cam.position.y - (c.y + c.radius / 4)) / (c.radius / 2)
-          const dz = (cam.position.z - c.z) / c.radius
-          expect(dx * dx + dy * dy + dz * dz, `t=${t.toFixed(1)} 鏡頭在雲 (${c.x}, ${c.y}, ${c.z}) 裡`)
-            .toBeGreaterThanOrEqual(1)
-        }
-      }
-    })
-
     it('事件照時間排、都在片長之內', () => {
       for (let k = 1; k < shot.events.length; k++) {
         expect(shot.events[k]!.at).toBeGreaterThanOrEqual(shot.events[k - 1]!.at)

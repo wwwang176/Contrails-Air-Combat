@@ -1,7 +1,6 @@
 import { Vector3 } from 'three'
 import { JU87 } from '../../specs/ju87'
 import { hash01 } from '../../render/scatter'
-import type { CloudSpec } from '../../render/clouds'
 import {
   BOMB_RELEASE_Y, barrage, bombAt, body, bodyUp, edit, propAt, propTravel, timeline, velocityAt,
   type Cut, type Path, type ReelCamera, type ReelEvent, type ReelPlane, type ReelProp, type Shot,
@@ -995,28 +994,6 @@ const CUTS: readonly Cut[] = [
   },
 ]
 
-/**
- * 靜止的雲（局部座標的雲底中心與水平半徑）：給飛機一個參照物，讀得出速度與往下衝。
- * 巡航那一層的雲底比隊形（1720 m）低二、三十公尺，雲頂與飛機同高
- * 【不擋主角】每一朵都放在鏡頭路徑旁邊、主角後面；鏡頭也不鑽進雲裡（測試會查）
- */
-const CLOUDS: readonly CloudSpec[] = [
-  // 編隊右前方：第一刀隊形從它旁邊飛過
-  { x: 170, y: 1690, z: 250, radius: 70 },
-  // 長機翻身處的西邊：第二架座艙罩後面看長機翻身時在左前方
-  { x: -170, y: 1690, z: -170, radius: 75 },
-  // 隊形前方（北）：第二架與第六架看前面幾架翻下去時的後景
-  { x: -60, y: 1695, z: -520, radius: 90 },
-  // 俯衝線東邊 160 m、1000 m 高：側拍長機時在後景往上掠過；地面仰看時在飛機旁邊
-  { x: 150, y: 1000, z: -230, radius: 60 },
-  // 俯衝線西邊、760 m 高：地面仰看的廣角裡多一朵
-  { x: -160, y: 760, z: -150, radius: 70 },
-  // 縱隊東邊上空、1300 m 高：地面仰看與路邊拍車時天上的雲
-  { x: 220, y: 1300, z: -60, radius: 110 },
-  // 編隊右邊遠處：第一刀地平線上、隊形後面
-  { x: 280, y: 1690, z: 470, radius: 90 },
-]
-
 const PLANES: readonly ReelPlane[] = [
   ...PATHS.map((path) => ({ spec: JU87, path })),
   { spec: JU87, path: WING, extra: true },
@@ -1026,7 +1003,6 @@ export const STUKA: Shot = {
   id: 'stuka',
   duration: AFTER_TO,
   jumps: [{ from: JUMP_FROM, to: JUMP_TO }],
-  clouds: CLOUDS,
   // 夏日正午：太陽在西南、仰角約 60°。編隊往北飛，太陽在它左後方
   timeOfDay: 'noon',
   faceSun: false,
