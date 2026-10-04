@@ -332,10 +332,13 @@ const RIDE = 0
 /** 那一刀拍的那一架：第四架，從縱隊上空衝下來、拉出 */
 const RIDE_SUBJECT = 3
 /**
- * 那一刀鏡頭離地多高，m。卡車車頂 2.7 m；`reel-shots.test.ts` 要求鏡頭至少離海面
- * （這裡的地面）6 m，所以是架在車頂上方、車身仍在畫面下緣的高度
+ * 那一刀鏡頭在車上的位置（車身座標：x 右、y 離地、z 車尾，m）：站在車斗後段、
+ * 頭略高過駕駛室頂（車身命中盒頂 2.70，外擴 0.3）。駕駛室頂離鏡頭 3～4 m，只佔畫面下緣
+ * 一角 —— 再貼近的話低面數的車身在畫面裡看得出面很粗
  */
-const RIDE_HEIGHT = 6.2
+const RIDE_X = 1.0
+const RIDE_Y = 3.15
+const RIDE_Z = 3.0
 const RIDE_AT = new Vector3()
 /** 那一刀的起訖秒數：長機那一枚（24.5 秒）落地之後、跟拍的那一枚（25.5 秒）落地之前切進來 */
 const RIDE_FROM = 25.3
@@ -615,19 +618,21 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: RIDE_FROM, subject: RIDE_SUBJECT,
+    from: RIDE_FROM, subject: RIDE_SUBJECT, groundMount: RIDE,
     camera(t, out) {
-      // 縱隊最後一台卡車的車斗正上方（`RIDE_HEIGHT`）跟著車往北開、往前上方仰看：前面一台
-      // 戰車在畫面下緣，再前面是 45 m 外燒著的那一台與更前面的車。第四架從前上方衝下來、
+      // 縱隊最後一台卡車的車斗後段（離地 3.15 m）跟著車往北開、往前上方仰看：自己的駕駛室頂
+      // 在畫面下緣，前面一台戰車在路上，再前面是 45 m 外燒著的那一台與更前面的車。第四架從前上方衝下來、
       // 拉出白線，旁邊的車往上打機槍；跟拍的那一枚 25.5 秒、第三架那一枚 26.5 秒、第四架
       // 那一枚 27.5 秒在前面一台接一台炸開，每一下都震一下。車在開：慢晃加一點顛
       // 【跟最後一台、24.5 秒之後才切進來】長機那一枚落在前面 45 m 的戰車上，火球在這個
       // 距離大到看得出低面數的稜角；在跟炸彈那一刀裡從上面看它炸。之後的炸點都在 110 m 外
-      onVehicle(RIDE, t, 0.4, RIDE_HEIGHT, 2.4, out.position)
+      onVehicle(RIDE, t, RIDE_X, RIDE_Y, RIDE_Z, out.position)
       out.position.y += 0.05 * Math.sin(2 * Math.PI * 2.3 * t) + 0.03 * Math.sin(2 * Math.PI * 3.7 * t + 1)
       PATHS[RIDE_SUBJECT]!(t, S1)
       onVehicle(RIDE, t, 0, 0, -120, S2)
-      aimBetween(out.position, S1, S2, 0.5, out.target)
+      // 開頭多看前面的路與自己的車頭，飛機越飛越高、注視點跟著慢慢往上抬
+      const lift = Math.min(1, Math.max(0, (t - RIDE_FROM) / (RIDE_TO - RIDE_FROM)))
+      aimBetween(out.position, S1, S2, 0.62 - 0.2 * lift, out.target)
       shake(t, 0.3, 14, out)
       for (let k = 1; k < 4; k++) jolt(t, IMPACT_AT[k]!, 1.2 - 0.25 * k, out.target)
       out.fov = 84
