@@ -327,33 +327,9 @@ const DROP_BACK = 3
 const DROP_FOV = 40
 const DROP_CAM = body(LEAD, DROP_AT, -DROP_SIDE, DROP_LOW, DROP_BACK, false, new Vector3())
 const DROP_UP = bodyUp(LEAD, DROP_AT, new Vector3())
-/**
- * 脫鉤後鏡頭沿投彈速度走多快：前 `DROP_SLOW_AT` 秒照原速（看炸彈脫離機腹），之後
- * `DROP_SLOW_EASE` 秒內線性收到 `DROP_PACE` 倍。炸彈越掉越遠、往縱隊落下去，視角跟著
- * 收到 `DROP_FOV_END`，炸彈縮小得沒那麼快
- * 【一定要放慢】這一刀跟到落地前（約 4 秒）；照原速的話鏡頭跟炸彈一起掉到離地幾十公尺，
- * 落點的火球就在鏡頭旁邊
- */
-const DROP_SLOW_AT = 0.9
-const DROP_SLOW_EASE = 0.8
-const DROP_PACE = 0.55
-const DROP_FOV_END = 16
-/** 投彈後 `u` 秒鏡頭順著投彈速度走了幾秒份 */
-function dropRun(u: number): number {
-  const k = 1 - DROP_PACE
-  if (u <= DROP_SLOW_AT) return u
-  const v = u - DROP_SLOW_AT
-  if (v <= DROP_SLOW_EASE) return u - k * v * v / (2 * DROP_SLOW_EASE)
-  return u - k * (v - DROP_SLOW_EASE / 2)
-}
-/**
- * 注視點從「投彈點順著速度走到哪」轉到炸彈本身：投彈後這一段時間裡從一半轉到全跟；跟上
- * 之後再往落點偏 `DROP_ROAD`，路從選單後面移到畫面中段，炸彈往哪掉讀得出來
- * 【偏不多】炸彈與落點在畫面上隔得很開，偏到一半以上炸彈就被推出右緣
- */
-const DROP_FOLLOW_AT = 0.7
+/** 注視點從「投彈點順著速度走到哪」轉到炸彈本身：投彈後這一段時間裡從一半轉到全跟 */
+const DROP_FOLLOW_AT = 0.5
 const DROP_FOLLOW = 0.6
-const DROP_ROAD = 0.3
 
 // ── 路與縱隊 ───────────────────────────────────────────────
 //
@@ -468,7 +444,12 @@ const CAB_Y = 1.7
 const CAB_Z = -2.2
 const ON_VEHICLE = new Vector3()
 
-/** 投彈那一刀跟著炸彈掉到落地前一點點，硬切到爆炸 */
+/**
+ * 投彈那一刀只拍炸彈脫離機腹、飛機拉起（投彈後約 1.2 秒）；之後回到駕駛室旁往上看
+ * 長機拉起、曳光追著打（`PULL_FOV`），第一顆落地前一點點硬切到爆炸
+ */
+const X_PULL = 21.7
+const PULL_FOV = 14
 const BLAST_CUT = IMPACT_AT[0]! - 0.03
 
 /**
@@ -757,6 +738,8 @@ const MOUNT_FIRE: ReelEvent[] = [
   { at: X_TANK - MOUNT_LEAD, kind: 'groundFire', prop: TANK_PROP, actor: 0, seconds: X_SIDE - X_TANK + MOUNT_LEAD, miss: 20 },
   { at: X_TRUCK - MOUNT_LEAD, kind: 'groundFire', prop: TRUCK_PROP, actor: 0, seconds: X_CAB - X_TRUCK + MOUNT_LEAD, miss: 20 },
   { at: X_CAB - MOUNT_LEAD, kind: 'groundFire', prop: CAB_PROP, actor: 0, seconds: X_DROP - X_CAB + MOUNT_LEAD, miss: 20 },
+  { at: X_PULL - MOUNT_LEAD, kind: 'groundFire', prop: CAB_PROP, actor: 0, seconds: 1.0, miss: 20 },
+  { at: X_PULL + 1.4, kind: 'groundFire', prop: CAB_PROP, actor: 0, seconds: 1.0, miss: 20 },
 ]
 
 // ── 刀表 ───────────────────────────────────────────────────
@@ -779,9 +762,10 @@ const MOUNT_FIRE: ReelEvent[] = [
 //   19.6–20.2 卡車駕駛室旁往正上方看（超長焦）：長機與僚機迎面衝下來，倒鷗翼與起落架
 //             佔滿畫面
 //   ──
-//   20.2–24.5 長機左下方看機腹：炸彈掛在兩支起落架之間，20.5 秒脫離機腹，飛機拉起往上
-//             離開；鏡頭跟著炸彈、慢下來，炸彈越掉越遠、往路上的縱隊落下去 —— 落地前一點點
-//             硬切到爆炸
+//   20.2–21.7 長機左下方看機腹：炸彈掛在兩支起落架之間，20.5 秒脫離機腹，飛機拉起往上
+//             離開、炸彈往下掉開
+//   21.7–24.5 回到駕駛室旁往上看（長焦）：長機在頭頂拉起、拖著白線，曳光一串串追著它打，
+//             第二架衝下來投彈 —— 第一顆落地前一點點硬切到爆炸
 //   24.5–26.4 路東邊 110 m：長機那一枚在畫面左邊的戰車上炸開，第二枚接著在右邊炸開
 //   26.4–29.6 縱隊北頭往南沿著路看：後面幾顆一顆接一顆沿路往鏡頭炸過來
 //   29.6–31.8 縱隊南邊 230 m 低空往北看：燒著的縱隊在路的盡頭，最後一架從右邊貼著田拉出來
@@ -936,25 +920,34 @@ const CUTS: readonly Cut[] = [
     camera(t, out) {
       // 長機左下方看機腹：機身橫在畫面裡、機頭朝左。20.5 秒炸彈脫離機腹，
       // 長機 4.5 G 拉起、翼尖拖著白線往畫面上方離開；鏡頭脫鉤（`DROP_CAM`），炸彈往左下
-      // 掉開、注視點慢慢轉去跟它；之後鏡頭放慢（`dropRun`），炸彈越掉越遠、往路上的縱隊
-      // 落下去，落地前一點點硬切到爆炸。拉起那一下氣流掃過，震一下
+      // 掉開、注視點轉去跟它。拉起那一下氣流掃過，震一下
       if (t < DROP_AT) {
         body(LEAD, t, -DROP_SIDE, DROP_LOW, DROP_BACK, false, out.position)
         body(LEAD, t, 0, BOMB_RELEASE_Y, 0, false, out.target)
         bodyUp(LEAD, t, out.up)
       } else {
         const u = t - DROP_AT
-        const run = dropRun(u)
-        out.position.copy(DROP_CAM).addScaledVector(DROP_V, run)
-        S1.copy(DROP_P).addScaledVector(DROP_V, run)
+        out.position.copy(DROP_CAM).addScaledVector(DROP_V, u)
+        S1.copy(DROP_P).addScaledVector(DROP_V, u)
         bombAt(DROP_P, DROP_V, u, S2)
-        S1.lerp(S2, 0.5 + 0.5 * ramp(t, DROP_AT + DROP_FOLLOW_AT, DROP_FOLLOW))
-        aimBetween(out.position, S1, IMPACTS[0]!, DROP_ROAD * ramp(t, DROP_AT + DROP_FOLLOW_AT + DROP_FOLLOW, 0.6), out.target)
+        out.target.copy(S1).lerp(S2, 0.5 + 0.5 * ramp(t, DROP_AT + DROP_FOLLOW_AT, DROP_FOLLOW))
         out.up.copy(DROP_UP)
       }
       shake(t, 0.1, 23, out)
       jolt(t, DROP_AT + 0.4, 1.0, out.target)
-      out.fov = DROP_FOV + (DROP_FOV_END - DROP_FOV) * ramp(t, DROP_AT + DROP_SLOW_AT, BLAST_CUT - DROP_AT - DROP_SLOW_AT)
+      out.fov = DROP_FOV
+    },
+  },
+  {
+    from: X_PULL, subject: 0, groundMount: CAB_PROP,
+    camera(t, out) {
+      // 回到駕駛室旁往上看（長焦）：投完彈的長機在頭頂拉起、翼尖拖著白線，曳光一串串追著
+      // 它打；後面的第二架衝下來投彈。炸彈正往縱隊掉，落地前一點點硬切到爆炸
+      // 【比前一次寬】前一次超長焦只框得下長機與僚機；拉起時它在畫面裡走得快，視角要放寬
+      onVehicle(CAB_PROP, t, CAB_X, CAB_Y, CAB_Z, out.position)
+      jostle(t, out.position)
+      out.fov = PULL_FOV
+      lookUpAtLead(t, CAB_PROP, 0, 4, out)
     },
   },
   {
