@@ -300,6 +300,7 @@ describe.each(shots.map((s) => [s.id, s] as const))(
           expect(e.target).not.toBe(e.actor)
         }
         if (e.kind === 'aa') expect(e.ship).toBeLessThan(shot.ships.length)
+        if (e.kind === 'groundFire') expect(e.prop).toBeLessThan(shot.props?.length ?? 0)
         if (e.kind === 'kill') {
           expect(killed.has(e.actor), `#${e.actor} 被擊落兩次`).toBe(false)
           killed.add(e.actor)

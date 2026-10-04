@@ -37,6 +37,17 @@ export interface ReelProp {
   readonly x: number
   readonly z: number
   readonly heading: number
+  /**
+   * 往前開的速度，m/s（省略 = 停著）。方向與船同一個約定 (−sin h, 0, −cos h)，
+   * 位置是 `propAt`。**炸毀就停在那一點** —— 瞄炸彈要用落地那一刻的 `propAt`
+   */
+  readonly speed?: number
+}
+
+/** 地面物件在第 `t` 秒的位置（局部座標，y = 0；還沒炸毀的話） */
+export function propAt(p: ReelProp, t: number, out: Vector3): Vector3 {
+  const s = p.speed ?? 0
+  return out.set(p.x - Math.sin(p.heading) * s * t, 0, p.z - Math.cos(p.heading) * s * t)
 }
 
 /**
@@ -147,6 +158,14 @@ export type ReelEvent =
   | {
     readonly at: number, readonly kind: 'torpedo', readonly actor: number,
     readonly aim: { readonly x: number, readonly z: number }, readonly hit: boolean
+  }
+  /**
+   * 第 `prop` 個地面物件朝這一架打機槍曳光 `seconds` 秒：從車頂上方隨機一點、朝目標的
+   * 前置點打，瞄點偏開 `miss` 公尺。跟著車走，車炸毀就停
+   */
+  | {
+    readonly at: number, readonly kind: 'groundFire', readonly prop: number, readonly actor: number,
+    readonly seconds: number, readonly miss: number
   }
   /** 第 `prop` 個地面物件在這一刻炸毀（換殘骸、爆一團、起火） */
   | { readonly at: number, readonly kind: 'destroy', readonly prop: number }

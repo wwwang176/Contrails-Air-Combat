@@ -192,12 +192,14 @@ interface Actor {
   readonly velocity: Vector3
 }
 
-/** 一道持續的曳光：從一艘船（`ship`）或一架飛機的機槍手（`shooter`）打向 `actor` */
+/**
+ * 一道持續的曳光：從一艘船（`ship`）、一架飛機的機槍手（`shooter`）或一台地面物件
+ * （`prop`）打向 `actor`。三個來源只有一個不是 −1
+ */
 interface AaStream {
-  /** 打的那艘船；−1 = 是飛機的機槍手 */
   ship: number
-  /** 打的那一架；−1 = 是船 */
   shooter: number
+  prop: number
   actor: number
   until: number
   miss: number
@@ -554,6 +556,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       V1.set(p.x, 0, p.z)
       toWorld(V1)
       const g = createGroundTarget(k, p.id, 'red', V1.x, V1.z, p.heading + yaw)
+      g.speed = p.speed ?? 0
       // 落在地形上（與戰鬥的 `settleGroundTargets` 同一條）
       g.position.y = terrain.collisionHeightAt(V1.x, V1.z)
       g.spawn.y = g.position.y
@@ -657,14 +660,20 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       }
       case 'aa':
         streams.push({
-          ship: e.ship, shooter: -1, actor: e.actor, until: e.at + e.seconds, miss: e.miss, timer: 0,
-          seed: e.ship * 1000 + e.actor * 97,
+          ship: e.ship, shooter: -1, prop: -1, actor: e.actor, until: e.at + e.seconds, miss: e.miss,
+          timer: 0, seed: e.ship * 1000 + e.actor * 97,
         })
         break
       case 'gunner':
         streams.push({
-          ship: -1, shooter: e.actor, actor: e.target, until: e.at + e.seconds, miss: e.miss, timer: 0,
-          seed: 50000 + e.actor * 1000 + e.target * 97,
+          ship: -1, shooter: e.actor, prop: -1, actor: e.target, until: e.at + e.seconds, miss: e.miss,
+          timer: 0, seed: 50000 + e.actor * 1000 + e.target * 97,
+        })
+        break
+      case 'groundFire':
+        streams.push({
+          ship: -1, shooter: -1, prop: e.prop, actor: e.actor, until: e.at + e.seconds, miss: e.miss,
+          timer: 0, seed: 90000 + e.prop * 1000 + e.actor * 97,
         })
         break
     }
@@ -988,8 +997,8 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   }
 
   /**
-   * 持續的曳光：船上的防空從甲板上隨機一點、機槍手從機身上隨機一點，朝目標的前置點打，
-   * 瞄點偏開 `miss` 公尺
+   * 持續的曳光：船上的防空從甲板上隨機一點、機槍手從機身上隨機一點、地面物件從車頂
+   * 上方隨機一點，朝目標的前置點打，瞄點偏開 `miss` 公尺
    */
   function stepStreams(dt: number): void {
     const rate = stage.light ? AA_RATE / 2 : AA_RATE
@@ -997,14 +1006,24 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       if (t > s.until) continue
       const ship = s.ship >= 0 ? ships[s.ship] : undefined
       const shooter = s.shooter >= 0 ? actors[s.shooter] : undefined
+      const prop = s.prop >= 0 ? props[s.prop] : undefined
       const a = actors[s.actor]
       if (a === undefined || a.model === null) continue
-      if (ship === undefined && (shooter === undefined || shooter.model === null)) continue
+      if (prop !== undefined) {
+        if (!prop.alive) continue
+      } else if (ship === undefined && (shooter === undefined || shooter.model === null)) continue
       s.timer -= dt
       while (s.timer <= 0) {
         s.timer += 1 / rate
         const k = s.seed++
-        if (ship !== undefined) {
+        if (prop !== undefined) {
+          // 車頂上方隨機一點
+          V1.set(
+            prop.position.x + (hash01(k * 3) * 2 - 1) * 1.5,
+            prop.impactY + 0.5,
+            prop.position.z + (hash01(k * 3 + 1) * 2 - 1) * 1.5,
+          )
+        } else if (ship !== undefined) {
           // 甲板上隨機一點
           const half = SHIP_CLASSES[ship.cls.id].hull[0]!.half.z
           V1.set((hash01(k * 3) * 2 - 1) * 6, ship.impactY + 4, (hash01(k * 3 + 1) * 2 - 1) * half * 0.7)
@@ -1035,10 +1054,17 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       s.position.set(s.spawn.x - Math.sin(h) * s.speed * t, 0, s.spawn.z - Math.cos(h) * s.speed * t)
     }
     shipModels?.update(ships, NO_GUN_LOST)
+    const terrain = stage.terrain()
     if (shipWakes !== null) {
-      const terrain = stage.terrain()
       shipWakes.bindOcean(terrain.oceanHeight)
       shipWakes.step(ships, dt, time, terrain.heightAt)
+    }
+    // 開動的地面物件照時間往前開、貼著地形；炸毀的停在原地（`propAt` 是同一條）
+    for (const g of props) {
+      if (g.speed === 0 || !g.alive) continue
+      const x = g.spawn.x - Math.sin(g.heading) * g.speed * t
+      const z = g.spawn.z - Math.cos(g.heading) * g.speed * t
+      g.position.set(x, terrain.collisionHeightAt(x, z), z)
     }
     // 地面物件：炸毀的換殘骸、停放飛機的槳照時間轉
     groundModels?.update(props, camera.position, dt)
