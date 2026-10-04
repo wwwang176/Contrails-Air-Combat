@@ -2,7 +2,7 @@ import { Vector3 } from 'three'
 import { JU87 } from '../../specs/ju87'
 import { hash01 } from '../../render/scatter'
 import {
-  BOMB_RELEASE_Y, barrage, bombAt, body, bodyUp, edit, timeline, velocityAt,
+  BOMB_RELEASE_Y, barrage, bombAt, body, bodyUp, edit, propAt, timeline, velocityAt,
   type Cut, type Path, type ReelCamera, type ReelEvent, type ReelPlane, type ReelProp, type Shot,
 } from './kit'
 
@@ -327,6 +327,32 @@ const PROPS: readonly ReelProp[] = (() => {
   return out
 })()
 
+/** 車上仰看那一刀跟的車：縱隊最後一台（卡車），沒有挨炸 */
+const RIDE = 0
+/** 那一刀拍的那一架：第四架，從縱隊上空衝下來、拉出 */
+const RIDE_SUBJECT = 3
+/**
+ * 那一刀鏡頭離地多高，m。卡車車頂 2.7 m；`reel-shots.test.ts` 要求鏡頭至少離海面
+ * （這裡的地面）6 m，所以是架在車頂上方、車身仍在畫面下緣的高度
+ */
+const RIDE_HEIGHT = 6.2
+const RIDE_AT = new Vector3()
+/** 那一刀的起訖秒數：長機那一枚（24.5 秒）落地之後、跟拍的那一枚（25.5 秒）落地之前切進來 */
+const RIDE_FROM = 25.3
+const RIDE_TO = 27.6
+
+/**
+ * 第 `k` 台車第 `t` 秒車身座標 (x 右、y 上、z 車尾) 那一點的局部座標，寫進 `out`。
+ * 車的位置是 `propAt`，車頭朝 (−sin h, 0, −cos h)
+ */
+function onVehicle(k: number, t: number, x: number, y: number, z: number, out: Vector3): Vector3 {
+  const p = PROPS[k]!
+  propAt(p, t, RIDE_AT)
+  const c = Math.cos(p.heading)
+  const s = Math.sin(p.heading)
+  return out.set(RIDE_AT.x + x * c + z * s, y, RIDE_AT.z - x * s + z * c)
+}
+
 const ROAD_FAR = 7500
 const ROAD_S = onRoad(-ROAD_FAR, 0, new Vector3())
 const ROAD_N = onRoad((COUNT - 1) * ROAD_GAP + ROAD_FAR, 0, new Vector3())
@@ -455,10 +481,10 @@ const GROUND_FIRE: ReelEvent[] = (() => {
 //             曳光從中間穿過去
 //   20.0–21.8 第二架尾巴後方順著機首往下看：長機在下方、路上的縱隊在正前方越來越大；
 //             長機 20.5 秒投彈、拉出白線改出，自己 21.5 秒投彈
-//   21.8–24.4 跟著第二架那一枚往下掉：完好的縱隊在下面越來越大
-//   24.4–27.0 路東邊的田上仰看：長機那一枚 24.5 秒、跟拍的那一枚 25.5 秒在路上的戰車上
-//             炸開，第三架在天上拉出白線改出
-//   27.0–29.6 縱隊北頭往南沿著路看：後面三顆一顆接一顆沿路往鏡頭炸過來
+//   21.8–25.3 跟著第二架那一枚往下掉：完好的縱隊在下面越來越大，長機那一枚 24.5 秒先炸開
+//   25.3–27.6 縱隊最後一台卡車的車斗上仰看：第四架從前上方衝下來、拉出白線，旁邊的車往上
+//             打，前面的戰車一台接一台挨炸（25.5、26.5、27.5 秒）
+//   27.6–29.6 縱隊北頭往南沿著路看：最後兩顆沿路往鏡頭炸過來
 //   29.6–31.8 縱隊南邊 230 m 低空往北看：燒著的縱隊在路的盡頭，最後一架從右邊貼著田拉出來
 //   31.8–33.6 第五架前方 21 m 往後看：整架迎面往南爬升離場，後景是剛拉出來的第六架
 //   33.6–35.6 最後一架左後下方：它與前面幾架往南爬升，越來越遠
@@ -577,8 +603,9 @@ const CUTS: readonly Cut[] = [
   {
     from: 21.8, subject: null,
     camera(t, out) {
-      // 跟著第二架那一枚往下掉：鏡頭在它上方幾公尺，完好的縱隊在下面越來越大。長機那一枚
-      // 落地（24.5 秒）之前、這一枚還在一百多公尺高時切。
+      // 跟著第二架那一枚往下掉：鏡頭在它上方幾公尺，完好的縱隊在下面越來越大，長機那一枚
+      // 24.5 秒先在前面一點的戰車上炸開。這一枚落地前 0.2 秒、還在三十公尺高時切到車上，
+      // 在那裡看它炸開。
       // 【鏡頭在炸彈北側】第二架往機背那一側（南）拉出，鏡頭架在南側會貼到它身上
       bombAt(FOLLOW_P, FOLLOW_V, t - FOLLOW_AT, S1)
       out.position.copy(S1).add(S2.set(2.5, 3.5, -4.0))
@@ -588,32 +615,32 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    // 主角是前景的炸點：第三架在天上越飛越偏，後半段會出畫
-    from: 24.4, subject: null,
+    from: RIDE_FROM, subject: RIDE_SUBJECT,
     camera(t, out) {
-      // 路東邊 150 m 的田上、離地 24 m（高過樹籬）往西上方看：跟拍的那一枚 25.5 秒在前景的
-      // 戰車上炸開，26.5 秒第三架那一枚落在旁邊；第三架在天上拉出白線改出。
-      // 【離炸點 150 m】火球是低面數的，70 m 內看得出稜角，像一顆紅色的石頭
-      onRoad(1.2 * ROAD_GAP, 150, out.position)
-      out.position.y = 24
-      PATHS[2]!(t, S1)
-      onRoad(1.5 * ROAD_GAP, 0, S2)
-      S2.y = 30
-      aimBetween(out.position, S1, S2, 0.6, out.target)
-      shake(t, 0.18, 14, out)
-      jolt(t, IMPACT_AT[1]!, 1.2, out.target)
-      jolt(t, IMPACT_AT[2]!, 1.4, out.target)
-      out.fov = 76
+      // 縱隊最後一台卡車的車斗正上方（`RIDE_HEIGHT`）跟著車往北開、往前上方仰看：前面一台
+      // 戰車在畫面下緣，再前面是 45 m 外燒著的那一台與更前面的車。第四架從前上方衝下來、
+      // 拉出白線，旁邊的車往上打機槍；跟拍的那一枚 25.5 秒、第三架那一枚 26.5 秒、第四架
+      // 那一枚 27.5 秒在前面一台接一台炸開，每一下都震一下。車在開：慢晃加一點顛
+      // 【跟最後一台、24.5 秒之後才切進來】長機那一枚落在前面 45 m 的戰車上，火球在這個
+      // 距離大到看得出低面數的稜角；在跟炸彈那一刀裡從上面看它炸。之後的炸點都在 110 m 外
+      onVehicle(RIDE, t, 0.4, RIDE_HEIGHT, 2.4, out.position)
+      out.position.y += 0.05 * Math.sin(2 * Math.PI * 2.3 * t) + 0.03 * Math.sin(2 * Math.PI * 3.7 * t + 1)
+      PATHS[RIDE_SUBJECT]!(t, S1)
+      onVehicle(RIDE, t, 0, 0, -120, S2)
+      aimBetween(out.position, S1, S2, 0.5, out.target)
+      shake(t, 0.3, 14, out)
+      for (let k = 1; k < 4; k++) jolt(t, IMPACT_AT[k]!, 1.2 - 0.25 * k, out.target)
+      out.fov = 84
     },
   },
   {
-    from: 27.0, subject: null,
+    from: RIDE_TO, subject: null,
     camera(t, out) {
-      // 縱隊北頭外 150 m、路東邊 50 m、離地 30 m 往南沿著路看：後面三顆一顆接一顆沿路往
-      // 鏡頭這邊炸過來，前面幾輛已經在燒。注視點跟著炸點慢慢往近處移
+      // 縱隊北頭外 150 m、路東邊 50 m、離地 30 m 往南沿著路看：最後兩顆一顆接一顆沿路往
+      // 鏡頭這邊炸過來，後面幾輛已經在燒。注視點跟著炸點慢慢往近處移
       onRoad((COUNT - 1) * ROAD_GAP + 150, 50, out.position)
       out.position.y = 30
-      const w = Math.min(1, Math.max(0, (t - 27.0) / 2.6))
+      const w = Math.min(1, Math.max(0, (t - RIDE_TO) / 2.0))
       onRoad((2.5 + 1.5 * w) * ROAD_GAP, 0, out.target)
       out.target.y = 12
       shake(t, 0.1, 16, out)
