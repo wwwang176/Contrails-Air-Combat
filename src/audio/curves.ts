@@ -21,7 +21,7 @@ export function windParams(vneRatio: number, out: { cutoffHz: number; gainDb: nu
  * ```
  *   速度比     0.57        0.58      0.65      0.69       0.72      1.00
  *   音量       平飛最高速   開始      −25 dB    −5.9 dB    全開      全開
- *   播放速度   0.90        0.90                0.98       1.00      1.21（上限）
+ *   播放速度   0.72        0.72                0.79       0.80      0.97（上限）
  * ```
  *
  * 【音量先爬、音高後走】平飛最高速約 0.57 倍極速（AI 巡航實測 0.45–0.55），音量從 0.58 才開始爬，
@@ -29,18 +29,20 @@ export function windParams(vneRatio: number, out: { cutoffHz: number; gainDb: nu
  * 全開點放在更高的話，隊友與敵人的警笛整段俯衝都在 −25 dB 以下。
  * 音高也從 0.58 起線性升到極速，音量全開時只走了三分之一。
  *
- * 【音高上限 ×1.21】循環的基準是 428 Hz，拉到 520 Hz 為止；再高會尖得刺耳。
- * 播放速度 1 的檔案就是基準。
+ * 【音高範圍 308–416 Hz】循環的基準是 428 Hz（播放速度 1），整體比基準低約 20%：從 308 Hz 升到 416 Hz 為止。
+ * 地面聽到的警笛要經過距離低通，基準的音高會讓諧波集中在被濾掉的那一段，聽起來又高又扁。
  *
  * 【非有限值當 0】NaN 進到 AudioParam 會讓整條匯流排變成靜音，而且不報錯。
  */
 export const SIREN_AUDIBLE_DB = -45
-export const SIREN_RATE_MAX = 520 / 428
+/** 循環檔的基頻，Hz（播放速度 1） */
+export const SIREN_BASE_HZ = 428
+export const SIREN_RATE_MAX = 416 / SIREN_BASE_HZ
 const SIREN_FLOOR_DB = -50
 const SIREN_GAIN_START = 0.58
 const SIREN_GAIN_FULL = 0.72
 const SIREN_PITCH_START = 0.58
-const SIREN_RATE_MIN = 0.90
+const SIREN_RATE_MIN = 308 / SIREN_BASE_HZ
 
 export function sirenParams(vneRatio: number, out: { rate: number; gainDb: number }): void {
   const s = Number.isFinite(vneRatio) ? vneRatio : 0

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   engineRate, windParams, shakeInterval, shakeGainDb, dbToGain, soundArrived, distanceCutoffHz,
   hitFeedback, damageGainDb, absorptionDb, voiceLoudnessDb, blastGainDb, blastRate, dopplerRate, hitRate,
-  fadeInCurve, sirenParams, SIREN_AUDIBLE_DB, SIREN_RATE_MAX,
+  fadeInCurve, sirenParams, SIREN_AUDIBLE_DB, SIREN_BASE_HZ, SIREN_RATE_MAX,
 } from '../../src/audio/curves'
 
 describe('淡入曲線', () => {
@@ -88,12 +88,20 @@ describe('俯衝警笛', () => {
     expect((at(0.72).rate - lo) / (hi - lo)).toBeLessThan(0.5)
   })
 
-  /** 【上限 ×1.21】基準 428 Hz 拉到 520 Hz 為止，再高會尖得刺耳 */
-  it('音高上限是 SIREN_RATE_MAX，到極速為止；超過極速夾住', () => {
-    expect(SIREN_RATE_MAX).toBeCloseTo(520 / 428, 2)
+  /**
+   * 【整體比檔案的基頻（428 Hz）低約 20%】最低 308 Hz、最高 416 Hz。
+   * 地面聽到的警笛要經過距離低通，基頻再高的話諧波集中在被濾掉的那一段，聽起來又高又扁。
+   */
+  it('音高範圍 308–416 Hz：最高到極速為止，超過極速夾住；整段都比檔案的基頻低', () => {
+    expect(SIREN_BASE_HZ).toBe(428)
+    expect(at(0).rate * SIREN_BASE_HZ).toBeCloseTo(308, 6)
+    expect(SIREN_RATE_MAX * SIREN_BASE_HZ).toBeCloseTo(416, 6)
     expect(at(1).rate).toBeCloseTo(SIREN_RATE_MAX, 6)
     expect(at(1.5).rate).toBeCloseTo(SIREN_RATE_MAX, 6)
-    for (const s of grid) expect(at(s).rate).toBeLessThanOrEqual(SIREN_RATE_MAX + 1e-9)
+    for (const s of grid) {
+      expect(at(s).rate).toBeLessThanOrEqual(SIREN_RATE_MAX + 1e-9)
+      expect(at(s).rate, `s=${s}`).toBeLessThan(1)
+    }
   })
 
   /** 【壞值不得傳下去】NaN 進到 AudioParam 會讓整條匯流排變成靜音，而且不報錯 */
