@@ -100,8 +100,13 @@ function bump(t: number, a: number, d: number): number {
   return s * s
 }
 
-/** 標準航跡的取樣間隔與長度，秒 */
-const TABLE_STEP = 0.02
+/**
+ * 標準航跡的取樣間隔與長度，秒。
+ * 【間隔要細】Hermite 取值的加速度在每個取樣點折一下；`flightPose` 用二階差分從路徑推
+ * 機背方向，折點變成姿態以取樣頻率抖動（0.02 秒時翻身中約 ±0.25°）。鏡頭掛在機身上、
+ * 機翼貼在畫面前景時，這一點抖動就看得出來。誤差隨間隔平方縮小
+ */
+const TABLE_STEP = 0.005
 const TABLE_LEN = 30
 const TABLE_N = Math.round(TABLE_LEN / TABLE_STEP) + 1
 
@@ -217,6 +222,8 @@ const peelAt = (i: number): number => LEAD_AT + i * PEEL_GAP
 /**
  * 第 `i` 架：標準航跡延後 `peelAt(i)`、平移到它在隊形裡的位置，巡航時再加一點各自的起伏
  * （拉起前三秒慢慢收掉 —— 收得太快，起伏的加速度就是一下明顯的壓坡度）
+ * 【收掉要用 `easeInOut`】smoothstep 的二階導數在收完那一刻跳一下，加速度跟著跳，推回來
+ * 的姿態在那一幀轉一下；鏡頭掛在機身上時就是畫面抖一下
  */
 function stuka(i: number): Path {
   const m = peelAt(i)
@@ -232,7 +239,7 @@ function stuka(i: number): Path {
     out.y += dy
     out.z += dz
     if (i > 0) {
-      const w = 1 - ramp(t, m - 3.2, 3.0)
+      const w = 1 - easeInOut(t, m - 3.2, 3.0)
       out.x += w * 1.0 * Math.sin(0.37 * t + phase)
       out.y += w * 1.2 * Math.sin(0.53 * t + phase * 1.7)
     }
@@ -269,7 +276,7 @@ const WING: Path = (t, out) => {
   out.x += WING_X
   out.y += WING_Y
   out.z += WING_Z - V0 * WING_DELAY
-  const w = 1 - ramp(t, LEAD_AT + WING_DELAY - 3.2, 3.0)
+  const w = 1 - easeInOut(t, LEAD_AT + WING_DELAY - 3.2, 3.0)
   out.x += w * 1.0 * Math.sin(0.41 * t + 5.1)
   out.y += w * 1.2 * Math.sin(0.47 * t + 2.3)
   return out
@@ -388,15 +395,14 @@ const PROPS: readonly ReelProp[] = (() => {
 })()
 
 /**
- * 交叉剪接（見刀表）各刀的起點：空中、地面輪流，一刀比一刀短（2.0、1.5、1.2、0.9、
- * 0.6、0.4 秒），接投彈那一刀
+ * 交叉剪接（見刀表）各刀的起點：飛行員視角 2.0、戰車 1.5、長機側拍 1.9、卡車 0.6、
+ * 駕駛室 0.6 秒，接投彈那一刀。最後兩刀都在地上、一刀比一刀近，收在長機迎面衝下來
  */
 const X_PILOT = 13.6
 const X_TANK = 15.6
-const X_PILOT2 = 17.1
-const X_TRUCK = 18.3
-const X_SIDE = 19.2
-const X_CAB = 19.8
+const X_SIDE = 17.1
+const X_TRUCK = 19.0
+const X_CAB = 19.6
 const X_DROP = 20.2
 /**
  * 交叉剪接裡架在車上的三刀各架在哪一台：卡車旁、戰車右後方、卡車駕駛室旁。都不是
@@ -597,7 +603,7 @@ const targetProp = (i: number): number => LEAD_IN + i * PER_GAP
 /**
  * 飛行員視角：鏡頭在長機座艙罩後上方（機身座標 y `PILOT_UP`、往後 `PILOT_BACK` m），長焦
  * 對準縱隊，整刀從 `fov0` 收到 `fov1`（對著目標衝過去）。上方跟著機背，路在畫面裡上下走
- * 向。螺旋槳盤的上緣在畫面下緣，是唯一看得到的機身
+ * 向；長焦下看不到自己的機身
  * 【長焦】縱隊在一公里外，從上往下看一台車只有 3 × 6.7 m：視角 15° 時是十來個像素的
  * 小點，畫面上讀起來只有田與路
  * 【要高過槳盤】槳盤半徑約 1.7 m；視線穿過槳盤的話，整個長焦畫面蒙上一層半透明的灰
@@ -607,8 +613,6 @@ const PILOT_UP = 2.8
 const PILOT_BACK = 3.2
 const PILOT_FOV0 = 7
 const PILOT_FOV1 = 5
-const PILOT2_FOV0 = 3.4
-const PILOT2_FOV1 = 2.6
 /** `w` = 注視點從縱隊中段（前兩個落點的中間）偏向長機那一枚目標的比例 */
 function pilotView(t: number, from: number, to: number, fov0: number, fov1: number, w: number, out: ReelCamera): void {
   body(LEAD, t, 0, PILOT_UP, PILOT_BACK, false, out.position)
@@ -720,7 +724,7 @@ const GROUND_FIRE: ReelEvent[] = (() => {
     // 那一刻在俯衝線上的：拉進俯衝之後、拉出到一半之前
     const live: number[] = []
     for (let i = 0; i < COUNT; i++) if (mid > peelAt(i) + PULL_IN_AT && mid < releaseAt(i) + 4.5) live.push(i)
-    const cross = at < X_CAB && at + seconds > X_SIDE
+    const cross = at < X_TRUCK && at + seconds > X_SIDE
     if (!cross && live.length === 0) return
     out.push({
       at, kind: 'groundFire', prop: k, actor: cross ? 0 : live[(k + j) % live.length]!, seconds,
@@ -751,18 +755,19 @@ const GROUND_FIRE: ReelEvent[] = (() => {
  */
 const MOUNT_LEAD = 0.3
 /**
- * 側拍長機那一刀的交叉火網：另外兩台各點放一段瞄長機、偏開 `CROSSFIRE_MISS`，曳光正好在
- * 那一刀裡竄到長機身邊
- * 【提早 0.9 秒打】長機離縱隊約 750 m，曳光 850 m/s 要飛 0.9 秒才到
+ * 側拍長機那一刀的交叉火網：另外三台輪流點放瞄長機、偏開 `CROSSFIRE_MISS`，曳光在那一刀
+ * 的後段一陣一陣竄到長機身邊
+ * 【提早打】長機離縱隊 1000 → 790 m，曳光 850 m/s 要飛 1.2 → 0.9 秒才到；切進來時它還在
+ * 曳光的射程邊上，前段只看得到曳光從下面竄上來
  */
-const CROSS_LEAD = 0.9
 const CROSS_FIRE: ReelEvent[] = [
-  { at: X_SIDE - CROSS_LEAD - 0.1, kind: 'groundFire', prop: 8, actor: 0, seconds: 0.9, miss: CROSSFIRE_MISS },
-  { at: X_SIDE - CROSS_LEAD + 0.1, kind: 'groundFire', prop: 10, actor: 0, seconds: 0.7, miss: CROSSFIRE_MISS },
+  { at: X_SIDE - 0.6, kind: 'groundFire', prop: 8, actor: 0, seconds: 0.6, miss: CROSSFIRE_MISS },
+  { at: X_SIDE + 0.1, kind: 'groundFire', prop: 10, actor: 0, seconds: 0.6, miss: CROSSFIRE_MISS },
+  { at: X_SIDE + 0.7, kind: 'groundFire', prop: 12, actor: 0, seconds: 0.5, miss: CROSSFIRE_MISS },
 ]
 const MOUNT_FIRE: ReelEvent[] = [
-  { at: X_TANK - MOUNT_LEAD, kind: 'groundFire', prop: TANK_PROP, actor: 0, seconds: X_PILOT2 - X_TANK + MOUNT_LEAD, miss: 20 },
-  { at: X_TRUCK - MOUNT_LEAD, kind: 'groundFire', prop: TRUCK_PROP, actor: 0, seconds: X_SIDE - X_TRUCK + MOUNT_LEAD, miss: 20 },
+  { at: X_TANK - MOUNT_LEAD, kind: 'groundFire', prop: TANK_PROP, actor: 0, seconds: X_SIDE - X_TANK + MOUNT_LEAD, miss: 20 },
+  { at: X_TRUCK - MOUNT_LEAD, kind: 'groundFire', prop: TRUCK_PROP, actor: 0, seconds: X_CAB - X_TRUCK + MOUNT_LEAD, miss: 20 },
   { at: X_CAB - MOUNT_LEAD, kind: 'groundFire', prop: CAB_PROP, actor: 0, seconds: X_DROP - X_CAB + MOUNT_LEAD, miss: 20 },
 ]
 
@@ -776,14 +781,14 @@ const MOUNT_FIRE: ReelEvent[] = [
 //             俯衝往下掉；8.8 秒自己也跟著翻，地平線跟著轉
 //   10.2–13.6 第六架機尾後上方順著機背往前看：自己的垂尾、座艙罩與左翼在右下，前方第四、
 //             五架一架接一架翻下去，12.8 秒自己也開始翻
-//   ── 交叉剪接：空中、地面輪流，一刀比一刀短；飛行員往下看與車上往上看互為對照 ──
+//   ── 交叉剪接：空中、地面輪流；飛行員往下看與車上往上看互為對照，最後兩刀越剪越快 ──
 //   13.6–15.6 飛行員視角：長機上長焦對準路上的縱隊，一台台車讀得出來，一邊收窄
 //   15.6–17.1 砲塔左後方低角度：砲塔與砲管的剪影在右下、自己的機槍曳光往上竄；急著往上
 //             抬、收長焦，刀尾一串斯圖卡迎面衝下來
-//   17.1–18.3 飛行員視角再一次，焦段長一倍：長機那一枚的目標與旁邊的車佔滿畫面
-//   18.3–19.2 卡車車尾右後方往上看：篷布的角在下段，曳光從它後面竄出，上方一串斯圖卡
-//   19.2–19.8 長機西側 13 m 機身特寫：機頭朝右下往下衝，曳光貼著它往上竄
-//   19.8–20.2 卡車駕駛室旁往正上方看（超長焦）：長機與僚機迎面衝下來，倒鷗翼與起落架
+//   17.1–19.0 長機西側 13 → 11 m 機身特寫：機頭朝右下往下衝，後上方是僚機，曳光一陣一陣
+//             貼著它往上竄
+//   19.0–19.6 卡車車尾右後方往上看：篷布的角在下段，曳光從它後面竄出，上方一串斯圖卡
+//   19.6–20.2 卡車駕駛室旁往正上方看（超長焦）：長機與僚機迎面衝下來，倒鷗翼與起落架
 //             佔滿畫面
 //   ──
 //   20.2–22.4 長機左下方看機腹：炸彈掛在兩支起落架之間，20.5 秒脫離機腹，飛機拉起往上
@@ -885,7 +890,7 @@ const CUTS: readonly Cut[] = [
       // 【長機一直在畫面裡】抬頭的起點就把它放在上緣，不是從砲塔搖上去才出現
       onVehicle(TANK_PROP, t, TANK_X, TANK_Y, TANK_Z, out.position)
       jostle(t, out.position)
-      const k = easeInOut(t, X_TANK + TANK_HOLD, X_PILOT2 - X_TANK - TANK_HOLD)
+      const k = easeInOut(t, X_TANK + TANK_HOLD, X_SIDE - X_TANK - TANK_HOLD)
       LEAD(t, S1)
       onVehicle(TANK_PROP, t, 0, TANK_GUN_Y, TANK_GUN_Z, S2)
       aimBetween(out.position, S1, S2, TANK_W * (1 - k), out.target)
@@ -894,10 +899,24 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: X_PILOT2, subject: null, mount: 0,
+    from: X_SIDE, subject: 0,
     camera(t, out) {
-      // 飛行員視角再一次：焦段長一倍、對準長機那一枚的目標，一台台車與揚塵讀得出來
-      pilotView(t, X_PILOT2, X_TRUCK, PILOT2_FOV0, PILOT2_FOV1, 1, out)
+      // 長機西側 13 m 跟拍、往東看，幾乎是機身特寫，鏡頭正立不歪（上方是世界的上方），
+      // 手持晃得很兇：前景的長機機首朝下往畫面下方衝，後景是它的右僚機，在它上方約 25 m
+      // （畫面上方）一起衝下來。縱隊從南邊（畫面右下）打上來的曳光貼著長機往上竄。鏡頭跟著
+      // 長機往下掉、慢慢推近到 11 m
+      // 【鏡頭在西側】往南俯衝約 77°，從西側看南邊在畫面右邊，機頭朝右下偏離垂直約 13°，
+      // 座艙罩朝畫面右上，看得出是正著衝
+      // 【彈道碰不到鏡頭】曳光從南邊下方打上來、瞄點離長機最遠約 7 m（`CROSSFIRE_MISS`），
+      // 鏡頭在 11 m 外的側面
+      // 【交叉剪接的後段才放它】離縱隊一公里以內曳光才打得到長機身邊（見 `CROSS_FIRE`）
+      const u = t - X_SIDE
+      LEAD(t, out.position).add(S1.set(-(13 - u), -2, 2))
+      LEAD(t, S1)
+      WING(t, S2)
+      aimBetween(out.position, S1, S2, 0.4, out.target)
+      shake(t, 0.6, 22, out)
+      out.fov = 70
     },
   },
   {
@@ -912,25 +931,6 @@ const CUTS: readonly Cut[] = [
       aimBetween(out.position, S1, S2, TRUCK_W, out.target)
       out.fov = TRUCK_FOV
       shake(t, 0.25 * Math.pow(out.fov / 40, 0.6), 1, out)
-    },
-  },
-  {
-    from: X_SIDE, subject: 0,
-    camera(t, out) {
-      // 長機西側 13 m 跟拍、往東看，幾乎是機身特寫，鏡頭正立不歪（上方是世界的上方），
-      // 手持晃得很兇：前景的長機機首朝下往畫面下方衝，後景是它的右僚機，在它上方約 25 m
-      // （畫面上方）一起衝下來。縱隊從南邊（畫面右下）打上來的曳光貼著長機往上竄
-      // 【鏡頭在西側】往南俯衝約 77°，從西側看南邊在畫面右邊，機頭朝右下偏離垂直約 13°，
-      // 座艙罩朝畫面右上，看得出是正著衝
-      // 【彈道碰不到鏡頭】曳光從南邊下方打上來、瞄點離長機最遠約 7 m（`CROSSFIRE_MISS`），
-      // 鏡頭在 13 m 外的側面
-      // 【交叉剪接的後段才放它】離縱隊一公里以內曳光才打得到長機身邊（見 `CROSS_FIRE`）
-      LEAD(t, out.position).add(S1.set(-13, -2, 2))
-      LEAD(t, S1)
-      WING(t, S2)
-      aimBetween(out.position, S1, S2, 0.4, out.target)
-      shake(t, 0.6, 22, out)
-      out.fov = 70
     },
   },
   {
