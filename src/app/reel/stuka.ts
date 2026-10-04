@@ -66,6 +66,16 @@ function ramp(t: number, a: number, d: number): number {
   return u * u * (3 - 2 * u)
 }
 
+/**
+ * `a` 起 `d` 秒內 0 → 1，起步與收尾都比 smoothstep 更緩（smootherstep：速度與加速度在
+ * 兩端都是 0）。鏡頭的抬頭與 zoom 用它 —— smoothstep 的加速度在起點跳一下，讀起來像
+ * 機器在動
+ */
+function easeInOut(t: number, a: number, d: number): number {
+  const u = Math.min(1, Math.max(0, (t - a) / d))
+  return u * u * u * (u * (u * 6 - 15) + 10)
+}
+
 /** `a` 起 `d` 秒內 0 → 1 → 0（sin²） */
 function bump(t: number, a: number, d: number): number {
   const u = (t - a) / d
@@ -356,9 +366,11 @@ const SPOT_PASS_PROP = 13
 const SPOT_PASS_AT = 5.6
 const SPOT_LOOK = 30
 const SPOT_SIDE = SPOT_LOOK * Math.tan(15 * Math.PI / 180)
-const SPOT_TILT_AT = 4.3
-const SPOT_TILT_LEN = 1.0
-const SPOT_ZOOM_AT = 5.4
+const SPOT_TILT_AT = 4.1
+const SPOT_TILT_LEN = 1.4
+/** 抬頭抬過頭一點再回穩：注視點往編隊那一側多走的比例 */
+const SPOT_OVERSHOOT = 0.04
+const SPOT_ZOOM_AT = 5.15
 const SPOT_FOV_ROAD = 40
 const SPOT_FOV_SKY = 22
 const SPOT_FOV_ZOOM = 4.5
@@ -543,20 +555,23 @@ const CUTS: readonly Cut[] = [
     camera(t, out) {
       // 地面看見了上面的飛機：路東邊 8 m、離地 6 m 的固定機位，從車的斜前方（與路夾 15°）
       // 往南看。縱隊迎面開過來、車尾揚著塵，最前面那台 T-34 從 20 m 外開到鏡頭旁、越來越大，
-      // 4.3 秒前後從畫面右緣開出去；
-      // 4.3 秒起鏡頭往上抬，抬到高空正從同一個方向飛來的整個梯隊，停穩之後 5.4 秒起
-      // zoom in，收到最後慢慢停住，六架的機身與倒鷗翼讀得出來。下一刀長機就拉起翻身
+      // 4.1 秒前後從畫面右緣開出去；
+      // 4.1 秒起鏡頭往上抬（手持的人抬頭：起步慢、中段快、抬過頭一點再回穩），抬到高空正從
+      // 同一個方向飛來的整個梯隊，抬到八成時開始 zoom in，收到最後慢慢停住，六架的機身與
+      // 倒鷗翼讀得出來。下一刀長機就拉起翻身
       // 【斜前方往南看】編隊也從南邊來，車與飛機在同一個方向，往上一抬就到
       // 【拍路時不動】只有車在動，看得出縱隊在開；鏡頭跟著車搖的話讀不出車的速度
-      // 【搖完才收】一邊搖一邊收長焦的話，編隊還沒到畫面中央就被收出畫外
-      // 【晃動跟著視角縮】以角度計的晃動在長焦下會被放大，量照視角等比收小
+      // 【抬到八成才收】一邊抬一邊收長焦的話，編隊還沒到畫面中央就被收出畫外
+      // 【長焦下的手持】以角度計的晃動在長焦下會被放大；照視角收小，但收得比視角慢，
+      // 收到最後仍看得出是手持
       out.position.copy(SPOT_CAM)
       cruise(2.5, t, S2)
-      const tilt = ramp(t, SPOT_TILT_AT, SPOT_TILT_LEN)
+      const tilt = easeInOut(t, SPOT_TILT_AT, SPOT_TILT_LEN) + SPOT_OVERSHOOT * bump(t, SPOT_TILT_AT + 0.75 * SPOT_TILT_LEN, 0.9)
       aimBetween(out.position, SPOT_ROAD, S2, tilt, out.target)
-      const zoom = ramp(t, SPOT_ZOOM_AT, SPOT_TO - SPOT_ZOOM_AT)
-      out.fov = SPOT_FOV_ROAD + (SPOT_FOV_SKY - SPOT_FOV_ROAD) * tilt + (SPOT_FOV_ZOOM - SPOT_FOV_SKY) * zoom
-      shake(t, 0.004 * out.fov, 3, out)
+      const lift = Math.min(1, tilt)
+      const zoom = easeInOut(t, SPOT_ZOOM_AT, SPOT_TO - SPOT_ZOOM_AT)
+      out.fov = SPOT_FOV_ROAD + (SPOT_FOV_SKY - SPOT_FOV_ROAD) * lift + (SPOT_FOV_ZOOM - SPOT_FOV_SKY) * zoom
+      shake(t, 0.3 * Math.pow(out.fov / SPOT_FOV_ROAD, 0.6), 3, out)
     },
   },
   {
