@@ -52,7 +52,8 @@ export const SHOWCASE_SPEED = 100
  */
 export const SHOWCASE_PITCH_LIMIT = 70 * DEG
 /**
- * 鏡頭距離，m。**戰鬥機一個、轟炸機一個，同一類裡不隨機種變。**
+ * 鏡頭距離，m。**戰鬥機一個、轟炸機一個，同一類裡不隨機種變**（體型與戰鬥機同級的 Ju 87 除外，
+ * 見 `FIGHTER_SIZED`）。
  *
  * 【為什麼不照翼展各配一個】那樣每一台都剛好塞滿畫面，於是**看不出誰大誰
  * 小** —— 零戰與地獄貓差 2.1 m 翼展，在畫面上會一樣大。固定值之下同一類
@@ -62,7 +63,7 @@ export const SHOWCASE_PITCH_LIMIT = 70 * DEG
  * 的話，要嘛戰鬥機小成一個點，要嘛 B-17 兩端都出畫面。跨類的大小本來就
  * 不是這一頁要回答的問題 —— 翼展寫在事實列裡。
  *
- * 【定值怎麼來】該類最大的那一台（F6F-5 的 13.1 m、B-17G 的 31.6 m）在
+ * 【定值怎麼來】該類最大的那一台（Ju 87 的 13.8 m、B-17G 的 31.6 m）在
  * 4:3 的窄螢幕上仍然只佔畫面寬的一半 —— 兩端都留得下邊，而該類最小的那一台
  * 也還看得清楚。`showcase.test.ts` 守這條。
  */
@@ -72,8 +73,14 @@ export const BOMBER_DISTANCE = 40
 /** 相機最遠會離飛機多遠。護欄用它掃「相機會不會鑽進海裡」 */
 export const SHOWCASE_MAX_DISTANCE = BOMBER_DISTANCE
 
-export const showcaseDistance = (role: AircraftSpec['role']): number =>
-  (role === 'bomber' ? BOMBER_DISTANCE : FIGHTER_DISTANCE)
+/**
+ * 歸在轟炸機、體型卻與戰鬥機同級的機種，鏡頭用戰鬥機的距離。Ju 87 的翼展 13.8 m，比 F6F-5 的 13.1 m 只大
+ * 一點；拉到轟炸機的 40 m，它只佔畫面寬的 20%，小得不像話。
+ */
+const FIGHTER_SIZED: ReadonlySet<string> = new Set(['ju87'])
+
+export const showcaseDistance = (spec: Pick<AircraftSpec, 'id' | 'role'>): number =>
+  (spec.role === 'bomber' && !FIGHTER_SIZED.has(spec.id) ? BOMBER_DISTANCE : FIGHTER_DISTANCE)
 
 /** 展示機的姿態。角度單位 rad */
 export interface FlightPose {
@@ -504,7 +511,7 @@ export function createShowcase(scene: Scene, view: HTMLElement, stage: HTMLEleme
     spec = next
     model = buildAircraft(next)
     group.add(model.group)
-    orbit.wantDistance = showcaseDistance(next.role)
+    orbit.wantDistance = showcaseDistance(next)
     if (first) orbit.distance = orbit.wantDistance
     rollOmega = showcaseRollOmega(next)
     // 【換機種也量一次】卷宗的內容長度會變，而它撐著版面 —— 建立時量的那

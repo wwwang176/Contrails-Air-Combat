@@ -82,21 +82,29 @@ describe('showcaseFlight', () => {
  * 體型差就消失了（見 `FIGHTER_DISTANCE` 的註解）。
  */
 describe('showcaseDistance', () => {
-  it('同一類的九台只有兩個值，而且轟炸機比較遠', () => {
-    const byRole = new Map<string, Set<number>>()
-    for (const s of ALL_SPECS) {
-      const set = byRole.get(s.role) ?? new Set<number>()
-      set.add(showcaseDistance(s.role))
-      byRole.set(s.role, set)
-    }
-    expect(byRole.get('fighter')!.size).toBe(1)
-    expect(byRole.get('bomber')!.size).toBe(1)
-    expect(showcaseDistance('bomber')).toBeGreaterThan(showcaseDistance('fighter'))
+  it('戰鬥機同一個值；轟炸機除了 Ju 87 也同一個值，而且比戰鬥機遠', () => {
+    const fighters = new Set(ALL_SPECS.filter((s) => s.role === 'fighter').map((s) => showcaseDistance(s)))
+    const bombers = new Set(
+      ALL_SPECS.filter((s) => s.role === 'bomber' && s.id !== 'ju87').map((s) => showcaseDistance(s)))
+    expect(fighters.size).toBe(1)
+    expect(bombers.size).toBe(1)
+    expect([...bombers][0]).toBeGreaterThan([...fighters][0]!)
+  })
+
+  /**
+   * 【Ju 87 歸轟炸機，鏡頭卻跟戰鬥機一樣近】翼展 13.8 m，與戰鬥機同級；照 `role` 分的話
+   * 它會被拉到轟炸機的距離，在畫面上小得不像話
+   */
+  it('Ju 87 是轟炸機，但鏡頭距離與戰鬥機一樣', () => {
+    const ju87 = ALL_SPECS.find((s) => s.id === 'ju87')!
+    const p51d = ALL_SPECS.find((s) => s.id === 'p51d')!
+    expect(ju87.role).toBe('bomber')
+    expect(showcaseDistance(ju87)).toBe(showcaseDistance(p51d))
   })
 
   it('沒有一台超過護欄掃描用的上界', () => {
     for (const s of ALL_SPECS) {
-      expect(showcaseDistance(s.role), s.id).toBeLessThanOrEqual(SHOWCASE_MAX_DISTANCE)
+      expect(showcaseDistance(s), s.id).toBeLessThanOrEqual(SHOWCASE_MAX_DISTANCE)
     }
   })
 
@@ -107,12 +115,12 @@ describe('showcaseDistance', () => {
    * 【為什麼用 4:3 算】它是合理範圍內最窄的螢幕。寬螢幕只會更寬鬆，所以
    * 這一條在 4:3 上成立就到處成立。
    */
-  it('每一類最大的那一台，翼展不超過畫面寬的一半', () => {
+  it('同一個距離裡最大的那一台，翼展不超過畫面寬的一半', () => {
     const frameWidthAt = (distance: number): number =>
       2 * Math.tan((CAMERA_FOV_DEG * Math.PI) / 360) * distance * (4 / 3)
-    for (const role of ['fighter', 'bomber'] as const) {
-      const widest = Math.max(...ALL_SPECS.filter((s) => s.role === role).map((s) => s.wing.span))
-      expect(widest / frameWidthAt(showcaseDistance(role)), role).toBeLessThan(0.5)
+    for (const distance of new Set(ALL_SPECS.map((s) => showcaseDistance(s)))) {
+      const widest = Math.max(...ALL_SPECS.filter((s) => showcaseDistance(s) === distance).map((s) => s.wing.span))
+      expect(widest / frameWidthAt(distance), `${distance} m`).toBeLessThan(0.5)
     }
   })
 })
