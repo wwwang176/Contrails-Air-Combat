@@ -275,33 +275,52 @@ const DECOR_M = new Matrix4()
 /** 燒黑的佈景建築。與地面目標殘骸同一個焦黑（`render/groundTargets.ts`） */
 const DECOR_BURNT = new Color(0x2a2421)
 
-/** 上一次開播的是哪一段（`localStorage` 的鍵）。重新整理時不從同一段開始 */
-const LAST_SHOT_KEY = 'reel.lastShot'
+/** 這一輪已經播過的段落（`localStorage` 的鍵，JSON 字串陣列）。見 `markShotSeen` */
+const SEEN_SHOTS_KEY = 'reel.seenShots'
 
 /** 讀寫都包 try —— 無痕視窗與封鎖站台資料會讓 localStorage 直接拋，那時只是不記得 */
-function readLastShot(): string | null {
+function readSeenShots(): string[] {
   try {
-    return localStorage.getItem(LAST_SHOT_KEY)
+    const v: unknown = JSON.parse(localStorage.getItem(SEEN_SHOTS_KEY) ?? '[]')
+    return Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []
   } catch {
-    return null
+    return []
   }
 }
 
-function saveLastShot(id: string): void {
+function saveSeenShots(seen: readonly string[]): void {
   try {
-    localStorage.setItem(LAST_SHOT_KEY, id)
+    localStorage.setItem(SEEN_SHOTS_KEY, JSON.stringify(seen))
   } catch { /* 存不了就算了 */ }
 }
 
 /**
- * 開場從第幾段開始：在 `ids` 裡隨機挑一段，但**不挑 `last`**（上一次最後在播的那一段）。
- * `r` ∈ [0, 1) 是亂數。只有一段、或 `last` 不在清單裡時就是單純隨機
+ * 開場從第幾段開始：在 `ids` 裡**還沒播過的**（不在 `seen` 裡）隨機挑一段。
+ * `r` ∈ [0, 1) 是亂數。`seen` 經過 `markShotSeen` 維護，永遠留著至少一段沒播過；
+ * 清單換過、全部都在 `seen` 裡的話就是單純隨機
  */
-export function pickFirstShot(ids: readonly string[], last: string | null, r: number): number {
-  const skip = last === null ? -1 : ids.indexOf(last)
-  if (skip < 0 || ids.length < 2) return Math.floor(r * ids.length)
-  const k = Math.floor(r * (ids.length - 1))
-  return k >= skip ? k + 1 : k
+export function pickFirstShot(ids: readonly string[], seen: readonly string[], r: number): number {
+  let fresh = 0
+  for (const id of ids) if (!seen.includes(id)) fresh++
+  if (fresh === 0) return Math.floor(r * ids.length)
+  let k = Math.floor(r * fresh)
+  for (let i = 0; i < ids.length; i++) {
+    if (seen.includes(ids[i]!)) continue
+    if (k === 0) return i
+    k--
+  }
+  return 0
+}
+
+/**
+ * 這一段開播了：移到 `seen` 的最後（`seen` 由舊到新）。每一段都播過之後重新一輪，
+ * **只留最近播過的一半** —— 只留剛開播那一段的話，輪與輪的交界會出現 B → A → B。
+ * 留一半，任何一段播過之後至少隔 ⌊n/2⌋ 段才會再挑到。清單裡已經沒有的段落順手丟掉
+ */
+export function markShotSeen(ids: readonly string[], seen: readonly string[], id: string): string[] {
+  const next = seen.filter((s) => s !== id && ids.includes(s))
+  next.push(id)
+  return next.length >= ids.length ? next.slice(-Math.max(1, Math.floor(ids.length / 2))) : next
 }
 
 /** 廠區道路與鐵路的預設寬，m（與洛伊納同一組） */
@@ -376,7 +395,9 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   const restFov = camera.fov
 
   const shots = reelShots()
-  let index = pickFirstShot(shots.map((s) => s.id), readLastShot(), Math.random())
+  const shotIds = shots.map((s) => s.id)
+  let seenShots = readSeenShots()
+  let index = pickFirstShot(shotIds, seenShots, Math.random())
   let shot: Shot | null = null
   let t = 0
   let cursor = 0
@@ -488,7 +509,8 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   function begin(next: Shot): void {
     teardown()
     shot = next
-    saveLastShot(next.id)
+    seenShots = markShotSeen(shotIds, seenShots, next.id)
+    saveSeenShots(seenShots)
     t = 0
     cursor = 0
     fadingOut = false

@@ -1,21 +1,45 @@
 import { describe, expect, it } from 'vitest'
-import { pickFirstShot, reelSiteLayout } from '../../src/app/menuReel'
+import { markShotSeen, pickFirstShot, reelSiteLayout } from '../../src/app/menuReel'
 
-describe('pickFirstShot：重新整理時不從上一次那段開始', () => {
-  const ids = ['fleet', 'stream', 'dogfight', 'strike', 'raid']
+describe('pickFirstShot／markShotSeen：重新整理時先挑這一輪還沒播過的', () => {
+  const ids = ['fleet', 'stream', 'dogfight', 'strike', 'raid', 'stuka']
 
-  it('整個亂數範圍都挑不到上一次那段，其他每一段都挑得到', () => {
-    for (const last of ids) {
-      const seen = new Set<number>()
-      for (let i = 0; i < 1000; i++) seen.add(pickFirstShot(ids, last, i / 1000))
-      expect(seen.has(ids.indexOf(last)), last).toBe(false)
-      expect(seen.size, last).toBe(ids.length - 1)
+  /** 整個亂數範圍挑得到哪幾段 */
+  const reachable = (seen: readonly string[]): Set<string> => {
+    const out = new Set<string>()
+    for (let i = 0; i < 1000; i++) out.add(ids[pickFirstShot(ids, seen, i / 1000)]!)
+    return out
+  }
+
+  it('播過的挑不到，沒播過的每一段都挑得到', () => {
+    expect(reachable(['stream', 'raid'])).toEqual(new Set(['fleet', 'dogfight', 'strike', 'stuka']))
+  })
+
+  it('一直重新整理：前六次各不相同，之後任何一段都至少隔三段才再出現（沒有 A → B → A）', () => {
+    let seen: string[] = []
+    const order: string[] = []
+    for (let k = 0; k < 200; k++) {
+      const id = ids[pickFirstShot(ids, seen, ((k * 7919) % 1000) / 1000)]!
+      order.push(id)
+      seen = markShotSeen(ids, seen, id)
+    }
+    expect(new Set(order.slice(0, ids.length)).size).toBe(ids.length)
+    for (let k = 0; k < order.length; k++) {
+      for (let j = k + 1; j <= Math.min(k + 3, order.length - 1); j++) {
+        expect(order[j], `第 ${k} 與第 ${j} 次都是 ${order[k]}`).not.toBe(order[k])
+      }
     }
   })
 
-  it('沒有記錄、或記錄的那段已經不在清單裡，就是單純隨機', () => {
-    expect(pickFirstShot(ids, null, 0)).toBe(0)
-    expect(pickFirstShot(ids, 'gone', 0.99)).toBe(4)
+  it('全部播過就重新一輪，只留最近播過的一半；清單裡沒有的段落丟掉', () => {
+    expect(markShotSeen(ids, ['fleet', 'stream', 'dogfight', 'strike', 'raid'], 'stuka'))
+      .toEqual(['strike', 'raid', 'stuka'])
+    expect(markShotSeen(ids, ['gone', 'fleet'], 'raid')).toEqual(['fleet', 'raid'])
+  })
+
+  it('沒有記錄就是單純隨機', () => {
+    expect(pickFirstShot(ids, [], 0)).toBe(0)
+    expect(pickFirstShot(ids, [], 0.99)).toBe(5)
   })
 })
 
