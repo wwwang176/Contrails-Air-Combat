@@ -1,45 +1,53 @@
 import { describe, expect, it } from 'vitest'
-import { markShotSeen, pickFirstShot, reelSiteLayout } from '../../src/app/menuReel'
+import { markShotSeen, pickNextShot, reelSiteLayout } from '../../src/app/menuReel'
 
-describe('pickFirstShot／markShotSeen：重新整理時先挑這一輪還沒播過的', () => {
+describe('pickNextShot／markShotSeen：越近播過的越不容易再挑到', () => {
   const ids = ['fleet', 'stream', 'dogfight', 'strike', 'raid', 'stuka']
+  const N = 10000
 
-  /** 整個亂數範圍挑得到哪幾段 */
-  const reachable = (seen: readonly string[]): Set<string> => {
-    const out = new Set<string>()
-    for (let i = 0; i < 1000; i++) out.add(ids[pickFirstShot(ids, seen, i / 1000)]!)
+  /** 整個亂數範圍裡每一段被挑到的比例 */
+  const share = (seen: readonly string[]): Map<string, number> => {
+    const out = new Map<string, number>(ids.map((id) => [id, 0]))
+    for (let i = 0; i < N; i++) {
+      const id = ids[pickNextShot(ids, seen, i / N)]!
+      out.set(id, out.get(id)! + 1 / N)
+    }
     return out
   }
 
-  it('播過的挑不到，沒播過的每一段都挑得到', () => {
-    expect(reachable(['stream', 'raid'])).toEqual(new Set(['fleet', 'dogfight', 'strike', 'stuka']))
+  it('上一段一定不挑；越早播的機率越高，沒播過的最高', () => {
+    // 由舊到新：fleet 五段前、stream 四段前、dogfight 三段前、strike 兩段前、raid 上一段，stuka 沒播過
+    const p = share(['fleet', 'stream', 'dogfight', 'strike', 'raid'])
+    expect(p.get('raid')).toBe(0)
+    const order = ['strike', 'dogfight', 'stream', 'fleet', 'stuka'].map((id) => p.get(id)!)
+    for (let k = 1; k < order.length; k++) expect(order[k]!).toBeGreaterThan(order[k - 1]!)
   })
 
-  it('一直重新整理：前六次各不相同，之後任何一段都至少隔三段才再出現（沒有 A → B → A）', () => {
+  it('A → B → C 之後再挑到 A 的機率不到一成', () => {
+    const p = share(['fleet', 'stream', 'dogfight'])
+    expect(p.get('fleet')!).toBeLessThan(0.1)
+    expect(p.get('dogfight')).toBe(0)
+  })
+
+  it('一直換段：任何一段都不會連播兩次', () => {
     let seen: string[] = []
-    const order: string[] = []
-    for (let k = 0; k < 200; k++) {
-      const id = ids[pickFirstShot(ids, seen, ((k * 7919) % 1000) / 1000)]!
-      order.push(id)
+    let last = ''
+    for (let k = 0; k < 300; k++) {
+      const id = ids[pickNextShot(ids, seen, ((k * 7919) % 1000) / 1000)]!
+      expect(id, `第 ${k} 次`).not.toBe(last)
       seen = markShotSeen(ids, seen, id)
-    }
-    expect(new Set(order.slice(0, ids.length)).size).toBe(ids.length)
-    for (let k = 0; k < order.length; k++) {
-      for (let j = k + 1; j <= Math.min(k + 3, order.length - 1); j++) {
-        expect(order[j], `第 ${k} 與第 ${j} 次都是 ${order[k]}`).not.toBe(order[k])
-      }
+      last = id
     }
   })
 
-  it('全部播過就重新一輪，只留最近播過的一半；清單裡沒有的段落丟掉', () => {
-    expect(markShotSeen(ids, ['fleet', 'stream', 'dogfight', 'strike', 'raid'], 'stuka'))
-      .toEqual(['strike', 'raid', 'stuka'])
+  it('開播的段落移到最後、不重複；清單裡沒有的段落丟掉', () => {
+    expect(markShotSeen(ids, ['fleet', 'stream', 'raid'], 'fleet')).toEqual(['stream', 'raid', 'fleet'])
     expect(markShotSeen(ids, ['gone', 'fleet'], 'raid')).toEqual(['fleet', 'raid'])
   })
 
   it('沒有記錄就是單純隨機', () => {
-    expect(pickFirstShot(ids, [], 0)).toBe(0)
-    expect(pickFirstShot(ids, [], 0.99)).toBe(5)
+    const p = share([])
+    for (const id of ids) expect(p.get(id)!).toBeCloseTo(1 / ids.length, 3)
   })
 })
 

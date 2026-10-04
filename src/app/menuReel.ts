@@ -278,7 +278,7 @@ const DECOR_M = new Matrix4()
 /** 燒黑的佈景建築。與地面目標殘骸同一個焦黑（`render/groundTargets.ts`） */
 const DECOR_BURNT = new Color(0x2a2421)
 
-/** 這一輪已經播過的段落（`localStorage` 的鍵，JSON 字串陣列）。見 `markShotSeen` */
+/** 播過的段落由舊到新（`localStorage` 的鍵，JSON 字串陣列）。見 `markShotSeen` */
 const SEEN_SHOTS_KEY = 'reel.seenShots'
 
 /** 讀寫都包 try —— 無痕視窗與封鎖站台資料會讓 localStorage 直接拋，那時只是不記得 */
@@ -298,32 +298,45 @@ function saveSeenShots(seen: readonly string[]): void {
 }
 
 /**
- * 開場從第幾段開始：在 `ids` 裡**還沒播過的**（不在 `seen` 裡）隨機挑一段。
- * `r` ∈ [0, 1) 是亂數。`seen` 經過 `markShotSeen` 維護，永遠留著至少一段沒播過；
- * 清單換過、全部都在 `seen` 裡的話就是單純隨機
+ * 這一段被挑中的權重。`ago` = 它是幾段之前播的（1 = 上一段），沒播過給 `ids.length`。
+ * 權重 (ago − 1)²：上一段是 0、一定不挑；越久沒播越高，平方讓剛播過的幾段機率壓得很低
+ * —— 六段時，兩段前播的是 1、三段前是 4、沒播過是 25
  */
-export function pickFirstShot(ids: readonly string[], seen: readonly string[], r: number): number {
-  let fresh = 0
-  for (const id of ids) if (!seen.includes(id)) fresh++
-  if (fresh === 0) return Math.floor(r * ids.length)
-  let k = Math.floor(r * fresh)
-  for (let i = 0; i < ids.length; i++) {
-    if (seen.includes(ids[i]!)) continue
-    if (k === 0) return i
-    k--
-  }
-  return 0
+export function shotWeight(ago: number, count: number): number {
+  const k = Math.min(ago, count) - 1
+  return k * k
 }
 
 /**
- * 這一段開播了：移到 `seen` 的最後（`seen` 由舊到新）。每一段都播過之後重新一輪，
- * **只留最近播過的一半** —— 只留剛開播那一段的話，輪與輪的交界會出現 B → A → B。
- * 留一半，任何一段播過之後至少隔 ⌊n/2⌋ 段才會再挑到。清單裡已經沒有的段落順手丟掉
+ * 下一段播哪一段：照 `shotWeight` 加權隨機。`seen` 是播過的段落由舊到新（`markShotSeen`），
+ * `r` ∈ [0, 1) 是亂數。開場與一段播完換段都用它。全部權重都是 0（只有一段）就挑第 0 段
+ */
+export function pickNextShot(ids: readonly string[], seen: readonly string[], r: number): number {
+  let total = 0
+  for (const id of ids) total += shotWeight(agoOf(seen, id, ids.length), ids.length)
+  if (total === 0) return 0
+  let x = r * total
+  for (let i = 0; i < ids.length; i++) {
+    x -= shotWeight(agoOf(seen, ids[i]!, ids.length), ids.length)
+    if (x < 0) return i
+  }
+  return ids.length - 1
+}
+
+/** `id` 是幾段之前播的（1 = 最後播的那一段）；沒播過回 `never` */
+function agoOf(seen: readonly string[], id: string, never: number): number {
+  const k = seen.lastIndexOf(id)
+  return k < 0 ? never : seen.length - k
+}
+
+/**
+ * 這一段開播了：移到 `seen` 的最後（`seen` 由舊到新、不重複）。清單裡已經沒有的段落
+ * 順手丟掉，所以長度不會超過段數
  */
 export function markShotSeen(ids: readonly string[], seen: readonly string[], id: string): string[] {
   const next = seen.filter((s) => s !== id && ids.includes(s))
   next.push(id)
-  return next.length >= ids.length ? next.slice(-Math.max(1, Math.floor(ids.length / 2))) : next
+  return next
 }
 
 /** 廠區道路與鐵路的預設寬，m（與洛伊納同一組） */
@@ -400,7 +413,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   const shots = reelShots()
   const shotIds = shots.map((s) => s.id)
   let seenShots = readSeenShots()
-  let index = pickFirstShot(shotIds, seenShots, Math.random())
+  let index = pickNextShot(shotIds, seenShots, Math.random())
   let shot: Shot | null = null
   let t = 0
   let cursor = 0
@@ -1183,7 +1196,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
         stage.fade.style.opacity = '1'
       }
       if (t >= s.duration) {
-        index = (index + 1) % shots.length
+        index = pickNextShot(shotIds, seenShots, Math.random())
         begin(shots[index]!)
         advance(0, time)
       }
