@@ -366,6 +366,29 @@ describe('rzhev 佈局', () => {
       expect(SOVIET_DEPLOY.facing).toBe(FRONT_HEADING)
     })
 
+    /**
+     * 【兩支各走各的，不在中途匯合】匯合點會讓 20 輛戰車擠過同一個點、再從同一點呈扇形散開，路徑交叉也沒有道理
+     * （勒熱夫的縱隊開在田裡，不是兩條路匯成一條）。共用的行進段（展開之前的路線）彼此至少相距 300 m
+     */
+    it('兩支蘇軍縱隊各走各的路：展開之前的行進段彼此至少相距 300 m', () => {
+      const keep = SOVIET_DEPLOY.keep
+      const sample = (r: readonly { x: number; z: number }[]): { x: number; z: number }[] => {
+        const out: { x: number; z: number }[] = []
+        for (let k = 0; k + 1 < keep; k++) {
+          const a = r[k]!
+          const b = r[k + 1]!
+          const n = Math.ceil(dist(a, b) / 10)
+          for (let i = 0; i <= n; i++) out.push({ x: a.x + ((b.x - a.x) * i) / n, z: a.z + ((b.z - a.z) * i) / n })
+        }
+        return out
+      }
+      const pa = sample(red[0]!.route)
+      const pb = sample(red[1]!.route)
+      let nearest = Infinity
+      for (const a of pa) for (const b of pb) nearest = Math.min(nearest, dist(a, b))
+      expect(nearest).toBeGreaterThanOrEqual(300)
+    })
+
     /** 【停妥的是楔形，不是一列】兩個楔形左右分開：A 的楔尖在左、B 的在右 */
     it('蘇軍停妥：車頭朝德軍、20 輛兩兩相距至少 30 m、兩個楔形左右分開', () => {
       const s = at_(red, 1e9)
