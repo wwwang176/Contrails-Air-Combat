@@ -445,11 +445,17 @@ const CAB_Z = -2.2
 const ON_VEHICLE = new Vector3()
 
 /**
- * 投彈那一刀只拍炸彈脫離機腹、飛機拉起（投彈後約 1.2 秒）；之後回到駕駛室旁往上看
- * 長機拉起、曳光追著打（`PULL_FOV`），第一顆落地前一點點硬切到爆炸
+ * 投彈那一刀只拍炸彈脫離機腹、飛機拉起（投彈後約 0.9 秒）；之後回到駕駛室旁的超長焦
+ * 往正上方看第三架（`HEADON2_PLANE`）迎面衝下來、22.5 秒投彈拉起：投彈前視角
+ * `CAB_FOV`，拉起時在 `HEADON2_WIDEN` 秒內放寬到 `HEADON2_FOV`（拉起時它在畫面裡走得快）。
+ * 第一顆落地前一點點硬切到爆炸
+ * 【第三架】它的目標就在駕駛室那台車北邊兩台，從這裡看是正對著衝下來；第二架這時剛好
+ * 投彈拉起，迎面的那一段已經過了
  */
-const X_PULL = 21.7
-const PULL_FOV = 14
+const X_HEADON2 = 21.4
+const HEADON2_PLANE = 2
+const HEADON2_WIDEN = 1.2
+const HEADON2_FOV = 16
 const BLAST_CUT = IMPACT_AT[0]! - 0.03
 
 /**
@@ -626,11 +632,11 @@ function jostle(t: number, p: Vector3): void {
 }
 
 /**
- * 車上往上看長機：注視點介於長機與車頭前方 200 m 的路面之間（`w` = 偏向路面的比例），
+ * 車上往上看第 `plane` 架：注視點介於它與車頭前方 200 m 的路面之間（`w` = 偏向路面的比例），
  * 加手持晃動（長焦下照視角收小）
  */
-function lookUpAtLead(t: number, k: number, w: number, seed: number, out: ReelCamera): void {
-  LEAD(t, S1)
+function lookUpAtLead(t: number, k: number, w: number, seed: number, out: ReelCamera, plane = 0): void {
+  PATHS[plane]!(t, S1)
   onVehicle(k, t, 0, 0, -200, S2)
   aimBetween(out.position, S1, S2, w, out.target)
   shake(t, 0.35 * Math.pow(out.fov / 40, 0.6), seed, out)
@@ -669,9 +675,11 @@ const AFTER_AIM = onRoad(2.5 * ROAD_GAP, 0, new Vector3()).setY(25)
 
 /**
  * 側拍長機那一刀裡曳光瞄長機時偏開多少，m。偏移是每一軸各自 ±這麼多，最遠約 1.7 倍
- * （7 m）；鏡頭在長機西側 13 m，彈道碰不到鏡頭，貼著長機往上竄
+ * （12 m），在長機四周散開往上竄
+ * 【不能再大】鏡頭在長機西側 13 → 11 m；往西偏 7 m 的那一發離鏡頭還有 4 m，再大就有
+ * 曳光從鏡頭上穿過去，整個畫面一道白
  */
-const CROSSFIRE_MISS = 4
+const CROSSFIRE_MISS = 7
 
 /**
  * 地面機槍的節奏：每台每 `FIRE_PERIOD` 秒打一段 `FIRE_BURST`～`FIRE_BURST + FIRE_BURST_SPREAD`
@@ -738,8 +746,8 @@ const MOUNT_FIRE: ReelEvent[] = [
   { at: X_TANK - MOUNT_LEAD, kind: 'groundFire', prop: TANK_PROP, actor: 0, seconds: X_SIDE - X_TANK + MOUNT_LEAD, miss: 20 },
   { at: X_TRUCK - MOUNT_LEAD, kind: 'groundFire', prop: TRUCK_PROP, actor: 0, seconds: X_CAB - X_TRUCK + MOUNT_LEAD, miss: 20 },
   { at: X_CAB - MOUNT_LEAD, kind: 'groundFire', prop: CAB_PROP, actor: 0, seconds: X_DROP - X_CAB + MOUNT_LEAD, miss: 20 },
-  { at: X_PULL - MOUNT_LEAD, kind: 'groundFire', prop: CAB_PROP, actor: 0, seconds: 1.0, miss: 20 },
-  { at: X_PULL + 1.4, kind: 'groundFire', prop: CAB_PROP, actor: 0, seconds: 1.0, miss: 20 },
+  { at: X_HEADON2 - MOUNT_LEAD, kind: 'groundFire', prop: CAB_PROP, actor: HEADON2_PLANE, seconds: 1.3, miss: 20 },
+  { at: X_HEADON2 + 1.7, kind: 'groundFire', prop: CAB_PROP, actor: HEADON2_PLANE, seconds: 1.0, miss: 20 },
 ]
 
 // ── 刀表 ───────────────────────────────────────────────────
@@ -762,10 +770,10 @@ const MOUNT_FIRE: ReelEvent[] = [
 //   19.6–20.2 卡車駕駛室旁往正上方看（超長焦）：長機與僚機迎面衝下來，倒鷗翼與起落架
 //             佔滿畫面
 //   ──
-//   20.2–21.7 長機左下方看機腹：炸彈掛在兩支起落架之間，20.5 秒脫離機腹，飛機拉起往上
+//   20.2–21.4 長機左下方看機腹：炸彈掛在兩支起落架之間，20.5 秒脫離機腹，飛機拉起往上
 //             離開、炸彈往下掉開
-//   21.7–24.5 回到駕駛室旁往上看（長焦）：長機在頭頂拉起、拖著白線，曳光一串串追著它打，
-//             第二架衝下來投彈 —— 第一顆落地前一點點硬切到爆炸
+//   21.4–24.5 回到駕駛室旁的超長焦往正上方看：第三架迎面衝下來、佔滿畫面，曳光往上竄；
+//             22.5 秒投彈拉起，鏡頭放寬跟著它拉走 —— 第一顆落地前一點點硬切到爆炸
 //   24.5–26.4 路東邊 110 m：長機那一枚在畫面左邊的戰車上炸開，第二枚接著在右邊炸開
 //   26.4–29.6 縱隊北頭往南沿著路看：後面幾顆一顆接一顆沿路往鏡頭炸過來
 //   29.6–31.8 縱隊南邊 230 m 低空往北看：燒著的縱隊在路的盡頭，最後一架從右邊貼著田拉出來
@@ -878,7 +886,7 @@ const CUTS: readonly Cut[] = [
       // 長機往下掉、慢慢推近到 11 m
       // 【鏡頭在西側】往南俯衝約 77°，從西側看南邊在畫面右邊，機頭朝右下偏離垂直約 13°，
       // 座艙罩朝畫面右上，看得出是正著衝
-      // 【彈道碰不到鏡頭】曳光從南邊下方打上來、瞄點離長機最遠約 7 m（`CROSSFIRE_MISS`），
+      // 【彈道碰不到鏡頭】曳光從南邊下方打上來、瞄點往鏡頭這側最多偏 7 m（`CROSSFIRE_MISS`），
       // 鏡頭在 11 m 外的側面
       // 【交叉剪接的後段才放它】離縱隊一公里以內曳光才打得到長機身邊（見 `CROSS_FIRE`）
       const u = t - X_SIDE
@@ -939,15 +947,15 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: X_PULL, subject: 0, groundMount: CAB_PROP,
+    from: X_HEADON2, subject: HEADON2_PLANE, groundMount: CAB_PROP,
     camera(t, out) {
-      // 回到駕駛室旁往上看（長焦）：投完彈的長機在頭頂拉起、翼尖拖著白線，曳光一串串追著
-      // 它打；後面的第二架衝下來投彈。炸彈正往縱隊掉，落地前一點點硬切到爆炸
-      // 【比前一次寬】前一次超長焦只框得下長機與僚機；拉起時它在畫面裡走得快，視角要放寬
+      // 回到駕駛室旁的超長焦往正上方看：第三架迎面衝下來、倒鷗翼與起落架佔滿畫面，曳光
+      // 一串串往上竄；22.5 秒它投彈、拉起，鏡頭放寬跟著它從頭頂拉走、翼尖拖著白線。第一顆
+      // 落地前一點點硬切到爆炸
       onVehicle(CAB_PROP, t, CAB_X, CAB_Y, CAB_Z, out.position)
       jostle(t, out.position)
-      out.fov = PULL_FOV
-      lookUpAtLead(t, CAB_PROP, 0, 4, out)
+      out.fov = CAB_FOV + (HEADON2_FOV - CAB_FOV) * easeInOut(t, releaseAt(HEADON2_PLANE), HEADON2_WIDEN)
+      lookUpAtLead(t, CAB_PROP, 0, 4, out, HEADON2_PLANE)
     },
   },
   {
