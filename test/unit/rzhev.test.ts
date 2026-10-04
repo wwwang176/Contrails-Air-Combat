@@ -5,7 +5,7 @@ import {
   VILLAGE, VILLAGE_BOX, VILLAGE_NAME, GERMAN_DUG_PANZERS, SOVIET_INFANTRY, SOVIET_MORTARS, RZHEV_HILLS,
   SOVIET_ROUTE_A, SOVIET_ROUTE_B, SOVIET_FLAK, GERMAN_INFANTRY, GERMAN_MORTARS, GERMAN_TRUCKS, STALLED_SOVIET_TANKS,
   GERMAN_RESERVE_EAST, GERMAN_RESERVE_WEST, WRECK_SOVIET_TANKS, WRECK_GERMAN_PANZERS, GERMAN_FLAK,
-  SOVIET_SUPPORT_GUNS, UNIT_SPOTS, type Spot,
+  SOVIET_SUPPORT_GUNS, UNIT_SPOTS, COLUMN_STAGGER, SOVIET_DEPLOY, type Spot,
 } from '../../src/world/rzhev'
 import { FARM_EXTENT, HILL_GAP, HILL_LIMIT, HILL_PEAK_MAX } from '../../src/world/farmland'
 import { WOBBLE_MAX } from '../../src/world/archipelago'
@@ -325,6 +325,83 @@ describe('rzhev 佈局', () => {
     for (let i = 0; i < stops.length; i++) {
       for (let j = i + 1; j < stops.length; j++) expect(dist(stops[i]!, stops[j]!), `${i}-${j}`).toBeGreaterThanOrEqual(12)
     }
+  })
+
+  /**
+   * 蘇軍戰車到雷帶外展開成兩個寬楔形、四支縱隊行進時前後車左右交錯。這些都是空間關係，
+   * 錯了不會報錯，只是試飛時看到車疊在一起、開進雷區或擠在步兵身上。
+   */
+  describe('縱隊的展開與交錯', () => {
+    const p = { position: new Vector3(), velocity: new Vector3(), orientation: new Quaternion(), angularVelocity: new Vector3() }
+    const cols = card.battle.columns!
+    const red = cols.filter((c) => c.team === 'red')
+    const at_ = (cs: typeof cols, t: number): { x: number; z: number; heading: number }[] => cs.flatMap((c) => columnGround(c).map((e) => {
+      motionPose(e.motion!, 0, t, p)
+      const f = new Vector3(0, 0, -1).applyQuaternion(p.orientation)
+      return { x: p.position.x, z: p.position.z, heading: Math.atan2(-f.x, -f.z) }
+    }))
+    const redFixed: readonly Spot[] = [
+      ...SOVIET_INFANTRY, ...SOVIET_SUPPORT_GUNS, ...SOVIET_FLAK, ...SOVIET_MORTARS, ...WRECK_SOVIET_TANKS, ...STALLED_SOVIET_TANKS,
+    ]
+    const inMine = (x: number, z: number): boolean => MINEFIELDS.some((m) => {
+      const dx = x - m.x
+      const dz = z - m.z
+      return Math.abs(dx * m.ux + dz * m.uz) < m.hu && Math.abs(dx * m.vx + dz * m.vz) < m.hv
+    })
+    const segDist = (x: number, z: number, a: { x: number; z: number }, b: { x: number; z: number }): number => {
+      const abx = b.x - a.x
+      const abz = b.z - a.z
+      const t = Math.min(1, Math.max(0, ((x - a.x) * abx + (z - a.z) * abz) / (abx * abx + abz * abz || 1)))
+      return Math.hypot(x - (a.x + abx * t), z - (a.z + abz * t))
+    }
+
+    it('四支縱隊都交錯；蘇軍兩支展開成朝德軍的楔形，德軍預備隊不展開', () => {
+      expect(cols).toHaveLength(4)
+      // 交錯幅度要大過車寬（T-34 約 3 m）的兩倍，前後車才看得出不在同一條線上
+      expect(COLUMN_STAGGER).toBeGreaterThanOrEqual(6)
+      for (const c of cols) expect(c.stagger, c.team).toBe(COLUMN_STAGGER)
+      expect(red).toHaveLength(2)
+      for (const c of red) expect(c.deploy).toEqual(SOVIET_DEPLOY)
+      for (const c of cols.filter((c) => c.team === 'blue')) expect(c.deploy).toBeUndefined()
+      expect(SOVIET_DEPLOY.facing).toBe(FRONT_HEADING)
+    })
+
+    /** 【停妥的是楔形，不是一列】兩個楔形左右分開：A 的楔尖在左、B 的在右 */
+    it('蘇軍停妥：車頭朝德軍、20 輛兩兩相距至少 30 m、兩個楔形左右分開', () => {
+      const s = at_(red, 1e9)
+      expect(s).toHaveLength(20)
+      for (const e of s) expect(Math.abs(Math.atan2(Math.sin(e.heading - FRONT_HEADING), Math.cos(e.heading - FRONT_HEADING)))).toBeLessThan(1e-6)
+      for (let i = 0; i < s.length; i++) for (let j = i + 1; j < s.length; j++) expect(dist(s[i]!, s[j]!), `${i}-${j}`).toBeGreaterThanOrEqual(30)
+      const tipA = toLocal(s[0]!.x, s[0]!.z)
+      const tipB = toLocal(s[10]!.x, s[10]!.z)
+      expect(tipA.lx).toBeLessThan(tipB.lx - 300)
+    })
+
+    it('蘇軍停妥：離每一個德軍單位至少 300 m、不在雷區、離壕溝與反坦克壕至少 25 m、離蘇軍的固定單位至少 18 m', () => {
+      for (const e of at_(red, 1e9)) {
+        const tag = `${toLocal(e.x, e.z).lx.toFixed(0)},${toLocal(e.x, e.z).lz.toFixed(0)}`
+        for (const f of friendly) expect(dist(e, f), tag).toBeGreaterThanOrEqual(300)
+        expect(inMine(e.x, e.z), tag).toBe(false)
+        for (const t of TRENCHES) for (let k = 0; k + 1 < t.points.length; k++) expect(segDist(e.x, e.z, t.points[k]!, t.points[k + 1]!), tag).toBeGreaterThanOrEqual(25)
+        for (const f of redFixed) expect(dist(e, f), tag).toBeGreaterThanOrEqual(18)
+      }
+    })
+
+    /** 【整個行進與展開的過程】各輛分頭開向楔位，路徑會交錯；抽樣整段看有沒有疊車、開進雷區、壓到步兵 */
+    it('行進與展開的全程：40 輛任何時刻兩兩相距超過 12 m；蘇軍不進雷區、不壓到蘇軍的固定單位（至少 8 m）', () => {
+      for (let t = 0; t <= 900; t += 2.5) {
+        const all = at_(cols, t)
+        for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
+          expect(dist(all[i]!, all[j]!), `t=${t} ${i}-${j}`).toBeGreaterThan(12)
+        }
+        // 出發前（t < 200）蘇軍藏在戰場框外的南邊，只看進場之後
+        if (t < 200) continue
+        for (const e of at_(red, t)) {
+          expect(inMine(e.x, e.z), `t=${t}`).toBe(false)
+          for (const f of redFixed) expect(dist(e, f), `t=${t}`).toBeGreaterThanOrEqual(8)
+        }
+      }
+    })
   })
 
   it('反坦克砲與其他單位：德軍反坦克砲兩兩相距至少 150 m，所有單位至少 45 m', () => {

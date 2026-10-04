@@ -10,10 +10,11 @@ import { GROUND_FLAK_SPEC } from '../../world/shipGuns'
 import { JU87 } from '../../specs/ju87'
 import { YAK1B } from '../../specs/yak1b'
 import {
-  ARTILLERY_ZONE, BATTLE_HAZE, COLUMN_GAP, COLUMN_SPEED, COLUMN_TURN_RADIUS, GERMAN_AT_GUNS, GERMAN_DUG_PANZERS,
-  GERMAN_DUG_PANZER_SCRIPTED, GERMAN_FLAK, GERMAN_INFANTRY, GERMAN_MORTARS, GERMAN_RESERVE_EAST, GERMAN_RESERVE_WEST,
-  GERMAN_TRUCKS, RZHEV_DUSTS, RZHEV_SMOKES, SOVIET_FLAK, SOVIET_INFANTRY, SOVIET_MORTARS, SOVIET_ROUTE_A, SOVIET_ROUTE_B,
-  SOVIET_SUPPORT_GUNS, STALLED_SOVIET_TANKS, WRECK_GERMAN_PANZERS, WRECK_SOVIET_TANKS,
+  ARTILLERY_ZONE, BATTLE_HAZE, COLUMN_GAP, COLUMN_SPEED, COLUMN_STAGGER, COLUMN_TURN_RADIUS, GERMAN_AT_GUNS,
+  GERMAN_DUG_PANZERS, GERMAN_DUG_PANZER_SCRIPTED, GERMAN_FLAK, GERMAN_INFANTRY, GERMAN_MORTARS, GERMAN_RESERVE_EAST,
+  GERMAN_RESERVE_WEST, GERMAN_TRUCKS, RZHEV_DUSTS, RZHEV_SMOKES, SOVIET_DEPLOY, SOVIET_FLAK, SOVIET_INFANTRY,
+  SOVIET_MORTARS, SOVIET_ROUTE_A, SOVIET_ROUTE_B, SOVIET_SUPPORT_GUNS, STALLED_SOVIET_TANKS, WRECK_GERMAN_PANZERS,
+  WRECK_SOVIET_TANKS,
 } from '../../world/rzhev'
 import { POLTAVA_GROUND } from './shared'
 import type { GroundEntry, MissionCard, MissionTrigger } from './types'
@@ -261,22 +262,22 @@ export const GERMANY: readonly MissionCard[] = [
       columns: [
         {
           team: 'red', route: SOVIET_ROUTE_A, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
-          gap: COLUMN_GAP, units: Array<'tank'>(10).fill('tank'),
+          gap: COLUMN_GAP, stagger: COLUMN_STAGGER, deploy: SOVIET_DEPLOY, units: Array<'tank'>(10).fill('tank'),
           depart: RZHEV_BREAKTHROUGH, hidden: true,
         },
         {
           team: 'red', route: SOVIET_ROUTE_B, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
-          gap: COLUMN_GAP, units: Array<'tank'>(10).fill('tank'),
+          gap: COLUMN_GAP, stagger: COLUMN_STAGGER, deploy: SOVIET_DEPLOY, units: Array<'tank'>(10).fill('tank'),
           depart: RZHEV_BREAKTHROUGH, hidden: true,
         },
         {
           team: 'blue', route: GERMAN_RESERVE_WEST, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
-          gap: COLUMN_GAP, units: Array<'panzer4'>(10).fill('panzer4'),
+          gap: COLUMN_GAP, stagger: COLUMN_STAGGER, units: Array<'panzer4'>(10).fill('panzer4'),
           depart: RZHEV_BREAKTHROUGH, hidden: true,
         },
         {
           team: 'blue', route: GERMAN_RESERVE_EAST, speed: COLUMN_SPEED, turnRadius: COLUMN_TURN_RADIUS,
-          gap: COLUMN_GAP, units: Array<'panzer4'>(10).fill('panzer4'),
+          gap: COLUMN_GAP, stagger: COLUMN_STAGGER, units: Array<'panzer4'>(10).fill('panzer4'),
           depart: RZHEV_BREAKTHROUGH, hidden: true,
         },
       ],

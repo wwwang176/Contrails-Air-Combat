@@ -334,9 +334,60 @@ export function convoyGround(c: MissionVehicleConvoy): GroundEntry[] {
   return out
 }
 
+type Pt = { readonly x: number; readonly z: number }
+
+/**
+ * 折線往行進方向的右手邊平移 `ell` m（負的往左）。轉角用角平分線斜接，內縮外擴的比例夾在 2 倍以內。
+ * `ell` 為 0 回傳原本那一份。世界座標：行進方向 d 的右手邊法向是 (−d.z, d.x)（朝北時右 = +X）。
+ */
+function offsetPath(route: readonly Pt[], ell: number): readonly Pt[] {
+  if (ell === 0) return route
+  const dir = (a: Pt, b: Pt): Pt => {
+    const len = Math.hypot(b.x - a.x, b.z - a.z) || 1
+    return { x: (b.x - a.x) / len, z: (b.z - a.z) / len }
+  }
+  const last = route.length - 1
+  return route.map((p, k) => {
+    const a = k > 0 ? dir(route[k - 1]!, p) : dir(p, route[1]!)
+    const b = k < last ? dir(p, route[k + 1]!) : a
+    const sx = -(a.z + b.z)
+    const sz = a.x + b.x
+    const len = Math.hypot(sx, sz) || 1
+    const nx = sx / len
+    const nz = sz / len
+    const scale = ell / Math.max(nx * -a.z + nz * a.x, 0.5)
+    return { x: p.x + nx * scale, z: p.z + nz * scale }
+  })
+}
+
+/**
+ * 第 `i` 輛展開時的楔位序號：0、+1、−1、+2、−2……（正的在右）。
+ */
+function wedgeIndex(i: number): number {
+  return i % 2 === 1 ? (i + 1) / 2 : -i / 2
+}
+
+/**
+ * 展開成楔形的路徑：共用路線的前 `keep` 個點（再依 `ell` 左右平移），接著開向自己楔位後方 `lead` m，
+ * 最後朝前開上楔位。路線的最後一點是楔尖。
+ */
+function deployPath(c: MissionGroundColumn, i: number, ell: number): readonly Pt[] {
+  const d = c.deploy!
+  const tip = c.route[c.route.length - 1]!
+  const fx = -Math.sin(d.facing)
+  const fz = -Math.cos(d.facing)
+  const m = wedgeIndex(i)
+  const lateral = m * d.spacing
+  const back = Math.abs(m) * d.spacing * d.wingBack
+  const sx = tip.x - fz * lateral - fx * back
+  const sz = tip.z + fx * lateral - fz * back
+  return [...offsetPath(c.route.slice(0, d.keep), ell), { x: sx - fx * d.lead, z: sz - fz * d.lead }, { x: sx, z: sz }]
+}
+
 /**
  * 卡片上的一支縱隊 → 地面目標的條目。出發時刻是 `Infinity`（等 `depart` 節拍），
- * 走到終點停住：第 i 輛停在終點前 `i × gap`，停下來仍然是一列。
+ * 走到終點停住：第 i 輛停在終點前 `i × gap`，停下來仍然是一列；有 `deploy` 的改為各自開向楔位、
+ * 停成寬楔形。有 `stagger` 的前後車左右交錯，各走自己那條平行線。
  *
  * 【開場的 x、z、航向就是 motion 還沒出發的姿態】理由同 `convoyGround`。
  *
@@ -350,8 +401,11 @@ export function columnGround(c: MissionGroundColumn): GroundEntry[] {
   }
   const fwd = new Vector3()
   const n = c.units.length
+  const stagger = c.stagger ?? 0
   return c.units.map((unit, i) => {
-    const m = createGroundMotion(c.route, motion, (n - 1 - i) * c.gap, Infinity, i * c.gap)
+    const ell = (i % 2 === 0 ? -1 : 1) * stagger
+    const path = c.deploy === undefined ? offsetPath(c.route, ell) : deployPath(c, i, ell)
+    const m = createGroundMotion(path, motion, (n - 1 - i) * c.gap, Infinity, c.deploy === undefined ? i * c.gap : 0)
     motionPose(m, Infinity, 0, pose)
     fwd.set(0, 0, -1).applyQuaternion(pose.orientation)
     return {

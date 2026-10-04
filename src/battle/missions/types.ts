@@ -634,7 +634,31 @@ export interface GroundEntry {
 }
 
 /**
- * 事件啟動的地面縱隊：沿路線排成一列，觸發成立才出發，走到終點**保持車距**停住。
+ * 縱隊走到路線終點前展開成寬楔形（`MissionGroundColumn.deploy`）。
+ *
+ * 【楔尖是路線的終點】第一輛停在終點；後面的輛交替往右、往左展開（右 1、左 1、右 2、左 2……），
+ * 離楔尖越遠越往後退：每橫向 1 m 退 `wingBack` m。展開後每輛的車頭都朝 `facing`。
+ *
+ * 【各輛分頭開向自己的楔位】路線的前 `keep` 個點是共用的行進路線；其後每一輛從共用路線的最後一點
+ * 直接開向自己楔位後方 `lead` m 的地方，再朝前開上楔位。`lead` 要長過轉彎所需的直線，否則最後的
+ * 轉彎會吃掉那一段。停妥後的位置只由楔形決定，不受 `stagger` 影響。
+ */
+export interface ColumnDeploy {
+  /** 展開後車頭朝哪裡，世界航向，rad（0 = 朝 −Z） */
+  readonly facing: number
+  /** 相鄰兩個楔位的橫向間距，m */
+  readonly spacing: number
+  /** 兩翼往後退的比例：每橫向 1 m 往後退幾 m */
+  readonly wingBack: number
+  /** 每輛楔位後方的直線進場段長度，m */
+  readonly lead: number
+  /** 路線前幾個點是共用的行進路線；路線最後一點是楔尖 */
+  readonly keep: number
+}
+
+/**
+ * 事件啟動的地面縱隊：沿路線排成一列，觸發成立才出發，走到終點**保持車距**停住
+ * （或展開成楔形，見 `deploy`）。
  *
  * 【集結】第一輛停在路線起點往前 `(n − 1) × gap`，最後一輛在起點。路線的第一段
  * 要比整列長，開場的車頭才朝同一個方向。
@@ -647,8 +671,15 @@ export interface MissionGroundColumn {
   readonly speed: number
   /** 轉角圓弧的半徑，m */
   readonly turnRadius: number
-  /** 前後兩輛的車距，m。停住時也是這個距離 */
+  /** 前後兩輛的車距，m。停住時也是這個距離（有 `deploy` 時停妥的位置由楔形決定） */
   readonly gap: number
+  /**
+   * 行進時前後車左右交錯的幅度，m：偶數輛（第 0 輛起）在路線左 `stagger`、奇數輛在右 `stagger`，
+   * 各走自己那條平行線，前後車不在同一條直線上。省略或 0 = 全部走在路線上（一列）。
+   */
+  readonly stagger?: number
+  /** 走到終點前展開成寬楔形。省略 = 沿路線停成一列 */
+  readonly deploy?: ColumnDeploy
   /** 依行進順序，第一個是車頭 */
   readonly units: readonly GroundUnitId[]
   readonly depart: MissionTrigger
