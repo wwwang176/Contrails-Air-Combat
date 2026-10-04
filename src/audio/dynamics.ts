@@ -37,7 +37,7 @@ export const HDR_RELEASE_DB_PER_SEC = 12
  * Valve 的 HDR 也是這樣特例處理。
  */
 export const HDR_EXEMPT = new Set<string>(
-  ['warn', 'radio', 'engineSelf', 'fireSelf', 'ui', 'damage', 'rattle', 'wind'],
+  ['warn', 'radio', 'engineSelf', 'fireSelf', 'sirenSelf', 'ui', 'damage', 'rattle', 'wind'],
 )
 
 /**

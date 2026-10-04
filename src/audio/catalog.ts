@@ -8,7 +8,7 @@
  */
 export type Category = 'engine' | 'engineSelf' | 'fire' | 'fireSelf' | 'turret' | 'explosion' | 'splash'
   | 'blast' | 'cannon' | 'flakBurst' | 'hitSelf' | 'hitDealt' | 'flyby' | 'damage' | 'rattle'
-  | 'reload' | 'whistle' | 'radio' | 'warn' | 'wind' | 'impact' | 'ui' | 'thunder'
+  | 'reload' | 'whistle' | 'radio' | 'warn' | 'wind' | 'impact' | 'ui' | 'thunder' | 'siren' | 'sirenSelf'
 
 export interface CategorySpec {
   gainDb: number
@@ -40,6 +40,16 @@ export const CATEGORY: Record<Category, CategorySpec> = {
    */
   engineSelf: { gainDb: -3, ref: 0, max: 0 },
   engine: { gainDb: -3, ref: 150, max: 3000 },
+  /**
+   * 俯衝警笛（`sirenFile` 有檔的機種）。**自己的不定位**，音量與引擎同一個數字；別人的走 3D 定位。
+   * 實際大小再乘上空速的曲線（`curves.ts` 的 `sirenParams`）。
+   *
+   * 【別人的傳得比引擎遠得多】警笛是專門拿來嚇人的，而且上帝視角停在地面時鏡頭離俯衝的飛機常有
+   * 一兩公里：參考距離 250 m、衰減率 0.6，同為全音量時 1 km 外比引擎大約 10 dB、2 km 外大約 11 dB。
+   * **起始值，由試玩裁定。**
+   */
+  sirenSelf: { gainDb: -3, ref: 0, max: 0 },
+  siren: { gainDb: 0, ref: 250, max: 6000, rolloff: 0.6 },
   /**
    * 自己的槍。**一次擊發一個 one-shot，不是循環。**
    *
@@ -176,6 +186,18 @@ export function engineFile(specId: string): string {
 /** 沒有前射武器（轟炸機）回 null */
 export function fireFile(specId: string): string | null {
   return FIRE_OF[specId] ?? null
+}
+
+/**
+ * 俯衝警笛的檔。**只有 Ju 87 有**（Jericho 警笛）；回 null 的機種不響警笛 ——
+ * 這是「這架會不會響」的唯一判斷，音量與音高隨空速變（`curves.ts` 的 `sirenParams`）。
+ *
+ * 檔案是 8 秒的循環：幾台差約 2% 的警報器疊在一起，播放速度 1 時基頻約 428 Hz。
+ */
+const SIREN_OF: Readonly<Record<string, string>> = { ju87: 'siren-ju87' }
+
+export function sirenFile(specId: string): string | null {
+  return SIREN_OF[specId] ?? null
 }
 
 /** 砲塔：武器 id（與 src/weapons/ 相同）與管數 → 檔。雙聯以上一律用雙聯 */
@@ -335,6 +357,7 @@ export const FIRST_FILES: readonly string[] =
 export const ALL_FILES: readonly string[] = [
   ...['p51d', 'bf109k4', 'f4f4', 'f6f5', 'a6m5', 'ki84', 'he111', 'ju87', 'g4m', 'b17g'].map(engineFile),
   ...new Set(Object.values(FIRE_OF)),
+  ...Object.values(SIREN_OF),
   ...Object.values(POOLS).flat(),
   ...Object.values(SINGLE_FILES),
 ]

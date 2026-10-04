@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   engineRate, windParams, shakeInterval, shakeGainDb, dbToGain, soundArrived, distanceCutoffHz,
   hitFeedback, damageGainDb, absorptionDb, voiceLoudnessDb, blastGainDb, blastRate, dopplerRate, hitRate,
-  fadeInCurve,
+  fadeInCurve, sirenParams, SIREN_AUDIBLE_DB, SIREN_RATE_MAX,
 } from '../../src/audio/curves'
 
 describe('淡入曲線', () => {
@@ -46,6 +46,64 @@ describe('風切', () => {
   it('超過極速夾在 1', () => {
     windParams(1.3, o)
     expect(o.cutoffHz).toBeCloseTo(7000)
+  })
+})
+
+describe('俯衝警笛', () => {
+  const o = { rate: 0, gainDb: 0 }
+  const at = (s: number): { rate: number; gainDb: number } => {
+    sirenParams(s, o)
+    return { rate: o.rate, gainDb: o.gainDb }
+  }
+  const grid = Array.from({ length: 121 }, (_, i) => i / 100)
+
+  /** 【平飛不響】Ju 87 平飛極速約 0.57 倍 vne；巡航飛過去就響的話，「俯衝時才有」就不成立 */
+  it('平飛最高速（0.57）聽不見：低於可聞門檻', () => {
+    expect(at(0.57).gainDb).toBeLessThan(SIREN_AUDIBLE_DB)
+    expect(at(0).gainDb).toBeLessThan(SIREN_AUDIBLE_DB)
+  })
+
+  /**
+   * 【AI 俯衝實測 0.65–0.76、多半 0.69 上下】隊友與敵人的警笛要在自己的俯衝裡達到接近全音量，
+   * 否則整段俯衝都在 −25 dB 以下，上帝視角幾乎聽不到
+   */
+  it('AI 俯衝的典型速度（0.69）只比全開小 6 dB 以內，0.72 以上全音量', () => {
+    expect(at(0.65).gainDb).toBeGreaterThan(SIREN_AUDIBLE_DB)
+    expect(at(0.69).gainDb).toBeGreaterThan(-6)
+    expect(at(0.72).gainDb).toBeCloseTo(0, 6)
+    expect(at(1.2).gainDb).toBeCloseTo(0, 6)
+  })
+
+  it('越快越大聲、越高：音量與音高都單調不降', () => {
+    for (let i = 1; i < grid.length; i++) {
+      const a = at(grid[i - 1]!), b = at(grid[i]!)
+      expect(b.gainDb, `s=${grid[i]}`).toBeGreaterThanOrEqual(a.gainDb - 1e-9)
+      expect(b.rate, `s=${grid[i]}`).toBeGreaterThanOrEqual(a.rate - 1e-9)
+    }
+  })
+
+  /** 【先大聲、再拉高】音量爬完（0.72）的時候，音高才走了不到一半 */
+  it('音量到全開時，音高還沒走完一半', () => {
+    const lo = at(0).rate, hi = at(1).rate
+    expect((at(0.72).rate - lo) / (hi - lo)).toBeLessThan(0.5)
+  })
+
+  /** 【上限 ×1.21】基準 428 Hz 拉到 520 Hz 為止，再高會尖得刺耳 */
+  it('音高上限是 SIREN_RATE_MAX，到極速為止；超過極速夾住', () => {
+    expect(SIREN_RATE_MAX).toBeCloseTo(520 / 428, 2)
+    expect(at(1).rate).toBeCloseTo(SIREN_RATE_MAX, 6)
+    expect(at(1.5).rate).toBeCloseTo(SIREN_RATE_MAX, 6)
+    for (const s of grid) expect(at(s).rate).toBeLessThanOrEqual(SIREN_RATE_MAX + 1e-9)
+  })
+
+  /** 【壞值不得傳下去】NaN 進到 AudioParam 會讓整條匯流排變成靜音，而且不報錯 */
+  it('非有限值給最小聲、最低音，不是 NaN', () => {
+    for (const bad of [NaN, Infinity, -Infinity]) {
+      const r = at(bad)
+      expect(Number.isFinite(r.gainDb)).toBe(true)
+      expect(Number.isFinite(r.rate)).toBe(true)
+      expect(r.gainDb).toBeLessThan(SIREN_AUDIBLE_DB)
+    }
   })
 })
 

@@ -89,8 +89,8 @@ describe('素材包絡', () => {
 
 describe('保底類別', () => {
   /** 【玩家必須聽到的不受窗口影響】場面再吵也要穿得出去 */
-  it('警告、無線電、自己的引擎與槍、選單、受創與風聲都在保底名單', () => {
-    for (const cat of ['warn', 'radio', 'engineSelf', 'fireSelf', 'ui', 'damage', 'rattle', 'wind']) {
+  it('警告、無線電、自己的引擎與槍、自己的警笛、選單、受創與風聲都在保底名單', () => {
+    for (const cat of ['warn', 'radio', 'engineSelf', 'fireSelf', 'sirenSelf', 'ui', 'damage', 'rattle', 'wind']) {
       expect(HDR_EXEMPT.has(cat), cat).toBe(true)
     }
   })
@@ -101,8 +101,8 @@ describe('保底類別', () => {
   })
 
   /** 爆炸與武器不能保底 —— 它們正是要互相讓位的那些 */
-  it('爆炸、艦砲、別人的槍不在名單裡', () => {
-    for (const cat of ['explosion', 'blast', 'cannon', 'fire', 'turret', 'impact']) {
+  it('爆炸、艦砲、別人的槍與警笛不在名單裡', () => {
+    for (const cat of ['explosion', 'blast', 'cannon', 'fire', 'turret', 'impact', 'siren']) {
       expect(HDR_EXEMPT.has(cat), cat).toBe(false)
     }
   })

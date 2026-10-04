@@ -123,10 +123,11 @@ describe('撞擊材質', () => {
 
 import { existsSync, readFileSync } from 'node:fs'
 import {
-  ALL_FILES, POOLS, engineFile, fireFile, ownTurretVolleyPools, turretFile, volleyPool,
+  ALL_FILES, CATEGORY, POOLS, engineFile, fireFile, ownTurretVolleyPools, sirenFile, turretFile, volleyPool,
 } from '../../src/audio/catalog'
 import { ALL_SPECS } from '../../src/battle/skirmish'
 import { JU87 } from '../../src/specs/ju87'
+import { voiceLoudnessDb } from '../../src/audio/curves'
 
 const manifest = JSON.parse(readFileSync('public/audio/manifest.json', 'utf8')) as Record<string, unknown>
 
@@ -203,6 +204,36 @@ describe('音效目錄', () => {
     const switched = ALL_SPECS.filter((s) => ownTurretVolleyPools(s.turrets) !== null).map((s) => s.id)
     expect(switched).toEqual(['ju87'])
     expect(ownTurretVolleyPools([])).toBeNull()
+  })
+
+  /**
+   * 俯衝警笛是 Ju 87 專屬：循環檔、有包絡（HDR 靠它）、檔案在 public/audio、在載入清單裡。
+   * 其他機種沒有 —— `sirenFile` 就是「這架會不會響警笛」的唯一判斷。
+   */
+  it('只有 Ju 87 有俯衝警笛：循環檔、有包絡、檔案在 public/audio、在載入清單裡', () => {
+    expect(sirenFile('ju87')).toBe('siren-ju87')
+    const e = manifest['siren-ju87'] as { loop: boolean; envelopeDb?: number[] } | undefined
+    expect(e?.loop).toBe(true)
+    expect(e?.envelopeDb?.length).toBeGreaterThan(10)
+    expect(existsSync('public/audio/siren-ju87.mp3')).toBe(true)
+    expect(ALL_FILES).toContain('siren-ju87')
+    const have = ALL_SPECS.filter((s) => sirenFile(s.id) !== null).map((s) => s.id)
+    expect(have).toEqual(['ju87'])
+    expect(sirenFile('__none__')).toBeNull()
+  })
+
+  /**
+   * 【別人的警笛要在遠處聽得到】上帝視角停在地面時，鏡頭離俯衝的飛機常有一兩公里。
+   * 同為全音量時，1 km 與 2 km 外的警笛要比同一架的引擎大 8 dB 以上，否則被引擎與槍炮蓋掉。
+   */
+  it('警笛的類別：自己的不定位、與引擎同音量；別人的定位，1–2 km 外比引擎大 8 dB 以上、傳得比引擎遠', () => {
+    expect(CATEGORY.sirenSelf.ref).toBe(0)
+    expect(CATEGORY.sirenSelf.gainDb).toBe(CATEGORY.engineSelf.gainDb)
+    expect(CATEGORY.siren.ref).toBeGreaterThan(0)
+    expect(CATEGORY.siren.max).toBeGreaterThan(CATEGORY.engine.max)
+    const loud = (c: keyof typeof CATEGORY, d: number): number =>
+      voiceLoudnessDb(CATEGORY[c].gainDb, CATEGORY[c].ref, d, CATEGORY[c].rolloff ?? 1)
+    for (const d of [1000, 2000]) expect(loud('siren', d) - loud('engine', d), `${d} m`).toBeGreaterThanOrEqual(8)
   })
 
   it('借用別台引擎聲的只剩 Yak-1B（借 Bf 109 K-4）', () => {

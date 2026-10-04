@@ -18,9 +18,9 @@ import {
  *
  * - **單次音效**：一個聲道池，全部是 `PannedAudio`（左右自己算，見 `spatial.ts`）。
  *   要定位的放在世界座標；不定位的（自己身上的聲音）永遠在正中間。池滿丟最不響的。
- * - **定位循環**：引擎 8、開火 6、砲塔 6 個聲道。每一幀 `beginFrame` → 逐一 `assign`
+ * - **定位循環**：引擎 8、開火 6、砲塔 6、警笛 4 個聲道。每一幀 `beginFrame` → 逐一 `assign`
  *   → `endFrame`；這一幀沒被指派的淡出後放掉。
- * - **自己的循環**：引擎、開火、風切、警告各一個 `Audio`，不定位。
+ * - **自己的循環**：引擎、風切、警告、警笛各一個 `Audio`，不定位。
  * - **距離**：定位的聲音接兩級低通（遠處只剩低頻）並依距離再減一點音量
  *   （空氣吸收，見 `curves.ts` 的 `absorptionDb`）；單次音效要等音波傳到才開始播。
  *   等待中與播放中都是每一幀用當下的距離重算 —— 遠方的爆炸要好幾秒才傳到、
@@ -30,8 +30,8 @@ import {
  * 已經有過手勢，才 resume。只看一個的話，暫停中切音量會把聲音叫醒。
  */
 
-export type SelfSlot = 'engine' | 'wind' | 'warn'
-export type LoopPool = 'engine' | 'fire' | 'turret'
+export type SelfSlot = 'engine' | 'wind' | 'warn' | 'siren'
+export type LoopPool = 'engine' | 'fire' | 'turret' | 'siren'
 
 export interface AudioEngine {
   /**
@@ -79,8 +79,13 @@ export interface AudioEngine {
   /** 自己身上的循環。file 為 null 表示停。每一幀都呼叫 */
   selfLoop(slot: SelfSlot, file: string | null, rate: number, gainDb: number, cutoffHz?: number): void
   beginFrame(): void
-  /** key 是 combatant 的 index；同一個 key 會拿回同一個聲道 */
-  assign(pool: LoopPool, key: number, file: string, x: number, y: number, z: number, rate: number): void
+  /**
+   * key 是 combatant 的 index；同一個 key 會拿回同一個聲道。
+   * `gainDb` 是這一架自己的增益，疊在類別音量之上（預設 0）—— 音量隨狀態變的循環用（警笛隨空速）。
+   * 它同時進 HDR 的響度估計；只改實際增益的話，一架很小聲的循環會被當成全音量，把別的聲音壓下去。
+   */
+  assign(pool: LoopPool, key: number, file: string, x: number, y: number, z: number, rate: number,
+    gainDb?: number): void
   endFrame(): void
   /** 離開戰鬥：停掉所有聲音 */
   stopAll(): void
@@ -118,9 +123,9 @@ const VOICE_QUOTA: Partial<Record<Category, number>> = {
   cannon: 22, impact: 12, flyby: 8, whistle: 6, hitDealt: 6, splash: 8, flakBurst: 14,
   explosion: 8, blast: 8,
 }
-const LOOP_VOICES: Record<LoopPool, number> = { engine: 8, fire: 6, turret: 6 }
-const LOOP_CATEGORY: Record<LoopPool, Category> = { engine: 'engine', fire: 'fire', turret: 'turret' }
-const SELF_CATEGORY: Record<SelfSlot, Category> = { engine: 'engineSelf', wind: 'wind', warn: 'warn' }
+const LOOP_VOICES: Record<LoopPool, number> = { engine: 8, fire: 6, turret: 6, siren: 4 }
+const LOOP_CATEGORY: Record<LoopPool, Category> = { engine: 'engine', fire: 'fire', turret: 'turret', siren: 'siren' }
+const SELF_CATEGORY: Record<SelfSlot, Category> = { engine: 'engineSelf', wind: 'wind', warn: 'warn', siren: 'sirenSelf' }
 /** 換檔、停止時的淡出，s */
 const SELF_FADE = 0.1
 const LOOP_FADE = 0.3
@@ -183,6 +188,8 @@ interface LoopVoice {
   releaseAt: number
   /** 上一次排下去的截止頻率，Hz。見 `setCutoff` */
   cutoff: number
+  /** 這一架自己的增益，dB（`assign` 的 `gainDb`）。HDR 的峰值估計要用 */
+  extraDb: number
 }
 
 interface SelfVoice {
@@ -391,17 +398,17 @@ export function createAudioEngine(camera: Camera): AudioEngine {
     })
   }
 
-  const loops: Record<LoopPool, LoopVoice[]> = { engine: [], fire: [], turret: [] }
+  const loops: Record<LoopPool, LoopVoice[]> = { engine: [], fire: [], turret: [], siren: [] }
   for (const pool of Object.keys(LOOP_VOICES) as LoopPool[]) {
     for (let i = 0; i < LOOP_VOICES[pool]; i++) {
       const v = positional()
       v.audio.setLoop(true)
-      loops[pool].push({ ...v, key: -1, file: '', assigned: false, releaseAt: -1, cutoff: FULL_BAND })
+      loops[pool].push({ ...v, key: -1, file: '', assigned: false, releaseAt: -1, cutoff: FULL_BAND, extraDb: 0 })
     }
   }
 
   const selves = {} as Record<SelfSlot, SelfVoice>
-  for (const slot of ['engine', 'wind', 'warn'] as SelfSlot[]) {
+  for (const slot of ['engine', 'wind', 'warn', 'siren'] as SelfSlot[]) {
     const audio = new Audio(listener)
     audio.setLoop(true)
     const filter = slot === 'wind' ? lowpass() : null
@@ -648,7 +655,7 @@ export function createAudioEngine(camera: Camera): AudioEngine {
         const d = camDistance(p.x, p.y, p.z)
         const spec = CATEGORY[cat]
         const live = voiceLoudnessDb(
-          spec.gainDb + (makeup.get(v.file) ?? 0), spec.ref, d, spec.rolloff ?? 1)
+          spec.gainDb + (makeup.get(v.file) ?? 0) + v.extraDb, spec.ref, d, spec.rolloff ?? 1)
         if (live > peak) peak = live
       }
     }
@@ -700,7 +707,8 @@ export function createAudioEngine(camera: Camera): AudioEngine {
     for (const pool of Object.keys(loops) as LoopPool[]) for (const v of loops[pool]) v.assigned = false
   }
 
-  function assign(pool: LoopPool, key: number, file: string, x: number, y: number, z: number, rate: number): void {
+  function assign(pool: LoopPool, key: number, file: string, x: number, y: number, z: number, rate: number,
+    gainDb = 0): void {
     const buffer = buffers.get(file)
     if (buffer === undefined || muted) return
     const cat = LOOP_CATEGORY[pool]
@@ -718,6 +726,7 @@ export function createAudioEngine(camera: Camera): AudioEngine {
     const now = ctx.currentTime
     v.assigned = true
     v.releaseAt = -1
+    v.extraDb = gainDb
     v.audio.position.set(x, y, z)
     setCutoff(v, distanceCutoffHz(d), now, 0.1)
     const fresh = v.file !== file
@@ -735,9 +744,9 @@ export function createAudioEngine(camera: Camera): AudioEngine {
     }
     // 【循環音也吃 HDR】引擎在爆炸期間該退到背景，回來時照釋放速率浮上來
     const live = voiceLoudnessDb(
-      CATEGORY[cat].gainDb + (makeup.get(file) ?? 0), CATEGORY[cat].ref, d, CATEGORY[cat].rolloff ?? 1)
+      CATEGORY[cat].gainDb + (makeup.get(file) ?? 0) + gainDb, CATEGORY[cat].ref, d, CATEGORY[cat].rolloff ?? 1)
     const duck = !hdrOn || HDR_EXEMPT.has(cat) ? 0 : hdrDuckDb(live, loudest)
-    v.audio.gain.gain.setTargetAtTime(gainOf(file, cat, absorptionDb(d) + duck), now, 0.1)
+    v.audio.gain.gain.setTargetAtTime(gainOf(file, cat, absorptionDb(d) + duck + gainDb), now, 0.1)
     v.audio.setPlaybackRate(rate * timeScale)
     pan(v.audio, true, d, CATEGORY[cat].ref, CATEGORY[cat].rolloff ?? 1, now, fresh ? 0 : PAN_SMOOTH)
   }

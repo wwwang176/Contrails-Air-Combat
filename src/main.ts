@@ -9,8 +9,8 @@ import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality }
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
 import {
-  SINGLE_FILES, engineFile, fireFile, groundGunTier, gunSound, impactSound, ownTurretVolleyPools, turretFile,
-  volleyPool, type Pool,
+  SINGLE_FILES, engineFile, fireFile, groundGunTier, gunSound, impactSound, ownTurretVolleyPools, sirenFile,
+  turretFile, volleyPool, type Pool,
 } from './audio/catalog'
 import {
   STRIKE_HEIGHT, applyFlash, createStorm, rollThunder, stepStorm, type Storm,
@@ -21,8 +21,8 @@ import { nearestN } from './audio/nearest'
 import { nearMiss } from './audio/nearMiss'
 import { LAYER_DB } from './audio/pick'
 import {
-  blastGainDb, blastRate, damageGainDb, dopplerRate, engineRate, hitFeedback, shakeGainDb,
-  hitRate, shakeInterval, windParams,
+  SIREN_AUDIBLE_DB, blastGainDb, blastRate, damageGainDb, dopplerRate, engineRate, hitFeedback, shakeGainDb,
+  hitRate, shakeInterval, sirenParams, windParams,
 } from './audio/curves'
 import { DAY_PALETTES, applyTimeOfDay } from './render/timeOfDay'
 import { FAR_LAND_NAME } from './render/leyteGround'
@@ -2091,6 +2091,11 @@ const FIRE_HOLD = 0.25
 const ENGINE_KEYS = new Int32Array(8)
 const FIRE_KEYS = new Int32Array(6)
 const TURRET_KEYS = new Int32Array(6)
+const SIREN_KEYS = new Int32Array(4)
+/** 俯衝警笛的暫存：`sirenParams` 的輸出，與每架這一幀的播放速度與增益（依 combatant 的 index） */
+const SIREN = { rate: 0, gainDb: 0 }
+const SIREN_RATE = new Float32Array(64)
+const SIREN_GAIN = new Float32Array(64)
 const AUDIO_POS: Vector3[] = []
 const AUDIO_VALID = new Uint8Array(64)
 const GUN_POS = new Vector3()
@@ -2565,6 +2570,24 @@ function updateAudio(worldSeconds: number): void {
     audio.assign('engine', c.index, engineFile(c.aircraft.spec.id), p.x, p.y, p.z,
       engineRate(c.command.throttle) * doppler)
   }
+  // 俯衝警笛（`sirenFile` 有檔的機種）：隊友、敵人、上帝視角的自己；座艙裡的自己走下面的 selfLoop。
+  // 【可聞門檻】巡航中的不進池 —— 免得佔掉四個聲道、也不抬高 HDR 的窗口
+  for (let i = 0; i < n; i++) {
+    const c = all[i]!
+    AUDIO_VALID[c.index] = 0
+    if (!c.alive || c.retired || (c === me && flying) || sirenFile(c.aircraft.spec.id) === null) continue
+    sirenParams(indicatedAirspeed(c.aircraft.diag.aero.tas, c.aircraft.diag.air.sigma) / c.aircraft.spec.limits.vne, SIREN)
+    SIREN_RATE[c.index] = SIREN.rate
+    SIREN_GAIN[c.index] = SIREN.gainDb
+    if (SIREN.gainDb > SIREN_AUDIBLE_DB) AUDIO_VALID[c.index] = 1
+  }
+  m = nearestN(AUDIO_POS, AUDIO_VALID, n, cam.x, cam.y, cam.z, SIREN_KEYS)
+  for (let j = 0; j < m; j++) {
+    const c = all[SIREN_KEYS[j]!]!
+    const p = AUDIO_POS[c.index]!
+    audio.assign('siren', c.index, sirenFile(c.aircraft.spec.id)!, p.x, p.y, p.z,
+      SIREN_RATE[c.index]! * dopplerRate(p, c.aircraft.state.velocity, cam, camVel), SIREN_GAIN[c.index]!)
+  }
   // 開火的保持：最近 FIRE_HOLD 秒內開過火就算還在開火
   for (let i = 0; i < n; i++) {
     const c = all[i]!
@@ -2608,6 +2631,10 @@ function updateAudio(worldSeconds: number): void {
   const vneRatio = indicatedAirspeed(me.aircraft.diag.aero.tas, me.aircraft.diag.air.sigma) / spec.limits.vne
   windParams(vneRatio, WIND)
   audio.selfLoop('wind', flying ? SINGLE_FILES.wind : null, 1, WIND.gainDb, WIND.cutoffHz)
+  // 俯衝警笛：自己的（不定位）。音量與音高隨空速，平飛時聽不見；沒有警笛檔的機種是 null
+  const sirenSelf = sirenFile(spec.id)
+  sirenParams(vneRatio, SIREN)
+  audio.selfLoop('siren', flying && sirenSelf !== null ? sirenSelf : null, SIREN.rate, SIREN.gainDb)
   // 警告蜂鳴：飛出邊界，或速度進了紅線（與 HUD 的紅線警告同一個門檻）
   const warn = flying && ((hudFrame.arenaShow && arena.outside) || vneRatio >= OVERSPEED_FULL)
   audio.selfLoop('warn', warn ? SINGLE_FILES.warn : null, 1, 0)
