@@ -262,12 +262,35 @@ export function speedAt(ramps: readonly SpeedRamp[] | undefined, t: number): num
   return 1
 }
 
+/**
+ * 跳接：片內時間走到 `from` 秒時直接跳到 `to` 秒，中間那一段不播 —— 剪接時把「炸彈往下掉
+ * 的幾秒」這種等待剪掉。路徑、鏡頭、事件照樣照片內時間寫：跳過去的那段裡的事件在跳的那一刻
+ * 一次補放，地面物件、炸彈直接出現在 `to` 那一刻的位置。共用特效池（曳光、拖煙、白線、
+ * 高砲黑雲）在跳的那一刻清空
+ * 【要配一刀切換】跳的那一刻畫面上的東西整批換位置；`from` 要落在剪接點上，否則同一個鏡頭
+ * 裡東西憑空瞬移
+ * 【不能跳過炸彈落地】炸彈照時間算位置，跳過落地那一刻的話它在地底下才被看到，炸點偏掉
+ */
+export interface TimeJump {
+  readonly from: number
+  readonly to: number
+}
+
+/** 片內時間 `t` 落在哪一段跳接裡（`from` ≤ t < `to`）；沒有就是 `undefined` */
+export function jumpAt(jumps: readonly TimeJump[] | undefined, t: number): TimeJump | undefined {
+  if (jumps === undefined) return undefined
+  for (const j of jumps) if (t >= j.from && t < j.to) return j
+  return undefined
+}
+
 export interface Shot {
   readonly id: string
   /** 秒（片內時間；有變速的段，實際播放比這個長或短） */
   readonly duration: number
   /** 變速（省略 = 全段等速）。見 `SpeedRamp` */
   readonly speed?: readonly SpeedRamp[]
+  /** 跳接（省略 = 不跳）。見 `TimeJump` */
+  readonly jumps?: readonly TimeJump[]
   readonly timeOfDay: TimeOfDay
   /** 局部 −Z 轉到太陽的水平方位 */
   readonly faceSun: boolean

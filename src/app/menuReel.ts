@@ -21,7 +21,7 @@ import { mountDirection } from '../weapons/types'
 import type { AircraftSpec } from '../specs/types'
 import { createFlight, flightPose, openSeaOrigin, type Flight } from './reelFlight'
 import {
-  BOMB_RELEASE_Y, bombAt, createReelCamera, pickIsland, propSpeedAt, propTravel, reelShots, speedAt,
+  BOMB_RELEASE_Y, bombAt, createReelCamera, jumpAt, pickIsland, propSpeedAt, propTravel, reelShots, speedAt,
   torpedoAt, torpedoEntry,
   type ReelDecor, type ReelEvent, type ReelGround, type ReelPoint, type ReelTerrainKind, type Shot,
 } from './reelShots'
@@ -169,6 +169,8 @@ const SMOKE_INTERVAL = 0.015
 const PROP_SPIN = 55
 /** 地面物件慢過這個速度（煞停中）就不再揚塵，m/s */
 const TRACK_DUST_MIN_SPEED = 1
+/** 跳接時被跳過那段裡的高砲黑雲，只補放跳點前這麼多秒內的，s */
+const JUMP_FLAK_KEEP = 0.5
 /** 防空曳光的射速（每艘），發/秒；初速 m/s */
 const AA_RATE = 14
 const AA_SPEED = 850
@@ -1165,8 +1167,21 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   function advance(dt: number, time: number): void {
     if (shot === null) return
     t += dt
+    // 跳接：走進跳過的那一段就直接到它的終點。中間的事件由下面照常補放；炸彈、地面物件
+    // 照時間算位置，直接出現在那一刻。曳光與共用特效池清空 —— 留著的話白線、拖煙從舊位置
+    // 一路拉到新位置，畫面上一條長線
+    const jump = jumpAt(shot.jumps, t)
+    let staleFlak = -Infinity
+    if (jump !== undefined) {
+      t = jump.to
+      staleFlak = jump.to - JUMP_FLAK_KEEP
+      projectiles.clear()
+      fx.clear()
+    }
     while (cursor < shot.events.length && shot.events[cursor]!.at <= t) {
-      fire(shot.events[cursor]!)
+      const e = shot.events[cursor]!
+      // 【跳過那段的黑雲不補】補放的話全在同一幀冒出來、年紀一樣，一整片同時炸開
+      if (!(e.kind === 'flak' && e.at < staleFlak)) fire(e)
       cursor++
     }
     propRotation += dt * PROP_SPIN
@@ -1247,7 +1262,8 @@ export function createMenuReel(stage: ReelStage): MenuReel {
         advance(step, t)
         stepFx(step)
       }
-      const last = at - t
+      // 【跳進跳接那一段】`at` 落在跳過的秒數裡時，上面的迴圈已經跳到它的終點、超過 `at`
+      const last = Math.max(0, at - t)
       advance(last, at)
       stepFx(last)
     },

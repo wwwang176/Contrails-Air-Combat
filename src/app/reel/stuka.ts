@@ -451,17 +451,12 @@ const CAB_Z = -2.2
 const ON_VEHICLE = new Vector3()
 
 /**
- * 投彈那一刀拍到炸彈脫離、飛機拉起就切到爆炸那一刀（`BLAST_CUT`）；炸彈往下掉的那幾秒
- * 用剪接跳過：切過去之後片內 `JUMP_FROM`～`JUMP_TO` 用 `JUMP_RATE` 倍速，實際只佔約
- * 0.15 秒，接著常速等 0.6 秒，第一顆落地炸開
- * 【跳完要留一點常速】倍速是每幀開頭取一次，最後一幀會多跳一步（60 fps 約 0.4 秒、30 fps
- * 約 0.8 秒）；跳到落地前 0.6 秒才停，最後一步也不會跳過爆炸，火球從頭看得到
+ * 投彈那一刀拍到炸彈脫離、飛機拉起，就跳接（`TimeJump`）到縱隊北頭沿路看那一刀：片內
+ * `JUMP_FROM` 直接跳到 `JUMP_TO`，炸彈往下掉的那幾秒剪掉，切過去 0.1 秒後第一顆炸開
+ * 【跳到落地前】跳過落地那一刻的話，炸彈在地底下才被看到，炸點偏掉
  */
-const BLAST_CUT = 21.6
-const JUMP_FROM = BLAST_CUT
-const JUMP_TO = 23.9
-const JUMP_RATE = 25
-const JUMP_EASE = 0.2
+const JUMP_FROM = 21.6
+const JUMP_TO = 24.4
 
 /**
  * 路邊看見編隊那一刀：起訖秒數；機位在第 `SPOT_PASS_PROP` 台戰車 `SPOT_PASS_AT` 秒開到的
@@ -651,18 +646,12 @@ const CAB_W = 0
 const CAB_FOV = 6
 
 /**
- * 爆炸那一刀：路東邊 `BLAST_SIDE` m、離地 6 m，廣角對著前兩個落點之間偏南的一點（第一個
- * 落點在左、第二個在右），兩個都在選單右邊的畫面裡
- * 【不能再往外】路東邊 120～140 m 是一排樹籬（再過去 320 m 又一排、比鏡頭高），鏡頭放進去
- * 畫面是一片樹幹與樹冠
- * 【廣角】兩枚疊成的火球在一百多公尺內看得出低面數的稜角；畫面裡小一點就不顯
+ * 沿路炸過來那一刀：到第 `WALK_TO` 秒為止注視點從路上第 `WALK_AIM0` 個落點間距移到第
+ * `WALK_AIM1` 個（第一顆落在 0、最後一顆落在 5）
  */
-const BLAST_SIDE = 110
-const BLAST_FOV = 66
-const BLAST_CAM = onRoad(0.36 * ROAD_GAP, BLAST_SIDE, new Vector3()).setY(6)
-const BLAST_AIM = onRoad(0.36 * ROAD_GAP, 0, new Vector3()).setY(10)
-/** 沿路炸過來那一刀的起點 */
-const WALK_FROM = 26.4
+const WALK_TO = 29.6
+const WALK_AIM0 = 0.8
+const WALK_AIM1 = 4.0
 /**
  * 善後那一刀：起訖秒數；縱隊北頭再往北 `AFTER_NORTH` m、路西邊 `AFTER_WEST` m、離地
  * `AFTER_HIGH` m，往東南看燒著的那一段：六個落點各冒一根煙柱（地面的火，見
@@ -775,9 +764,8 @@ const MOUNT_FIRE: ReelEvent[] = [
 //   ──
 //   20.2–21.6 長機左下方看機腹：炸彈掛在兩支起落架之間，20.5 秒脫離機腹，飛機拉起往上
 //             離開、炸彈往下掉開
-//   21.6–26.4 剪到路東邊 110 m（炸彈往下掉的 2.3 秒剪掉，`JUMP_*`）：縱隊還在開，0.6 秒
-//             後長機那一枚在畫面左邊的戰車上炸開、全隊煞停，第二枚接著在右邊炸開
-//   26.4–29.6 縱隊北頭往南沿著路看：後面幾顆一顆接一顆沿路往鏡頭炸過來
+//   21.6–29.6 跳接（片內 21.6 直接跳到 24.4，炸彈往下掉的幾秒剪掉）到縱隊北頭往南沿著路看：
+//             0.1 秒後路的盡頭第一顆炸開、全隊煞停，六顆一顆接一顆沿路往鏡頭炸過來
 //   29.6–31.8 縱隊南邊 230 m 低空往北看：燒著的縱隊在路的盡頭，最後一架從右邊貼著田拉出來
 //   31.8–33.6 第五架後座機槍手的位置往後看：自己的垂尾與平尾在右下，第六架剛貼著田拉出來
 //             爬升追上來，再後面是路上燒著的縱隊
@@ -950,29 +938,18 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: BLAST_CUT, subject: null,
+    from: JUMP_FROM, subject: null,
     camera(t, out) {
-      // 路東邊 110 m、離地 6 m：剪進來時縱隊還在開，約 0.7 秒後長機那一枚在畫面左邊的戰車上
-      // 炸開，全隊煞停；第二枚 25.5 秒接著在右邊炸開，每一下都震一下
-      out.position.copy(BLAST_CAM)
-      out.target.copy(BLAST_AIM)
-      shake(t, 0.08, 33, out)
-      for (let k = 0; k < 2; k++) jolt(t, IMPACT_AT[k]!, 1.6 - 0.4 * k, out.target)
-      out.fov = BLAST_FOV
-    },
-  },
-  {
-    from: WALK_FROM, subject: null,
-    camera(t, out) {
-      // 縱隊北頭外 150 m、路東邊 50 m、離地 30 m 往南沿著路看：後面幾顆一顆接一顆沿路往
-      // 鏡頭這邊炸過來，前面幾輛已經在燒。注視點跟著炸點慢慢往近處移
+      // 跳接進來（片內 21.6 → 24.4）：縱隊北頭外 150 m、路東邊 50 m、離地 30 m 往南沿著路看。
+      // 0.1 秒後路的盡頭第一顆炸開、全隊煞停，之後一顆接一顆沿路往鏡頭這邊炸過來。注視點
+      // 跟著炸點慢慢往近處移，每一下都震一下
       onRoad((COUNT - 1) * ROAD_GAP + 150, 50, out.position)
       out.position.y = 30
-      const w = Math.min(1, Math.max(0, (t - WALK_FROM) / 3.2))
-      onRoad((2.0 + 2.0 * w) * ROAD_GAP, 0, out.target)
+      const w = Math.min(1, Math.max(0, (t - JUMP_TO) / (WALK_TO - JUMP_TO)))
+      onRoad((WALK_AIM0 + (WALK_AIM1 - WALK_AIM0) * w) * ROAD_GAP, 0, out.target)
       out.target.y = 12
       shake(t, 0.1, 16, out)
-      for (let k = 2; k < COUNT; k++) jolt(t, IMPACT_AT[k]!, 0.4 + 0.4 * (k - 2), out.target)
+      for (let k = 0; k < COUNT; k++) jolt(t, IMPACT_AT[k]!, 0.3 + 0.25 * k, out.target)
       out.fov = 50
     },
   },
@@ -1025,7 +1002,7 @@ const PLANES: readonly ReelPlane[] = [
 export const STUKA: Shot = {
   id: 'stuka',
   duration: AFTER_TO,
-  speed: [{ from: JUMP_FROM, to: JUMP_TO, rate: JUMP_RATE, ease: JUMP_EASE }],
+  jumps: [{ from: JUMP_FROM, to: JUMP_TO }],
   // 夏日正午：太陽在西南、仰角約 60°。編隊往北飛，太陽在它左後方
   timeOfDay: 'noon',
   faceSun: false,

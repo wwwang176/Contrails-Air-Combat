@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { PerspectiveCamera, Quaternion, Vector3 } from 'three'
 import {
-  BOMB_RELEASE_Y, createReelCamera, pickIsland, propAt, propSpeedAt, propTravel, rampedOffset, reelShots, speedAt,
+  BOMB_RELEASE_Y, createReelCamera, jumpAt, pickIsland, propAt, propSpeedAt, propTravel, rampedOffset, reelShots, speedAt,
   TORPEDO_SPEED, torpedoAt,
   torpedoEntry, type Cut, type Shot,
 } from '../../src/app/reelShots'
@@ -91,6 +91,17 @@ describe('propTravel／propSpeedAt：地面物件的煞車', () => {
   })
 })
 
+describe('jumpAt：跳接', () => {
+  const jumps = [{ from: 10, to: 13 }]
+  it('落在 [from, to) 才算在跳接裡', () => {
+    expect(jumpAt(undefined, 11)).toBeUndefined()
+    expect(jumpAt(jumps, 9.99)).toBeUndefined()
+    expect(jumpAt(jumps, 10)?.to).toBe(13)
+    expect(jumpAt(jumps, 12.99)?.to).toBe(13)
+    expect(jumpAt(jumps, 13)).toBeUndefined()
+  })
+})
+
 describe('speedAt：變速的倍速', () => {
   const ramps = [{ from: 10, to: 14, rate: 0.25, ease: 1 }]
   it('區段外是 1，區段中間是 rate，進出平順而且連續', () => {
@@ -123,6 +134,15 @@ describe.each(shots.map((s) => [s.id, s] as const))(
         expect(r.to).toBeLessThanOrEqual(shot.duration)
         expect(r.rate).toBeGreaterThan(0)
         expect(2 * r.ease).toBeLessThanOrEqual(r.to - r.from)
+      }
+    })
+
+    it('跳接在片長之內、往後跳，起點正好是一個剪接點（跳的那一刻換鏡頭）', () => {
+      for (const j of shot.jumps ?? []) {
+        expect(j.from).toBeGreaterThan(0)
+        expect(j.to).toBeGreaterThan(j.from)
+        expect(j.to).toBeLessThan(shot.duration)
+        expect(shot.cuts.some((c) => c.from === j.from), `跳接 ${j.from} 秒不是剪接點`).toBe(true)
       }
     })
 
