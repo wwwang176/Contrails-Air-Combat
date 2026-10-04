@@ -278,6 +278,16 @@ for (let i = 0; i < COUNT; i++) {
 const FOLLOW_AT = releaseAt(HERO)
 const FOLLOW_P = body(HERO_PATH, FOLLOW_AT, 0, BOMB_RELEASE_Y, 0, false, new Vector3())
 const FOLLOW_V = velocityAt(HERO_PATH, FOLLOW_AT, new Vector3())
+/** 從留在俯衝線上的那一刀切到跟那一枚炸彈：投下 2 秒後 */
+const BOMB_CUT = FOLLOW_AT + 2.05
+/**
+ * 投彈那一刻鏡頭從第二架身上脫鉤：起點是它尾後的那一點、上方是它那一刻的機背，之後
+ * 順著它的俯衝速度的 `DETACH_PACE` 倍直線往下。炸彈比鏡頭快、往縱隊掉遠，飛機往機背
+ * 那一側拉走 —— 鏡頭跟不上，交代「飛機拉走了，炸彈還在往下」
+ */
+const DETACH_P = body(HERO_PATH, FOLLOW_AT, 0, 3.0, 13, false, new Vector3())
+const DETACH_UP = bodyUp(HERO_PATH, FOLLOW_AT, new Vector3())
+const DETACH_PACE = 0.85
 
 // ── 路與縱隊 ───────────────────────────────────────────────
 //
@@ -472,10 +482,10 @@ const LAST = COUNT - 1
 const CROSSFIRE_FROM = 15.8
 const CROSSFIRE_TO = 20.0
 /**
- * 那一刀裡曳光瞄長機時偏開多少，m。偏移是每一軸各自 ±這麼多，最遠約 1.7 倍（17 m）；
- * 鏡頭在長機東側 34 m 推到 26 m，彈道碰不到鏡頭，又從長機與後景的僚機之間穿過
+ * 那一刀裡曳光瞄長機時偏開多少，m。偏移是每一軸各自 ±這麼多，最遠約 1.7 倍（7 m）；
+ * 鏡頭在長機東側 13 m 推到 10 m，彈道碰不到鏡頭，貼著長機往上竄
  */
-const CROSSFIRE_MISS = 10
+const CROSSFIRE_MISS = 4
 
 /**
  * 縱隊朝俯衝的斯圖卡打的機槍：每隔一台（十台）輪流打，每 6 秒打一段 2.8～3.2 秒，
@@ -521,11 +531,12 @@ const GROUND_FIRE: ReelEvent[] = (() => {
 //             已經拉進俯衝、翼尖拉出白線往下掉
 //   13.8–15.8 第六架左肩後上方：接它翻到一半，自己的座艙罩與左翼在下緣，跟著它翻過去、
 //             往下拉，前幾架在機首前方已經往下衝
-//   15.8–20.0 長機東側跟拍、慢慢推近：前景是往下衝的長機，後面上方是它的左僚機，縱隊
-//             打上來的曳光從中間穿過去
-//   20.0–21.8 第二架尾巴後方順著機首往下看：長機在下方、路上的縱隊在正前方越來越大；
-//             長機 20.5 秒投彈、拉出白線改出，自己 21.5 秒投彈
-//   21.8–25.3 跟著第二架那一枚往下掉：完好的縱隊在下面越來越大，長機那一枚 24.5 秒先炸開
+//   15.8–20.0 長機東側 13 → 10 m 跟拍，幾乎是機身特寫：前景是往下衝的長機，後面上方是它的
+//             左僚機，縱隊打上來的曳光貼著長機往上竄
+//   20.0–21.5 第二架尾巴後方順著機首往下看：長機在下方、路上的縱隊在正前方越來越大；
+//             長機 20.5 秒投彈、拉出白線改出
+//   21.5–23.6 第二架投彈，鏡頭留在俯衝線上繼續往下：炸彈往縱隊掉遠，它拉起往畫面上方甩出去
+//   23.6–25.3 跟著第二架那一枚往下掉：完好的縱隊在下面越來越大，長機那一枚 24.5 秒先炸開
 //   25.3–27.6 縱隊最後一台卡車的車斗上仰看：第四架從前上方衝下來、拉出白線，旁邊的車往上
 //             打，前面的戰車一台接一台挨炸（25.5、26.5、27.5 秒）
 //   27.6–29.6 縱隊北頭往南沿著路看：最後兩顆沿路往鏡頭炸過來
@@ -615,26 +626,26 @@ const CUTS: readonly Cut[] = [
   {
     from: CROSSFIRE_FROM, subject: 0,
     camera(t, out) {
-      // 長機東側 34 m 跟拍、往西看，鏡頭正立不歪（上方是世界的上方）：前景的長機機首朝下
-      // 往畫面下方衝，後景是它的左僚機，在它後面西邊 20 m、上方 40 m 一起衝下來。縱隊從
-      // 北邊（畫面右下）打上來的曳光往上穿過兩架之間。鏡頭跟著長機往下掉、慢慢推近到 26 m
-      // 【鏡頭在長機東側】曳光從北邊下方打上來、瞄點離長機最遠約 17 m（`CROSSFIRE_MISS`），
-      // 鏡頭在 26 m 外的側面，彈道碰不到它
+      // 長機東側 13 m 跟拍、往西看，幾乎是機身特寫，鏡頭正立不歪（上方是世界的上方）：前景
+      // 的長機機首朝下往畫面下方衝，後景是它的左僚機，在它後面西邊 20 m、上方 40 m 一起衝
+      // 下來。縱隊從北邊（畫面右下）打上來的曳光貼著長機往上竄。鏡頭跟著長機往下掉、慢慢
+      // 推近到 10 m
+      // 【鏡頭在長機東側】曳光從北邊下方打上來、瞄點離長機最遠約 7 m（`CROSSFIRE_MISS`），
+      // 鏡頭在 10 m 外的側面，彈道碰不到它
       const u = t - CROSSFIRE_FROM
-      LEAD(t, out.position).add(S1.set(34 - 2 * u, -5, 3))
+      LEAD(t, out.position).add(S1.set(13 - 0.75 * u, -2, 2))
       LEAD(t, S1)
       WING(t, S2)
       aimBetween(out.position, S1, S2, 0.4, out.target)
       shake(t, 0.1, 22, out)
-      out.fov = 62
+      out.fov = 70
     },
   },
   {
     from: CROSSFIRE_TO, subject: 0, mount: HERO,
     camera(t, out) {
       // 第二架尾巴後方 13 m、機背那一側 3 m，順著機首往下看：長機在下方，縱隊在正前方
-      // 越來越大，地面的機槍曳光往上竄。長機 20.5 秒投彈、拉起；21.5 秒自己的炸彈從機腹
-      // 掉出去
+      // 越來越大，地面的機槍曳光往上竄。長機 20.5 秒投彈、拉起；21.5 秒自己投彈時切
       body(HERO_PATH, t, 0, 3.0, 13, false, out.position)
       LEAD(t, S1)
       body(HERO_PATH, t, 0, 0, -300, false, S2)
@@ -644,11 +655,28 @@ const CUTS: readonly Cut[] = [
     },
   },
   {
-    from: 21.8, subject: null,
+    from: FOLLOW_AT, subject: null,
     camera(t, out) {
-      // 跟著第二架那一枚往下掉：鏡頭在它上方幾公尺，完好的縱隊在下面越來越大，長機那一枚
-      // 24.5 秒先在前面一點的戰車上炸開。這一枚落地前 0.2 秒、還在三十公尺高時切到車上，
-      // 在那裡看它炸開。
+      // 鏡頭留在俯衝線上（`DETACH_P`）：炸彈從第二架的機腹脫落、跑在鏡頭前面往縱隊掉；
+      // 第二架 6 G 拉起、翼尖拖著白線往畫面上方甩出去。上方固定在投彈那一刻的機背，
+      // 不跟著機身翻。拉起那一下氣流掃過，震一下。飛機出畫之後慢慢收窄，炸彈與路上的
+      // 縱隊才不會縮成小點
+      const u = t - FOLLOW_AT
+      out.position.copy(DETACH_P).addScaledVector(FOLLOW_V, DETACH_PACE * u)
+      bombAt(FOLLOW_P, FOLLOW_V, u, S1)
+      aimBetween(out.position, S1, IMPACTS[HERO]!, 0.3, out.target)
+      shake(t, 0.1, 23, out)
+      jolt(t, FOLLOW_AT + 0.4, 1.0, out.target)
+      out.up.copy(DETACH_UP)
+      out.fov = 60 - 18 * ramp(t, FOLLOW_AT + 1.0, 1.0)
+    },
+  },
+  {
+    from: BOMB_CUT, subject: null,
+    camera(t, out) {
+      // 跟著第二架那一枚往下掉（投下 2 秒後接上）：鏡頭在它上方幾公尺，完好的縱隊在下面
+      // 越來越大，長機那一枚 24.5 秒先在前面一點的戰車上炸開。這一枚落地前 0.2 秒、還在
+      // 三十公尺高時切到車上，在那裡看它炸開。
       // 【鏡頭在炸彈北側】第二架往機背那一側（南）拉出，鏡頭架在南側會貼到它身上
       bombAt(FOLLOW_P, FOLLOW_V, t - FOLLOW_AT, S1)
       out.position.copy(S1).add(S2.set(2.5, 3.5, -4.0))
