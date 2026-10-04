@@ -21,7 +21,7 @@ import { mountDirection } from '../weapons/types'
 import type { AircraftSpec } from '../specs/types'
 import { createFlight, flightPose, openSeaOrigin, type Flight } from './reelFlight'
 import {
-  BOMB_RELEASE_Y, bombAt, createReelCamera, pickIsland, reelShots, torpedoAt, torpedoEntry,
+  BOMB_RELEASE_Y, bombAt, createReelCamera, pickIsland, reelShots, speedAt, torpedoAt, torpedoEntry,
   type ReelDecor, type ReelEvent, type ReelGround, type ReelPoint, type ReelTerrainKind, type Shot,
 } from './reelShots'
 import type { SiteLayout } from '../render/fields'
@@ -140,6 +140,11 @@ export interface MenuReel {
   relayout(): void
   /** 定格：時間不走，畫面照畫。截圖驗收用 —— 跳到某一秒之後截到的就是那一秒 */
   hold: boolean
+  /**
+   * 現在的播放倍速（`Shot.speed`）。共用的特效池要用「畫面秒數 × 這個」推進 —— 用畫面
+   * 秒數的話，慢動作裡的煙、火、曳光照常速散開，只有飛機在慢
+   */
+  readonly rate: number
   /** 放到第幾段的哪一秒、鏡頭在哪看哪。量測與截圖用（每次讀都配置，不要在幀迴圈裡讀） */
   readonly status: {
     readonly shot: string | null, readonly t: number
@@ -1147,6 +1152,8 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   }
 
   let propRotation = 0
+  /** 這一幀的播放倍速（`speedAt`）。`update` 每幀照片內時間更新 */
+  let rate = 1
 
   function advance(dt: number, time: number): void {
     if (shot === null) return
@@ -1185,11 +1192,14 @@ export function createMenuReel(stage: ReelStage): MenuReel {
 
     get props() { return props },
 
+    get rate() { return rate },
+
     update(dt, time) {
       if (shot === null) {
         begin(shots[index]!)
       }
-      advance(this.hold ? 0 : dt, time)
+      rate = speedAt(shot!.speed, t)
+      advance(this.hold ? 0 : dt * rate, time)
       const s = shot!
       if (!fadingOut && t >= s.duration - REEL_FADE) {
         fadingOut = true

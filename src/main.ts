@@ -3973,7 +3973,8 @@ window.addEventListener('resize', () => menuReel.relayout())
 function drawMenuBackground(frameSeconds: number): void {
   menuReel.update(frameSeconds, elapsed)
   // 【定格時特效也停】只停短片的話，殘骸與煙照樣往下掉、往外散，截到的不是那一秒
-  const fx = menuReel.hold ? 0 : frameSeconds
+  // 【慢動作時特效也慢】短片變速時，煙、火、曳光照畫面秒數散開的話，只有飛機在慢
+  const fx = menuReel.hold ? 0 : frameSeconds * menuReel.rate
   stepEffects(fx, elapsed)
   spray.step(fx)
   vortex.step(fx)

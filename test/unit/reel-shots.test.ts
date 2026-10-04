@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { PerspectiveCamera, Quaternion, Vector3 } from 'three'
 import {
-  BOMB_RELEASE_Y, createReelCamera, pickIsland, propAt, rampedOffset, reelShots, TORPEDO_SPEED, torpedoAt,
+  BOMB_RELEASE_Y, createReelCamera, pickIsland, propAt, rampedOffset, reelShots, speedAt, TORPEDO_SPEED, torpedoAt,
   torpedoEntry, type Cut, type Shot,
 } from '../../src/app/reelShots'
 import { groundUnitOf } from '../../src/world/groundTargets'
@@ -70,6 +70,22 @@ describe('rampedOffset：平順加上去的加速度', () => {
   })
 })
 
+describe('speedAt：變速的倍速', () => {
+  const ramps = [{ from: 10, to: 14, rate: 0.25, ease: 1 }]
+  it('區段外是 1，區段中間是 rate，進出平順而且連續', () => {
+    expect(speedAt(undefined, 5)).toBe(1)
+    expect(speedAt(ramps, 9.9)).toBe(1)
+    expect(speedAt(ramps, 12)).toBeCloseTo(0.25, 9)
+    expect(speedAt(ramps, 14.1)).toBe(1)
+    const k = speedAt(ramps, 10.5)
+    expect(k).toBeLessThan(1)
+    expect(k).toBeGreaterThan(0.25)
+    for (let t = 9.5; t < 14.5; t += 0.01) {
+      expect(Math.abs(speedAt(ramps, t + 0.01) - speedAt(ramps, t)), `t=${t.toFixed(2)}`).toBeLessThan(0.05)
+    }
+  })
+})
+
 describe.each(shots.map((s) => [s.id, s] as const))(
   '分鏡 %s',
   (_name, shot) => {
@@ -79,6 +95,15 @@ describe.each(shots.map((s) => [s.id, s] as const))(
     const ship = new Vector3()
     const times: number[] = []
     for (let t = 0; t <= shot.duration + 1e-9; t += STEP) times.push(t)
+
+    it('變速的區段在片長之內、倍速大於 0、進出過渡塞得進區段', () => {
+      for (const r of shot.speed ?? []) {
+        expect(r.from).toBeGreaterThanOrEqual(0)
+        expect(r.to).toBeLessThanOrEqual(shot.duration)
+        expect(r.rate).toBeGreaterThan(0)
+        expect(2 * r.ease).toBeLessThanOrEqual(r.to - r.from)
+      }
+    })
 
     it('事件照時間排、都在片長之內', () => {
       for (let k = 1; k < shot.events.length; k++) {

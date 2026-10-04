@@ -212,10 +212,37 @@ export interface Cut {
   readonly camera: CameraFn
 }
 
+/**
+ * 變速的一段：片內時間 `from`～`to` 秒用 `rate` 倍速播放（0.3 = 慢動作），進出各花 `ease`
+ * 秒平順過渡（落在 `from`～`to` 裡面）。**路徑、鏡頭、事件都照片內時間寫**，變速只改片內
+ * 時間走多快，所以慢動作裡的手持晃動、煙、火也一起慢
+ */
+export interface SpeedRamp {
+  readonly from: number
+  readonly to: number
+  readonly rate: number
+  readonly ease: number
+}
+
+/** 片內時間 `t` 的播放倍速（沒有落在任何一段裡就是 1） */
+export function speedAt(ramps: readonly SpeedRamp[] | undefined, t: number): number {
+  if (ramps === undefined) return 1
+  for (const r of ramps) {
+    if (t <= r.from || t >= r.to) continue
+    const e = Math.max(1e-6, r.ease)
+    const into = Math.min(1, (t - r.from) / e, (r.to - t) / e)
+    const k = into * into * (3 - 2 * into)
+    return 1 + (r.rate - 1) * k
+  }
+  return 1
+}
+
 export interface Shot {
   readonly id: string
-  /** 秒 */
+  /** 秒（片內時間；有變速的段，實際播放比這個長或短） */
   readonly duration: number
+  /** 變速（省略 = 全段等速）。見 `SpeedRamp` */
+  readonly speed?: readonly SpeedRamp[]
   readonly timeOfDay: TimeOfDay
   /** 局部 −Z 轉到太陽的水平方位 */
   readonly faceSun: boolean
