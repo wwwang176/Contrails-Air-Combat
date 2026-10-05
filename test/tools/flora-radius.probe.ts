@@ -14,7 +14,7 @@
 import { createFarmland, outsideZero } from '../../src/world/farmland'
 import { createFloraBuffer, FloraKind } from '../../src/core/floraBuffer'
 import { farmHedgeFlora, farmVillageFlora, farmWoodFlora } from '../../src/render/flora'
-import { lodFor, TILE_SIZE } from '../../src/render/vegetation'
+import { lodFor, TILE_SIZE } from '../../src/render/vegetationPolicy'
 
 const BUSH_RANGE = 900
 const MAX_PER_TILE = 4096

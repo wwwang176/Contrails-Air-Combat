@@ -8,7 +8,7 @@ import {
 } from './floraShapes'
 import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from '../specs/flora'
 import { canopyColor, FIELD_COLORS, FLORA_COLORS, type Season } from './season'
-import { TINT_RANGE } from './vegetation'
+import { TINT_RANGE } from './vegetationPolicy'
 
 /**
  * # 建築與樹的色塊：烘進遠處的地面

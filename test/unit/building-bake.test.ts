@@ -6,7 +6,7 @@ import {
 } from '../../src/render/floraShapes'
 import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from '../../src/specs/flora'
 import { CANOPY_SHADE, FLORA_COLORS } from '../../src/render/season'
-import { TINT_RANGE } from '../../src/render/vegetation'
+import { TINT_RANGE } from '../../src/render/vegetationPolicy'
 import { floraSplats, ROOF_GROW, WALL_SHARE } from '../../src/render/buildingBake'
 
 /** 把固定的幾筆吐進視窗；只吐中心在視窗裡的。一筆是 x, z, rot, scale, tint, kind, wide, tall */

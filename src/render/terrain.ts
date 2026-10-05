@@ -14,9 +14,11 @@ import { createIslands } from './island'
 import { createFarmGround } from './farmGround'
 import { createFarHorizon } from './farHorizon'
 import {
-  BUSH_RANGE, createVegetation, FLORA_RADIUS, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS,
-  ISLAND_TILES_PER_FRAME, LEYTE_CAPACITY, LOD_NEAR, lodFor, OUTER_JITTER, outerFor, POINT_NEAR, TILE_SIZE,
-} from './vegetation'
+  BUSH_RANGE, FLORA_RADIUS, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS,
+  ISLAND_TILES_PER_FRAME, LEYTE_CAPACITY, LOD_NEAR, lodFor, OUTER_JITTER, outerFor, POINT_NEAR,
+  TILE_SIZE,
+} from './vegetationPolicy'
+import { createVegetation } from './vegetation'
 import { createIslandFlora, islandCanopyCover } from './islandFlora'
 import { createLeyteFlora, leyteCanopyCoarse, leyteFarCover } from './leyteFlora'
 import {

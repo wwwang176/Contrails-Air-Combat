@@ -4,7 +4,7 @@ import type { FloraSource } from '../core/floraBuffer'
 import { createFloodplain } from './floodplain'
 import { terrainGrid } from './groundDecal'
 import { corridorZone, type KeepOutZone } from './keepOutMask'
-import type { PoolName } from './vegetation'
+import type { PoolName } from './floraShapes'
 import type { RiverSet } from './river'
 import {
   buildGreens, buildSettlementGround, buildStreets, settlementLayout, settlementZone,

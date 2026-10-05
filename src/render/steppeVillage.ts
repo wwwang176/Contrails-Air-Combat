@@ -1,7 +1,7 @@
 import { BufferAttribute, BufferGeometry, Color } from 'three'
 import { FloraKind, pushFlora, type FloraSource } from '../core/floraBuffer'
 import { regionAt, steppeRidgeGap, trackGap, trackWidthAt, type RegionSample } from './fields'
-import { TILE_SIZE } from './vegetation'
+import { TILE_SIZE } from './vegetationPolicy'
 import { DECAL_LIFT } from './groundDecal'
 import { churchRoom, Occupancy, placeChurch, type Placement } from './settlements'
 import { nameHash, type Place } from '../world/landFeatures'

@@ -10,7 +10,8 @@
  */
 import { createArchipelago } from '../../src/world/archipelago'
 import { createIslandFlora } from '../../src/render/islandFlora'
-import { createVegetation, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE } from '../../src/render/vegetation'
+import { createVegetation } from '../../src/render/vegetation'
+import { ISLAND_CAPACITY, ISLAND_MAX_PER_TILE } from '../../src/render/vegetationPolicy'
 
 const arch = createArchipelago()
 const heightAt = (x: number, z: number): number => arch.field.sample(x, z)

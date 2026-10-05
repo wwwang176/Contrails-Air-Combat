@@ -7,7 +7,7 @@
 import { createArchipelago } from '../../src/world/archipelago'
 import { createFloraBuffer } from '../../src/core/floraBuffer'
 import { createIslandFlora } from '../../src/render/islandFlora'
-import { TILE_SIZE, POINT_NEAR, LOD_NEAR } from '../../src/render/vegetation'
+import { TILE_SIZE, POINT_NEAR, LOD_NEAR } from '../../src/render/vegetationPolicy'
 
 const RADII = [6000, 9000, 12000, 16000]
 const arch = createArchipelago()

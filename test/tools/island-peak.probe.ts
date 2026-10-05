@@ -14,10 +14,11 @@
  */
 import { createArchipelago } from '../../src/world/archipelago'
 import { createIslandFlora } from '../../src/render/islandFlora'
+import { createVegetation } from '../../src/render/vegetation'
 import {
-  createVegetation, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS,
-  ISLAND_TILES_PER_FRAME, type PoolName,
-} from '../../src/render/vegetation'
+  ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS, ISLAND_TILES_PER_FRAME,
+} from '../../src/render/vegetationPolicy'
+import { type PoolName } from '../../src/render/floraShapes'
 
 const POOLS: readonly PoolName[] = [
   'broadNear', 'coneNear', 'broadMid', 'coneMid',
@@ -71,7 +72,7 @@ for (const name of POOLS) {
 // ── 單格最密 ──────────────────────────────────────────────
 import { createFloraBuffer } from '../../src/core/floraBuffer'
 import { ISLAND_GRID } from '../../src/render/islandFlora'
-import { TILE_SIZE } from '../../src/render/vegetation'
+import { TILE_SIZE } from '../../src/render/vegetationPolicy'
 
 const source = createIslandFlora(arch.field, arch.islands)
 const heightAt = (x: number, z: number): number => {

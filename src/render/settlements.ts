@@ -1,6 +1,6 @@
 import { FloraKind, pushFlora, SHAPE_ONE, type FloraSource } from '../core/floraBuffer'
 import { BUILDING_DEPTH, BUILDING_WALL, BUILDING_WIDTH } from './floraShapes'
-import { TILE_SIZE } from './vegetation'
+import { TILE_SIZE } from './vegetationPolicy'
 import { buildDecals, DECAL_LIFT, type DecalGrid, type DecalRegion } from './groundDecal'
 import { MEADOW } from './river'
 import { COVER_EDGE, COVER_IN, COVER_OUT, type CellCover, type KeepOutZone } from './keepOutMask'
