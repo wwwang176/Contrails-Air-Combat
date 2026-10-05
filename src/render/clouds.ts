@@ -52,6 +52,18 @@ export interface CloudPuff {
 /** 雲塊貼圖集：`CLOUD_ATLAS_SIDE` × `CLOUD_ATLAS_SIDE` 張 */
 export const CLOUD_ATLAS_URL = '/textures/cloud-puffs.png'
 export const CLOUD_ATLAS_SIDE = 4
+/**
+ * 每一張雲塊在原本正方形裡實際佔的長方形：寬、高（倍正方形邊長）與中心偏移（x 往右、
+ * y 往上，倍邊長）。貼圖集裡每一格存的是拉伸填滿的那個長方形，四邊形照這張表縮回原本的
+ * 比例、挪回原本的位置 —— 雲塊的大小形狀與正方形版一樣，透明的留白少畫約三成七。
+ * 【表與貼圖集是一組】換貼圖集就要換這張表，否則雲塊被拉成別的比例
+ */
+export const CLOUD_TILES: readonly (readonly [number, number, number, number])[] = [
+  [0.91, 0.445, 0.002, 0], [0.895, 0.496, 0.002, -0.002], [0.914, 0.344, 0, 0], [0.945, 0.469, 0.016, 0],
+  [0.871, 0.871, 0.002, -0.002], [0.902, 0.488, 0.002, -0.002], [0.914, 0.922, 0.004, 0], [0.91, 0.805, -0.006, -0.094],
+  [0.906, 0.98, -0.008, -0.006], [0.945, 0.93, 0.012, -0.035], [0.918, 0.855, -0.002, -0.002], [0.922, 0.762, 0, -0.002],
+  [0.922, 0.715, 0, -0.131], [0.922, 0.664, 0, -0.168], [0.922, 0.609, 0, -0.164], [0.918, 0.672, -0.002, 0.16],
+]
 /** 全部雲朵合計最多幾團雲塊 */
 export const CLOUD_PUFF_CAPACITY = 1536
 /** 每這麼多公尺半徑一團雲塊；一朵雲的團數夾在 `CLOUD_PUFFS_MIN`～`CLOUD_PUFFS_MAX` */
@@ -69,6 +81,11 @@ export const CLOUD_ALPHA = 0.85
 /** 離相機這麼近完全透明、這麼遠才完全不透明，m */
 export const CLOUD_FADE_NEAR = 25
 export const CLOUD_FADE_FAR = 90
+/**
+ * 中心離相機不到這麼遠的雲塊整塊不畫，m。這裡的不透明度不到 5%（smoothstep 在 25～90 m 之間
+ * 的 13% 處），看不出少了；照樣畫的話穿雲時是十幾層全螢幕的透明混合
+ */
+export const CLOUD_CULL_NEAR = 33
 /** 雲色配方：日光、天空半球光、環境光各佔多少；日光強度以正午 2.2 為 1 */
 export const CLOUD_SUN = 0.55
 export const CLOUD_SKY = 0.45
@@ -126,6 +143,7 @@ export function injectCloudPuff(shader: { vertexShader: string; fragmentShader: 
        attribute float aAlpha;
        attribute float aTile;
        attribute float aFlip;
+       attribute vec4 aExtent;
        varying float vAlpha;
        varying float vCloudDist;`,
     )
@@ -152,11 +170,15 @@ export function injectCloudPuff(shader: { vertexShader: string; fragmentShader: 
        up2 = length(up2) > 1e-4 ? normalize(up2) : vec2(0.0, 1.0);
        vec2 right2 = vec2(up2.y, -up2.x);
        vCloudDist = -mvPosition.z;
-       mvPosition.xy += (right2 * position.x + up2 * position.y) * instScale;
+       // 這一張雲塊實際佔的長方形（CLOUD_TILES）：縮回原本的寬高、挪回原本的位置；左右翻時偏移也翻
+       vec2 local = vec2(
+         position.x * aExtent.x + (aFlip > 0.5 ? -aExtent.z : aExtent.z),
+         position.y * aExtent.y + aExtent.w);
+       mvPosition.xy += (right2 * local.x + up2 * local.y) * instScale;
        gl_Position = projectionMatrix * mvPosition;
-       // 【淡到 0 的不畫】中心離相機不到 CLOUD_FADE_NEAR 的雲塊已經完全透明，照樣光柵化的話
+       // 【幾乎透明的不畫】中心離相機不到 CLOUD_CULL_NEAR 的雲塊不透明度不到 5%，照樣光柵化的話
        // 穿雲時是十幾層全螢幕的透明混合。四個頂點的中心深度相同，整塊一起移出裁切範圍
-       if (vCloudDist < ${CLOUD_FADE_NEAR.toFixed(1)}) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);`,
+       if (vCloudDist < ${CLOUD_CULL_NEAR.toFixed(1)}) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);`,
     )
   shader.fragmentShader = shader.fragmentShader
     .replace(
@@ -196,9 +218,11 @@ export function createClouds(atlas: Texture, capacity = CLOUD_PUFF_CAPACITY): Cl
   const alphas = new InstancedBufferAttribute(new Float32Array(capacity).fill(CLOUD_ALPHA), 1)
   const tiles = new InstancedBufferAttribute(new Float32Array(capacity), 1)
   const flips = new InstancedBufferAttribute(new Float32Array(capacity), 1)
+  const extents = new InstancedBufferAttribute(new Float32Array(capacity * 4), 4)
   geometry.setAttribute('aAlpha', alphas)
   geometry.setAttribute('aTile', tiles)
   geometry.setAttribute('aFlip', flips)
+  geometry.setAttribute('aExtent', extents)
 
   const material = new MeshBasicMaterial({
     color: 0xffffff, map: atlas, transparent: true, depthWrite: false, blending: NormalBlending,
@@ -226,6 +250,8 @@ export function createClouds(atlas: Texture, capacity = CLOUD_PUFF_CAPACITY): Cl
           object.setColorAt(n, TINT.copy(color).multiplyScalar(PUFF.shade))
           ;(tiles.array as Float32Array)[n] = PUFF.tile
           ;(flips.array as Float32Array)[n] = PUFF.flip ? 1 : 0
+          const e = CLOUD_TILES[PUFF.tile]!
+          ;(extents.array as Float32Array).set(e, n * 4)
           n++
         }
       })
@@ -234,6 +260,7 @@ export function createClouds(atlas: Texture, capacity = CLOUD_PUFF_CAPACITY): Cl
       if (object.instanceColor) object.instanceColor.needsUpdate = true
       tiles.needsUpdate = true
       flips.needsUpdate = true
+      extents.needsUpdate = true
     },
 
     clear() {

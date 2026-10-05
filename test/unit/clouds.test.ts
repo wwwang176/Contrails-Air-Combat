@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Color, ShaderLib, Texture } from 'three'
 import {
-  CLOUD_ATLAS_SIDE, CLOUD_PUFFS_MAX, CLOUD_PUFFS_MIN, cloudColorOf, cloudPuff, cloudPuffCount, createClouds,
+  CLOUD_ATLAS_SIDE, CLOUD_TILES, CLOUD_PUFFS_MAX, CLOUD_PUFFS_MIN, cloudColorOf, cloudPuff, cloudPuffCount, createClouds,
   injectCloudPuff, type CloudPuff,
 } from '../../src/render/clouds'
 import { DAY_PALETTES } from '../../src/render/timeOfDay'
@@ -20,10 +20,23 @@ describe('injectCloudPuff：雲塊的著色器', () => {
     expect(shader.vertexShader).toContain('vMapUv = (tuv')
     expect(shader.vertexShader).toContain('viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)')
     expect(shader.vertexShader).toContain('vCloudDist = -mvPosition.z')
-    // 淡到 0 的雲塊整塊移出裁切範圍，不進光柵化
+    // 幾乎透明的雲塊整塊移出裁切範圍，不進光柵化
     expect(shader.vertexShader).toMatch(/if \(vCloudDist < [\d.]+\) gl_Position = vec4\(2\.0, 2\.0, 2\.0, 1\.0\)/)
+    // 每張雲塊照自己的長方形縮放、偏移
+    expect(shader.vertexShader).toContain('attribute vec4 aExtent')
+    expect(shader.vertexShader).toContain('position.x * aExtent.x')
     expect(shader.fragmentShader).toContain('smoothstep(')
     expect(shader.fragmentShader).toContain('vCloudDist')
+  })
+
+  it('雲塊長方形表與貼圖集一組：筆數等於格數、寬高不超過原正方形、長方形不超出正方形', () => {
+    expect(CLOUD_TILES.length).toBe(CLOUD_ATLAS_SIDE * CLOUD_ATLAS_SIDE)
+    for (const [w, h, ox, oy] of CLOUD_TILES) {
+      expect(w).toBeGreaterThan(0)
+      expect(h).toBeGreaterThan(0)
+      expect(Math.abs(ox) + w / 2).toBeLessThanOrEqual(0.5 + 1e-3)
+      expect(Math.abs(oy) + h / 2).toBeLessThanOrEqual(0.5 + 1e-3)
+    }
   })
 })
 
