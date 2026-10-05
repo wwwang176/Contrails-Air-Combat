@@ -20,6 +20,8 @@ describe('injectCloudPuff：雲塊的著色器', () => {
     expect(shader.vertexShader).toContain('vMapUv = (tuv')
     expect(shader.vertexShader).toContain('viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)')
     expect(shader.vertexShader).toContain('vCloudDist = -mvPosition.z')
+    // 淡到 0 的雲塊整塊移出裁切範圍，不進光柵化
+    expect(shader.vertexShader).toMatch(/if \(vCloudDist < [\d.]+\) gl_Position = vec4\(2\.0, 2\.0, 2\.0, 1\.0\)/)
     expect(shader.fragmentShader).toContain('smoothstep(')
     expect(shader.fragmentShader).toContain('vCloudDist')
   })

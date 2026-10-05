@@ -151,9 +151,12 @@ export function injectCloudPuff(shader: { vertexShader: string; fragmentShader: 
        up2 = mix(vec2(0.0, 1.0), up2, smoothstep(0.05, 0.3, upLen));
        up2 = length(up2) > 1e-4 ? normalize(up2) : vec2(0.0, 1.0);
        vec2 right2 = vec2(up2.y, -up2.x);
-       mvPosition.xy += (right2 * position.x + up2 * position.y) * instScale;
        vCloudDist = -mvPosition.z;
-       gl_Position = projectionMatrix * mvPosition;`,
+       mvPosition.xy += (right2 * position.x + up2 * position.y) * instScale;
+       gl_Position = projectionMatrix * mvPosition;
+       // 【淡到 0 的不畫】中心離相機不到 CLOUD_FADE_NEAR 的雲塊已經完全透明，照樣光柵化的話
+       // 穿雲時是十幾層全螢幕的透明混合。四個頂點的中心深度相同，整塊一起移出裁切範圍
+       if (vCloudDist < ${CLOUD_FADE_NEAR.toFixed(1)}) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);`,
     )
   shader.fragmentShader = shader.fragmentShader
     .replace(
