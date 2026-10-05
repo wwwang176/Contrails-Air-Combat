@@ -60,7 +60,8 @@ const stuka = buildAircraft(JU87)
 ctx.scene.add(stuka.group)
 
 const atlas = await new TextureLoader().loadAsync(assetUrl(CLOUD_ATLAS_URL))
-const clouds = createClouds(atlas)
+// 整片積層雲要上萬團雲塊，容量開大（遊戲裡用預設容量）
+const clouds = createClouds(atlas, 16384)
 ctx.scene.add(clouds.object)
 
 /**
@@ -136,8 +137,30 @@ function setDepth(on: boolean): void {
 smokeToggle.addEventListener('click', () => setSmoke(!smoke.object.visible))
 depthToggle.addEventListener('click', () => setDepth(!depthPrepass))
 
-/** 第 `n` 朵以內的雲：前幾朵擺在斯圖卡的航線兩旁（看得到擦過），其餘撒在周圍 */
+/** 整片積層雲：6 km 見方、每 260 m 一朵（位置錯開 ±80 m），同一層、雲底上下差 15 m 以內 */
+const DECK_SIZE = 6000
+const DECK_STEP = 260
+
+function deckField(): CloudSpec[] {
+  const out: CloudSpec[] = []
+  const n = Math.floor(DECK_SIZE / DECK_STEP)
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const k = i * n + j
+      out.push({
+        x: -DECK_SIZE / 2 + (i + 0.5) * DECK_STEP + (hash01(k * 5 + 1) * 2 - 1) * 80,
+        y: LAYER + (hash01(k * 5 + 2) * 2 - 1) * 15,
+        z: -DECK_SIZE / 2 + (j + 0.5) * DECK_STEP + (hash01(k * 5 + 3) * 2 - 1) * 80,
+        radius: 100 + hash01(k * 5 + 4) * 50,
+      })
+    }
+  }
+  return out
+}
+
+/** 第 `n` 朵以內的雲（`n` < 0 = 整片積層雲）：前幾朵擺在斯圖卡的航線兩旁（看得到擦過），其餘撒在周圍 */
 function cloudField(n: number): CloudSpec[] {
+  if (n < 0) return deckField()
   const out: CloudSpec[] = []
   for (let k = 0; k < n; k++) {
     const r = 50 + hash01(k * 11 + 1) * 70
