@@ -1,5 +1,7 @@
 import './render/heightFogInstall'
-import { Color, Euler, Quaternion, Vector3, type FogExp2 } from 'three'
+import { createBattleScenery } from './render/battleScenery'
+import { createSceneWeather } from './render/sceneWeather'
+import { Color, Euler, Quaternion, Vector3 } from 'three'
 import { GFX_HIDDEN_LAYER, createGraphicsDiagnostics } from './app/graphicsDiagnostics'
 import { CLOUD_ATLAS_URL, cloudColorOf, cloudFieldSpecs, createClouds } from './render/clouds'
 import { skirmishCloudField } from './world/cloudField'
@@ -18,10 +20,8 @@ import {
   SINGLE_FILES, engineFile, fireFile, groundGunTier, gunSound, impactSound, ownTurretVolleyPools, sirenFile,
   turretFile, volleyPool, type Pool,
 } from './audio/catalog'
-import {
-  STRIKE_HEIGHT, applyFlash, createStorm, rollThunder, stepStorm, type Storm,
-} from './render/storm'
-import { createRain, type Rain } from './render/rain'
+import { STRIKE_HEIGHT, applyFlash, createStorm, rollThunder, stepStorm } from './render/storm'
+import { createRain } from './render/rain'
 import { CUE, CUE_STRIDE, clearCues, createCueQueue, pushCue } from './audio/queue'
 import { nearestN } from './audio/nearest'
 import { nearMiss } from './audio/nearMiss'
@@ -58,22 +58,18 @@ import { MORTAR_BLAST, MORTAR_BLAST_SCALE } from './render/mortarBlast'
 import { createFireball, FIREBALL_COUNT, FIREBALL_SPEED } from './render/fireball'
 import { createFlakBursts, emitFlakBursts, resetFlakBurstSeed } from './render/flakBursts'
 import { createFlareLights } from './render/flares'
-import {
-  createShipModels, shipModelTop, type ShipModels,
-} from './render/ships'
-import { createGroundModels, type GroundModels } from './render/groundTargets'
-import { createSearchlights, makeGlareTexture, type Searchlights } from './render/searchlights'
-import { createGroundBattle, type GroundBattle } from './render/groundBattle'
-import { BATTLE_FOG, battleFogTint, clearBattleFog, setBattleFog, stepBattleFog } from './render/heightFog'
+import { createShipModels, shipModelTop } from './render/ships'
+import { createGroundModels } from './render/groundTargets'
+import { createSearchlights, makeGlareTexture } from './render/searchlights'
+import { createGroundBattle } from './render/groundBattle'
+import { BATTLE_FOG, stepBattleFog } from './render/heightFog'
 import type { GroundUnitId } from './specs/ground'
 import { settleGroundTargets, type GroundTarget } from './world/groundTargets'
 import type { Ship } from './world/ships'
 import {
   balloonHills, settleBalloons, syncBalloonHills, type BalloonHillSet,
 } from './world/balloons'
-import {
-  createBalloonModels, type BalloonModels,
-} from './render/balloons'
+import { createBalloonModels } from './render/balloons'
 import type { TerrainSource } from './ai/terrainSense'
 import { clearBursts, createBursts, flakDamage, pushBurst, type BurstEvents } from './world/flak'
 import {
@@ -137,7 +133,7 @@ import { BOMB_PROFILE } from './ai/bombRun'
 import { TORPEDO_PROFILE } from './ai/torpedoRun'
 import { WAKE_SPRAY_COUNT } from './render/spray'
 import { createWakes } from './render/wake'
-import { createShipWakes, shipFoamTexture, type ShipWakes } from './render/shipWakes'
+import { createShipWakes, shipFoamTexture } from './render/shipWakes'
 import {
   createGodCameraState, enterGodCamera, godCameraTarget, stepGodCamera,
   type GodCameraInput,
@@ -232,13 +228,7 @@ let terrain = createTerrain(terrainKind, terrainGfx())
 let aiTerrain: TerrainSource = terrain
 /** 氣球的山。每幀依氣球的死活就地改高度（`syncBalloonHills`）；沒有氣球是 null */
 let balloonHillSet: BalloonHillSet | null = null
-/**
- * 雷雨。**只有時段是 `storm` 的那一場才有**，其餘是 null。生命週期比照時段：
- * 每一場套時段時重建（`applyTimeOfDay` 那一行）。
- */
-let storm: Storm | null = null
-/** 雨，與 `storm` 同生同滅 */
-let rain: Rain | null = null
+const sceneWeather = createSceneWeather(ctx.scene, { createStorm, createRain })
 /**
  * 地上水花落在的高度：地形與海面取高的那一個（`Terrain.heightAt`）。**模組層一顆
  * 函式**，每幀傳進去不配置閉包
@@ -331,24 +321,6 @@ function wireTerrain(force = false): void {
 
 const tracers = createTracers()
 ctx.scene.add(tracers.object)
-
-
-/**
- * 這一場的船。**沒有船的一場是 null**，而那是絕大多數的場次。
- *
- * 【生命週期比照地形】每一場重建（`startWorld`），因為艦隊是設定的一部分。
- */
-let shipModels: ShipModels | null = null
-/** 船的航跡（艦尾與艦首的白浪）。有船的場次才有 */
-let shipWakes: ShipWakes | null = null
-let groundModels: GroundModels | null = null
-let balloonModels: BalloonModels | null = null
-/** 探照燈的光束。與 `groundModels` 同一個生命週期：每一場重建 */
-let searchlights: Searchlights | null = null
-/** 地面戰的戲（德 M4）。卡片有 `theater` 才建 */
-let groundBattle: GroundBattle | null = null
-/** 這一場有沒有戰場高度霧。卡片的 `theater.haze` 有就開，與地面戰的戲同一個生命週期 */
-let battleFogOn = false
 /** 探照燈眩光的十字貼圖：畫一次、每一場共用 */
 const glareTexture = makeGlareTexture()
 /** 砲位陣亡時噴火球用的暫存。熱路徑之外，但仍不配置。 */
@@ -993,6 +965,12 @@ function emitBombBlasts(events: ImpactEvents): void {
  * **在模組層建一次** —— 幀迴圈裡宣告閉包是每幀一次配置。
  */
 const emitFirePuff = createFirePuff(BLAST_POOLS, shipFireSmoke)
+const battleScenery = createBattleScenery(ctx.scene, {
+  glareTexture, smokeTexture, burn: emitFirePuff, impact: onGroundImpact, fired: noteGroundShot,
+}, {
+  createShipModels, createShipWakes, shipFoamTexture, createGroundModels,
+  createSearchlights, createGroundBattle, createBalloonModels,
+})
 
 /**
  * 殘骸的引擎火。**同一份配方、小一號** —— 燒的是一具發動機艙，不是整艘
@@ -1213,7 +1191,6 @@ const godInput: GodCameraInput = {
 /** 上帝視角的注視點。重用，理由同上 */
 const godTarget = new Vector3()
 
-
 /** HUD 投影用的暫存向量；投影距離取 1000 m，遠到視差可以忽略。 */
 const probe = new Vector3()
 const HUD_PROJECT_DISTANCE = 1000
@@ -1335,20 +1312,6 @@ function fitCameraToPlayer(): void {
   rig.options.thirdHeight = fit.height
 }
 
-/** 離開戰鬥：清場並收掉記分板。 */
-/**
- * 收掉地面戰的戲。**離場與換一場都走這裡** —— 只在換場時收的話，放棄任務回到選單
- * 之後那幾池粒子與曳光會凍在選單的背景裡
- */
-function releaseGroundBattle(): void {
-  clearBattleFog()
-  battleFogOn = false
-  if (groundBattle === null) return
-  for (const o of groundBattle.objects) ctx.scene.remove(o)
-  groundBattle.dispose()
-  groundBattle = null
-}
-
 function leaveBattle(): void {
   audio.stopAll()
   clearCues(cues)
@@ -1357,7 +1320,7 @@ function leaveBattle(): void {
   tutorialOpen = false
   ignoreNextUnlock = false
   releaseVisuals()
-  releaseGroundBattle()
+  battleScenery.releaseGroundBattle()
   // 【圓環要移出場景】不移的話回到主選單，那個環還浮在選單的背景海上
   ctx.scene.remove(objectiveRing.object)
   // 【記分板要一起收】`stepAndDrawBattle` 不再跑，結算板會就這樣留在
@@ -1378,37 +1341,8 @@ function leaveBattle(): void {
  * 這裡只是不讓它們留在選單的短片裡 —— 上一場的艦隊會開進短片的畫面。
  */
 function clearBattleScenery(): void {
-  if (shipModels !== null) {
-    ctx.scene.remove(shipModels.object)
-    shipModels.dispose()
-    shipModels = null
-  }
-  if (shipWakes !== null) {
-    ctx.scene.remove(shipWakes.object)
-    shipWakes.dispose()
-    shipWakes = null
-  }
-  if (groundModels !== null) {
-    ctx.scene.remove(groundModels.object)
-    groundModels.dispose()
-    groundModels = null
-  }
-  if (searchlights !== null) {
-    ctx.scene.remove(searchlights.object)
-    searchlights.dispose()
-    searchlights = null
-  }
-  if (balloonModels !== null) {
-    ctx.scene.remove(balloonModels.object)
-    balloonModels.dispose()
-    balloonModels = null
-  }
-  if (rain !== null) {
-    ctx.scene.remove(rain.object)
-    rain.dispose()
-    rain = null
-  }
-  storm = null
+  battleScenery.clearModels()
+  sceneWeather.clear()
 }
 
 /**
@@ -1626,14 +1560,7 @@ function buildBattleTerrain(): void {
     ? pendingMission.battle.timeOfDay ?? 'noon'
     : setup.timeOfDay
   applyTimeOfDay(ctx, terrain, timeOfDay)
-  // 【雷雨跟著時段】別的時段是 null —— 上一場的雷雨不會帶進下一場
-  storm = timeOfDay === 'storm' ? createStorm() : null
-  if (rain !== null) {
-    ctx.scene.remove(rain.object)
-    rain.dispose()
-  }
-  rain = storm !== null ? createRain() : null
-  if (rain !== null) ctx.scene.add(rain.object)
+  sceneWeather.reset(timeOfDay)
   // 煙的材質不是 three 內建受光材質；時段換完要把同一顆太陽同步進 shader。
   syncFireSmokeLighting()
   resetArena()
@@ -1720,63 +1647,7 @@ function startWorld(cfg: BattleConfig): void {
   setPlayer(battle.player)
   rebuildVisuals()
 
-  // 【船的模型每一場重建】艦隊是設定的一部分 —— 沿用上一場的話，換一張
-  // 沒有艦隊的卡時那幾艘會留在海上。
-  if (shipModels !== null) {
-    ctx.scene.remove(shipModels.object)
-    shipModels.dispose()
-    shipModels = null
-  }
-  // 航跡跟著船走：同一個時機建、同一個時機收
-  if (shipWakes !== null) {
-    ctx.scene.remove(shipWakes.object)
-    shipWakes.dispose()
-    shipWakes = null
-  }
-  if (world.ships.length > 0) {
-    shipModels = createShipModels(world.ships)
-    ctx.scene.add(shipModels.object)
-    shipWakes = createShipWakes(world.ships, shipFoamTexture())
-    ctx.scene.add(shipWakes.object)
-  }
-  // 地面目標與船同一個做法：每一場重建
-  if (groundModels !== null) {
-    ctx.scene.remove(groundModels.object)
-    groundModels.dispose()
-    groundModels = null
-  }
-  if (searchlights !== null) {
-    ctx.scene.remove(searchlights.object)
-    searchlights.dispose()
-    searchlights = null
-  }
-  if (world.groundTargets.length > 0) {
-    groundModels = createGroundModels(world.groundTargets)
-    ctx.scene.add(groundModels.object)
-    searchlights = createSearchlights(world.groundTargets, glareTexture)
-    ctx.scene.add(searchlights.object)
-  }
-  // 地面戰的戲：純畫面，從卡片讀（不進 `BattleConfig`）。每一場重建
-  releaseGroundBattle()
-  const theater = pendingMission?.battle.theater
-  if (theater !== undefined && world.groundTargets.length > 0) {
-    groundBattle = createGroundBattle(theater, emitFirePuff, smokeTexture, onGroundImpact, noteGroundShot)
-    for (const o of groundBattle.objects) ctx.scene.add(o)
-    if (theater.haze !== undefined) {
-      setBattleFog({ ...theater.haze, tint: battleFogTint((ctx.scene.fog as FogExp2).color, theater.fogColor) })
-      battleFogOn = true
-    }
-  }
-  // 氣球與船同一個做法：每一場重建
-  if (balloonModels !== null) {
-    ctx.scene.remove(balloonModels.object)
-    balloonModels.dispose()
-    balloonModels = null
-  }
-  if (world.balloons.length > 0) {
-    balloonModels = createBalloonModels(world.balloons)
-    ctx.scene.add(balloonModels.object)
-  }
+  battleScenery.rebuild(world, pendingMission?.battle.theater)
 
   // 5. 撤離圓環。【比照地形每一場都重建】那條路徑因此每一場都在走，不是
   //    一條等著被第一次使用的死碼。沒有撤離點的一場就是建了不加進場景 ——
@@ -2858,8 +2729,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   if (input.godView) terrain.update(elapsed, godCam.position.x, godCam.position.z)
   else terrain.update(elapsed, renderPos.x, renderPos.z)
   // 【閃電吃世界時間】暫停時 `worldSeconds` 是 0，天也不打雷
-  if (storm !== null) {
-    applyFlash(ctx.lights, ctx.sky, DAY_PALETTES.storm, stepStorm(storm, worldSeconds, playThunder))
+  if (sceneWeather.storm !== null) {
+    applyFlash(ctx.lights, ctx.sky, DAY_PALETTES.storm, stepStorm(sceneWeather.storm, worldSeconds, playThunder))
   }
 
   const aircraft = player.aircraft
@@ -2973,14 +2844,14 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   stepEffects(worldSeconds, world.time)
   // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
   // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
-  groundModels?.update(world.groundTargets, ctx.camera.position, worldSeconds)
+  battleScenery.groundModels?.update(world.groundTargets, ctx.camera.position, worldSeconds)
   // 【吃世界秒數】射擊排程是 `world.time` 的純函數；暫停時兩者都不走
-  groundBattle?.update(world.groundTargets, world.time, worldSeconds, world.groundAt)
+  battleScenery.groundBattle?.update(world.groundTargets, world.time, worldSeconds, world.groundAt)
   // 【吃世界秒數】暫停時為 0，團塊停在原地
-  if (battleFogOn) stepBattleFog(worldSeconds)
-  balloonModels?.update(world.balloons, worldSeconds, terrain.collisionHeightAt, burnBalloon)
-  searchlights?.update(elapsed, world.combatants, ctx.camera.position)
-  shipModels?.update(world.ships, (x, y, z) => {
+  if (battleScenery.battleFogOn) stepBattleFog(worldSeconds)
+  battleScenery.balloonModels?.update(world.balloons, worldSeconds, terrain.collisionHeightAt, burnBalloon)
+  battleScenery.searchlights?.update(elapsed, world.combatants, ctx.camera.position)
+  battleScenery.shipModels?.update(world.ships, (x, y, z) => {
     // 砲位被打掉：當場一團火。**借火球池**，不另開一套。
     addShake(cameraShake, x, y, z, GUN_LOST_SHAKE, ctx.camera.position)
     blastLights.flash(x, y, z, GUN_LOST_SHAKE, ctx.camera.position)
@@ -3012,8 +2883,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 重建，所以每幀接一次（沒換就只是比對參考）
   wakes.bindOcean(terrain.oceanHeight)
   wakes.step(worldSeconds, elapsed, terrain.heightAt)
-  shipWakes?.bindOcean(terrain.oceanHeight)
-  shipWakes?.step(world.ships, worldSeconds, elapsed, terrain.heightAt)
+  battleScenery.shipWakes?.bindOcean(terrain.oceanHeight)
+  battleScenery.shipWakes?.step(world.ships, worldSeconds, elapsed, terrain.heightAt)
   vortex.step(worldSeconds)
   spray.step(worldSeconds)
 
@@ -3044,8 +2915,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
 
   // 【雨跟著這一幀的鏡頭】雨絲的方向由雨自己算：雨滴這一幀在鏡頭眼裡移動了多少。
   // 上帝視角不轉，照停著的方向畫
-  if (rain !== null) {
-    rain.update(ctx.camera.position, worldSeconds, frameSeconds, input.godView, rainGroundAt)
+  if (sceneWeather.rain !== null) {
+    sceneWeather.rain.update(ctx.camera.position, worldSeconds, frameSeconds, input.godView, rainGroundAt)
   }
 
   ctx.renderer.render(ctx.scene, ctx.camera)
@@ -3717,18 +3588,7 @@ function setMenuTimeOfDay(tod: TimeOfDay): void {
   menuTimeOfDay = tod
   applyTimeOfDay(ctx, terrain, tod)
   syncFireSmokeLighting()
-  if (tod === 'storm' && storm === null) {
-    storm = createStorm()
-    rain = createRain()
-    ctx.scene.add(rain.object)
-  } else if (tod !== 'storm' && storm !== null) {
-    storm = null
-    if (rain !== null) {
-      ctx.scene.remove(rain.object)
-      rain.dispose()
-      rain = null
-    }
-  }
+  sceneWeather.set(tod)
 }
 
 window.addEventListener('resize', () => menuReel.relayout())
@@ -3752,10 +3612,10 @@ function drawMenuBackground(frameSeconds: number): void {
   wakes.bindOcean(terrain.oceanHeight)
   wakes.step(fx, elapsed, terrain.heightAt)
   terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
-  if (storm !== null) {
-    applyFlash(ctx.lights, ctx.sky, DAY_PALETTES.storm, stepStorm(storm, fx, playThunder))
+  if (sceneWeather.storm !== null) {
+    applyFlash(ctx.lights, ctx.sky, DAY_PALETTES.storm, stepStorm(sceneWeather.storm, fx, playThunder))
   }
-  if (rain !== null) rain.update(ctx.camera.position, fx, frameSeconds, false, rainGroundAt)
+  if (sceneWeather.rain !== null) sceneWeather.rain.update(ctx.camera.position, fx, frameSeconds, false, rainGroundAt)
   ctx.renderer.render(ctx.scene, ctx.camera)
 }
 
@@ -4171,13 +4031,13 @@ Object.assign(window, createGraphicsDiagnostics({
     aircraft: () => [...visuals.values()]
       .flatMap((v) => (v.lod === null ? [v.model.group] : [v.model.group, v.lod.group])),
     battleProps: () => [turretBarrels.object, orderMarkers.object, debris.object, objectiveRing.object],
-    ships: () => (shipModels === null ? [] : [shipModels.object]),
-    ground: () => (groundModels === null ? [] : [groundModels.object]),
-    balloons: () => (balloonModels === null ? [] : [balloonModels.object]),
-    rain: () => (rain === null ? [] : [rain.object]),
+    ships: () => (battleScenery.shipModels === null ? [] : [battleScenery.shipModels.object]),
+    ground: () => (battleScenery.groundModels === null ? [] : [battleScenery.groundModels.object]),
+    balloons: () => (battleScenery.balloonModels === null ? [] : [battleScenery.balloonModels.object]),
+    rain: () => (sceneWeather.rain === null ? [] : [sceneWeather.rain.object]),
     clouds: () => [clouds.object],
-    rainLines: () => (rain === null ? [] : rain.object.children.slice(0, 1)),
-    rainSplash: () => (rain === null ? [] : rain.object.children.slice(1, 2)),
+    rainLines: () => (sceneWeather.rain === null ? [] : sceneWeather.rain.object.children.slice(0, 1)),
+    rainSplash: () => (sceneWeather.rain === null ? [] : sceneWeather.rain.object.children.slice(1, 2)),
     beach: () => (terrainKind === 'leyte' ? terrain.object.children.slice(4) : []),
   },
 }))
@@ -4244,7 +4104,7 @@ Object.assign(window, createGraphicsDiagnostics({
  * 是照那個陣列一路 `add` 的，兩邊靠索引對齊。
  */
 ;(window as unknown as Record<string, unknown>)['__hideGround'] = (id?: string) => {
-  const g = groundModels?.object
+  const g = battleScenery.groundModels?.object
   if (g === undefined) return { hidden: 0, kinds: [] as string[] }
   const list = world.groundTargets
   const kinds = new Set<string>()
@@ -4283,7 +4143,7 @@ Object.assign(window, createGraphicsDiagnostics({
   }
   return {
     seats: visuals.size, withLod, far, nearest: Math.round(nearest),
-    ground: groundModels?.lodState() ?? null,
+    ground: battleScenery.groundModels?.lodState() ?? null,
   }
 }
 
@@ -4317,31 +4177,31 @@ Object.assign(window, createGraphicsDiagnostics({
   }))
 
 /** **量測出口**：地面戰的戲開場到現在打了幾發。`null` = 這一場沒有戲 */
-;(window as unknown as Record<string, unknown>)['__theater'] = () => groundBattle?.shots ?? null
+;(window as unknown as Record<string, unknown>)['__theater'] = () => battleScenery.groundBattle?.shots ?? null
 
 /**
  * **量測出口**：戰場高度霧開關（省略參數 = 查現在的狀態）。同一頁交錯開關量它的成本、拍有霧與沒霧的
  * 同一幀。`null` = 這一場沒有霧
  */
 ;(window as unknown as Record<string, unknown>)['__haze'] = (on?: boolean) => {
-  if (!battleFogOn) return null
+  if (!battleScenery.battleFogOn) return null
   if (on !== undefined) BATTLE_FOG.a.w = on ? 1 : 0
   return BATTLE_FOG.a.w > 0
 }
 
 /** **量測出口**：塵團開關（省略參數 = 查現在的狀態）。`null` = 這一場沒有塵團 */
 ;(window as unknown as Record<string, unknown>)['__dustClouds'] = (on?: boolean) => {
-  const o = groundBattle?.objects.find((x) => x.name === 'groundBattle.dustClouds')
+  const o = battleScenery.groundBattle?.objects.find((x) => x.name === 'groundBattle.dustClouds')
   if (o === undefined) return null
   if (on !== undefined) o.visible = on
   return o.visible
 }
 
 /** **量測出口**：迫擊砲彈開場到現在發了幾發、落地幾發、最近一發落在哪裡。`null` = 這一場沒有戲 */
-;(window as unknown as Record<string, unknown>)['__mortars'] = () => groundBattle === null ? null : {
-  shots: groundBattle.arcShots,
-  landed: groundBattle.arcLanded,
-  last: { ...groundBattle.arcLastLanding },
+;(window as unknown as Record<string, unknown>)['__mortars'] = () => battleScenery.groundBattle === null ? null : {
+  shots: battleScenery.groundBattle.arcShots,
+  landed: battleScenery.groundBattle.arcLanded,
+  last: { ...battleScenery.groundBattle.arcLastLanding },
 }
 
 /**

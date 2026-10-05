@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
  */
 const SRC = new TextDecoder().decode(readFileSync('src/main.ts')).replace(/\r\n/g, '\n').split('\n')
 const ALL = SRC.join('\n')
+const SCENERY = readFileSync('src/render/battleScenery.ts', 'utf8')
 
 function lines(needle: string): number[] {
   const hits: number[] = []
@@ -189,7 +190,9 @@ describe('音效的戰鬥事件接線', () => {
    * 症狀是戰車與反坦克砲整場無聲，而且不報錯。
    */
   it('地面戰的砲口聲：回呼記下最近的一發，playCannons 播完才清', () => {
-    expect(ALL).toContain('createGroundBattle(theater, emitFirePuff, smokeTexture, onGroundImpact, noteGroundShot)')
+    expect(ALL).toContain('burn: emitFirePuff, impact: onGroundImpact, fired: noteGroundShot')
+    expect(ALL).toContain('battleScenery.rebuild(world, pendingMission?.battle.theater)')
+    expect(SCENERY).toContain('createGroundBattle(theater, assets.burn, assets.smokeTexture, assets.impact, assets.fired)')
     const note = body('function noteGroundShot(')
     expect(note).toContain('const tier = groundGunTier(unit)')
     expect(note).toContain('if (tier === null) return')
