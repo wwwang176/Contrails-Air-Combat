@@ -69,7 +69,7 @@ describe('PlayerController', () => {
 })
 
 /**
- * 接線護欄 —— **讀 `main.ts` 的原始碼**（同 `bomb-bay-wiring.test.ts` 的做法）。
+ * 接線護欄 —— 讀主迴圈與玩家操控模組，確保交接在物理之前完成。
  *
  * 交還操縱與接手新機時瞄準方向被一步重設到機首。不清跟瞄歷史的話，不到 5°
  * 的重設會被微分成假的角速度（`FlightDirector.resetTrack`）。
@@ -78,9 +78,14 @@ describe('main.ts：重設瞄準方向時清掉跟瞄歷史', () => {
   const SRC = new TextDecoder().decode(readFileSync('src/main.ts')).replace(/\r\n/g, '\n')
 
   it('交還操縱', () => {
-    expect(SRC).toMatch(
+    const control = readFileSync('src/app/playerControl.ts', 'utf8').replace(/\r\n/g, '\n')
+    expect(control).toMatch(
       /player\.controller = playerController\n(\s*\/\/[^\n]*\n)*\s*input\.aimWorld\.set\(0, 0, -1\)\.applyQuaternion\(player\.aircraft\.state\.orientation\)\n(\s*\/\/[^\n]*\n)*\s*player\.aircraft\.director\.resetTrack\(\)/,
     )
+    const frame = SRC.slice(SRC.indexOf('function stepAndDrawBattle('))
+    const controls = frame.indexOf('stepPlayerControl(battle, player, world, worldSeconds)')
+    expect(controls).toBeGreaterThan(0)
+    expect(controls).toBeLessThan(frame.indexOf('loop.advance('))
   })
 
   it('接手新機', () => {
