@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { markShotSeen, pickNextShot, reelSiteLayout } from '../../src/app/menuReel'
+import { reelSiteLayout } from '../../src/app/menuReel'
+import { markShotSeen, pickNextShot } from '../../src/app/reel/shotSelection'
 
 describe('pickNextShot／markShotSeen：越近播過的越不容易再挑到', () => {
   const ids = ['fleet', 'stream', 'dogfight', 'strike', 'raid', 'stuka']
