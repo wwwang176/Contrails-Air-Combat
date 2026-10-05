@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { createBattle, stepBattle, aliveCount } from '../../src/battle/setup'
+import { createBattle, stepBattle } from '../../src/battle/setup'
+import { aliveCount } from '../../src/battle/objectiveQueries'
 import { battleConfigFrom, uniform, DEFAULT_SKIRMISH } from '../../src/battle/skirmish'
 import { clearKills } from '../../src/world/kills'
 import { clearImpacts } from '../../src/world/events'

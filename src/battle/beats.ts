@@ -76,7 +76,7 @@ export type BeatCondition =
    * 敵機才來」那種波次要它 —— 玩家遲遲不動手，敵機仍然要來。
    *
    * 【計數由呼叫端依 `unit` 數好】`conditionMet` 讀第五個參數，不自己掃目標
-   * （`setup.ts` 的 `countDestroyed`）。
+   * （`objectiveQueries.ts` 的 `countDestroyed`）。
    */
   | {
     readonly kind: 'destroyed'

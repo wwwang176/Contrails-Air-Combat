@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createGroundTarget, resetGroundTarget, stepScriptedKill } from '../../src/world/groundTargets'
 import { createGroundMotion, stepGroundMotion } from '../../src/world/groundMotion'
 import { createImpacts } from '../../src/world/events'
-import { countDestroyed } from '../../src/battle/setup'
+import { countDestroyed } from '../../src/battle/objectiveQueries'
 
 /**
  * # 事件啟動的縱隊與照劇本擊毀

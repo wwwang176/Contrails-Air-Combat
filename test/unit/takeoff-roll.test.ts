@@ -6,7 +6,8 @@ import {
   CLIMB_SECONDS, createTakeoffRoll, GEAR_CLEARANCE, LIFTOFF_SPEED, ROLL_SECONDS, stepTakeoff,
   TAKEOFF_ROLL_GAP, TAKEOFF_STAGGER, TAKEOFF_TRAIL, TAXI_SPEED, TAXI_TURN_RADIUS, TAXI_TURN_RATE, taxiSeconds,
 } from '../../src/control/takeoffRoll'
-import { countDestroyed, createBattle, stepBattle, type Battle } from '../../src/battle/setup'
+import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
+import { countDestroyed } from '../../src/battle/objectiveQueries'
 import { missionConfigFrom, type MissionBattle, type ReadyMissionCard } from '../../src/battle/missions'
 import { flatSeaCrashPolicy } from '../../src/world/seaCrash'
 import { createTargetState, DEFAULT_TARGET, selectTarget } from '../../src/ai/target'

@@ -4,7 +4,7 @@ import {
   createMissionState, stepMission, type MissionInputs, type MissionRules,
 } from '../../src/battle/mission'
 import { conditionMet, type BeatCondition } from '../../src/battle/beats'
-import { countArrived, countDestroyed, destroyedInPool } from '../../src/battle/setup'
+import { countArrived, countDestroyed, destroyedInPool } from '../../src/battle/objectiveQueries'
 import { createGroundTarget } from '../../src/world/groundTargets'
 
 /**

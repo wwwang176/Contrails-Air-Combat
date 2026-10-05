@@ -171,10 +171,8 @@ import type { BattleConfig } from './battle/setup'
 import { DEFAULT_DOCTRINE } from './ai/doctrine'
 import { extendReason } from './ai/rules'
 import type { FlightOrder } from './ai/command'
-import {
-  aliveCount, createBattle, isObjectiveGround, isObjectiveShip, playerFlight, resetBattle,
-  settleAtSpawn, stepBattle, type Battle,
-} from './battle/setup'
+import { createBattle, playerFlight, resetBattle, settleAtSpawn, stepBattle, type Battle } from './battle/setup'
+import { aliveCount, isObjectiveGround, isObjectiveShip } from './battle/objectiveQueries'
 import { flightOfCombatant, isFlightLeader } from './battle/flights'
 import { getLang, onLangChange, readLang, saveLang, setLang, t, type MessageKey } from './i18n'
 import { applyStaticText } from './i18n/dom'

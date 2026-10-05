@@ -13,7 +13,7 @@ import type { GroundTarget } from './groundTargets'
  * 才開始走。同一條路線上前車在前、後車在後，車速相同所以不會追撞。
  *
  * 【抵達】走完全程就退場：`arrived = true`、`alive = false`，**不走擊毀流程**
- * —— 不推擊毀事件、不算進摧毀數（`battle/setup.ts` 的 `destroyedInPool`）。
+ * —— 不推擊毀事件、不算進摧毀數（`battle/objectiveQueries.ts` 的 `destroyedInPool`）。
  *
  * 【停住】有 `holdTau` 的車（縱隊）不退場：走到離終點 `holdBack` 公尺的地方停下，
  * 仍然是戰鬥單位。每一輛的 `holdBack` 不同，所以停下來的縱隊保持車距 —— 全部夾在

@@ -191,7 +191,7 @@ export interface GroundTarget extends StrikeTarget {
   scripted: boolean
   /**
    * 走完路線退場了。**`alive` 同時為 false**：不擋子彈、不是目標、畫面上不畫。
-   * **不算摧毀** —— 它是開到了，不是被打掉（`battle/setup.ts` 的 `destroyedInPool`）。
+   * **不算摧毀** —— 它是開到了，不是被打掉（`battle/objectiveQueries.ts` 的 `destroyedInPool`）。
    */
   arrived: boolean
   /** 落點求解的平面：地面高度加命中盒的頂，世界高度 */

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { isObjectiveGround, isObjectiveShip } from '../../src/battle/setup'
+import { isObjectiveGround, isObjectiveShip } from '../../src/battle/objectiveQueries'
 import type { MissionRules } from '../../src/battle/mission'
 import { createGroundTarget } from '../../src/world/groundTargets'
 import { SHIP_CLASSES, createShip } from '../../src/world/ships'

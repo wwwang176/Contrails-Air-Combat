@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import {
-  aliveCount, createBattle, playerFlight, playerWingman, resetBattle, stepBattle, DEFAULT_BATTLE,
-} from '../../src/battle/setup'
+import { createBattle, playerFlight, playerWingman, resetBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
+import { aliveCount } from '../../src/battle/objectiveQueries'
 import { OPENING_VNE_FRACTION } from '../../src/battle/flightSpawn'
 import { AiController } from '../../src/ai/AiController'
 import { P51D } from '../../src/specs/p51d'
