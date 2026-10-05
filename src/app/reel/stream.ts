@@ -1,6 +1,7 @@
 import { Vector3 } from 'three'
 import { B17G } from '../../specs/b17g'
 import { BF109K4 } from '../../specs/bf109k4'
+import type { CloudSpec } from '../../render/clouds'
 import {
   BOMB_RELEASE_Y, barrage, body, bodyUp, bombAt, edit, rampedOffset, timeline, velocityAt, wingman, wreckAt,
   type Cut, type Path, type ReelCamera, type ReelDecor, type ReelPlane, type ReelProp, type Shot,
@@ -820,9 +821,33 @@ const DECOR: readonly ReelDecor[] = [
   { kind: 'pipeRack', x: 690, z: -1300, heading: 0 },
 ]
 
+/**
+ * 編隊在 400～490 m，雲多半放在它上下 100～300 m、離鏡頭幾百公尺以外的背景裡。每一朵
+ * 擺給一刀當後景，其他刀拍到是順便
+ */
+const CLOUDS: readonly CloudSpec[] = [
+  // 長焦第一刀：編隊右上方遠處
+  { x: 1070, y: 760, z: -900, radius: 45 },
+  // 109 迎面撲來那一刀：右上方
+  { x: 700, y: 570, z: -590, radius: 40 },
+  // 尾砲手與上方砲塔往後看：左後方
+  { x: 730, y: 430, z: 760, radius: 35 },
+  // 伴飛機往前看：左前方遠處
+  { x: 250, y: 420, z: -1160, radius: 35 },
+  // 右腰窗：右僚機炸開時的後景
+  { x: 770, y: 580, z: 570, radius: 45 },
+  // 廠區東緣地上仰看：編隊旁邊
+  { x: -10, y: 450, z: -1540, radius: 50 },
+  // 廠區東北角外仰看：左上方
+  { x: 380, y: 670, z: -570, radius: 50 },
+  // 編隊下方：正上方俯視時在編隊與田之間
+  { x: 330, y: 240, z: -420, radius: 40 },
+]
+
 export const STREAM: Shot = {
   id: 'stream',
   duration: 35.6,
+  clouds: CLOUDS,
   // 十一月的正午：太陽在西南偏南、仰角 25°，天色灰白。編隊往北飛，太陽在它左後方 ——
   // 往北看的鏡頭順光，往南看的逆光（機身背光變暗）
   timeOfDay: 'novemberNoon',

@@ -1,6 +1,7 @@
 import { Vector3 } from 'three'
 import { P51D } from '../../specs/p51d'
 import { BF109K4 } from '../../specs/bf109k4'
+import type { CloudSpec } from '../../render/clouds'
 import {
   body, bodyUp, edit, timeline, type Cut, type Path, type ReelCamera, type ReelEvent, type Shot,
 } from './kit'
@@ -675,9 +676,32 @@ const EVENTS: ReelEvent[] = [
   ...[4.5, 9.0, 16.0, 22.0, 29.0].map((at) => ({ at, kind: 'burst' as const, actor: BG_C + 1, seconds: 0.6, target: BG_C })),
 ]
 
+/**
+ * 纏鬥在 650～1000 m。雲擺在各刀的後景、離鏡頭幾百公尺以外，多半在畫面右半（左半被
+ * 選單蓋住）
+ */
+const CLOUDS: readonly CloudSpec[] = [
+  // 開場往南看：右上方
+  { x: -250, y: 780, z: 580, radius: 40 },
+  // 往北對頭：右上方
+  { x: 290, y: 660, z: -1300, radius: 45 },
+  // 往東看主角打 109 僚機
+  { x: 830, y: 830, z: -420, radius: 40 },
+  // 低處一朵：往下看的幾刀襯在海面上
+  { x: -310, y: 410, z: -730, radius: 45 },
+  // 剪刀那幾刀往東北看
+  { x: 1060, y: 870, z: -1190, radius: 45 },
+  // 仰看野馬僚機切入：高處
+  { x: -230, y: 1340, z: -1100, radius: 50 },
+  { x: 500, y: 640, z: -470, radius: 40 },
+  // 勝利滾轉往北看：遠處
+  { x: 1710, y: 960, z: -2480, radius: 45 },
+]
+
 export const DOGFIGHT: Shot = {
   id: 'dogfight',
   duration: 31,
+  clouds: CLOUDS,
   timeOfDay: 'noon',
   faceSun: false,
   // 動作範圍約 2.5 km 見方。圓要大上好幾倍：掛機與仰拍的鏡頭看得到地平線，
