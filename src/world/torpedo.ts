@@ -281,15 +281,16 @@ export class Torpedoes {
     this.cursor = (i + 1) % this.capacity
     if (this.active[i] === 0) this.liveCount++
     this.x[i] = x; this.y[i] = y; this.z[i] = z
-    this.vx[i] = vx + kx; this.vy[i] = vy + ky; this.vz[i] = vz + kz
     // 【有推力時航向在投放時就定】要的是推力之前的方向，入水速度已經混了推力。
     // 沒有推力的照舊在入水時由入水速度算：兩者只在數學上相同，浮點上差最後一位，
-    // 水平速度貼著退化門檻時甚至會走不同的分支
+    // 水平速度貼著退化門檻時甚至會走不同的分支。速度也原樣存（`-0 + 0` 會變成 `+0`）
     this.kicked[i] = kx !== 0 || ky !== 0 || kz !== 0 ? 1 : 0
     if (this.kicked[i] === 1) {
+      this.vx[i] = vx + kx; this.vy[i] = vy + ky; this.vz[i] = vz + kz
       torpedoHeading(vx, vz, headX, headZ, this.head)
       this.headX[i] = this.head[0]!; this.headZ[i] = this.head[1]!
     } else {
+      this.vx[i] = vx; this.vy[i] = vy; this.vz[i] = vz
       this.headX[i] = headX; this.headZ[i] = headZ
     }
     this.damage[i] = damage
