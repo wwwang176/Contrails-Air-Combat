@@ -281,14 +281,14 @@ export function injectCloudPuff(shader: { vertexShader: string; fragmentShader: 
        varying float vAlpha;
        varying float vCloudDist;`,
     )
+    // 深度那一遍只寫核心：透明度不到 CLOUD_DEPTH_CUTOFF 的柔邊與淡出中的雲塊不寫深度。
+    // 顏色那一遍把照片內部的明暗往白色拉（CLOUD_FLATTEN）；雲底變暗與時段雲色在之後的逐塊顏色裡乘上
     .replace(
       '#include <map_fragment>',
       depthOnly
         ? `#include <map_fragment>
-       // 【深度那一遍只寫核心】透明度不到 CLOUD_DEPTH_CUTOFF 的柔邊與淡出中的雲塊不寫深度
        if (diffuseColor.a * vAlpha * smoothstep(${CLOUD_FADE_NEAR.toFixed(1)}, ${CLOUD_FADE_FAR.toFixed(1)}, vCloudDist) < ${CLOUD_DEPTH_CUTOFF.toFixed(3)}) discard;`
         : `#include <map_fragment>
-       // 照片內部的明暗往白色拉（CLOUD_FLATTEN）；雲底變暗與時段雲色在之後的逐塊顏色裡乘上
        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), ${CLOUD_FLATTEN.toFixed(3)});`,
     )
     .replace(
