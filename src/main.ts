@@ -10,23 +10,23 @@ import { FixedStepAccumulator, MAX_FRAME_SECONDS, clampFrameSeconds } from './co
 import { createPerfOverlay } from './core/perf'
 import { createRangeProbe } from './hud/rangeProbe'
 import { DEG } from './core/math'
+import { indicatedAirspeed } from './core/airspeed'
 import { createScene } from './render/scene'
 import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality } from './render/quality'
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
 import { createCannonAudio } from './audio/cannonAudio'
+import { createAircraftLoopAudio } from './audio/aircraftLoopAudio'
 import { createListenerMotion } from './audio/listenerMotion'
 import { createBattleAudioCues } from './audio/battleAudioCues'
 import {
-  SINGLE_FILES, engineFile, fireFile, sirenFile,
-  turretFile,
+  SINGLE_FILES, engineFile, sirenFile,
 } from './audio/catalog'
 import { STRIKE_HEIGHT, applyFlash, createStorm, rollThunder, stepStorm } from './render/storm'
 import { createRain } from './render/rain'
-import { nearestN } from './audio/nearest'
 import { nearMiss } from './audio/nearMiss'
 import {
-  SIREN_AUDIBLE_DB, dopplerRate, engineRate, noseDownRad,
+  engineRate, noseDownRad,
   shakeGainDb, shakeInterval, sirenParams, windParams,
 } from './audio/curves'
 import { DAY_PALETTES, applyTimeOfDay, type TimeOfDay } from './render/timeOfDay'
@@ -106,7 +106,7 @@ import { createAircraftVisuals } from './render/aircraftVisuals'
 import { Hud } from './hud/Hud'
 import { createAudioMeter, type AudioMeter } from './hud/audioMeter'
 import type { MeterSample } from './audio/meter'
-import { createHudFrame, indicatedAirspeed, nextHitFlash, HUD_MAX_CONTACTS } from './hud/types'
+import { createHudFrame, nextHitFlash, HUD_MAX_CONTACTS } from './hud/types'
 import {
   fillMarkers, type MarkerObjectives, type MarkerPool, type MarkerProject, type ShipMarkerTop,
 } from './hud/markerFeed'
@@ -1879,40 +1879,17 @@ const WHISTLE_RANGE = 400
 /** 一幀掉超過這個比例的 HP 算重擊（高射砲、機砲） */
 const HEAVY_HIT = 0.08
 
-/**
- * 別人的槍：最近這麼多秒內開過火就算「還在開火」，s。
- *
- * 【為什麼要保持】槍口閃光一發只亮 0.03 s，發與發之間有好幾幀是 0 ——
- * 直接看閃光的話，開火的循環一幀開、一幀關，聲道一直釋放又重播。砲塔更嚴重：
- * 不保持的話 60 秒內重啟一千多次。
- *
- * 【自己的槍不用這個】自己那架不播循環 —— 每次擊發播一個齊射 one-shot，
- * 見 `CUE.SelfVolley` 與 `volleyPool`。
- */
-const FIRE_HOLD = 0.25
-
-const ENGINE_KEYS = new Int32Array(8)
-const FIRE_KEYS = new Int32Array(6)
-const TURRET_KEYS = new Int32Array(6)
-const SIREN_KEYS = new Int32Array(4)
 /** 俯衝警笛的暫存：`sirenParams` 的輸出，與每架這一幀的播放速度與增益（依 combatant 的 index） */
 const SIREN = { rate: 0, gainDb: 0 }
-const SIREN_RATE = new Float32Array(64)
-const SIREN_GAIN = new Float32Array(64)
-const AUDIO_POS: Vector3[] = []
-const AUDIO_VALID = new Uint8Array(64)
+
 const WIND = { cutoffHz: 0, gainDb: 0 }
 /** 炸彈呼嘯：每個炸彈槽播過沒有、上一幀的 age（age 變小代表槽被重用） */
 const whistled = new Uint8Array(512)
 const prevBombAge = new Float64Array(512)
-/** 每架飛機前射武器、砲塔最近一次開火的時間（`elapsed`），依座位索引 */
-const lastGunFire = new Float64Array(64)
-const lastTurretFire = new Float64Array(64)
-/** 每架轟炸機的砲塔循環用第幾座的聲音；−1 = 還沒挑。見 `noteTurretFire` */
-const turretPick = new Int16Array(64)
 
 const listenerMotion = createListenerMotion()
 const camVel = listenerMotion.velocity
+const aircraftLoopAudio = createAircraftLoopAudio(audio, ctx.camera.position, camVel)
 
 let prevPlayerHp = -1
 let prevReloading = false
@@ -1932,9 +1909,7 @@ function resetAudioState(): void {
   listenerMotion.reset()
   whistled.fill(0)
   prevBombAge.fill(0)
-  lastGunFire.fill(-Infinity)
-  lastTurretFire.fill(-Infinity)
-  turretPick.fill(-1)
+  aircraftLoopAudio.reset()
   prevPlayerHp = -1
   prevReloading = false
   rattleTimer = 0
@@ -1952,31 +1927,6 @@ function setPlayer(c: Combatant): void {
   battleAudioCues.rebuildVolleyGroups(player)
 }
 
-function anyFlash(a: Float32Array): boolean {
-  for (let i = 0; i < a.length; i++) if (a[i]! > 0) return true
-  return false
-}
-
-/**
- * 記下這架轟炸機的砲塔循環用哪一座的聲音：**最近在開火、管數最多的那一座**。
- *
- * 【只往大的換】閃光一幀一幀在不同砲塔之間跳；每一幀都挑「現在亮著的」的話，
- * 單管、雙聯輪流被選到，每換一次檔就從頭播。停火超過 FIRE_HOLD 才重新挑。
- * 呼叫時 `lastTurretFire` 還是上一次開火的時間。
- */
-function noteTurretFire(c: Combatant): void {
-  const turrets = c.aircraft.spec.turrets
-  let cand = -1
-  for (let i = 0; i < turrets.length; i++) {
-    if (c.turretStates[i]!.flash > 0 && (cand < 0 || turrets[i]!.guns > turrets[cand]!.guns)) cand = i
-  }
-  if (cand < 0) return
-  const i = c.index
-  const cur = turretPick[i]!
-  if (cur < 0 || elapsed - lastTurretFire[i]! >= FIRE_HOLD || turrets[cand]!.guns > turrets[cur]!.guns) turretPick[i] = cand
-  lastTurretFire[i] = elapsed
-}
-
 /**
  * 每一幀、鏡頭定位之後呼叫：播佇列、引擎、開火、砲塔、艦砲、擦過、呼嘯、
  * 受創、晃動、風切、警告、裝填。
@@ -1987,87 +1937,12 @@ function updateAudio(worldSeconds: number): void {
   const flying = me.alive && !input.godView
   // 【先更新聲道再播】搶聲道是比估計響度。不先把播放中的聲道更新到這一幀的距離，
   // 新的聲音拿本幀距離去跟上一幀的舊值比，明明比較響也會被擋掉
-  // 【先更新聲道再播】搶聲道是比估計響度。不先把播放中的聲道更新到這一幀的距離，
-  // 新的聲音拿本幀距離去跟上一幀的舊值比，明明比較響也會被擋掉
   audio.beginFrame()
   listenerMotion.update(ctx.camera.position, worldSeconds)
   battleAudioCues.playFrame(world, player, elapsed, flying)
   cannonAudio.playCannons(world, elapsed)
 
-  const cam = ctx.camera.position
-  const all = world.combatants
-  const n = Math.min(all.length, AUDIO_VALID.length)
-  for (let i = 0; i < n; i++) AUDIO_POS[i] = visuals.get(all[i]!)!.position
-
-  // 引擎：自己不定位；上帝視角時自己也進定位池
-  for (let i = 0; i < n; i++) {
-    const c = all[i]!
-    AUDIO_VALID[i] = c.alive && !c.retired && (c !== me || !flying) ? 1 : 0
-  }
-  let m = nearestN(AUDIO_POS, AUDIO_VALID, n, cam.x, cam.y, cam.z, ENGINE_KEYS)
-  for (let j = 0; j < m; j++) {
-    const c = all[ENGINE_KEYS[j]!]!
-    const p = AUDIO_POS[c.index]!
-    // 【循環音才有多普勒】單次音效的音源是靜止的（爆炸），沒有升降調可言
-    const doppler = dopplerRate(p, c.aircraft.state.velocity, cam, camVel)
-    audio.assign('engine', c.index, engineFile(c.aircraft.spec.id), p.x, p.y, p.z,
-      engineRate(c.command.throttle) * doppler)
-  }
-  // 俯衝警笛（`sirenFile` 有檔的機種）：隊友、敵人、上帝視角的自己；座艙裡的自己走下面的 selfLoop。
-  // 【可聞門檻】巡航中的不進池 —— 免得佔掉四個聲道、也不抬高 HDR 的窗口
-  for (let i = 0; i < n; i++) {
-    const c = all[i]!
-    AUDIO_VALID[c.index] = 0
-    if (!c.alive || c.retired || (c === me && flying) || sirenFile(c.aircraft.spec.id) === null) continue
-    sirenParams(
-      indicatedAirspeed(c.aircraft.diag.aero.tas, c.aircraft.diag.air.sigma) / c.aircraft.spec.limits.vne,
-      noseDownRad(c.aircraft.state.orientation), SIREN)
-    SIREN_RATE[c.index] = SIREN.rate
-    SIREN_GAIN[c.index] = SIREN.gainDb
-    if (SIREN.gainDb > SIREN_AUDIBLE_DB) AUDIO_VALID[c.index] = 1
-  }
-  m = nearestN(AUDIO_POS, AUDIO_VALID, n, cam.x, cam.y, cam.z, SIREN_KEYS)
-  for (let j = 0; j < m; j++) {
-    const c = all[SIREN_KEYS[j]!]!
-    const p = AUDIO_POS[c.index]!
-    audio.assign('siren', c.index, sirenFile(c.aircraft.spec.id)!, p.x, p.y, p.z,
-      SIREN_RATE[c.index]! * dopplerRate(p, c.aircraft.state.velocity, cam, camVel), SIREN_GAIN[c.index]!)
-  }
-  // 開火的保持：最近 FIRE_HOLD 秒內開過火就算還在開火
-  for (let i = 0; i < n; i++) {
-    const c = all[i]!
-    if (anyFlash(c.muzzleFlash)) lastGunFire[i] = elapsed
-    noteTurretFire(c)
-  }
-  // 其他戰鬥機開火
-  for (let i = 0; i < n; i++) {
-    const c = all[i]!
-    // 【上帝視角時自己也算一架】那時自機在畫面裡，開火聲該從它身上來
-    AUDIO_VALID[i] = c.alive && (c !== me || !flying) && fireFile(c.aircraft.spec.id) !== null
-      && elapsed - lastGunFire[i]! < FIRE_HOLD ? 1 : 0
-  }
-  m = nearestN(AUDIO_POS, AUDIO_VALID, n, cam.x, cam.y, cam.z, FIRE_KEYS)
-  for (let j = 0; j < m; j++) {
-    const c = all[FIRE_KEYS[j]!]!
-    const p = AUDIO_POS[c.index]!
-    audio.assign('fire', c.index, fireFile(c.aircraft.spec.id)!, p.x, p.y, p.z,
-      dopplerRate(p, c.aircraft.state.velocity, cam, camVel))
-  }
-  // 砲塔（自己的轟炸機也算 —— 砲塔由 AI 操作）
-  for (let i = 0; i < n; i++) {
-    const c = all[i]!
-    // 【自己那架的後座機槍走齊射庫，不進循環】與前機槍同一個道理（上帝視角時才輪到循環）
-    AUDIO_VALID[i] = c.alive && turretPick[i]! >= 0 && elapsed - lastTurretFire[i]! < FIRE_HOLD
-      && !(c === me && flying && battleAudioCues.ownTurretVolley) ? 1 : 0
-  }
-  m = nearestN(AUDIO_POS, AUDIO_VALID, n, cam.x, cam.y, cam.z, TURRET_KEYS)
-  for (let j = 0; j < m; j++) {
-    const c = all[TURRET_KEYS[j]!]!
-    const t = c.aircraft.spec.turrets[turretPick[c.index]!]!
-    const p = AUDIO_POS[c.index]!
-    audio.assign('turret', c.index, turretFile(t.weapon.id, t.guns), p.x, p.y, p.z,
-      dopplerRate(p, c.aircraft.state.velocity, cam, camVel))
-  }
+  aircraftLoopAudio.update(world.combatants, renderPositions, me, elapsed, flying, battleAudioCues.ownTurretVolley)
   audio.endFrame()
 
   // 自己身上的循環

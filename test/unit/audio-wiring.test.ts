@@ -8,6 +8,8 @@ import { readFileSync } from 'node:fs'
  */
 const SRC = new TextDecoder().decode(readFileSync('src/main.ts')).replace(/\r\n/g, '\n').split('\n')
 const ALL = SRC.join('\n')
+const LOOPS = readFileSync('src/audio/aircraftLoopAudio.ts', 'utf8').replace(/\r\n/g, '\n')
+  .split('\n').map(line => line.replace(/^  /, ''))
 const CUES = readFileSync('src/audio/battleAudioCues.ts', 'utf8').replace(/\r\n/g, '\n')
   .split('\n').map(line => line.replace(/^  /, ''))
 const SCENERY = readFileSync('src/render/battleScenery.ts', 'utf8')
@@ -230,7 +232,8 @@ describe('音效的戰鬥事件接線', () => {
     const play = body('function playCues(', CUES)
     expect(play).toContain("audio.playPool(g.pool, 'fireSelf', 0, 0, 0, false, g.db)")
     const upd = body('function updateAudio(')
-    expect(upd).toContain('!(c === me && flying && battleAudioCues.ownTurretVolley)')
+    expect(upd).toContain('aircraftLoopAudio.update(world.combatants, renderPositions, me, elapsed, flying, battleAudioCues.ownTurretVolley)')
+    expect(body('function update(', LOOPS)).toContain('!(c === me && flying && ownTurretVolley)')
   })
 
   it('記錄擊落、空爆、自己被打', () => {
@@ -274,8 +277,8 @@ describe('音效的戰鬥事件接線', () => {
     for (const call of ['battleAudioCues.playFrame(world, player, elapsed, flying)', 'cannonAudio.playCannons(world, elapsed)']) {
       expect(fn.indexOf('audio.beginFrame()'), call).toBeLessThan(fn.indexOf(call))
     }
-    expect(fn.indexOf('audio.beginFrame()')).toBeLessThan(fn.indexOf('audio.assign('))
-    expect(fn.indexOf('audio.assign(')).toBeLessThan(fn.indexOf('audio.endFrame()'))
+    expect(fn.indexOf('aircraftLoopAudio.update(')).toBeGreaterThan(fn.indexOf('cannonAudio.playCannons('))
+    expect(fn.indexOf('aircraftLoopAudio.update(')).toBeLessThan(fn.indexOf('audio.endFrame()'))
   })
 
   /**
@@ -309,7 +312,7 @@ describe('音效的戰鬥事件接線', () => {
    * 三個循環池都要乘 —— 只給引擎的話，同一架飛機的引擎升調而機槍不動。
    */
   it('三個定位循環都乘上多普勒', () => {
-    const fn = body('function updateAudio(')
+    const fn = body('function update(', LOOPS)
     for (const pool of ["audio.assign('engine'", "audio.assign('fire'", "audio.assign('turret'"]) {
       const at = fn.indexOf(pool)
       expect(at, pool).toBeGreaterThan(0)
@@ -330,7 +333,7 @@ describe('音效的戰鬥事件接線', () => {
     const upd = body('function updateAudio(')
     const call = 'listenerMotion.update(ctx.camera.position, worldSeconds)'
     expect(upd).toContain(call)
-    expect(upd.indexOf(call)).toBeLessThan(upd.indexOf("audio.assign('engine'"))
+    expect(upd.indexOf(call)).toBeLessThan(upd.indexOf('aircraftLoopAudio.update('))
     expect(body('function resetAudioState(')).toContain('listenerMotion.reset()')
   })
 
@@ -397,7 +400,7 @@ describe('音效的戰鬥事件接線', () => {
   it('自己的槍用齊射 one-shot，別人的才用開火循環', () => {
     expect(ALL).not.toContain("audio.selfLoop('fire'")
     expect(body('function playCues(', CUES)).toContain("audio.playPool(g.pool, 'fireSelf'")
-    expect(body('function updateAudio(')).toContain("audio.assign('fire'")
+    expect(body('function update(', LOOPS)).toContain("audio.assign('fire'")
   })
 
   /**

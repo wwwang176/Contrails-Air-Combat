@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
+import { indicatedAirspeed } from '../../src/core/airspeed'
 import {
-  createHudContact, createHudFrame, indicatedAirspeed,
+  createHudContact, createHudFrame,
   contactColor, nextHitFlash, HIT_FLASH_SECONDS, HUD_COLORS, HUD_MAX_CONTACTS,
   contactBoxRadius, type HudLayout,
 } from '../../src/hud/types'
