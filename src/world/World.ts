@@ -25,7 +25,7 @@ import { canRelease, envelopeFor } from '../weapons/releaseEnvelope'
 // 【`attitude-math.ts` 放錯層了】它是純數學（只依賴 three 與 core），
 // 卻住在 `hud/` 底下 —— `camera/godCamera.ts` 也已經跨層引用它。應該搬到
 // `core/`，但那是另一次清理，不在這次合併的範圍。
-import { attitudeFromOrientation } from '../hud/attitude-math'
+import { attitudeFromOrientation } from '../core/attitude'
 import {
   Torpedoes,
   type TorpedoBlockFn, type TorpedoEndFn, type TorpedoPointFn,

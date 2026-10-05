@@ -24,16 +24,13 @@ import { manoeuvreSpeed } from '../ai/doctrine'
 import {
   conditionMet, createBeatStates, type Beat, type BeatState, type FlareBeat, type RecycleBeat,
 } from './beats'
-import { KILL_STRIDE } from '../world/kills'
-import { IMPACT_STRIDE, clearImpacts, type ImpactEvents } from '../world/events'
+import { clearImpacts } from '../world/events'
 import {
-  createBattleReport, queueReport, resetBattleReport, stepBattleReport,
-  type BattleReport, type ReportKind,
-} from '../hud/battleReport'
-import { assistCredits } from '../world/assists'
+  createBattleReport, resetBattleReport, type BattleReport,
+} from './report'
+import { drainKills, drainReports } from './combatEvents'
 import { pilotNames } from './names'
-import { createRoster, recordKill, swapPilots, type Roster } from './pilots'
-import { pickTakeover, TAKEOVER_DELAY } from './takeover'
+import { createRoster, type Roster } from './pilots'
 import { applyFeel, feelFor, type FeelKind } from '../specs/feel'
 import { P51D } from '../specs/p51d'
 import { BF109K4 } from '../specs/bf109k4'
@@ -57,7 +54,6 @@ import { createGroundTarget, resetGroundTarget, type GroundTarget } from '../wor
 import { parkedOffset } from '../world/groundAirframe'
 import type { GroundUnitId } from '../specs/ground'
 import type { MessageKey } from '../i18n'
-import { aircraftNameKey, groundUnitNameKey, shipNameKey } from '../i18n/names'
 import { clearBursts, clearFlak } from '../world/flak'
 import { clearFlares, FLARE_LANES, FLARE_RELIGHT_DELAY, spawnFlare } from '../world/flares'
 import type { BalloonEntry, GroundEntry, MissionFleet } from './missions'
@@ -570,7 +566,7 @@ export interface Battle {
    */
   groundKillsSeen: number
   /**
-   * 玩家自己的戰果通報。**只有玩家的**，見 `hud/battleReport.ts`。
+   * 玩家自己的戰果通報。**只有玩家的**，見 `battle/report.ts`。
    *
    * 【為什麼住在 `Battle` 而不是 `World`】它要分辨「誰是玩家」，而那一層
    * 連隊伍都只知道藍紅（見 `damageEvents` 的說明）。與 `roster` 同一層。
@@ -2174,9 +2170,6 @@ export function aliveCount(cs: readonly Combatant[]): number {
   return n
 }
 
-/** 助攻掃描的暫存。熱路徑之外，但沿用專案的不配置慣例。 */
-const ASSISTS: number[] = []
-
 /**
  * `stepMission` 的輸入快照。每個物理步就地重填 —— 熱路徑不配置。
  *
@@ -2203,145 +2196,6 @@ const MISSION_INPUTS: MissionInputs = {
   vitalSunk: 0,
   vitalHp: 1,
   redInbound: false,
-}
-
-/**
- * 把擊墜緩衝裡的每一筆記進名冊。
- *
- * 【為什麼在 `stepBattle` 而不是 `World`】`World` 不該知道有「名字」或
- * 「玩家」這回事 —— 它連隊伍都只知道 `'blue' | 'red'`。而且放在這裡，
- * 接手的身分互換與擊墜的記錄可以保證在同一個地方、同一個順序
- * （M9 spec §4.3、§7.1）。
- *
- * 【每一筆只記一次，靠流水號】`main.ts` 每幀排空這個緩衝，headless 的測試
- * 不排 —— 同一筆事件會被重掃。游標記的是 `KillEvents.total`（不隨排空
- * 歸零），所以排空之後新的一批不會與它錯位；而重掃到的舊事件流水號小於
- * 游標，直接跳過。理由見 `Battle.killsSeen`。
- */
-function drainKills(b: Battle): void {
-  const ke = b.world.killEvents
-  const w = b.world
-  const first = ke.total - ke.count
-  const seen = b.killsSeen
-  b.killsSeen = ke.total
-  for (let e = 0; e < ke.count; e++) {
-    if (first + e < seen) continue
-    const o = e * KILL_STRIDE
-    const victim = ke.data[o + 6]!
-    const killer = ke.data[o + 7]!
-
-    // 【擊落的累計掛在這裡】這個迴圈已經有 `killsSeen` 游標擋著重掃，而且
-    // 每一次陣亡恰好推一筆事件 —— 重生的席位再死一次會再推一筆，那正是
-    // `hunt` 要數的。自摔也算：`killer` 是 −1，但那一架確實不在了。
-    const v = w.combatants[victim]
-    if (v !== undefined && v.team === 'red') {
-      b.redKilled++
-      if (v.aircraft.spec.role === 'bomber') b.redKilledBombers++
-    }
-    // 【互換必須在記錄之前】反過來的話這次陣亡與兇手的擊墜對象都會記到
-    // 玩家頭上，交換只是把它搬給 AI —— 一個順序解決兩件事（M9 spec §7.1）。
-    //
-    // 【這一段對自摔也要跑】墜海不記 K/D，但**算死亡**，
-    // 而玩家死亡就要換機。把 `killer < 0` 的判斷提到這裡之前，墜海就不再
-    // 觸發接手 —— 玩家從此卡在一架已經退場的飛機裡，而記分板上每個數字
-    // 都正常，沒有任何東西會透露這件事。
-    //
-    // 【判準是「這個座位坐的是不是玩家」而不是 `victim === b.player.index`】
-    // 移交延遲期間玩家的身分已經在新座位上，但 `b.player` 還沒換。用後者
-    // 的話，延遲期間新座位被打死就不會再觸發接手（M9 spec §7.4）。
-    if (b.roster.pilots[victim]?.isPlayer === true) {
-      // 【被護送的那幾架不進接手名單】理由見 `pickTakeover` 的 `exclude`
-      const target = pickTakeover(b.flights, w.combatants, victim, b.convoy?.seats)
-      if (target >= 0) {
-        swapPilots(b.roster, victim, target)
-        b.takeoverSeat = target
-        b.takeoverTimer = TAKEOVER_DELAY
-        // 【死亡鏡頭要看的人】自摔時是 −1，那時鏡頭不轉（`camera/deathCam.ts`）
-        b.takeoverKiller = killer
-      }
-    }
-
-    // 【自摔不掃助攻】`recordKill` 本來就會擋掉，但連掃都不掃才讓「自摔在
-    // 戰績上完全不存在」這件事在這裡看得出來，而不是藏在被呼叫者裡面。
-    if (killer >= 0) {
-      assistCredits(w.damageTime, w.damageStride, victim, killer, w.time, ASSISTS)
-    } else {
-      ASSISTS.length = 0
-    }
-    recordKill(b.roster, victim, killer, ASSISTS)
-
-    // 【排在 `recordKill` 之後】通報與記分板必須說同一件事。尤其接手那一段
-    // 已經把身分搬過座位了 —— 兩邊讀的是同一份 `roster`，就不可能分岔
-    if (b.roster.pilots[killer]?.isPlayer === true) {
-      const spec = w.combatants[victim]?.aircraft.spec
-      const nameKey = spec === undefined ? undefined : aircraftNameKey(spec.id)
-      if (nameKey !== undefined) queueReport(b.report, 'air', nameKey)
-    }
-  }
-}
-
-/**
- * 一種借 `ImpactEvents` 傳的戰果，排進通報。
- *
- * 【為什麼三種共用一支】三個緩衝的格式逐格相同（位置、目標索引、兇手），
- * 差別只在拿索引去查哪一張表。抄三份就是只有一份會被修好的那種危險。
- *
- * 【為什麼不收一個「查名字」的回呼】那會在每個物理步配置一個閉包，而這裡
- * 在 `stepBattle` 裡面。名字的查法因此收在 `reportName` 的 switch。
- *
- * @returns 新的游標
- */
-function drainReportBuffer(
-  b: Battle, e: ImpactEvents, kind: ReportKind, seen: number,
-): number {
-  const first = e.total - e.count
-  for (let i = 0; i < e.count; i++) {
-    if (first + i < seen) continue
-    const o = i * IMPACT_STRIDE
-    // 【兇手在第五格】與 `groundKillEvents` 的註解逐格對應
-    const killer = e.data[o + 4]!
-    if (b.roster.pilots[killer]?.isPlayer !== true) continue
-    const nameKey = reportNameKey(b, kind, e.data[o + 3]!)
-    if (nameKey !== undefined) queueReport(b.report, kind, nameKey)
-  }
-  return e.total
-}
-
-/** 目標索引 → 顯示名的鍵。查不到回 `undefined`，那一筆就不通報 */
-function reportNameKey(b: Battle, kind: ReportKind, index: number): MessageKey | undefined {
-  if (kind === 'ground') {
-    const t = b.world.groundTargets[index]
-    // 【友軍不通報】炸彈不分敵我，玩家炸到自己人不是戰果
-    return t === undefined || t.team === 'blue' ? undefined : groundUnitNameKey(t.unit.id)
-  }
-  // 擊沉與雷擊命中查的是同一張表
-  const s = b.world.ships[index]
-  return s === undefined ? undefined : shipNameKey(s.cls.id)
-}
-
-/**
- * 船與地面目標的戰果，以及過期通報的淘汰。
- *
- * 【飛機那一類不在這裡】它走 `drainKills` —— 那裡才有受害者座位、兇手座位
- * 與接手的身分互換，而且已經有一個游標。
- *
- * 【淘汰排在推進之後】反過來的話這一步剛推的那一則會先被量一次年齡，
- * 而它的年齡是 0 —— 行為相同但讀起來像在防一件不會發生的事。
- */
-function drainReports(b: Battle): void {
-  const w = b.world
-  // 【只有這一條要游標】它有兩個消費者：`main.ts` 點火、這裡生通報，而
-  // 排空的是前者。另外兩條這裡獨佔，掃完就清 —— 不清的話 headless 跑久了
-  // 緩衝會滿，而滿了之後的擊沉就靜靜地不通報
-  b.groundKillsSeen = drainReportBuffer(b, w.groundKillEvents, 'ground', b.groundKillsSeen)
-  // 【命中一定要排在擊沉之前】打沉船的那一枚，兩筆落在同一個物理步裡，
-  // 而跨緩衝的先後**只由這兩行的次序決定** —— 反過來的話畫面上會是
-  // 「擊沉」在下、「雷擊命中」在上，而玩家看到的兩拍是先中再沉
-  drainReportBuffer(b, w.shipHitEvents, 'torpedo', 0)
-  clearImpacts(w.shipHitEvents)
-  drainReportBuffer(b, w.shipKillEvents, 'ship', 0)
-  clearImpacts(w.shipKillEvents)
-  stepBattleReport(b.report, w.time)
 }
 
 /**

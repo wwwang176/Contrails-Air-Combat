@@ -9,7 +9,7 @@ import {
   godMarkerVisible, flightStrengthLabel, godMarkerColor, drawGodMarkers,
 } from '../../src/hud/widgets/godMarkers'
 import { MAX_COMBATANTS } from '../../src/battle/skirmish'
-import { attitudeFromOrientation, headingFromOrientation } from '../../src/hud/attitude-math'
+import { attitudeFromOrientation, headingFromOrientation } from '../../src/core/attitude'
 import { advanceGEffect, resetGEffect } from '../../src/hud/widgets/gEffect'
 import { PILOT_G_NEGATIVE } from '../../src/control/limiters'
 import { TORPEDO_RUN_SAMPLES } from '../../src/world/torpedo'

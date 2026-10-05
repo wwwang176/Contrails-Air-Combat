@@ -123,7 +123,7 @@ import { createHudFrame, indicatedAirspeed, nextHitFlash, HUD_MAX_CONTACTS } fro
 import {
   fillMarkers, type MarkerObjectives, type MarkerPool, type MarkerProject, type ShipMarkerTop,
 } from './hud/markerFeed'
-import { attitudeFromOrientation, headingFromOrientation } from './hud/attitude-math'
+import { attitudeFromOrientation, headingFromOrientation } from './core/attitude'
 import { createScoreboard, scoreRows, sortScoreRows, type AfterAction } from './ui/scoreboard'
 import { shortName } from './ui/briefing'
 import { resetGEffect } from './hud/widgets/gEffect'
@@ -524,6 +524,7 @@ const METER_SAMPLE: MeterSample = {
   peakDb: -60, reductionDb: 0, loudestDb: -60, voices: 0, cuts: 0, lagMs: 0,
 }
 const hudFrame = createHudFrame()
+const hudAttitude = { pitch: 0, roll: 0 }
 /**
  * 受擊方向轉座標用的暫存。**模組層** —— 排空發生在物理子步的回呼裡，
  * 一幀可能跑八次，在裡面 new 就是每幀八次配置。
@@ -3155,7 +3156,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 一次的話，玩家的回補與連投間隔會快一倍。
   //
   // 【包絡每幀都算】它是準星的顏色，而準星在一般飛行時也畫
-  const att = attitudeFromOrientation(renderQuat)
+  const att = attitudeFromOrientation(renderQuat, hudAttitude)
   const agl = renderPos.y - terrain.collisionHeightAt(renderPos.x, renderPos.z)
   // 【包絡與 agl 只解一次】HUD 的投放閘門與高度弧讀的必須是**這兩個值**，
   // 不是各自再查一次 —— 分家的症狀是「錶上綠燈而扳機沒有反應」，不拋例外

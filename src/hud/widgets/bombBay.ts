@@ -85,7 +85,7 @@ export function pitchHint(env: ReleaseEnvelope, pitch: number): string {
   return pitch > (env.minPitch + env.maxPitch) / 2 ? ' ▼' : ' ▲'
 }
 
-/** 【右滾為正】見 `hud/attitude-math.ts` */
+/** 【右滾為正】見 `core/attitude.ts` */
 export function rollHint(env: ReleaseEnvelope, roll: number): string {
   if (rollOk(env, roll)) return ''
   return roll > 0 ? ' ◀' : ' ▶'

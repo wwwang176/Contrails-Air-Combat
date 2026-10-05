@@ -1,4 +1,4 @@
-import { createBattleReport, type BattleReport } from './battleReport'
+import { createBattleReport, type BattleReport } from '../battle/report'
 import { createDamageMarks, type DamageMark } from './damageMarks'
 import { ARENA_COUNTDOWN, SKIRMISH_ARENA } from '../world/arena'
 import type { OrdnanceKind } from '../weapons/stores'
