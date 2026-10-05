@@ -55,7 +55,7 @@ import {
   type BlastPools,
 } from './render/blast'
 import { MORTAR_BLAST_SCALE } from './render/mortarBlast'
-import { createFireball, FIREBALL_COUNT, FIREBALL_SPEED } from './render/fireball'
+import { createFireball } from './render/fireball'
 import { createFlakBursts, emitFlakBursts, resetFlakBurstSeed } from './render/flakBursts'
 import { createFlareLights } from './render/flares'
 import { createShipModels, shipModelTop } from './render/ships'
@@ -128,8 +128,8 @@ import {
 } from './camera/godCamera'
 import { applyBlend, createCameraBlend } from './camera/cameraBlend'
 import {
-  GUN_LOST_SHAKE, KILL_SHAKE,
-  addShake, applyCameraShake, createCameraShake, hudShakeAngle, hudShakeShiftX,
+  KILL_SHAKE,
+  applyCameraShake, createCameraShake, hudShakeAngle, hudShakeShiftX,
   hudShakeShiftY, stepCameraShake,
 } from './camera/cameraShake'
 import { createInputState } from './input/InputState'
@@ -309,8 +309,6 @@ const tracers = createTracers()
 ctx.scene.add(tracers.object)
 /** 探照燈眩光的十字貼圖：畫一次、每一場共用 */
 const glareTexture = makeGlareTexture()
-/** 砲位陣亡時噴火球用的暫存。熱路徑之外，但仍不配置。 */
-const GUN_LOST_DIR = new Vector3()
 
 const input = createInputState()
 const bindings = attachInput(canvas, input)
@@ -772,7 +770,7 @@ const BLAST_POOLS: BlastPools = {
 const battleAudioCues = createBattleAudioCues(audio, ctx.camera.position, CRASH_BLAST_HEIGHT)
 const blastPresentation = createBlastPresentation({
   BLAST_POOLS, cameraPosition: ctx.camera.position, cameraShake,
-  blastLights, blastSparks, debris, groundFires,
+  blastLights, blastSparks, debris, groundFires, fireball,
 })
 
 /**
@@ -1811,22 +1809,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   if (battleScenery.battleFogOn) stepBattleFog(worldSeconds)
   battleScenery.balloonModels?.update(world.balloons, worldSeconds, terrain.collisionHeightAt, burnBalloon)
   battleScenery.searchlights?.update(elapsed, world.combatants, ctx.camera.position)
-  battleScenery.shipModels?.update(world.ships, (x, y, z) => {
-    // 砲位被打掉：當場一團火。**借火球池**，不另開一套。
-    addShake(cameraShake, x, y, z, GUN_LOST_SHAKE, ctx.camera.position)
-    blastLights.flash(x, y, z, GUN_LOST_SHAKE, ctx.camera.position)
-    for (let k = 0; k < FIREBALL_COUNT; k++) {
-      GUN_LOST_DIR.set(
-        Math.cos(k * 2.39963) * 0.7, Math.abs(Math.sin(k * 1.7)) * 0.9, Math.sin(k * 2.39963) * 0.7,
-      ).normalize()
-      fireball.emit(
-        x, y, z,
-        GUN_LOST_DIR.x * FIREBALL_SPEED * 0.5,
-        GUN_LOST_DIR.y * FIREBALL_SPEED * 0.5,
-        GUN_LOST_DIR.z * FIREBALL_SPEED * 0.5,
-      )
-    }
-  })
+  battleScenery.shipModels?.update(world.ships, blastPresentation.emitGunLostBlast)
   // ── 魚雷的航跡 ───────────────────────────────────────
   //
   // 【在渲染幀率餵，不在物理步】帶子是視覺，取樣間隔由它自己按走過的距離

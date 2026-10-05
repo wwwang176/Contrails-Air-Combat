@@ -1,7 +1,7 @@
-import type { Vector3 } from 'three'
+import { Vector3 } from 'three'
 import { hash01 } from '../core/hash'
 import {
-  GROUND_KILL_SHAKE, KILL_SHAKE, addShake, ordnanceShakeScale, type createCameraShake,
+  GROUND_KILL_SHAKE, GUN_LOST_SHAKE, KILL_SHAKE, addShake, ordnanceShakeScale, type createCameraShake,
 } from '../camera/cameraShake'
 import { blastScaleOf } from '../weapons/bomb'
 import { IMPACT_STRIDE, clearImpacts, type ImpactEvents } from '../world/events'
@@ -18,6 +18,8 @@ import { lightGroundFire, type createGroundFires } from './groundFires'
 import type { createBlastLights } from './blastLights'
 import type { createBlastSparks } from './blastSparks'
 import type { createTerrain } from './terrain'
+import { FIREBALL_COUNT, FIREBALL_SPEED } from './fireball'
+import type { Particles } from './particles'
 
 type BlastTerrain = Pick<ReturnType<typeof createTerrain>, 'collisionHeightAt' | 'waterAt'>
 
@@ -29,6 +31,8 @@ export interface BlastPresentationPools {
   readonly blastSparks: Pick<ReturnType<typeof createBlastSparks>, 'burst'>
   readonly debris: Pick<ReturnType<typeof createDebris>, 'burst'>
   readonly groundFires: ReturnType<typeof createGroundFires>
+  /** 艦砲殉爆使用的火球池；與 BLAST_POOLS.fireball 的碎塊池分開。 */
+  readonly fireball: Pick<Particles, 'emit'>
 }
 
 /**
@@ -73,8 +77,27 @@ const REEL_TORPEDO_SPLASH = 0.004
 /** 戰鬥與選單共用爆炸呈現。建立一次；配方暫存與種子跨換場保留。
  * 地形、時間與事件由呼叫端傳入，不持有戰局，也不在事件迴圈配置物件。 */
 export function createBlastPresentation({
-  BLAST_POOLS, cameraPosition, cameraShake, blastLights, blastSparks, debris, groundFires,
+  BLAST_POOLS, cameraPosition, cameraShake, blastLights, blastSparks, debris, groundFires, fireball,
 }: BlastPresentationPools) {
+  const GUN_LOST_DIR = new Vector3()
+
+  /** 傳給艦船模型的固定回呼；每次砲位陣亡只觸發一次，不在幀迴圈建立。 */
+  function emitGunLostBlast(x: number, y: number, z: number): void {
+    addShake(cameraShake, x, y, z, GUN_LOST_SHAKE, cameraPosition)
+    blastLights.flash(x, y, z, GUN_LOST_SHAKE, cameraPosition)
+    for (let k = 0; k < FIREBALL_COUNT; k++) {
+      GUN_LOST_DIR.set(
+        Math.cos(k * 2.39963) * 0.7, Math.abs(Math.sin(k * 1.7)) * 0.9, Math.sin(k * 2.39963) * 0.7,
+      ).normalize()
+      fireball.emit(
+        x, y, z,
+        GUN_LOST_DIR.x * FIREBALL_SPEED * 0.5,
+        GUN_LOST_DIR.y * FIREBALL_SPEED * 0.5,
+        GUN_LOST_DIR.z * FIREBALL_SPEED * 0.5,
+      )
+    }
+  }
+
   /** 依當量縮放後的配方。建立呈現器時配置一次，每次爆炸重用。 */
   const SCALED_BLAST: { -readonly [K in keyof BlastParams]: number } = { ...LAND_BLAST }
 
@@ -351,6 +374,7 @@ export function createBlastPresentation({
   }
 
   return {
+    emitGunLostBlast,
     reelGroundKill,
     emitMortarBlast,
     emitKillBlasts,
