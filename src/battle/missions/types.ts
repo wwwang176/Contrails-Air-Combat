@@ -9,6 +9,7 @@ import type { FeelKind } from '../../specs/feel'
 import type { Team } from '../../world/World'
 import type { TerrainKind } from '../../world/terrainKind'
 import type { TimeOfDay } from '../../world/timeOfDay'
+import type { ArenaBounds } from '../../world/arena'
 import type { Loadout } from '../../weapons/stores'
 import type { TakeoffLine } from '../../control/takeoffRoll'
 import type { GroundMotion } from '../../world/groundMotion'
@@ -591,6 +592,14 @@ export interface MissionBattle {
    * 逐位元重播的護欄會開始被純視覺的改動弄紅。
    */
   readonly timeOfDay?: TimeOfDay
+  /**
+   * 玩家的戰場邊界（`world/arena.ts`）。圓心與半徑要把開場雙方站位、目標點、地面目標
+   * 與船全部圈進去、離界至少 1 km（`mission-arena.test.ts`）；半徑不小於
+   * `ARENA_MIN_RADIUS`。重生的出生點不必在界內 —— 它們出生後朝戰場飛進來。
+   *
+   * 與時段同理，只在 `main.ts` 讀，不進 `BattleConfig`。
+   */
+  readonly arena: ArenaBounds
 }
 
 /**

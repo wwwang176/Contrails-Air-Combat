@@ -28,7 +28,7 @@ import {
 import { DAY_PALETTES, applyTimeOfDay, type TimeOfDay } from './render/timeOfDay'
 import { FAR_LAND_NAME } from './render/leyteGround'
 import { flatSeaCrashPolicy } from './world/seaCrash'
-import { arenaKills, createArenaState, stepArena } from './world/arena'
+import { arenaKills, createArenaState, SKIRMISH_ARENA, stepArena, type ArenaBounds } from './world/arena'
 import { createTerrain, preloadTerrainScenery, type TerrainGfx, type TerrainKind } from './render/terrain'
 import { createObjectiveRing } from './render/objectiveRing'
 import { timeScale } from './battle/mission'
@@ -486,19 +486,23 @@ const playerAi = new AiController()
  */
 const arena = createArenaState()
 
+/** 這一場的界：任務讀卡片，遭遇戰用 `SKIRMISH_ARENA`。由 `resetArena` 換 */
+let arenaBounds: ArenaBounds = SKIRMISH_ARENA
+
 /**
- * 開一場新的（或重開一場）時把界歸零。
+ * 開一場新的（或重開一場）時把界歸零，並換上這一場的界。
  *
  * 【兩個進場點都要呼叫】`restartBattle` 是「再打一場」，`enterBattle` 是
  * 由選單進來 —— 只接前者的話，爆炸之後回選單再開一場會沿用已經 expired
  * 的狀態，玩家一進場就爆。
- *
- * 【只有遭遇戰有界】任務卡的撤離點在 −20,000 m、護航的集合點 12,000 m，
- * 兩者都在界外。
  */
 function resetArena(): void {
   Object.assign(arena, createArenaState())
-  hudFrame.arenaShow = mode === 'skirmish'
+  arenaBounds = mode === 'mission' && pendingMission !== null ? pendingMission.battle.arena : SKIRMISH_ARENA
+  hudFrame.arenaShow = true
+  hudFrame.arenaX = arenaBounds.x
+  hudFrame.arenaZ = arenaBounds.z
+  hudFrame.arenaRadius = arenaBounds.radius
 }
 
 /**
@@ -2922,7 +2926,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     // 【在物理步裡推，不在幀尾】一幀可能跑好幾個物理步，而倒數吃的是
     // 物理時間 —— 在幀尾推的話界外的秒數會隨幀率漂
     const pp = player.aircraft.state.position
-    stepArena(arena, pp.x, pp.y, pp.z, dt)
+    stepArena(arena, arenaBounds, pp.x, pp.y, pp.z, dt)
     hitsThisFrame += player.hitsDealt
     // 【排在所有事件清除之前】見 `queueAudioCues`
     queueAudioCues()
@@ -2994,6 +2998,9 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 自動成立了。
   if (battle.player !== player) {
     setPlayer(battle.player)
+    // 【界的倒數跟著機體】出界爆炸後 `expired` 是單向的；不清的話接手的僚機在界內
+    // 也會在下一個物理步被 `crashPolicy` 殺掉
+    Object.assign(arena, createArenaState())
     playerAi.selfIndex = player.index
     playerAi.setDecisionPhase(player.index / world.combatants.length)
     // 換了機體就換了位置，上一個座位的地形承諾不再適用

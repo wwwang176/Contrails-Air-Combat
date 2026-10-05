@@ -182,7 +182,7 @@ describe('落點矩陣：界', () => {
     for (const c of TABLE) expect(c.seconds).toBeLessThan(BOMB_MAX_SECONDS)
   })
 
-  it('最遠的一格仍在戰場半徑（ARENA_RADIUS = 12,000 m）之內', () => {
+  it('最遠的一格仍在遭遇戰的戰場半徑（12,000 m）之內', () => {
     for (const c of TABLE) expect(c.throw_).toBeLessThan(12000)
   })
 

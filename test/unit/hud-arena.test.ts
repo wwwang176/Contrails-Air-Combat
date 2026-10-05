@@ -3,7 +3,9 @@ import { drawArena } from '../../src/hud/widgets/arena'
 import { drawMinimap } from '../../src/hud/widgets/minimap'
 import { createHudFrame, type HudLayout } from '../../src/hud/types'
 import { hudWidgets, WIDGET_DRAW } from '../../src/hud/Hud'
-import { ARENA_RADIUS } from '../../src/world/arena'
+import { SKIRMISH_ARENA } from '../../src/world/arena'
+
+const ARENA_RADIUS = SKIRMISH_ARENA.radius
 import { t } from '../../src/i18n'
 
 const LAYOUT: HudLayout = {
@@ -73,10 +75,11 @@ describe('返回戰場的警告', () => {
     expect(c.texts).toHaveLength(0)
   })
 
-  it('createHudFrame 的初值是界內、而且沒有界', () => {
+  it('createHudFrame 的初值是界內、而且沒有界；界的位置是遭遇戰的', () => {
     const f = createHudFrame()
     expect(f.arenaOutside).toBe(false)
     expect(f.arenaShow).toBe(false)
+    expect([f.arenaX, f.arenaZ, f.arenaRadius]).toEqual([0, 0, ARENA_RADIUS])
   })
 })
 
@@ -124,6 +127,22 @@ describe('小地圖上的界', () => {
     expect(hit).toBeDefined()
     expect(hit!.x).toBeCloseTo(-3000 * px, 6)
     expect(hit!.y).toBeCloseTo(1000 * px, 6)
+  })
+
+  it('任務的界：圓心與半徑照這一場的界，不是世界原點', () => {
+    const f = createHudFrame()
+    f.arenaShow = true
+    f.arenaX = 2000
+    f.arenaZ = -4000
+    f.arenaRadius = 13000
+    f.worldX = 3000
+    f.worldZ = -1000
+    const c = fakeCtx()
+    drawMinimap(c.ctx, LAYOUT, f)
+    const hit = c.arcs.find((a) => Math.abs(a.r - 13000 * px) < 1e-6)
+    expect(hit).toBeDefined()
+    expect(hit!.x).toBeCloseTo((2000 - 3000) * px, 6)
+    expect(hit!.y).toBeCloseTo((-4000 + 1000) * px, 6)
   })
 
   it('沒有界就不畫那個圓', () => {

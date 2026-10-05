@@ -4,7 +4,6 @@ import { createBattle, settleAtSpawn, stepBattle, type Battle } from '../../src/
 import type { GroundTarget } from '../../src/world/groundTargets'
 import { ENTRY_PLANS, type SideEntry } from '../../src/battle/entry'
 import { DEFAULT_BATTLE } from '../../src/battle/setup'
-import { ARENA_RADIUS } from '../../src/world/arena'
 import { GROUND_LIGHT_FLAK_SPEC } from '../../src/world/shipGuns'
 import { FRONT_HEADING, GERMAN_FLAK, SOVIET_FLAK, toLocal, VILLAGE_BOX } from '../../src/world/rzhev'
 import { AiController } from '../../src/ai/AiController'
@@ -227,9 +226,10 @@ describe('勒熱夫的進場對準戰場', () => {
     expect(slant(nearestOf(red, GERMAN_FLAK))).toBeLessThan(flakReach)
   })
 
-  it('兩隊開場位置都在競技場裡', () => {
-    expect(Math.hypot(blue.x, blue.z)).toBeLessThan(ARENA_RADIUS)
-    expect(Math.hypot(red.x, red.z)).toBeLessThan(ARENA_RADIUS)
+  it('兩隊開場位置都在這一關的界裡', () => {
+    const a = card.battle.arena
+    expect(Math.hypot(blue.x - a.x, blue.z - a.z)).toBeLessThan(a.radius)
+    expect(Math.hypot(red.x - a.x, red.z - a.z)).toBeLessThan(a.radius)
   })
 
   /**

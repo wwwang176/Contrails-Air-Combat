@@ -11,7 +11,7 @@ import { WOBBLE_MAX } from '../../src/world/archipelago'
 import { HILL_GAP } from '../../src/world/farmland'
 import { DEFAULT_SAFETY } from '../../src/ai/safety'
 import { terrainCeiling } from '../../src/ai/terrainSense'
-import { ARENA_RADIUS } from '../../src/world/arena'
+import { MISSIONS } from '../../src/battle/missions'
 import { SHIP_CLASSES } from '../../src/world/ships'
 
 /**
@@ -344,7 +344,8 @@ describe('撤離點', () => {
       expect(Math.hypot(lo.cx, lo.cz - EVACUATE_Z) - lo.radius * WOBBLE_MAX, `${lo.cx},${lo.cz}`)
         .toBeGreaterThanOrEqual(300 - 1e-6)
     }
-    expect(EVACUATE_Z).toBeLessThan(ARENA_RADIUS)
+    const a = MISSIONS.japan.find((c) => c.id === 'japan-m2')!.battle!.arena
+    expect(Math.hypot(0 - a.x, EVACUATE_Z - a.z)).toBeLessThan(a.radius)
   })
 })
 

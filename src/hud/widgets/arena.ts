@@ -7,9 +7,7 @@ import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
  * 【為什麼秒數用 ceil】剩 0.2 秒時顯示 0 會讓玩家以為已經沒救了。
  * 進位之後「畫面上的 1」與「還有時間」是同一件事。
  *
- * 【為什麼要 `arenaShow`】界只掛在遭遇戰上 —— 任務卡的撤離點在 −20 km、
- * 護航的集合點 12 km，兩者都在界外。沒有這一格的話，任務裡飛去撤離點會
- * 一路閃警告。
+ * 【為什麼要 `arenaShow`】選單與機庫沒有界；戰鬥中遭遇戰與任務都有。
  *
  * 【上帝視角也要畫】界不看視角（`main.ts` 的 `crashPolicy` 不分），所以
  * 少了它上帝視角裡飛機會無預警爆炸。這一條由 `Hud.ts` 的 `GOD` 清單落實。

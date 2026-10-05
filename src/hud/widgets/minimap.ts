@@ -1,5 +1,4 @@
 import { contactColor, HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
-import { ARENA_RADIUS } from '../../world/arena'
 import { drawCachedLayer, LOW_RATE, LOW_RATE_PHASE, newLayerCache } from './layerCache'
 
 /** 方框內那一塊，低頻重畫 */
@@ -108,17 +107,17 @@ function mapInterior(
   }
   ctx.stroke()
 
-  // 【戰場邊界】小地圖半徑 4 km、界 12 km，所以只有靠近時才進得了畫面 ——
+  // 【戰場邊界】小地圖半徑 4 km、界 10～13 km，所以只有靠近時才進得了畫面 ——
   // 那正是它該出現的時機。
   //
-  // 【圓心是世界原點相對於玩家】這一段仍在 translate 到玩家、rotate 了
-  // −heading 的座標系裡，所以原點落在 (−worldX·px, −worldZ·px)。
+  // 【圓心是界的圓心相對於玩家】這一段仍在 translate 到玩家、rotate 了
+  // −heading 的座標系裡，所以圓心落在 ((arenaX − worldX)·px, (arenaZ − worldZ)·px)。
   // 畫在 `ctx.restore()` 之後的話這個算式就不成立了
   if (f.arenaShow) {
     ctx.strokeStyle = HUD_COLORS.warn
     ctx.lineWidth = 1.5 * L.scale
     ctx.beginPath()
-    ctx.arc(-f.worldX * px, -f.worldZ * px, ARENA_RADIUS * px, 0, Math.PI * 2)
+    ctx.arc((f.arenaX - f.worldX) * px, (f.arenaZ - f.worldZ) * px, f.arenaRadius * px, 0, Math.PI * 2)
     ctx.stroke()
   }
 

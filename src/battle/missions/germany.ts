@@ -108,6 +108,8 @@ export const GERMANY: readonly MissionCard[] = [
       targetDistance: 12000, targetRadius: 1000, seconds: Infinity,
       entry: 'headOn',
       terrain: 'autumnFarmland',
+      // 南北一條走廊：轟炸機流從 z −5 km 飛到終點 +12 km
+      arena: { x: 750, z: 3500, radius: 12000 },
       timeOfDay: 'novemberNoon',
       // 【只算轟炸機】打護航機過不了關。**起始值，由試飛裁定**
       huntCount: 6, huntRole: 'bomber',
@@ -159,6 +161,8 @@ export const GERMANY: readonly MissionCard[] = [
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       entry: 'strikeFromNorth',
       terrain: 'rzhev',
+      // 戰場加上三批 Ju 87 從北邊進場的航線
+      arena: { x: -3000, z: 0, radius: 10000 },
       // 【清晨】十一月日出後的低太陽；雪原與霧，地平線一片灰白
       timeOfDay: 'winterMorning',
       /**
@@ -266,6 +270,8 @@ export const GERMANY: readonly MissionCard[] = [
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       entry: 'headOn',
       terrain: 'poltava',
+      // 進場走廊加上機場（0, −7 km）與它的重砲圈
+      arena: { x: 0, z: -2000, radius: 11000 },
       timeOfDay: 'night',
       /**
        * 【1,500 m】輕型砲射程 2,640 m 打得到、重砲也打得到；爬到 3,000 以上
@@ -304,6 +310,8 @@ export const GERMANY: readonly MissionCard[] = [
       // 掃得到一兩架
       entry: 'aschEast',
       terrain: 'asch',
+      // 從東邊 7.6 km 貼地進場到機場（−0.75, −2.5 km）
+      arena: { x: 3000, z: -2500, radius: 10000 },
       timeOfDay: 'dawn',
       /**
        * 【500 m】分隊的高度層是任務高度 ±`altitudeSpread`（300 m），最低那一隊

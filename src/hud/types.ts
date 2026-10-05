@@ -1,6 +1,6 @@
 import { createBattleReport, type BattleReport } from './battleReport'
 import { createDamageMarks, type DamageMark } from './damageMarks'
-import { ARENA_COUNTDOWN } from '../world/arena'
+import { ARENA_COUNTDOWN, SKIRMISH_ARENA } from '../world/arena'
 import type { OrdnanceKind } from '../weapons/stores'
 import type { ReleaseEnvelope } from '../weapons/releaseEnvelope'
 import { TORPEDO_RUN_SAMPLES } from '../world/torpedo'
@@ -270,16 +270,16 @@ export interface HudFrame {
   bombReloading: boolean
   /** 補完還要幾秒。`bombReloading` 為 false 時為 0 */
   bombReloadLeft: number
-  /**
-   * 這一場有沒有戰場邊界。**遭遇戰有，任務卡沒有** —— 撤離點在 −20 km、
-   * 護航的集合點 12 km，兩者都在界外。沒有這一格的話，任務裡飛去撤離點會
-   * 一路閃警告。
-   */
+  /** 這一場有沒有戰場邊界。戰鬥中遭遇戰與任務都有；選單與機庫沒有 */
   arenaShow: boolean
   /** 這一刻在界外嗎 */
   arenaOutside: boolean
   /** 還剩幾秒 */
   arenaRemaining: number
+  /** 這一場的界：世界平面的圓心與半徑，m（小地圖畫圈用） */
+  arenaX: number
+  arenaZ: number
+  arenaRadius: number
   /** 世界平面座標，供小地圖使用 */
   worldX: number
   worldZ: number
@@ -496,6 +496,9 @@ export function createHudFrame(): HudFrame {
     arenaShow: false,
     arenaOutside: false,
     arenaRemaining: ARENA_COUNTDOWN,
+    arenaX: SKIRMISH_ARENA.x,
+    arenaZ: SKIRMISH_ARENA.z,
+    arenaRadius: SKIRMISH_ARENA.radius,
     controlAuthority: 1,
     blueAlive: 0, redAlive: 0, flightAlive: 0, flightSize: 0,
     objectiveActive: false,

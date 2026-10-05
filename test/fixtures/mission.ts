@@ -4,6 +4,7 @@ import { KI84 } from '../../src/specs/ki84'
 import { P51D } from '../../src/specs/p51d'
 import { B17G } from '../../src/specs/b17g'
 import type { MissionBattle, ReadyMissionCard } from '../../src/battle/missions'
+import { SKIRMISH_ARENA } from '../../src/world/arena'
 
 /**
  * 測試與探針用的查卡工具。
@@ -87,6 +88,7 @@ function killCard(): ReadyMissionCard {
       blueCount: 8, redCount: 10,
       entry: 'bounce',
       terrain: 'farmland',
+      arena: SKIRMISH_ARENA,
     },
   }
 }
