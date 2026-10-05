@@ -1,5 +1,5 @@
 import { AdditiveBlending, NormalBlending, type Color, type Object3D, type Texture } from 'three'
-import type { GroundUnitId } from './geometry/ground'
+import type { GroundUnitId } from '../specs/ground'
 import type { GroundTarget } from '../world/groundTargets'
 import type { MissionTheater } from '../battle/missions/types'
 import { createParticles } from './particles'

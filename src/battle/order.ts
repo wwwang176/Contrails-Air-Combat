@@ -4,7 +4,7 @@ import type { EntryPlan, SideEntry } from './entry'
 import type { AircraftSpec } from '../specs/types'
 import type { Team } from '../world/World'
 import type { TakeoffLine } from '../control/takeoffRoll'
-import type { GroundUnitId } from '../render/geometry/ground'
+import type { GroundUnitId } from '../specs/ground'
 
 /**
  * 一個小隊的編成。**外層是小隊、內層是那個小隊的每一架。**

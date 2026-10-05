@@ -3,7 +3,7 @@ import type { Team } from '../world/World'
 import type { AircraftSpec } from '../specs/types'
 import type { FlightPlan } from './order'
 import type { SideEntry } from './entry'
-import type { GroundUnitId } from '../render/geometry/ground'
+import type { GroundUnitId } from '../specs/ground'
 import type { MessageKey } from '../i18n'
 import type { MissionRules } from './mission'
 

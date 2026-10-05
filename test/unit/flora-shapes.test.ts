@@ -3,8 +3,9 @@ import { Box3, Color, Vector3, type BufferGeometry } from 'three'
 import {
   BUILDING_DEPTH, BUILDING_ROOF, BUILDING_WALL, BUILDING_WIDTH,
   createFloraGeometries, disposeFloraGeometries, pointColorOf, POINT_POOLS, POINT_SIZE,
-  POINT_Y, TREE_HEIGHT, type MeshPool, type PointPool,
+  POINT_Y, type MeshPool, type PointPool,
 } from '../../src/render/floraShapes'
+import { TREE_HEIGHT } from '../../src/specs/flora'
 import { HEDGE_BUSH_SPACING } from '../../src/render/flora'
 
 const geo = createFloraGeometries()

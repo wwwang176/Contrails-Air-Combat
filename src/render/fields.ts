@@ -1,6 +1,6 @@
 import { Color } from 'three'
 import { canopyColor, FIELD_COLORS, FLORA_COLORS, PALETTE_STEPS, type FieldColors, type Season } from './season'
-import { BROAD_CROWN_R, CONE_CROWN_R } from './floraShapes'
+import { BROAD_CROWN_R, CONE_CROWN_R } from '../specs/flora'
 import { scarsGlsl, SCARS_DECL, SCARS_FN, type BattleScars } from './battleScars'
 import type { FloraSource } from './flora'
 
@@ -283,7 +283,7 @@ export interface FieldSample {
 /**
  * 32 位元的兩維整數雜湊。**不得 `Math.random`** —— 見檔頭。
  *
- * 【與 `scatter.ts` 的 `hash01` 為什麼不共用】那一支吃一個索引，這裡要
+ * 【與 `core/hash.ts` 的 `hash01` 為什麼不共用】那一支吃一個索引，這裡要
  * 兩個座標而且要拿到 32 位元全部。
  */
 function hash2(i: number, j: number): number {

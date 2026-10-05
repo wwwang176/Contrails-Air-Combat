@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ALL_SPECS } from '../../src/battle/skirmish'
 import { SHIP_CLASSES } from '../../src/world/ships'
-import { GROUND_UNITS } from '../../src/render/geometry/ground'
+import { GROUND_UNITS } from '../../src/specs/ground'
 import {
   aircraftNameKey, groundUnitName, groundUnitNameKey, shipNameKey, weaponNameKey,
 } from '../../src/i18n/names'

@@ -1,5 +1,5 @@
 import { t, type MessageKey } from './index'
-import type { GroundUnitId } from '../render/geometry/ground'
+import type { GroundUnitId } from '../specs/ground'
 import type { ShipClassId } from '../world/ships'
 
 /**

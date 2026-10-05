@@ -5,7 +5,7 @@ import {
   type GroundTarget,
 } from '../../src/world/groundTargets'
 import { NO_PENETRATION_DAMAGE } from '../../src/weapons/armour'
-import { GROUND_UNITS } from '../../src/render/geometry/ground'
+import { GROUND_UNITS } from '../../src/specs/ground'
 import { boundingRadius } from '../../src/world/hit'
 import { BOMB_BLAST_DAMAGE } from '../../src/weapons/bomb'
 

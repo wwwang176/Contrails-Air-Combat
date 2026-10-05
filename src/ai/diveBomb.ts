@@ -6,7 +6,7 @@ import { RHO0 } from '../physics/atmosphere'
 import { WEP_THROTTLE } from '../physics/propulsion'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Command } from '../control/Controller'
-import type { GroundUnitId } from '../render/geometry/ground'
+import type { GroundUnitId } from '../specs/ground'
 import type { GroundTarget } from '../world/groundTargets'
 import type { Team } from '../world/World'
 

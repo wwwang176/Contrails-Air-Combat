@@ -6,7 +6,7 @@ import {
   OPEN_WOOD_GATE, OPEN_WOOD_NEAR_MARGIN,
   valueNoise, VILLAGE_CHANCE, villageDistance, fieldSurfaceColor, WOOD_GRID, type FieldSample, type RegionSample,
 } from '../../src/render/fields'
-import { BROAD_CROWN_R } from '../../src/render/floraShapes'
+import { BROAD_CROWN_R } from '../../src/specs/flora'
 import {
   createFloraBuffer, farmHedgeFlora, farmWoodFlora, FLORA_STRIDE, FloraKind, openHedgeFlora, openWoodFlora,
   villageSite, type FloraSource,

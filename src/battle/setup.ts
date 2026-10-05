@@ -55,7 +55,7 @@ import {
 } from '../world/shipGuns'
 import { createGroundTarget, resetGroundTarget, type GroundTarget } from '../world/groundTargets'
 import { parkedOffset } from '../world/groundAirframe'
-import type { GroundUnitId } from '../render/geometry/ground'
+import type { GroundUnitId } from '../specs/ground'
 import type { MessageKey } from '../i18n'
 import { aircraftNameKey, groundUnitNameKey, shipNameKey } from '../i18n/names'
 import { clearBursts, clearFlak } from '../world/flak'

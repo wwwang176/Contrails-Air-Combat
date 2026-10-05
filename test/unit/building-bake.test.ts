@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { Color } from 'three'
 import { pushFlora, FloraKind, type FloraSource } from '../../src/render/flora'
 import {
-  BRICK_WALL, BROAD_CROWN_R, BUILDING_DEPTH, BUILDING_WIDTH, BUSH_R, CONE_CROWN_R, OLD_ROOF, ROOF, SLATE, WALL,
+  BRICK_WALL, BUILDING_DEPTH, BUILDING_WIDTH, OLD_ROOF, ROOF, SLATE, WALL,
 } from '../../src/render/floraShapes'
+import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from '../../src/specs/flora'
 import { CANOPY_SHADE, FLORA_COLORS } from '../../src/render/season'
 import { TINT_RANGE } from '../../src/render/vegetation'
 import { floraSplats, ROOF_GROW, WALL_SHARE } from '../../src/render/buildingBake'

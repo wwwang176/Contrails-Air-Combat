@@ -5,7 +5,7 @@ import {
   createBattleReport, queueReport, reportAlpha, reportSlide, reportText,
   resetBattleReport, stepBattleReport, type BattleReport, type ReportKind,
 } from '../../src/hud/battleReport'
-import { GROUND_UNITS } from '../../src/render/geometry/ground'
+import { GROUND_UNITS } from '../../src/specs/ground'
 import { aircraftNameKey, groundUnitNameKey, shipNameKey } from '../../src/i18n/names'
 import { setLang, t, type MessageKey } from '../../src/i18n'
 

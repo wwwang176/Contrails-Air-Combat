@@ -1,6 +1,6 @@
 import { isGrass } from './island'
 import { isLeyteGrass, type CanopyMap } from './leyteGround'
-import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from './floraShapes'
+import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from '../specs/flora'
 import type { HeightFieldData } from '../world/heightfield'
 import type { IslandDesc } from '../world/archipelago'
 import { baseHeight, farUpland, isInBeachClearing, isInRoadClearing } from '../world/leyte'

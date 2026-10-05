@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { PLANT_BUILDERS, PLANT_SIZE } from '../../src/render/geometry/ground/plant'
-import { GROUND_UNITS } from '../../src/render/geometry/ground'
+import { PLANT_BUILDERS } from '../../src/render/geometry/ground/plant'
+import { GROUND_UNITS, PLANT_SIZE } from '../../src/specs/ground'
 
 /**
  * 十二座可炸構件的外型。

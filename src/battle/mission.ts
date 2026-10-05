@@ -1,7 +1,7 @@
 import { Vector3 } from 'three'
 import type { Team } from '../world/World'
 import type { AircraftSpec } from '../specs/types'
-import type { GroundUnitId } from '../render/geometry/ground'
+import type { GroundUnitId } from '../specs/ground'
 
 /**
  * 一場戰鬥的結果。`victory` = 任務達成，`defeat` = 任務失敗。

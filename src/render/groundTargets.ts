@@ -1,9 +1,10 @@
 import { BufferGeometry, Group, Mesh, MeshStandardMaterial, Quaternion, Vector3 } from 'three'
 import type { GroundTarget } from '../world/groundTargets'
 import { GEAR_CLEARANCE } from '../control/takeoffRoll'
-import { groundGeometry, groundLodGeometry } from './geometry/ground'
+import { GROUND_MODELS, groundGeometry, groundLodGeometry } from './geometry/ground'
+import { PARKED_TAIL_DOWN } from '../specs/ground'
 import {
-  PARKED_OFFSET_KEY, PARKED_PROP_KEY, PARKED_TAIL_DOWN, type ParkedProp,
+  PARKED_OFFSET_KEY, PARKED_PROP_KEY, type ParkedProp,
 } from './geometry/ground/parked'
 import { useAircraftLod } from './geometry/buildAircraft'
 
@@ -83,10 +84,11 @@ export function createGroundModels(targets: readonly GroundTarget[]): GroundMode
   for (const t of targets) {
     let pair = byId.get(t.unit.id)
     if (pair === undefined) {
+      const { model, lodModel } = GROUND_MODELS[t.unit.id]
       const hi = groundGeometry(t.unit)
-      if ('build' in t.unit.model) owned.push(hi)
+      if ('build' in model) owned.push(hi)
       const lo = groundLodGeometry(t.unit)
-      if (lo !== null && t.unit.lodModel !== undefined && 'build' in t.unit.lodModel) owned.push(lo)
+      if (lo !== null && lodModel !== undefined && 'build' in lodModel) owned.push(lo)
       pair = { hi, lo }
       byId.set(t.unit.id, pair)
     }

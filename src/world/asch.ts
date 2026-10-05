@@ -5,7 +5,7 @@ import { FARM_CELL, FARM_SIZE, HILL_PEAK_MAX } from './farmland'
 import { drawHillLobes } from './leuna'
 import { TAKEOFF_ROLL_GAP, TAXI_SPEED, type TakeoffLine, type TaxiPoint } from '../control/takeoffRoll'
 import type { CrateField, ParkedVehicle } from './depot'
-import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from '../render/floraShapes'
+import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from '../specs/flora'
 
 /**
  * # Y-29（比利時 Asch）：德 M3 專用的地形

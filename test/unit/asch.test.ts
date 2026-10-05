@@ -4,7 +4,7 @@ import {
   FIELD_TREE_CLEAR, FLAK_SITES, HOLD_ROWS, HUTS, inField, PARKED_ROWS, PAVED, PSP_STEEL, ROAD_WIDTH, RUNWAY, STAND_LANES, STAND_PADS,
   TAKEOFF_LINE, TAXI_LOOP, taxiRoute, TREE_CLUMPS, VEHICLES, worldToField, type FieldRect,
 } from '../../src/world/asch'
-import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from '../../src/render/floraShapes'
+import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from '../../src/specs/flora'
 import { RUNWAY_CONCRETE } from '../../src/world/poltava'
 import { PAD_CLEARANCE } from '../../src/world/leuna'
 import { FARM_CELL, HILL_GAP, HILL_LIMIT } from '../../src/world/farmland'

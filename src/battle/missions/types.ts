@@ -1,5 +1,5 @@
 import type { Vector3 } from 'three'
-import type { GroundUnitId } from '../../render/geometry/ground'
+import type { GroundUnitId } from '../../specs/ground'
 import type { EntryPlanId } from '../entry'
 import type { ShipClassId } from '../../world/ships'
 import type { ShipGunSpec } from '../../world/shipGuns'

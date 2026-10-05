@@ -14,7 +14,7 @@ import type { Command } from '../control/Controller'
 import type { Ship } from '../world/ships'
 import type { GroundTarget } from '../world/groundTargets'
 import type { Team } from '../world/World'
-import type { GroundUnitId } from '../render/geometry/ground'
+import type { GroundUnitId } from '../specs/ground'
 
 /**
  * # AI 的對艦索敵與掃射

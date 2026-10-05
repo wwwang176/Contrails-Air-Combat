@@ -72,7 +72,7 @@ import type { Ship } from '../world/ships'
 import type { GroundTarget } from '../world/groundTargets'
 import type { StrikeTarget } from '../world/strikeTarget'
 import type { Team } from '../world/World'
-import type { GroundUnitId } from '../render/geometry/ground'
+import type { GroundUnitId } from '../specs/ground'
 
 /**
  * 轟炸機鎖定的打擊目標：在哪一份清單、第幾個。`index` 為 −1 = 沒有。

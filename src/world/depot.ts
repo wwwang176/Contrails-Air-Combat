@@ -1,4 +1,4 @@
-import type { GroundUnitId } from '../render/geometry/ground'
+import type { GroundUnitId } from '../specs/ground'
 
 /**
  * # 補給場的佈景：木箱堆與停著的車

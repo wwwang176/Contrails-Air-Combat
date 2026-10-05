@@ -4,7 +4,7 @@ import {
   createFloraBuffer, createIslandFlora, islandCanopyCover, FloraKind, FLORA_STRIDE,
   ISLAND_GRID,
 } from '../../src/render/flora'
-import { BUSH_R, CONE_CROWN_R } from '../../src/render/floraShapes'
+import { BUSH_R, CONE_CROWN_R } from '../../src/specs/flora'
 import { createArchipelago, type IslandDesc } from '../../src/world/archipelago'
 import { isGrass, shade } from '../../src/render/island'
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Vector3 } from 'three'
-import { GROUND_UNITS } from '../../src/render/geometry/ground'
+import { GROUND_UNITS } from '../../src/specs/ground'
 import { createGroundModels } from '../../src/render/groundTargets'
 import { createGroundTarget } from '../../src/world/groundTargets'
 

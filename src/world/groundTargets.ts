@@ -1,6 +1,6 @@
 import { Quaternion, Vector3 } from 'three'
 import { boundingRadius, type Box } from './hit'
-import { GROUND_UNITS, type GroundUnit, type GroundUnitId } from '../render/geometry/ground'
+import { GROUND_UNITS, type GroundUnit, type GroundUnitId } from '../specs/ground'
 import type { StrikeTarget } from './strikeTarget'
 import { resetGroundBattery } from './shipGuns'
 import type { ShipGun } from './ships'

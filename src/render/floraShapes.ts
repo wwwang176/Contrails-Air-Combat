@@ -1,5 +1,6 @@
 import { BufferAttribute, BufferGeometry, Color } from 'three'
 import { FIELD_COLORS, FLORA_COLORS, type Season } from './season'
+import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R, TREE_HEIGHT } from '../specs/flora'
 
 /**
  * 植被與建築的幾何。**每一個都是一堆三角形，不共用頂點。**
@@ -20,13 +21,6 @@ import { FIELD_COLORS, FLORA_COLORS, type Season } from './season'
  * 0.5～1.0 之間抖，所以場上是 15～30 m 的樹與 4～8 m 的灌木。
  */
 
-/**
- * 縮放 1.0 的喬木高度，m。
- *
- * 放置那一側在 0.5～1.0 之間抖（`TREE_SCALE`），所以場上的樹是 15～30 m。
- */
-export const TREE_HEIGHT = 30
-
 export type PoolName =
   | 'broadNear' | 'broadMid' | 'broadPoint'
   | 'coneNear' | 'coneMid' | 'conePoint'
@@ -44,21 +38,9 @@ export const POINT_POOLS: readonly PoolName[] = ['broadPoint', 'conePoint', 'bus
  * 都不動。分開寫死的話，改了一級忘了另一級，症狀就是過門檻時樹冠跳位置。
  */
 const BROAD_CROWN_Y0 = 10
-/** 【匯出是給 `flora.ts` 算雷伊泰的樹冠覆蓋率的】 */
-export const BROAD_CROWN_R = 10
 const BROAD_CROWN_RY = 10
 const BROAD_CROWN_CY = 20
 const CONE_CROWN_Y0 = 8
-/** 【匯出是給 `flora.ts` 算樹冠覆蓋率的】地色要按它上色 */
-export const CONE_CROWN_R = 7
-
-/**
- * 灌木的半徑。**要比樹籬的間距寬** —— 相鄰兩叢交疊才成一條連續的堤，
- * 見 `HEDGE_BUSH_SPACING`。
- *
- * 【匯出是給 `flora.ts` 算樹冠覆蓋率的】
- */
-export const BUSH_R = 6
 const BUSH_RY = 4
 const BUSH_CY = 4
 const BUSH_CARD_TOP = 8
