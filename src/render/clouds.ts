@@ -53,11 +53,11 @@ export interface CloudPuff {
 export const CLOUD_ATLAS_URL = '/textures/cloud-puffs.png'
 export const CLOUD_ATLAS_SIDE = 4
 /** 全部雲朵合計最多幾團雲塊 */
-export const CLOUD_PUFF_CAPACITY = 512
+export const CLOUD_PUFF_CAPACITY = 1536
 /** 每這麼多公尺半徑一團雲塊；一朵雲的團數夾在 `CLOUD_PUFFS_MIN`～`CLOUD_PUFFS_MAX` */
-export const CLOUD_PUFF_SPACING = 14
-export const CLOUD_PUFFS_MIN = 4
-export const CLOUD_PUFFS_MAX = 28
+export const CLOUD_PUFF_SPACING = 4.7
+export const CLOUD_PUFFS_MIN = 12
+export const CLOUD_PUFFS_MAX = 84
 /** 雲塊直徑，倍半徑（貼圖四周有留白，所以比雲塊實際的樣子大） */
 export const CLOUD_PUFF_SIZE = 1.1
 /** 雲頂比雲底高多少，倍半徑 */
