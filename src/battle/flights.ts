@@ -278,14 +278,12 @@ export function stationReferenceOf(fi: FlightIndex, index: number): number {
  * **分隊物件**。`FlightIndex` 裡本來就有一個叫 `flightOf` 的 `Int32Array`
  * 在回傳序號，兩者混淆的代價很高。
  *
- * 【為什麼回傳物件而不是三個數】呼叫端（`main.ts` 的 HUD 迴圈）每幀跑幾十次，
+ * 【為什麼回傳物件而不是三個數】呼叫端（`hud/contactFeed.ts`）每幀跑幾十次，
  * 回傳一個新物件就是每幀幾十次配置。這裡回的是 `flights` 陣列裡那一個實體。
  *
- * 【為什麼要有這個函數】它與 `isFlightLeader` 存在的唯一理由是**讓
- * `main.ts` 裡那兩條規則測得到** —— 那個檔案在模組載入時就摸 `document`，
- * 進不了 vitest。
+ * 與 `isFlightLeader` 共用編制索引，讓 HUD 的分隊與長機標記遵循同一份規則。
  */
-export function flightOfCombatant(fi: FlightIndex, index: number): Flight | null {
+export function flightOfCombatant(fi: Pick<FlightIndex, 'flightOf' | 'flights'>, index: number): Flight | null {
   if (index < 0 || index >= fi.flightOf.length) return null
   const f = fi.flightOf[index]!
   return f >= 0 ? fi.flights[f]! : null
@@ -301,7 +299,7 @@ export function flightOfCombatant(fi: FlightIndex, index: number): Flight | null
  * 【繼位不需要特例】`compactFlights` 每個物理步保序重壓，長機陣亡後
  * `members[0]` 自動換成下一位存活者。
  */
-export function isFlightLeader(fi: FlightIndex, index: number): boolean {
+export function isFlightLeader(fi: Pick<FlightIndex, 'flightOf' | 'positionOf'>, index: number): boolean {
   if (index < 0 || index >= fi.flightOf.length) return false
   return fi.flightOf[index]! >= 0 && fi.positionOf[index] === 0
 }
