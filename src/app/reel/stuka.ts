@@ -1,7 +1,7 @@
 import { Vector3 } from 'three'
 import { JU87 } from '../../specs/ju87'
 import { hash01 } from '../../render/scatter'
-import type { CloudSpec } from '../../render/clouds'
+import { scatterClouds, type CloudSpec } from '../../render/clouds'
 import {
   BOMB_RELEASE_Y, barrage, bombAt, body, bodyUp, edit, propAt, propTravel, timeline, velocityAt,
   type Cut, type Path, type ReelCamera, type ReelEvent, type ReelPlane, type ReelProp, type Shot,
@@ -1015,6 +1015,8 @@ const CLOUDS: readonly CloudSpec[] = [
   { x: 220, y: 1300, z: -60, radius: 110 },
   // 編隊右邊遠處：第一刀地平線上、隊形後面
   { x: 280, y: 1690, z: 470, radius: 90 },
+  // 遠景：鏡頭離圓心最遠約 0.75 km，圓環從 1.5 km 起
+  ...scatterClouds({ x: 50, z: -200, inner: 1500, outer: 6500, yMin: 1100, yMax: 2100, rMin: 70, rMax: 150, count: 50, seed: 1 }),
 ]
 
 const PLANES: readonly ReelPlane[] = [

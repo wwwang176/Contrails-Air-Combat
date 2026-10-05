@@ -157,6 +157,40 @@ export function cloudPuff(c: CloudSpec, seed: number, k: number, out: CloudPuff)
   return out
 }
 
+/** 一圈散佈的雲：圓心、內外半徑、雲底高度範圍、雲的半徑範圍、朵數與種子（m） */
+export interface CloudScatter {
+  readonly x: number
+  readonly z: number
+  readonly inner: number
+  readonly outer: number
+  readonly yMin: number
+  readonly yMax: number
+  readonly rMin: number
+  readonly rMax: number
+  readonly count: number
+  readonly seed: number
+}
+
+/**
+ * 在 `inner`～`outer` 的圓環裡按面積均勻撒 `count` 朵雲（純函數，種子一樣就一樣）。給遠景
+ * 補雲：圓環內留給動作與鏡頭，鏡頭往外看時地平線上才不會空著
+ */
+export function scatterClouds(s: CloudScatter): CloudSpec[] {
+  const out: CloudSpec[] = []
+  for (let k = 0; k < s.count; k++) {
+    const h = s.seed * 6151 + k * 131
+    const a = hash01(h + 1) * Math.PI * 2
+    const r = Math.sqrt(s.inner * s.inner + hash01(h + 2) * (s.outer * s.outer - s.inner * s.inner))
+    out.push({
+      x: s.x + Math.cos(a) * r,
+      y: s.yMin + hash01(h + 3) * (s.yMax - s.yMin),
+      z: s.z + Math.sin(a) * r,
+      radius: s.rMin + hash01(h + 4) * (s.rMax - s.rMin),
+    })
+  }
+  return out
+}
+
 /**
  * 個別時段的雲色再往指定顏色拉（`mix` = 0 不動、1 整個換掉）。光照算出來的雲色只跟著
  * 燈走：黃昏的低角度日光被天光沖淡成粉褐、暴雨的散射光仍是淺灰，都不像那個時段的雲

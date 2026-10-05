@@ -1,7 +1,7 @@
 import { Vector3 } from 'three'
 import { P51D } from '../../specs/p51d'
 import { BF109K4 } from '../../specs/bf109k4'
-import type { CloudSpec } from '../../render/clouds'
+import { scatterClouds, type CloudSpec } from '../../render/clouds'
 import {
   body, bodyUp, edit, timeline, type Cut, type Path, type ReelCamera, type ReelEvent, type Shot,
 } from './kit'
@@ -696,6 +696,8 @@ const CLOUDS: readonly CloudSpec[] = [
   { x: 500, y: 640, z: -470, radius: 40 },
   // 勝利滾轉往北看：遠處
   { x: 1710, y: 960, z: -2480, radius: 45 },
+  // 遠景：鏡頭離圓心最遠 1.1 km，圓環從 1.8 km 起
+  ...scatterClouds({ x: 400, z: -900, inner: 1800, outer: 6500, yMin: 500, yMax: 1300, rMin: 70, rMax: 150, count: 50, seed: 3 }),
 ]
 
 export const DOGFIGHT: Shot = {

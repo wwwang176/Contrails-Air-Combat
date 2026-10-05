@@ -1,7 +1,7 @@
 import { Vector3 } from 'three'
 import { B17G } from '../../specs/b17g'
 import { BF109K4 } from '../../specs/bf109k4'
-import type { CloudSpec } from '../../render/clouds'
+import { scatterClouds, type CloudSpec } from '../../render/clouds'
 import {
   BOMB_RELEASE_Y, barrage, body, bodyUp, bombAt, edit, rampedOffset, timeline, velocityAt, wingman, wreckAt,
   type Cut, type Path, type ReelCamera, type ReelDecor, type ReelPlane, type ReelProp, type Shot,
@@ -842,6 +842,8 @@ const CLOUDS: readonly CloudSpec[] = [
   { x: 380, y: 670, z: -570, radius: 50 },
   // 編隊下方：正上方俯視時在編隊與田之間
   { x: 330, y: 240, z: -420, radius: 40 },
+  // 遠景：最遠的鏡頭（開場長焦）離圓心 1.8 km，圓環從 2.4 km 起
+  ...scatterClouds({ x: 480, z: -300, inner: 2400, outer: 6500, yMin: 450, yMax: 900, rMin: 70, rMax: 150, count: 50, seed: 2 }),
 ]
 
 export const STREAM: Shot = {

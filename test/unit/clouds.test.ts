@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Color, ShaderLib, Texture } from 'three'
 import {
   CLOUD_ATLAS_SIDE, CLOUD_TILES, CLOUD_PUFFS_MAX, CLOUD_PUFFS_MIN, cloudColorOf, cloudPuff, cloudPuffCount, createClouds,
-  injectCloudPuff, type CloudPuff,
+  injectCloudPuff, scatterClouds, type CloudPuff,
 } from '../../src/render/clouds'
 import { DAY_PALETTES } from '../../src/render/timeOfDay'
 
@@ -81,6 +81,23 @@ describe('cloudPuff：一朵雲的雲塊', () => {
     const puffs = Array.from({ length: 20 }, (_, k) => ({ ...cloudPuff(c, 1, k, p) }))
     puffs.sort((u, v) => u.dy - v.dy)
     expect(puffs[0]!.shade).toBeLessThan(puffs[puffs.length - 1]!.shade)
+  })
+
+  it('scatterClouds：種子一樣就一樣、都在圓環與高度／半徑範圍內', () => {
+    const s = { x: 300, z: -900, inner: 2000, outer: 6000, yMin: 500, yMax: 1200, rMin: 40, rMax: 80, count: 50, seed: 7 }
+    const a = scatterClouds(s)
+    expect(a).toEqual(scatterClouds(s))
+    expect(a.length).toBe(50)
+    for (const q of a) {
+      const r = Math.hypot(q.x - s.x, q.z - s.z)
+      expect(r).toBeGreaterThanOrEqual(s.inner - 1e-6)
+      expect(r).toBeLessThanOrEqual(s.outer + 1e-6)
+      expect(q.y).toBeGreaterThanOrEqual(s.yMin)
+      expect(q.y).toBeLessThanOrEqual(s.yMax)
+      expect(q.radius).toBeGreaterThanOrEqual(s.rMin)
+      expect(q.radius).toBeLessThanOrEqual(s.rMax)
+    }
+    expect(scatterClouds({ ...s, seed: 8 })).not.toEqual(a)
   })
 
   it('團數照半徑、夾在上下限之間', () => {
