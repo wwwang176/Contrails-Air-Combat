@@ -1,10 +1,11 @@
-import { Quaternion, Vector3 } from 'three'
+import { Vector3 } from 'three'
+import { createTorpedoContacts } from './torpedoContacts'
 import { makeScratch } from '../core/pool'
 import { mountDirection } from '../weapons/types'
 import { stepCadence } from '../weapons/cadence'
 import {
-  boundingRadius, createHitResult, segmentBox, segmentPointDistanceSq,
-  NO_HIT, partDamage, type HitPart,
+  boundingRadius, createHitResult,
+  partDamage, type HitPart,
 } from './hit'
 import { Projectiles } from './Projectiles'
 import { createImpacts, pushImpact, type ImpactEvents } from './events'
@@ -15,7 +16,7 @@ import {
 } from './bomb'
 import { createBombObstacleQuery } from './bombObstacles'
 import { applyBombBlast } from './bombBlast'
-import { popIfDead, sinkIfDead } from './targetDeaths'
+import { popIfDead } from './targetDeaths'
 import { ProjectileHits } from './projectileHits'
 import {
   createBombBay, resetBombBay, stepBombBay,
@@ -24,10 +25,7 @@ import {
 import { loadoutOf, type Loadout } from '../weapons/stores'
 import { canRelease, envelopeFor } from '../weapons/releaseEnvelope'
 import { attitudeFromOrientation } from '../core/attitude'
-import {
-  Torpedoes,
-  type TorpedoBlockFn, type TorpedoEndFn, type TorpedoPointFn,
-} from './torpedo'
+import { Torpedoes } from './torpedo'
 import { createKills, pushKill, type KillEvents } from './kills'
 import { createDamageEvents, type DamageEvents } from './damage'
 import type { LandField } from './occlusion'
@@ -172,7 +170,7 @@ export type CrashPolicy = (c: Combatant) => boolean
 /** 預設政策：平海面。headless 測試與對戰矩陣用這一個。 */
 const SEA_LEVEL: CrashPolicy = (c) => c.aircraft.state.position.y <= 0
 
-/** 發射與魚雷碰撞重用的暫存；兩者依序執行。 */
+/** 固定機槍發射重用的暫存。 */
 const S = makeScratch(3)
 
 /** 投放偏移與推力的暫存。模組級 —— 熱路徑不得配置 */
@@ -180,16 +178,13 @@ const BOMB_PAIR = { u: 0, v: 0 }
 const BOMB_VEL: BombState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
 const DRIFT = { x: 0, z: 0 }
 const RELEASE_ATTITUDE = { pitch: 0, roll: 0 }
-/** 世界 → 艦體的逆姿態。模組級，熱路徑不得配置。 */
-const SHIP_INV = /* @__PURE__ */ new Quaternion()
 /**
  * 投雷時的機首水平方向。**熱路徑不得配置**，所以是模組層級的一格。
  *
- * 【為什麼不併進 `S`】那一組在 `onTorpedoBlocked` 的
- * 迴圈裡活著，而投放回呼可能在同一個物理步裡被呼叫。
+ * 與固定機槍發射的 `S` 分開，避免投放與槍口運算共用中間結果。
  */
 const NOSE_H = /* @__PURE__ */ new Vector3()
-/** 撞船判定用的暫存。與 `SHIP_INV` 分開 —— 兩者同時活著。 */
+/** 飛機撞船時，船體命中盒的世界中心。 */
 const HULL_C = /* @__PURE__ */ new Vector3()
 /** 飛機命中盒的世界中心，撞船時與 HULL_C 同時使用。 */
 const BODY_C = /* @__PURE__ */ new Vector3()
@@ -438,8 +433,8 @@ export class World {
    * 水花，只有規模不同（`main.ts` 決定）。與 `hitEvents` 一樣由呼叫端排空。
    */
   readonly torpedoWakeEvents: ImpactEvents = createImpacts()
-  /** `onTorpedoBlocked` 找到的那一艘，`onTorpedoEnd` 接著讀。 */
-  private torpedoShip: Ship | null = null
+  /** 魚雷碰撞查詢與事件回呼只在建構時建立。 */
+  private readonly torpedoContacts = createTorpedoContacts(this)
 
   /**
    * 這一個物理步的擊墜事件。與 `hitEvents` 一樣由**呼叫端**排空。
@@ -752,8 +747,8 @@ export class World {
     // 中心** —— 與炸彈一樣。水中段是定深等速直線，只由航程回收。
     this.torpedoes.step(
       dt, this.bombDrag, this.groundAt, this.waterAt,
-      this.onTorpedoEnd, this.onTorpedoEntry, this.onTorpedoWake,
-      this.ships.length > 0 ? this.onTorpedoBlocked : undefined,
+      this.torpedoContacts.end, this.torpedoContacts.entry, this.torpedoContacts.wake,
+      this.ships.length > 0 ? this.torpedoContacts.block : undefined,
     )
 
     // 4. 命中判定
@@ -785,100 +780,6 @@ export class World {
     pushImpact(this.bombEvents, x, y, z, kind, damage, index)
   }
 
-
-  /**
-   * 投一顆。位置與速度都是**世界座標**。
-   *
-   * 【方向帶 ±0.1° 的偏移】同一串投下去的彈不會落在一條數學直線上。偏移量
-   * 由**累計投彈序號**決定（`spreadPair`）而不是 `Math.random()` —— 後者
-   * 讓同一場重播不出同一個結果，而這個專案為「逐位元重播」寫過鐵律
-   * （見 `resetBattle` 對 `world.time` 的說明）。
-   *
-   * @param damage 這一顆的爆心傷害。**由投彈的那一台的掛載決定**
-   *               （`weapons/stores.ts`），整顆彈的規模都從它推導。
-   */
-  /**
-   * 魚雷引爆。**接觸引爆：只有直接命中的那一艘扣血。**
-   *
-   * 【沒有範圍傷害，也不掃飛機】真實魚雷是接觸引信，而「水下
-   * 爆炸炸傷了空中的飛機」講不通。所以這一支與 `applyBombBlast` 不共用。
-   */
-  private readonly onTorpedoEnd: TorpedoEndFn = (x, y, z, kind, damage, team, owner) => {
-    const sh = this.torpedoShip
-    // 【同隊的船擋得住雷，但雷對它無效】船是實體，不是空氣 —— 友軍艦擋在
-    // 航路上時雷撞上去就沒了。但它**不扣血、也不推爆炸事件**：畫面上不該
-    // 在自家船邊長出一根水柱。
-    if (kind === 1 && sh !== null && (sh.team === 'blue' ? 0 : 1) === team) return
-    // 【沉船只擋，不再扣血】`sinkIfDead` 對已經沉的船本來就早退，這一行的
-    // `sh.alive` 是讓意圖看得出來
-    if (kind === 1 && sh !== null && sh.alive) {
-      // 【推在扣血之前】沉沒事件由 `sinkIfDead` 推進另一個緩衝，兩者的
-      // 先後由消費端的排空次序決定（`drainReports`），不是這裡
-      pushImpact(this.shipHitEvents, x, y, z, sh.index, owner, 0)
-      sh.hp -= damage
-      sinkIfDead(sh, owner, this.shipKillEvents)
-    }
-    // 【`nz` 帶命中的那一艘，撞岸是 −1】與炸彈同一個約定，見 `onBombImpact`
-    pushImpact(
-      this.torpedoEvents, x, y, z, kind, damage,
-      kind === 1 && sh !== null ? sh.index : -1,
-    )
-  }
-
-  /**
-   * 魚雷入水。**與航跡走同一個管道** —— 兩者的表現都是水面上的一叢水花。
-   *
-   * 【高度改讀含浪的水面】`Torpedoes` 給的 `y` 是平海的碰撞高度（那一個
-   * 值要與瞄具的落點逐位元相同，護欄在 `torpedo.test.ts`）；水花要浮在
-   * **看得見**的水面上。讀不到水面時退回原值 —— 那是岸邊的淺帶，兩支
-   * 地形 API 在那裡的答案本來就不一致。
-   */
-  private readonly onTorpedoEntry: TorpedoPointFn = (x, y, z) => {
-    const w = this.waterAt(x, z)
-    pushImpact(this.torpedoWakeEvents, x, Number.isFinite(w) ? w : y, z, 0, 0, 0)
-  }
-
-  private readonly onTorpedoWake: TorpedoPointFn = (x, y, z) => {
-    pushImpact(this.torpedoWakeEvents, x, y, z, 0, 0, 0)
-  }
-
-  /**
-   * 魚雷這一步有沒有撞上船。**只掃船體盒，不掃砲位。**
-   *
-   * 【這是成本決定，不是行為差異】炸彈是面殺傷，落在砲座上與落在甲板上都
-   * 算打中，所以那一支兩種盒都掃。魚雷在水面下 1 m，而砲位盒全部在甲板上
-   * （Essex 最低的在 y = 14.18）—— 掃了也永遠不會命中，只是白花錢。
-   * 掃與不掃在行為上等價，`torpedo-vs-ship.test.ts` 的護欄因此分不出兩者；
-   * 它守的是「砲位不會被魚雷打掉」這條規則本身。
-   *
-   * 【比較的形狀】`NO_HIT` 是 **−1** 不是 `Infinity`，所以不能只寫
-   * `t >= best`：初值 −1 會讓每一個合法的 `t ≥ 0` 都被跳過。
-   */
-  private readonly onTorpedoBlocked: TorpedoBlockFn = (x0, y0, z0, x1, y1, z1) => {
-    this.torpedoShip = null
-    if (this.ships.length === 0) return NO_HIT
-    let best = NO_HIT
-    // 【沉船照樣擋】它不再開火、不再算勝負，但船體還浮在那裡 —— 跳過它的話
-    // 雷會穿過一艘船去打後面那一艘，而畫面上看得一清二楚。
-    // 同隊的船也擋（雷對它無效由 `onTorpedoEnd` 處理）
-    for (const sh of this.ships) {
-      if (segmentPointDistanceSq(
-        x0, y0, z0, x1, y1, z1, sh.position.x, sh.position.y, sh.position.z,
-      ) > sh.cls.radius * sh.cls.radius) continue
-
-      SHIP_INV.copy(sh.orientation).conjugate()
-      const a = S.v[0]!.set(x0, y0, z0).sub(sh.position).applyQuaternion(SHIP_INV)
-      const b = S.v[1]!.set(x1, y1, z1).sub(sh.position).applyQuaternion(SHIP_INV)
-
-      for (const box of sh.cls.hull) {
-        const t = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, box)
-        if (t === NO_HIT || (best !== NO_HIT && t >= best)) continue
-        best = t
-        this.torpedoShip = sh
-      }
-    }
-    return best
-  }
 
   /**
    * 投一枚魚雷。位置與速度都是**世界座標**。
@@ -914,6 +815,17 @@ export class World {
     )
   }
 
+  /**
+   * 投一顆。位置與速度都是**世界座標**。
+   *
+   * 【方向帶 ±0.1° 的偏移】同一串投下去的彈不會落在一條數學直線上。偏移量
+   * 由**累計投彈序號**決定（`spreadPair`）而不是 `Math.random()` —— 後者
+   * 讓同一場重播不出同一個結果，而這個專案為「逐位元重播」寫過鐵律
+   * （見 `resetBattle` 對 `world.time` 的說明）。
+   *
+   * @param damage 這一顆的爆心傷害。**由投彈的那一台的掛載決定**
+   *               （`weapons/stores.ts`），整顆彈的規模都從它推導。
+   */
   /**
    * @param team  投放者的隊別，`teamSlot`。只有 HUD 標記讀它。
    *              **沒有預設值** —— 漏傳會靜靜地把彈標成藍色
