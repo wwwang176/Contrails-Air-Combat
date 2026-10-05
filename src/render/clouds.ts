@@ -75,7 +75,12 @@ export const CLOUD_PUFF_SIZE = 1.1
 /** 雲頂比雲底高多少，倍半徑 */
 export const CLOUD_DOME = 0.45
 /** 雲底的雲塊比雲頂暗多少（1 − 這個 = 雲底的亮度） */
-export const CLOUD_BASE_DARK = 0.28
+export const CLOUD_BASE_DARK = 0.08
+/**
+ * 雲塊照片內部的明暗往白色拉多少（0 = 照片原樣，1 = 整塊純色）。照片的暗處一明顯，雲塊之間
+ * 沒有前後排序（見檔頭）就看得出後面的雲塊疊在前面
+ */
+export const CLOUD_FLATTEN = 0.6
 /** 每團雲塊的不透明度（再乘上貼圖本身的透明度） */
 export const CLOUD_ALPHA = 0.85
 /** 離相機這麼近完全透明、這麼遠才完全不透明，m */
@@ -87,7 +92,7 @@ export const CLOUD_FADE_FAR = 90
  */
 export const CLOUD_CULL_NEAR = 33
 /** 雲色配方：日光、天空半球光、環境光各佔多少；日光強度以正午 2.2 為 1 */
-export const CLOUD_SUN = 0.55
+export const CLOUD_SUN = 0.65
 export const CLOUD_SKY = 0.45
 export const CLOUD_AMBIENT = 1
 const CLOUD_SUN_REF = 2.2
@@ -186,6 +191,12 @@ export function injectCloudPuff(shader: { vertexShader: string; fragmentShader: 
       `#include <common>
        varying float vAlpha;
        varying float vCloudDist;`,
+    )
+    .replace(
+      '#include <map_fragment>',
+      `#include <map_fragment>
+       // 照片內部的明暗往白色拉（CLOUD_FLATTEN）；雲底變暗與時段雲色在之後的逐塊顏色裡乘上
+       diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), ${CLOUD_FLATTEN.toFixed(3)});`,
     )
     .replace(
       '#include <dithering_fragment>',
