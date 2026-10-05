@@ -32,11 +32,12 @@ export interface ReleaseEnvelope {
 }
 
 /**
- * 炸彈的包絡。**只擋退化狀態。**
+ * 炸彈的包絡，轟炸機與戰鬥機掛彈共用。**只擋退化狀態。**
  *
  * 【90° 是「翻過去就不能投」】顛倒飛不能投彈。
  *
- * 【60 m 是自己的爆炸半徑的兩倍】基準彈的 `BOMB_BLAST_RADIUS` 是 30 m。
+ * 【沒有高度下界】任何高度都投得出去。投得太低被自己的爆風波及是玩家的代價，
+ * 不由包絡擋；AI 另有自己的下限（`AiController` 的 `bombGround`）。
  *
  * 平飛投彈時這一張永遠不作用 —— 與瞄具的 70° 圓錐是同一種東西：安全網，
  * 不是常態限制。**起始值，由試飛裁定。**
@@ -45,7 +46,7 @@ export const BOMB_ENVELOPE: ReleaseEnvelope = {
   maxRoll: 90 * DEG,
   minPitch: -90 * DEG,
   maxPitch: 90 * DEG,
-  minAgl: 60,
+  minAgl: 0,
   maxAgl: Infinity,
   minTas: 0,
   maxTas: Infinity,
@@ -84,23 +85,10 @@ export const TORPEDO_ENVELOPE: ReleaseEnvelope = {
 }
 
 /**
- * 戰鬥機掛彈的包絡。與 `BOMB_ENVELOPE` 只差離地高度的下界。
- *
- * 【3 m】戰鬥轟炸是貼地掃過去投的，60 m 的下界會讓低空進場的玩家扣了
- * 扳機沒反應。自己被爆風波及是玩家的代價，不由包絡擋。**起始值，由試飛裁定。**
+ * 這一種彈的包絡。**玩家的準星與 AI 的投放門檻都由這裡取**，兩邊才不會分家。
  */
-export const FIGHTER_BOMB_ENVELOPE: ReleaseEnvelope = {
-  ...BOMB_ENVELOPE,
-  minAgl: 3,
-}
-
-/**
- * 這一種彈、這一種機投的包絡。**玩家的準星與 AI 的投放門檻都由這裡取**，
- * 兩邊才不會分家。
- */
-export function envelopeFor(kind: OrdnanceKind, role: 'fighter' | 'bomber'): ReleaseEnvelope {
-  if (kind === 'torpedo') return TORPEDO_ENVELOPE
-  return role === 'fighter' ? FIGHTER_BOMB_ENVELOPE : BOMB_ENVELOPE
+export function envelopeFor(kind: OrdnanceKind): ReleaseEnvelope {
+  return kind === 'torpedo' ? TORPEDO_ENVELOPE : BOMB_ENVELOPE
 }
 
 /**

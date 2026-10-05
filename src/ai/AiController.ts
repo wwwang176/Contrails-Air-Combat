@@ -543,8 +543,8 @@ export class AiController implements Controller {
    * 飛機拉回車隊上方打轉。
    *
    * 【離目標太低不放】炸彈的爆風不分敵我、也炸得到投彈的自己（`World` 的
-   * `applyBombBlast`）。玩家的投彈下限只有 3 m（`FIGHTER_BOMB_ENVELOPE`），
-   * 那是玩家自己的代價；AI 不該為了投一顆彈把自己炸下來。
+   * `applyBombBlast`）。投彈的包絡沒有高度下限（`BOMB_ENVELOPE`），投太低是
+   * 玩家自己的代價；AI 不該為了投一顆彈把自己炸下來。
    */
   private bombGround(self: Aircraft, t: GroundTarget, decide: boolean, out: Command): void {
     const bay = this.bombBay
