@@ -619,9 +619,11 @@ describe('世界的聲音淡入', () => {
    * 全部經過它，所以淡入的增益要插在它與喇叭之間，才管得到每一個聲道
    */
   it('世界的聲音經過淡入的增益才到喇叭', () => {
-    expect(ENGINE).toContain('listener.gain.disconnect()')
-    expect(ENGINE).toContain('listener.gain.connect(fade)')
-    expect(ENGINE).toContain('fade.connect(ctx.destination)')
+    const OUTPUT = readFileSync('src/audio/output.ts', 'utf8')
+    expect(ENGINE).toContain('createAudioOutput(ctx, listener.gain)')
+    expect(OUTPUT).toContain('input.disconnect()')
+    expect(OUTPUT).toContain('input.connect(fade)')
+    expect(OUTPUT).toContain('fade.connect(ctx.destination)')
   })
 
   /**

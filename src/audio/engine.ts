@@ -1,15 +1,15 @@
 import { Audio, Vector3, type Camera } from 'three'
 import { PannedAudio, SilentListener } from './spatial'
 import { azimuthDeg, equalPowerMatrix, inverseDistanceGain, type ListenerPose } from './pan'
-import { assetUrl } from '../core/asset'
+import { createAudioOutput } from './output'
 import { CATEGORY, POOLS, type Category, type Pool } from './catalog'
 import { createAudioAssets } from './assets'
 import { createUiAudio } from './uiAudio'
-import { absorptionDb, dbToGain, distanceCutoffHz, fadeInCurve, soundArrived, voiceLoudnessDb } from './curves'
+import { absorptionDb, dbToGain, distanceCutoffHz, soundArrived, voiceLoudnessDb } from './curves'
 import {
   HDR_ABS_FLOOR_DB, HDR_EXEMPT, envelopeAt, hdrDuckDb, hdrFloorDb, stepLoudest,
 } from './dynamics'
-import { audioLag, toDb, type MeterSample } from './meter'
+import { audioLag, type MeterSample } from './meter'
 import { MIX_HEADROOM_DB } from './volume'
 import {
   DECORRELATE_WINDOW, LAYER_DB, decorrelateDelay, layerDelay, pickNoRepeat, randomRate,
@@ -142,8 +142,6 @@ const CUTOFF_STEP = 0.03
 const RESUME_FADE_IN = 0.8
 /** 讀錶間隔超過這個秒數就重新對齊兩個時鐘 —— 分頁在背景時畫面不跑 */
 const LAG_REANCHOR = 0.5
-/** 淡入曲線的點數。曲線點之間是線性內插，32 點已經聽不出折角 */
-const FADE_POINTS = 32
 
 interface Voice {
   audio: PannedAudio
@@ -209,40 +207,8 @@ export function createAudioEngine(camera: Camera): AudioEngine {
   const listener = new SilentListener()
   camera.add(listener)
   const ctx = listener.context
-  /**
-   * 世界聲音的最後一段：`listener.gain`（主音量）→ `fade` → 喇叭。
-   * 每一個世界聲道都經過 `listener.gain`，所以淡入插在這裡就管得到全部。
-   */
-  const fade = ctx.createGain()
-  listener.gain.disconnect()
-  listener.gain.connect(fade)
-  fade.connect(ctx.destination)
-  /**
-   * 限幅器。**接上之前先直通** —— `addModule` 是非同步的，而且可能失敗。
-   *
-   * 【兩種失敗都要旁路】載入失敗不插節點；載好之後 `process()` 拋例外會觸發
-   * `processorerror`，那個節點從此永遠輸出靜音，而它在最後一道 —— 症狀是
-   * 整場突然全部沒聲音。
-   */
-  let limiter: AudioWorkletNode | null = null
-  void ctx.audioWorklet?.addModule(assetUrl('/audio/limiter.js')).then(() => {
-    const node = new AudioWorkletNode(ctx, 'limiter')
-    node.port.onmessage = (e: MessageEvent) => {
-      const d = e.data as { gain?: number; peak?: number }
-      if (typeof d.gain === 'number') limGain = d.gain
-      if (typeof d.peak === 'number') limPeak = d.peak
-    }
-    node.onprocessorerror = () => {
-      limiter = null
-      fade.disconnect()
-      node.disconnect()
-      fade.connect(ctx.destination)
-    }
-    fade.disconnect()
-    fade.connect(node)
-    node.connect(ctx.destination)
-    limiter = node
-  }).catch(() => { limiter = null })
+  const output = createAudioOutput(ctx, listener.gain)
+  const { fadeIn, resetLimiter } = output
   /**
    * 試聽用的開關：在主控台打 `__audioMix({ limiter: false })` 可以當場拆掉
    * 限幅器、`{ hdr: false }` 關掉動態窗口，比對某個怪聲是哪一層造成的。
@@ -253,21 +219,11 @@ export function createAudioEngine(camera: Camera): AudioEngine {
   ;(globalThis as unknown as Record<string, unknown>)['__audioMix'] = (
     opt?: { limiter?: boolean; hdr?: boolean },
   ) => {
-    if (opt?.limiter === false && limiter !== null) {
-      fade.disconnect()
-      limiter.disconnect()
-      fade.connect(ctx.destination)
-      limiter = null
-    }
+    if (opt?.limiter === false) output.bypassLimiter()
     if (opt?.hdr !== undefined) hdrOn = opt.hdr
-    return { limiter: limiter !== null, hdr: hdrOn }
+    return { limiter: output.limiterEnabled, hdr: hdrOn }
   }
 
-  /** 清掉預看緩衝裡那幾毫秒 —— 它們是乘過舊淡入增益的樣本 */
-  function resetLimiter(): void {
-    limiter?.port.postMessage('reset')
-  }
-  const fadeCurve = fadeInCurve(FADE_POINTS)
   /** 這一刻的聽者：鏡頭的位置與朝向。定位聲道的左右由它算 */
   const pose: ListenerPose = { px: 0, py: 0, pz: 0, fx: 0, fy: 0, fz: -1, ux: 0, uy: 1, uz: 0 }
   /** 左右矩陣的暫存，逐幀重用 */
@@ -287,9 +243,6 @@ export function createAudioEngine(camera: Camera): AudioEngine {
   let loudest = HDR_ABS_FLOOR_DB
   /** 動態窗口開著沒有。試聽用，見 `__audioMix` */
   let hdrOn = true
-  /** 限幅器回報的最近一批：增益（線性）與輸入峰值。見 `public/audio/limiter.js` */
-  let limGain = 1
-  let limPeak = 0
   /** 累計把還在響的聲音直接切掉幾次。給錶用 */
   let cuts = 0
   /** 音訊時鐘落後量的起算點（牆上時鐘、音訊時鐘，秒）與上一次讀錶的牆上時間 */
@@ -422,19 +375,6 @@ export function createAudioEngine(camera: Camera): AudioEngine {
       const run = unlocked && !muted && !paused
       return run ? ctx.resume() : ctx.suspend()
     }).catch(() => {})
-  }
-
-  function fadeIn(seconds: number): void {
-    const g = fade.gain
-    const now = ctx.currentTime
-    // 【先清掉還沒走完的那一段】曲線與曲線重疊時 setValueCurveAtTime 會丟例外
-    g.cancelScheduledValues(now)
-    try {
-      g.setValueCurveAtTime(fadeCurve, now, seconds)
-    } catch {
-      // 排不進去就直接全開 —— 停在 0 的話整場都沒有聲音，而且不會報錯
-      g.value = 1
-    }
   }
 
   function gainOf(file: string, cat: Category, extraDb: number): number {
@@ -732,8 +672,7 @@ export function createAudioEngine(camera: Camera): AudioEngine {
    * 那就是真的送到喇叭的東西。
    */
   function meter(out: MeterSample): void {
-    out.peakDb = toDb(limPeak * limGain)
-    out.reductionDb = limiter === null ? 0 : toDb(limGain)
+    output.readMeter(out)
     out.loudestDb = loudest
     let n = 0
     for (const v of voices) if (v.audio.isPlaying) n++
