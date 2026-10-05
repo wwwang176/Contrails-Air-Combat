@@ -4,7 +4,7 @@ import {
 } from 'three'
 import { BARREL_LENGTH, MAX_TURRETS, turretMuzzle, wobbleBasis } from '../weapons/turret'
 import { BARREL_SPACING } from '../world/turrets'
-import type { Combatant } from '../world/World'
+import type { Combatant } from '../world/combatant'
 
 /**
  * 砲塔的槍管 —— 黑色三角柱，**跟著砲塔轉**。

@@ -1,5 +1,5 @@
 import type { Battle } from './battleState'
-import type { Team } from '../world/World'
+import type { Team } from '../world/team'
 import type { AircraftSpec } from '../specs/types'
 import { conditionMet, MESSAGE_SECONDS } from './beats'
 import { countDestroyed, destroyedInPool, inDestroyPool } from './objectiveQueries'

@@ -1,5 +1,5 @@
 import { Vector3 } from 'three'
-import type { Team } from '../world/World'
+import type { Team } from '../world/team'
 import type { AircraftSpec } from '../specs/types'
 import type { GroundUnitId } from '../specs/ground'
 

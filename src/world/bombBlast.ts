@@ -1,7 +1,7 @@
 import { Quaternion, Vector3 } from 'three'
 import { blastRadiusOf, bombBlastDamage } from '../weapons/bomb'
 import { pointBoxDistance, type HitPart } from './hit'
-import type { Combatant } from './World'
+import type { Combatant } from './combatant'
 import type { GroundTarget } from './groundTargets'
 import type { Ship } from './ships'
 import type { ImpactEvents } from './events'

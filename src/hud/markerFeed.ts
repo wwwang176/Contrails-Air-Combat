@@ -1,5 +1,5 @@
 import { HUD_MAX_MARKERS, type HudFrame } from './types'
-import { teamSlot } from '../world/World'
+import { teamSlot } from '../world/team'
 import type { Ship } from '../world/ships'
 import type { GroundTarget } from '../world/groundTargets'
 

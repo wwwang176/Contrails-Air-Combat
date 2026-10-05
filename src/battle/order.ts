@@ -2,7 +2,7 @@ import { SCHWARM_SIZE, STATION_REFERENCE } from './flights'
 import { STATION_OFFSETS } from '../ai/station'
 import type { EntryPlan, SideEntry } from './entry'
 import type { AircraftSpec } from '../specs/types'
-import type { Team } from '../world/World'
+import type { Team } from '../world/team'
 import type { TakeoffLine } from '../control/takeoffRoll'
 import type { GroundUnitId } from '../specs/ground'
 

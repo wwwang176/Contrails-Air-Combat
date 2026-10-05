@@ -5,8 +5,8 @@ import {
 import { MAX_MOUNTS, mountDirection, type Battery } from '../weapons/types'
 import { MAX_TURRETS, turretMuzzle, wobbleBasis } from '../weapons/turret'
 import { BARREL_SPACING, TURRET_FLASH_SECONDS } from '../world/turrets'
-import { FLASH_SECONDS } from '../world/World'
-import type { Combatant } from '../world/World'
+import { FLASH_SECONDS } from '../weapons/muzzleFlash'
+import type { Combatant } from '../world/combatant'
 
 /**
  * 槍焰的長度，m。

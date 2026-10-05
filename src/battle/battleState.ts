@@ -1,5 +1,7 @@
 import type { Quaternion } from 'three'
-import type { World, Combatant, Team } from '../world/World'
+import type { World } from '../world/World'
+import type { Combatant } from '../world/combatant'
+import type { Team } from '../world/team'
 import type { TargetBoard } from '../ai/target'
 import type { CommandState, CommandUnit, FlightOrder } from '../ai/commandTypes'
 import type { Controller } from '../control/Controller'

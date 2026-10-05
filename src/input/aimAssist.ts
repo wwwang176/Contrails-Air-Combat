@@ -2,7 +2,7 @@ import { Quaternion, Vector3 } from 'three'
 import { DEG } from '../core/math'
 import { NO_INTERCEPT, solveLead } from '../world/lead'
 import { PROJECTILE_LIFETIME } from '../world/Projectiles'
-import type { Combatant } from '../world/World'
+import type { Combatant } from '../world/combatant'
 import type { MessageKey } from '../i18n'
 
 /** 吸附範圍：敵機的預瞄方向離瞄準點在這個夾角之內才拉，rad */

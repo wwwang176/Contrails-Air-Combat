@@ -1,3 +1,6 @@
+import type { Combatant } from './combatant'
+import { teamSlot, type Team } from './team'
+import { FLASH_SECONDS } from '../weapons/muzzleFlash'
 import { Vector3 } from 'three'
 import { createTorpedoContacts } from './torpedoContacts'
 import { makeScratch } from '../core/pool'
@@ -20,7 +23,6 @@ import { popIfDead } from './targetDeaths'
 import { ProjectileHits } from './projectileHits'
 import {
   createBombBay, resetBombBay, stepBombBay,
-  type BombBay,
 } from '../weapons/bomb'
 import { loadoutOf, type Loadout } from '../weapons/stores'
 import { canRelease, envelopeFor } from '../weapons/releaseEnvelope'
@@ -39,123 +41,22 @@ import {
 import { stepScriptedKill, type GroundTarget } from './groundTargets'
 import { stepGroundMotion } from './groundMotion'
 import { stepGroundTaxi } from './groundTakeoff'
-import { stepTakeoff, type TakeoffRoll } from '../control/takeoffRoll'
+import { stepTakeoff } from '../control/takeoffRoll'
 import { createFlares, stepFlares } from './flares'
 import { stepGunPlatform } from './shipGuns'
 import {
   createBursts, createFlak, clearBursts, flakDamage, pushBurst, stepFlak, FLAK_CAPACITY,
 } from './flak'
 import { obbOverlap } from './obb'
-import type { TurretState } from './turrets'
-import { createCommand, type Command, type Controller } from '../control/Controller'
+import { createCommand, type Controller } from '../control/Controller'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { AircraftSpec } from '../specs/types'
 import { PROJECTILE_LIFETIME } from './Projectiles'
 
-export type Team = 'blue' | 'red'
-
-/**
- * 隊別的整數編碼。**0 = 藍、1 = 紅。**
- *
- * 【為什麼是一個函數而不是讓呼叫端自己寫 `team === 'blue' ? 0 : 1`】那條
- * 三元式若在兩處各寫一次，其中一處寫反了不會有任何測試紅 —— 症狀只是
- * 「某一隊的東西顏色不對」或「某一隊的護航機從來不緊張」。
- *
- * 【為什麼住在這裡而不是 `ai/target.ts`】它本來在那裡，但彈丸、炸彈、
- * 魚雷這三個池都要用同一個編碼，而 `world/` 不能往上依賴 `ai/`。
- * `ai/target.ts` 現在轉出這一支。
- */
-export function teamSlot(team: Team): number {
-  return team === 'blue' ? 0 : 1
-}
-
-/** 世界裡的一架飛機：機體 + 控制器 + 武器狀態 + 戰損狀態。 */
-export interface Combatant {
-  /** 在 `World.combatants` 裡的索引。彈丸用它記錄射手，判定時排除自傷。 */
-  readonly index: number
-  readonly aircraft: Aircraft
-  controller: Controller
-  readonly command: Command
-  /**
-   * 每個掛架一個射擊時鐘。長度等於 `spec.battery.mounts.length`。
-   *
-   * 【不是 readonly】換裝機種時掛架數會變（P-51 六個、109 三個），
-   * `setSpec` 必須換掉整個陣列。
-   */
-  cooldowns: Float32Array
-  /**
-   * 這一台的彈艙。**不是 readonly** —— 換裝機種時容量會變（B-17G 十枚、
-   * G4M 兩枚、戰鬥機零枚），與 `cooldowns` 同一個理由。
-   *
-   * 【零容量就是掛不了彈】`stepBombBay` 在 `load === 0 && queue === 0` 時
-   * 進回補，而回補又補回 0 —— 空艙的機種因此永遠投不出東西，不必另外擋。
-   */
-  bombBay: BombBay
-  /**
-   * 這一台掛什麼。**`null` = 掛不了東西。**
-   *
-   * 【為什麼不是每次從 spec 查】`bombBay.capacity` 由它推導，而任務卡可以
-   * 用 `blueLoadout` 覆寫（`battle/setup.ts`）—— 覆寫過的值必須留得住，
-   * 從 spec 重查會把它抹掉。
-   */
-  loadout: Loadout | null
-  /**
-   * 每個掛架的槍焰剩餘秒數。長度等於 `spec.battery.mounts.length`。
-   *
-   * 【為什麼是計時器而不是事件】事件會帶著**物理子步**的位置，而畫面畫
-   * 在**內插後**的位置 —— 200 m/s 下差 0.83 m，槍焰會相對機身抖動接近
-   * 一個機身長度。計時器是一個**狀態**，渲染層讀它的時候自己用內插姿態
-   * 重算槍口位置（M7 spec §2.1）。
-   *
-   * 【不是 readonly】與 `cooldowns` 同一個理由：換裝機種時掛架數會變。
-   */
-  muzzleFlash: Float32Array
-
-  /**
-   * 每座砲塔的執行期狀態。
-   *
-   * 【不是 readonly】與 `cooldowns` 同一個理由：換裝機種時砲塔數會變。
-   */
-  turretStates: TurretState[]
-  /** 每座砲塔的射速時鐘。與 `cooldowns` 平行，但砲塔走自己那一條。 */
-  turretCooldowns: Float32Array
-  hp: number
-  /**
-   * 包圍球半徑，m。命中判定的粗篩用，隨 spec 一起更新。
-   *
-   * 【為什麼存在 Combatant 上而不是每次算】它只跟機種有關，而 resolveHits
-   * 每步要對 4,000 發 × 每架各問一次——那是每秒上百萬次呼叫。
-   */
-  hitRadius: number
-  team: Team
-  /**
-   * 還在戰場上。false = 已退場（被打爆或撞地）。
-   *
-   * 【為什麼是旗標而不是從 combatants 移除】`index` 是彈丸記錄射手用的。
-   * `splice` 之後所有在飛的彈丸都會認錯主人 —— 包括「打不到自己」那條
-   * 規則，於是死人的遺彈會開始打活人，而症狀離成因很遠。
-   */
-  alive: boolean
-  /** 這一步打中別人幾次。HUD 的 X 標記靠它觸發（0.15 s 計時在 HUD 那一層）。 */
-  hitsDealt: number
-  /** 靶機為真：被打爆就滿血重生。玩家為假（M2 沒有東西打得到玩家）。 */
-  respawnOnDestroy: boolean
-  /**
-   * 滾行起飛腳本。**非 null 時位置由腳本驅動**：控制器不跑、物理積分與撞地
-   * 判定跳過。它仍然在 `combatants` 裡、命中判定照打 —— 在跑道上打掉正在
-   * 加速的飛機要成立。腳本走完由 `step` 設回 null，之後照常飛。
-   */
-  takeoff: TakeoffRoll | null
-  /**
-   * 這個席位整場不進場（`battle/setup.ts` 的 `reinforce`：起飛時停機線上已經
-   * 沒有對應的那一架）。**`alive` 同時為 false**，但不是被擊落 —— 不推擊墜、
-   * 畫面不畫、不留殘骸。預留的座位範圍是建構期綁死的，所以席位留著、不進場。
-   */
-  retired: boolean
-  readonly spawnPosition: Vector3
-  spawnAltitude: number
-  spawnTas: number
-}
+export type { Combatant } from './combatant'
+export type { Team } from './team'
+export { teamSlot } from './team'
+export { FLASH_SECONDS } from '../weapons/muzzleFlash'
 
 /**
  * 撞地判定。回傳 true 代表這一架已經碰到地面／海面。
@@ -188,22 +89,6 @@ const NOSE_H = /* @__PURE__ */ new Vector3()
 const HULL_C = /* @__PURE__ */ new Vector3()
 /** 飛機命中盒的世界中心，撞船時與 HULL_C 同時使用。 */
 const BODY_C = /* @__PURE__ */ new Vector3()
-
-/**
- * 槍焰的顯示時長，s。
- *
- * 【兩個界夾出來的】
- * **下界 16.7 ms**：60 fps 的一幀。閃得比一幀短就會被抽樣漏掉 —— 有時
- * 看得到有時看不到，那比沒有更糟。30 ms 橫跨 1.8 幀，保證每次擊發至少
- * 畫到一幀。
- * **上界 67 ms**：全場最快的一管是 Bf 109 的 MG 131（900 rpm）。工作
- * 週期 30/67 = 45%，讀起來是**閃爍**；取到 60 ms 以上就變成一盞常亮的
- * 燈，那是錯的視覺（M7 spec §5.3）。
- *
- * 【為什麼住在 World 而不是 render】它記的是「這一管距離上次擊發多久」，
- * 那是物理事實不是畫面參數。渲染層決定它長什麼樣子。
- */
-export const FLASH_SECONDS = 0.03
 
 
 /**

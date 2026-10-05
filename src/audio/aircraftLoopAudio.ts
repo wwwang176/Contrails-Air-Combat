@@ -1,5 +1,5 @@
 import type { Vector3 } from 'three'
-import type { Combatant } from '../world/World'
+import type { Combatant } from '../world/combatant'
 import { indicatedAirspeed } from '../core/airspeed'
 import type { AudioEngine } from './engine'
 import { engineFile, fireFile, sirenFile, turretFile } from './catalog'

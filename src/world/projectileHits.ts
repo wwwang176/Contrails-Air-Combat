@@ -14,7 +14,7 @@ import { normalAt, type SurfaceNormal } from './heightfield'
 import {
   BALLOON_ENVELOPE, BALLOON_REACH, envelopeCenter, type Balloon,
 } from './balloons'
-import type { Combatant } from './World'
+import type { Combatant } from './combatant'
 import type { GroundTarget } from './groundTargets'
 import type { Ship } from './ships'
 import { airframePose } from './groundAirframe'

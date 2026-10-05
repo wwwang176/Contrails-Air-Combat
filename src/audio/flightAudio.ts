@@ -1,5 +1,7 @@
 import type { Vector3 } from 'three'
-import type { Combatant, World, teamSlot } from '../world/World'
+import type { Combatant } from '../world/combatant'
+import type { World } from '../world/World'
+import type { teamSlot } from '../world/team'
 import type { InputState } from '../input/InputState'
 import { indicatedAirspeed } from '../core/airspeed'
 import { OVERSPEED_FULL, OVERSPEED_SHAKE, overspeedShake } from '../core/overspeedFeedback'

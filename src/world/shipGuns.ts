@@ -15,7 +15,7 @@ import type { Ship, ShipClass, ShipGun } from './ships'
 import type { FlakShells } from './flak'
 import type { Projectiles } from './Projectiles'
 import type { TurretCombatant } from './turrets'
-import type { Team } from './World'
+import type { Team } from './team'
 
 /**
  * # 防空砲位的瞄準與開火

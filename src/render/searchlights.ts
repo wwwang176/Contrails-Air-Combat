@@ -4,7 +4,7 @@ import {
 } from 'three'
 import type { GroundTarget } from '../world/groundTargets'
 import { GROUND_FLAK_SPEC } from '../world/shipGuns'
-import type { Team } from '../world/World'
+import type { Team } from '../world/team'
 
 /**
  * # 探照燈的光束

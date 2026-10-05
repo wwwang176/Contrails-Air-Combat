@@ -1,5 +1,6 @@
 import type { Vector3 } from 'three'
-import type { World, Combatant } from '../world/World'
+import type { World } from '../world/World'
+import type { Combatant } from '../world/combatant'
 import { DAMAGE_STRIDE } from '../world/damage'
 import { IMPACT_STRIDE, clearImpacts } from '../world/events'
 import { flakDamage } from '../world/flak'

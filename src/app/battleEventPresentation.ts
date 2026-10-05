@@ -1,5 +1,6 @@
 import { Quaternion, Vector3, type Camera } from 'three'
-import type { World, Combatant } from '../world/World'
+import type { World } from '../world/World'
+import type { Combatant } from '../world/combatant'
 import { clearImpacts } from '../world/events'
 import { clearKills } from '../world/kills'
 import { clearDamage, DAMAGE_STRIDE } from '../world/damage'

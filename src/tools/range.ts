@@ -26,7 +26,8 @@ import {
   WRECK_FIRE_SMOKE_SCALE,
 } from '../render/wrecks'
 import { buildAircraft, bodyColorOf, preloadAircraftModels, type AircraftModel } from '../render/geometry/buildAircraft'
-import { World, type Combatant } from '../world/World'
+import { World } from '../world/World'
+import type { Combatant } from '../world/combatant'
 import { clearImpacts, createImpacts, IMPACT_STRIDE } from '../world/events'
 import { clearKills, KILL_STRIDE } from '../world/kills'
 import { Aircraft } from '../aircraft/Aircraft'

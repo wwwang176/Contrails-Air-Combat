@@ -14,7 +14,7 @@ import type { Aircraft } from '../aircraft/Aircraft'
 import type { Command } from '../control/Controller'
 import type { Ship } from '../world/ships'
 import type { GroundTarget } from '../world/groundTargets'
-import type { Team } from '../world/World'
+import type { Team } from '../world/team'
 import type { GroundUnitId } from '../specs/ground'
 
 /**

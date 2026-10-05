@@ -1,6 +1,6 @@
 import type { Roster } from '../battle/pilots'
 import { t, type MessageKey } from '../i18n'
-import type { Team } from '../world/World'
+import type { Team } from '../world/team'
 
 /**
  * 記分板上的一列。

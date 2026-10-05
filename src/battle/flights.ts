@@ -1,4 +1,4 @@
-import type { Team } from '../world/World'
+import type { Team } from '../world/team'
 
 /**
  * 一個 Schwarm 的大小。

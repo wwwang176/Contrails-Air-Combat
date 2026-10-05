@@ -1,4 +1,4 @@
-import type { Combatant } from '../world/World'
+import type { Combatant } from '../world/combatant'
 import type { GroundTarget } from '../world/groundTargets'
 import type { Ship } from '../world/ships'
 import type { GroundUnitId } from '../specs/ground'

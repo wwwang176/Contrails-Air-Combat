@@ -1,6 +1,6 @@
 import type { Quaternion, Vector3 } from 'three'
 import type { Box } from './hit'
-import type { Team } from './World'
+import type { Team } from './team'
 
 /**
  * # 打擊目標的視圖

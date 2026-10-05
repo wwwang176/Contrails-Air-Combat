@@ -8,7 +8,7 @@ import type { Aircraft } from '../aircraft/Aircraft'
 import type { Command } from '../control/Controller'
 import type { GroundUnitId } from '../specs/ground'
 import type { GroundTarget } from '../world/groundTargets'
-import type { Team } from '../world/World'
+import type { Team } from '../world/team'
 
 /**
  * # AI 的俯衝投彈

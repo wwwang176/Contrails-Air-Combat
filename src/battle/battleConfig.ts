@@ -1,4 +1,4 @@
-import type { Team } from '../world/World'
+import type { Team } from '../world/team'
 import type { OrderOfBattle } from './order'
 import type { Beat } from './beats'
 import type { TransitRoute } from './convoy'

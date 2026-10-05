@@ -1,5 +1,5 @@
 import type { FlightIndex } from './flights'
-import type { Team } from '../world/World'
+import type { Team } from '../world/team'
 
 /**
  * 玩家陣亡到接手僚機之間的停頓，s。

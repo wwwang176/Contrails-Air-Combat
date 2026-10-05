@@ -1,4 +1,5 @@
-import type { Combatant, Team } from '../world/World'
+import type { Combatant } from '../world/combatant'
+import type { Team } from '../world/team'
 import type { CommandState } from '../ai/commandTypes'
 import type { FlightIndex } from './flights'
 

@@ -1,5 +1,6 @@
 import { Vector3 } from 'three'
-import type { Combatant, Team } from '../world/World'
+import type { Combatant } from '../world/combatant'
+import type { Team } from '../world/team'
 import type { FlightOrder } from '../ai/commandTypes'
 import type { MissionRules } from './mission'
 import type { Beat } from './beats'
