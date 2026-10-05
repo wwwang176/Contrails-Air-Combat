@@ -24,7 +24,7 @@ import {
 import {
   createStrikeState, stepStrike, RUN_TRIM, type StrikeProfile,
 } from '../../src/ai/strikeRun'
-import { AI_DECISION_HZ } from '../../src/ai/AiController'
+import { AI_DECISION_HZ, AI_RELEASE_FLOOR, AiController } from '../../src/ai/AiController'
 import { SHIP_CLASSES, createShip } from '../../src/world/ships'
 import type { Controller } from '../../src/control/Controller'
 
@@ -49,6 +49,44 @@ describe('Command.bombing', () => {
     const c = createCommand()
     c.firing = true
     expect(c.bombing).toBe(false)
+  })
+})
+
+/**
+ * 【包絡沒有高度下限，AI 的下限由指令帶】玩家任何高度都投得出去；AI 掉到低空時，
+ * 已經排進彈艙的連投要暫停 —— 安全層只清 `bombing`，擋不住排好的佇列，而爆風
+ * 炸得到投彈的自己
+ */
+describe('Command.releaseFloor', () => {
+  function queuedAt(agl: number, floor: number): number {
+    const w = new World()
+    w.groundAt = () => 0
+    const c = add(w, B17G)
+    c.aircraft.state.position.set(0, agl, 0)
+    c.command.releaseFloor = floor
+    c.bombBay.queue = c.bombBay.load
+    c.bombBay.timer = 0
+    w.step(1 / 240)
+    return w.bombs.live
+  }
+
+  it('預設 0：新建的指令沒有下限（玩家）', () => {
+    expect(createCommand().releaseFloor).toBe(0)
+  })
+
+  it('離地低於下限時排好的連投暫停，高於下限照投；下限 0 時低空也投', () => {
+    expect(queuedAt(30, 60)).toBe(0)
+    expect(queuedAt(100, 60)).toBe(1)
+    expect(queuedAt(30, 0)).toBe(1)
+  })
+
+  it('AI 控制器帶著下限；玩家拿回控制（按 I 代飛之後）時歸零', () => {
+    const out = createCommand()
+    new AiController().update(new Aircraft(B17G), 1 / 240, out)
+    expect(out.releaseFloor).toBe(AI_RELEASE_FLOOR)
+    expect(AI_RELEASE_FLOOR).toBeGreaterThan(0)
+    new PlayerController(createInputState()).update(new Aircraft(B17G), 1 / 240, out)
+    expect(out.releaseFloor).toBe(0)
   })
 })
 

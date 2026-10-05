@@ -1171,7 +1171,9 @@ export class World {
     const a = c.aircraft
     const att = attitudeFromOrientation(a.state.orientation)
     const agl = a.state.position.y - this.groundAt(a.state.position.x, a.state.position.z)
-    const ok = canRelease(
+    // 【控制器自己的高度下限】包絡沒有高度下限；AI 帶著 `AI_RELEASE_FLOOR`，排好的連投
+    // 在那之下暫停（`Command.releaseFloor`）
+    const ok = agl >= c.command.releaseFloor && canRelease(
       envelopeFor(c.loadout.kind), att.roll, att.pitch, agl, a.diag.aero.tas,
     )
     this.bombing = c

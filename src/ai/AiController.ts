@@ -116,6 +116,12 @@ import { createCommand, type Command, type Controller } from '../control/Control
 /** 意圖仲裁與包絡查詢的頻率，Hz。 */
 export const AI_DECISION_HZ = 10
 
+/**
+ * AI 投彈的離地高度下限，m（`Command.releaseFloor`）：基準彈爆炸半徑 30 m 的兩倍。
+ * 排好的連投在這之下暫停，不會把自己炸下來
+ */
+export const AI_RELEASE_FLOOR = 60
+
 const FWD = new Vector3(0, 0, -1)
 
 /**
@@ -1064,6 +1070,8 @@ export class AiController implements Controller {
     raw.pull = false
     // 【跟瞄同理】只有空戰交戰那一條寫它；對地、對艦、站位、集合、平飛都早退
     raw.trackTurn = false
+    // 【投彈高度下限直接寫進輸出】不走延遲緩衝；每一條路徑都一樣，沒有要延遲的東西
+    out.releaseFloor = AI_RELEASE_FLOOR
 
     // 【點放每步恰好推進一次，而且要在早退路徑之前】下面有三條 `return`
     // （飛站位、飛集合點、平飛）。只在交戰那條路徑推進的話，扳機的時鐘會

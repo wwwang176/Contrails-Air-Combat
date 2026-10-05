@@ -22,9 +22,8 @@ export interface Command {
    * 【為什麼不合成一格】陸攻要能一邊由砲塔自衛、一邊投彈 —— 那是同一台
    * 飛機上的兩套武器，合成一格會讓它們互斥。
    *
-   * 【玩家恆為 false】玩家的投彈走 `main.ts` 的幀迴圈（要用內插後的算繪
-   * 位置與 `bombPoint` 對準星）。這一格是 AI 的路徑，執行在物理步裡 ——
-   * 兩邊都寫的話會投兩倍。
+   * 玩家與 AI 都寫它（`PlayerController` 按下投彈的那一步為 true）；彈艙的推進與
+   * 投放全在物理步（`World.releaseBombs`）。
    */
   bombing: boolean
   /**
@@ -63,12 +62,21 @@ export interface Command {
    * 它有幾個分支的瞄準方向是由自己的速度導出的。
    */
   trackTurn: boolean
+  /**
+   * 投彈的離地高度下限，m。投放包絡（`BOMB_ENVELOPE`）沒有高度下限，這一格是控制器
+   * 自己加的：連投排進彈艙之後，離地低於它就暫停（`World.releaseBombs`）。
+   *
+   * 【玩家 0】任何高度都投得出去，被自己的爆風波及是玩家的代價。
+   * 【AI `AI_RELEASE_FLOOR`】安全層只清 `bombing`、擋不住排好的佇列；少了它，AI 掉到
+   * 低空時剩下的彈會照投，把自己炸下來。
+   */
+  releaseFloor: number
 }
 
 export function createCommand(): Command {
   return {
     aimWorld: new Vector3(0, 0, -1), throttle: 0, brake: 0, firing: false, bombing: false,
-    upright: false, pull: false, trackTurn: false,
+    upright: false, pull: false, trackTurn: false, releaseFloor: 0,
   }
 }
 
