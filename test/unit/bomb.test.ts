@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { BOMB_BLAST_DAMAGE as D } from '../../src/weapons/bomb'
 import { G0 } from '../../src/core/math'
 import {
-  BOMB_MAX_SECONDS, BOMB_TERMINAL_SPEED, DROP_KICK_SPEED, TORPEDO_SPREAD_RAD,
-  BOMBS_CAPACITY, Bombs, bombDragK, dropKick, stepBomb, solveImpact, spreadDirection, spreadPair,
+  BOMB_MAX_SECONDS, BOMB_TERMINAL_SPEED, DROP_DRIFT_ACCEL, TORPEDO_SPREAD_RAD,
+  BOMBS_CAPACITY, Bombs, bombDragK, dropDrift, stepBomb, solveImpact, spreadDirection, spreadPair,
   type BombState, type Impact,
 } from '../../src/world/bomb'
 import { World } from '../../src/world/World'
@@ -294,65 +294,77 @@ describe('落地事件的水陸之分', () => {
   })
 })
 
-describe('dropKick：投放那一刻的隨機推力', () => {
-  const v = (): { x: number; y: number; z: number } => ({ x: 0, y: 0, z: 0 })
+describe('dropDrift：下墜全程的水平推力', () => {
+  const v = (): { x: number; z: number } => ({ x: 0, z: 0 })
 
-  it('大小恆為 DROP_KICK_SPEED、同一個序號每次一樣', () => {
+  it('水平、大小恆為 DROP_DRIFT_ACCEL、同一個序號每次一樣', () => {
     const a = v()
     const b = v()
     for (const n of [0, 1, 7, 1234, 99999]) {
-      dropKick(n, a)
-      dropKick(n, b)
+      dropDrift(n, a)
+      dropDrift(n, b)
       expect(a).toEqual(b)
-      expect(Math.hypot(a.x, a.y, a.z)).toBeCloseTo(DROP_KICK_SPEED, 9)
+      expect(Math.hypot(a.x, a.z)).toBeCloseTo(DROP_DRIFT_ACCEL, 9)
     }
   })
 
-  it('方向在球面上均勻：平均向量接近 0、各軸絕對值平均接近一半', () => {
+  it('方位角均勻：平均向量接近 0、四個象限都有', () => {
     const o = v()
     const N = 4000
-    let sx = 0, sy = 0, sz = 0, ax = 0, ay = 0, az = 0
+    let sx = 0, sz = 0
+    const quad = [0, 0, 0, 0]
     for (let n = 0; n < N; n++) {
-      dropKick(n, o)
-      sx += o.x; sy += o.y; sz += o.z
-      ax += Math.abs(o.x); ay += Math.abs(o.y); az += Math.abs(o.z)
+      dropDrift(n, o)
+      sx += o.x; sz += o.z
+      quad[(o.x >= 0 ? 0 : 1) + (o.z >= 0 ? 0 : 2)]!++
     }
-    expect(Math.hypot(sx, sy, sz) / N).toBeLessThan(0.1 * DROP_KICK_SPEED)
-    for (const s of [ax, ay, az]) expect(s / N / DROP_KICK_SPEED).toBeCloseTo(0.5, 1)
+    expect(Math.hypot(sx, sz) / N).toBeLessThan(0.05 * DROP_DRIFT_ACCEL)
+    for (const q of quad) expect(q / N).toBeCloseTo(0.25, 1)
   })
 
   /**
-   * 【這條是推力存在的理由】落點誤差 ≈ 推力 × 落下時間：俯衝在低處放彈、落得快，
+   * 【這條是推力存在的理由】落點偏移 ≈ ½ × 推力 × 落下時間²：俯衝在低處放彈、落得快，
    * 平拋從高處落很久。角度偏移做不到 —— 它跟著投放速度放大
    */
-  it('俯衝的落點誤差遠小於平拋，平拋越高越散', () => {
+  it('俯衝的落點偏移遠小於平拋，平拋越高越散', () => {
     const k = bombDragK(BOMB_TERMINAL_SPEED)
-    const flat = (): number => 0
-    const kick = v()
-    const miss = (y: number, vx: number, vy: number, vz: number): number => {
-      const c: Impact = { x: 0, y: 0, z: 0, seconds: 0, speed: 0 }
-      solveImpact({ x: 0, y, z: 0, vx, vy, vz }, k, flat, DT, c)
-      const o: Impact = { x: 0, y: 0, z: 0, seconds: 0, speed: 0 }
-      let sum = 0
+    const drift = v()
+    /**
+     * 同一組投放條件，第 0 格沒推力、第 1…200 格各帶一個推力；回傳後者與前者落地位置的
+     * 平均水平距離（落地那一步的步末位置，各格同樣的誤差）
+     */
+    const fall = (y: number, vx: number, vy: number, vz: number): number => {
+      const pool = new Bombs(256)
+      const at = new Map<number, { x: number; z: number }>()
+      pool.spawn(0, y, 0, vx, vy, vz, D)
       for (let n = 0; n < 200; n++) {
-        dropKick(n, kick)
-        solveImpact({ x: 0, y, z: 0, vx: vx + kick.x, vy: vy + kick.y, vz: vz + kick.z }, k, flat, DT, o)
-        sum += Math.hypot(o.x - c.x, o.z - c.z)
+        dropDrift(n, drift)
+        pool.spawn(0, y, 0, vx, vy, vz, D, 0, -1, drift.x, drift.z)
       }
+      for (let i = 0; i < 240 * 60 && pool.live > 0; i++) {
+        const before = Array.from(pool.active)
+        pool.step(DT, k, SEA, () => {})
+        for (let s = 0; s < 201; s++) {
+          if (before[s] === 1 && pool.active[s] === 0) at.set(s, { x: pool.x[s]!, z: pool.z[s]! })
+        }
+      }
+      const c = at.get(0)!
+      let sum = 0
+      for (let s = 1; s <= 200; s++) sum += Math.hypot(at.get(s)!.x - c.x, at.get(s)!.z - c.z)
       return sum / 200
     }
     // 俯衝：600 m、俯角 60°、130 m/s；平拋：100 m/s
-    const dive = miss(600, 0, -130 * Math.sin(Math.PI / 3), -130 * Math.cos(Math.PI / 3))
-    const level1500 = miss(1500, 0, 0, -100)
-    const level4000 = miss(4000, 0, 0, -100)
-    expect(dive).toBeLessThan(level1500 / 2)
-    expect(level4000).toBeGreaterThan(level1500)
+    const dive = fall(600, 0, -130 * Math.sin(Math.PI / 3), -130 * Math.cos(Math.PI / 3))
+    const level1500 = fall(1500, 0, 0, -100)
+    const level4000 = fall(4000, 0, 0, -100)
+    expect(dive).toBeLessThan(level1500 / 5)
+    expect(level4000).toBeGreaterThan(level1500 * 2)
   })
 
-  it('World.dropBomb：炸彈的初速與投放速度恰好差一個推力', () => {
+  it('World.dropBomb：炸彈帶著一個水平推力，初速不變', () => {
     const w = new World()
     w.dropBomb(0, 4000, 0, 30, -5, -90, 500, 0)
-    const d = Math.hypot(w.bombs.vx[0]! - 30, w.bombs.vy[0]! + 5, w.bombs.vz[0]! + 90)
-    expect(d).toBeCloseTo(DROP_KICK_SPEED, 9)
+    expect([w.bombs.vx[0], w.bombs.vy[0], w.bombs.vz[0]]).toEqual([30, -5, -90])
+    expect(Math.hypot(w.bombs.ax[0]!, w.bombs.az[0]!)).toBeCloseTo(DROP_DRIFT_ACCEL, 9)
   })
 })

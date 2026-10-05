@@ -471,11 +471,11 @@ describe('torpedoEntersWater', () => {
   })
 })
 
-describe('投放推力：只偏入水點', () => {
-  /** 投一枚、跑到入水後再走一秒；回傳入水點與水中航向 */
-  function drop(kx: number, ky: number, kz: number): { ex: number; ez: number; hx: number; hz: number } {
+describe('下墜推力：只偏入水點', () => {
+  /** 投一枚、跑到入水後再走一段；回傳入水點與水中航向 */
+  function drop(ax: number, az: number): { ex: number; ez: number; hx: number; hz: number } {
     const pool = new Torpedoes()
-    const slot = pool.spawn(0, 120, 0, 30, 0, -80, DAMAGE, 0, -1, 0, -1, kx, ky, kz)
+    const slot = pool.spawn(0, 120, 0, 30, 0, -80, DAMAGE, 0, -1, 0, -1, ax, az)
     let ex = NaN
     let ez = NaN
     for (let t = 0; t < 20; t += DT) {
@@ -485,12 +485,12 @@ describe('投放推力：只偏入水點', () => {
     return { ex, ez, hx: pool.headX[slot]!, hz: pool.headZ[slot]! }
   }
 
-  it('入水後的航向是推力之前的水平方向；入水點被推力推開', () => {
-    const base = drop(0, 0, 0)
-    const kicked = drop(1.5, -0.5, 1.2)
+  it('入水後的航向是投放速度的水平方向；入水點被推力推開', () => {
+    const base = drop(0, 0)
+    const drifted = drop(1.5, 1.2)
     const l = Math.hypot(30, -80)
-    expect(kicked.hx).toBeCloseTo(30 / l, 9)
-    expect(kicked.hz).toBeCloseTo(-80 / l, 9)
-    expect(Math.hypot(kicked.ex - base.ex, kicked.ez - base.ez)).toBeGreaterThan(1)
+    expect(drifted.hx).toBeCloseTo(30 / l, 9)
+    expect(drifted.hz).toBeCloseTo(-80 / l, 9)
+    expect(Math.hypot(drifted.ex - base.ex, drifted.ez - base.ez)).toBeGreaterThan(1)
   })
 })

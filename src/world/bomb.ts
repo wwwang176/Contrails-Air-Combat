@@ -25,17 +25,18 @@ export const BOMB_TERMINAL_SPEED = 280
 export const BOMB_MAX_SECONDS = 90
 
 /**
- * 投放物離手那一刻的隨機推力，m/s。方向在球面上均勻、大小固定（`dropKick`）。
+ * 下墜全程的水平推力，m/s²。每一顆一個隨機方向、大小固定（`dropDrift`），從離手到
+ * 落地一直推著。
  *
- * 【它是彈的離散，不是瞄具的誤差】落點誤差約等於「推力 × 落下時間」：俯衝在低處
- * 放彈、四秒就落地，誤差約 ±8 m；平拋從 1,500 m 落十七秒，約 ±30 m —— 俯衝轟炸比
+ * 【它是彈的離散，不是瞄具的誤差】落點偏移約 ½ × 推力 × 落下時間²：俯衝在 600 m 放彈、
+ * 四秒落地，約 ±2 m；平拋 1,500 m 落十七秒，約 ±30 m；4,000 m 約 ±85 m —— 俯衝轟炸比
  * 平拋準就來自這裡。速度方向的角度偏移做不到這件事：它跟著投放速度放大，俯衝反而吃虧。
  *
- * 瞄具與落點圈解的是推力**之前**的彈道：推力也套進瞄具的話，散佈就變成免費的情報。
+ * 瞄具與落點圈解的是沒有推力的彈道：推力也套進瞄具的話，散佈就變成免費的情報。
  *
  * **起始值，由試飛裁定。**
  */
-export const DROP_KICK_SPEED = 2
+export const DROP_DRIFT_ACCEL = 0.2
 
 /**
  * 投雷方向的隨機偏移，**弧度**（±0.1°）。入水後的航向照這個方向走（推力只偏入水點）。
@@ -154,22 +155,19 @@ export function spreadPair(n: number, out: { u: number; v: number }): void {
   out.v = ((g >>> 0) / 0x80000000) - 1
 }
 
-/** `dropKick` 的雜湊輸入與角度偏移錯開：同一個序號的兩者不相關 */
-const KICK_SALT = 0x5bd1e995
-const KICK_PAIR = { u: 0, v: 0 }
+/** `dropDrift` 的雜湊輸入與角度偏移錯開：同一個序號的兩者不相關 */
+const DRIFT_SALT = 0x5bd1e995
+const DRIFT_PAIR = { u: 0, v: 0 }
 
 /**
- * 第 `n` 個投放物的推力，m/s，寫進 `out`。大小 `DROP_KICK_SPEED`、方向在球面上均勻
- * （垂直分量均勻、方位角均勻）。由序號雜湊而來 —— 同一場重播結果相同。
+ * 第 `n` 個投放物下墜時的水平推力，m/s²，寫進 `out`。大小 `DROP_DRIFT_ACCEL`、方位角
+ * 均勻。由序號雜湊而來 —— 同一場重播結果相同。
  */
-export function dropKick(n: number, out: { x: number; y: number; z: number }): void {
-  spreadPair(n ^ KICK_SALT, KICK_PAIR)
-  const y = KICK_PAIR.u
-  const a = (KICK_PAIR.v + 1) * Math.PI
-  const r = Math.sqrt(1 - y * y)
-  out.x = r * Math.cos(a) * DROP_KICK_SPEED
-  out.y = y * DROP_KICK_SPEED
-  out.z = r * Math.sin(a) * DROP_KICK_SPEED
+export function dropDrift(n: number, out: { x: number; z: number }): void {
+  spreadPair(n ^ DRIFT_SALT, DRIFT_PAIR)
+  const a = (DRIFT_PAIR.u + 1) * Math.PI
+  out.x = Math.cos(a) * DROP_DRIFT_ACCEL
+  out.z = Math.sin(a) * DROP_DRIFT_ACCEL
 }
 
 /** `solveImpact` 內部重用的狀態 —— 模組層級的單例，避免每幀配置 */
@@ -282,6 +280,9 @@ export class Bombs {
   readonly vx: Float64Array
   readonly vy: Float64Array
   readonly vz: Float64Array
+  /** 下墜時的水平推力，m/s²（`dropDrift`）。0 = 沒有，彈道與 `solveImpact` 逐位元相同 */
+  readonly ax: Float64Array
+  readonly az: Float64Array
   readonly age: Float64Array
   /**
    * 這一顆的爆心傷害。**每一顆各自帶著** —— 不同的轟炸機掛不同的彈，而
@@ -323,6 +324,7 @@ export class Bombs {
     const f = (): Float64Array => new Float64Array(capacity)
     this.x = f(); this.y = f(); this.z = f()
     this.vx = f(); this.vy = f(); this.vz = f()
+    this.ax = f(); this.az = f()
     this.age = f()
     this.damage = f()
     this.team = new Int8Array(capacity)
@@ -341,16 +343,19 @@ export class Bombs {
    *               遊戲的路徑只有後者，強制在那裡；這一層是資料結構，彈道
    *               測試不該為了一個顏色欄位每一行都多帶一個 0
    * @param owner  投放者的 combatant 索引。預設 −1（沒有主人）的理由同上
+   * @param ax/az  下墜時的水平推力，m/s²（`dropDrift`）。預設 0 = 沒有
    */
   spawn(
     x: number, y: number, z: number,
     vx: number, vy: number, vz: number, damage: number, team = 0, owner = -1,
+    ax = 0, az = 0,
   ): number {
     const i = this.cursor
     this.cursor = (i + 1) % this.capacity
     if (this.active[i] === 0) this.liveCount++
     this.x[i] = x; this.y[i] = y; this.z[i] = z
     this.vx[i] = vx; this.vy[i] = vy; this.vz[i] = vz
+    this.ax[i] = ax; this.az[i] = az
     this.damage[i] = damage
     // 【一定要寫，不能靠 clear】`clear` 只清 `active`，資料陣列留著上一場的
     // 值；環狀指標繞回來時這一格會沿用前一顆的隊別
@@ -401,6 +406,14 @@ export class Bombs {
       const pz = this.z[i]!
       s.x = px; s.y = py; s.z = pz
       s.vx = this.vx[i]!; s.vy = this.vy[i]!; s.vz = this.vz[i]!
+      // 【推力是 0 就不碰速度】`-0 + 0` 會變成 `+0`，沒有推力的彈道要與 `solveImpact`
+      // 逐位元相同
+      const ax = this.ax[i]!
+      const az = this.az[i]!
+      if (ax !== 0 || az !== 0) {
+        s.vx += ax * dt
+        s.vz += az * dt
+      }
       stepBomb(s, k, dt)
       this.x[i] = s.x; this.y[i] = s.y; this.z[i] = s.z
       this.vx[i] = s.vx; this.vy[i] = s.vy; this.vz[i] = s.vz

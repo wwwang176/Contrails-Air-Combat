@@ -13,7 +13,7 @@ import { createImpacts, pushImpact, type ImpactEvents } from './events'
 import {
   BOMB_TERMINAL_SPEED, TORPEDO_SPREAD_RAD,
   type BombBlockFn,
-  Bombs, bombDragK, dropKick, spreadDirection, spreadPair,
+  Bombs, bombDragK, dropDrift, spreadDirection, spreadPair,
   type BombImpactFn, type BombState,
 } from './bomb'
 import {
@@ -189,7 +189,7 @@ const LAND_N: SurfaceNormal = { nx: 0, ny: 1, nz: 0 }
 /** 投放偏移與推力的暫存。模組級 —— 熱路徑不得配置 */
 const BOMB_PAIR = { u: 0, v: 0 }
 const BOMB_VEL: BombState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
-const KICK = { x: 0, y: 0, z: 0 }
+const DRIFT = { x: 0, z: 0 }
 /** 世界 → 艦體的逆姿態。模組級，熱路徑不得配置。 */
 const SHIP_INV = /* @__PURE__ */ new Quaternion()
 /** 地上飛機的起飛腳本姿態。模組級，熱路徑不得配置。 */
@@ -1052,11 +1052,11 @@ export class World {
       BOMB_PAIR.u * TORPEDO_SPREAD_RAD, BOMB_PAIR.v * TORPEDO_SPREAD_RAD,
       BOMB_VEL,
     )
-    // 【推力只偏入水點】入水後的航向照上面這個方向走（`Torpedoes.spawn` 的推力參數）
-    dropKick(this.torpedoes.dropped, KICK)
+    // 【推力只偏入水點】空中段一直推著；入水後的航向照上面這個方向走（`Torpedoes.spawn`）
+    dropDrift(this.torpedoes.dropped, DRIFT)
     this.torpedoes.spawn(
       x, y, z, BOMB_VEL.vx, BOMB_VEL.vy, BOMB_VEL.vz, damage, headX, headZ,
-      team, owner, KICK.x, KICK.y, KICK.z,
+      team, owner, DRIFT.x, DRIFT.z,
     )
   }
 
@@ -1071,11 +1071,9 @@ export class World {
     vx: number, vy: number, vz: number, damage: number, team: number,
     owner = -1,
   ): void {
-    // 【離手加一個隨機推力】見 `DROP_KICK_SPEED`。序號是累計投彈數（可重播）
-    dropKick(this.bombs.dropped, KICK)
-    this.bombs.spawn(
-      x, y, z, vx + KICK.x, vy + KICK.y, vz + KICK.z, damage, team, owner,
-    )
+    // 【下墜全程一個隨機方向的小推力】見 `DROP_DRIFT_ACCEL`。序號是累計投彈數（可重播）
+    dropDrift(this.bombs.dropped, DRIFT)
+    this.bombs.spawn(x, y, z, vx, vy, vz, damage, team, owner, DRIFT.x, DRIFT.z)
   }
 
   /**
