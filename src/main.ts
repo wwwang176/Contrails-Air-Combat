@@ -14,10 +14,11 @@ import { createScene } from './render/scene'
 import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality } from './render/quality'
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
+import { createCannonAudio } from './audio/cannonAudio'
 import { createListenerMotion } from './audio/listenerMotion'
 import { queueExplosionCues } from './audio/explosionCues'
 import {
-  SINGLE_FILES, engineFile, fireFile, groundGunTier, gunSound, impactSound, ownTurretVolleyPools, sirenFile,
+  SINGLE_FILES, engineFile, fireFile, impactSound, ownTurretVolleyPools, sirenFile,
   turretFile, volleyPool, type Pool,
 } from './audio/catalog'
 import { STRIKE_HEIGHT, applyFlash, createStorm, rollThunder, stepStorm } from './render/storm'
@@ -63,7 +64,6 @@ import { createGroundModels } from './render/groundTargets'
 import { createSearchlights, makeGlareTexture } from './render/searchlights'
 import { createGroundBattle } from './render/groundBattle'
 import { BATTLE_FOG, stepBattleFog } from './render/heightFog'
-import type { GroundUnitId } from './specs/ground'
 import { settleGroundTargets, type GroundTarget } from './world/groundTargets'
 import type { Ship } from './world/ships'
 import {
@@ -198,6 +198,8 @@ const ctx = createScene(canvas)
 const perf = createPerfOverlay(ctx.renderer)
 const rangeProbe = createRangeProbe()
 const audio = createAudioEngine(ctx.camera)
+const cannonAudio = createCannonAudio(audio, ctx.camera.position)
+const noteGroundShot = cannonAudio.noteGroundShot
 audio.setVolume(readVolume())
 
 /**
@@ -1884,8 +1886,6 @@ const BULLET_HIT_DB = -1.4
 const BULLET_SEVERITY = 0.35
 /** 空爆超過這個距離不記，m */
 const FLAK_AUDIO_RANGE = 5000
-/** 高射砲、艦砲開火聲的距離上限，m */
-const CANNON_AUDIO_RANGE = 6000
 /** 爆炸離鏡頭這麼近時另外播一陣機身晃動，m */
 const NEAR_BLAST = 200
 /** 敵彈擦過的判定半徑，m；兩次擦過聲之間至少隔幾秒 */
@@ -1927,10 +1927,7 @@ const SIREN_RATE = new Float32Array(64)
 const SIREN_GAIN = new Float32Array(64)
 const AUDIO_POS: Vector3[] = []
 const AUDIO_VALID = new Uint8Array(64)
-const GUN_POS = new Vector3()
 const WIND = { cutoffHz: 0, gainDb: 0 }
-/** 上一幀每一門砲的 flash —— 由 0 變正就是剛開火。依平台、砲位的順序排 */
-const prevGunFlash = new Float32Array(1024)
 /** 炸彈呼嘯：每個炸彈槽播過沒有、上一幀的 age（age 變小代表槽被重用） */
 const whistled = new Uint8Array(512)
 const prevBombAge = new Float64Array(512)
@@ -1969,13 +1966,6 @@ let lastFlyby = -Infinity
 let lastHitDealt = -Infinity
 /** 上一次播子彈打在船殼、建築上的世界時間 */
 let lastMaterialHit = -Infinity
-/** 每一層砲上一次開火出聲的時間（`elapsed`）。層的名字見 `world/shipAA.ts` */
-const lastGunTier = new Map<string, number>()
-/**
- * 這一幀每一層最近的那一座剛開火的砲。**值就地改寫，不在幀迴圈裡配置** ——
- * 只有第一次見到某一層時才建一個。
- */
-const gunPick = new Map<string, { dist: number; x: number; y: number; z: number }>()
 /** 最後一次有飛機被打中，是誰的哪個部位。−1 = 這一場還沒有過 */
 let lastDealtVictim = -1
 let lastDealtPart = 0
@@ -1990,7 +1980,7 @@ function resetAudioState(): void {
   // 【流速要收回 1】分出勝負那段是超級慢動作，離場時不收的話選單的按鈕
   // 音會用戰場最後的流速播 —— 聽起來像壞掉的按鈕
   audio.setTimeScale(1)
-  prevGunFlash.fill(0)
+  cannonAudio.reset()
   listenerMotion.reset()
   whistled.fill(0)
   prevBombAge.fill(0)
@@ -2003,8 +1993,6 @@ function resetAudioState(): void {
   lastFlyby = -Infinity
   lastHitDealt = -Infinity
   lastMaterialHit = -Infinity
-  lastGunTier.clear()
-  gunPick.clear()
   lastDealtVictim = -1
   prevViewMode = input.viewMode
 }
@@ -2185,83 +2173,6 @@ function playHeavyHit(severity: number): void {
   audio.playPool('hit', 'hitSelf', 0, 0, 0, false, db + LAYER_DB)
 }
 
-/**
- * 高射砲、艦砲開火：flash 由 0 變正的那一幀響一下。
- *
- * 【每一層各自限頻率，而且只響最近的那一座】20 mm 一座每秒八發、一艘船八個
- * 砲位 —— 不限的話光它就把聲道吃光，五吋砲與爆炸反而聽不見。但那個時段是
- * **整個戰場共用一個**，取第一個輪到的等於隨機挑：貼著一座砲飛時，聽到的
- * 常常是八百公尺外那一門在響，而旁邊這門悶不吭聲。所以先掃一趟挑最近的。
- */
-function playCannons(): void {
-  const cam = ctx.camera.position
-
-  // 第一趟：邊緣偵測，每一層留下離鏡頭最近的那一座。
-  // 【候選不在這裡清】地面戰的砲口聲（`noteGroundShot`）在 `updateAudio` 之後才寫進來，要留到
-  // 下一幀的這支函式；清除放在第二趟播完之後
-  let slot = 0
-  const platforms = [world.ships, world.groundTargets] as const
-  for (const list of platforms) {
-    for (const p of list) {
-      for (const gun of p.guns) {
-        // 【滿了只停止記錄，不能整支返回】第二趟還沒跑，返回等於這一幀全啞
-        if (slot >= prevGunFlash.length) break
-        const was = prevGunFlash[slot]!
-        prevGunFlash[slot++] = gun.flash
-        if (!(gun.flash > 0 && was <= 0) || !p.alive) continue
-        GUN_POS.copy(gun.zone.position).applyQuaternion(p.orientation).add(p.position)
-        const d = GUN_POS.distanceTo(cam)
-        if (d >= CANNON_AUDIO_RANGE) continue
-        let best = gunPick.get(gun.zone.tier)
-        if (best === undefined) {
-          best = { dist: Infinity, x: 0, y: 0, z: 0 }
-          gunPick.set(gun.zone.tier, best)
-        }
-        if (d >= best.dist) continue
-        best.dist = d
-        best.x = GUN_POS.x
-        best.y = GUN_POS.y
-        best.z = GUN_POS.z
-      }
-    }
-  }
-
-  // 第二趟：每一層在自己的時段裡響一次，位置取剛才挑到的那一座
-  for (const [tier, best] of gunPick) {
-    if (best.dist === Infinity) continue
-    const g = gunSound(tier)
-    // 【不論響不響都清掉】被時段擋下的候選留到下一幀，會把一個過時的位置播出來
-    best.dist = Infinity
-    if (elapsed - (lastGunTier.get(tier) ?? -Infinity) < g.gap) continue
-    lastGunTier.set(tier, elapsed)
-    audio.playPool('cannon', 'cannon', best.x, best.y, best.z, true,
-      g.gainDb, false, g.rate, g.cutoffHz)
-  }
-}
-
-/**
- * 地面戰的戰車砲、反坦克砲開一發：記下這一層離鏡頭最近的一發，下一幀的 `playCannons` 播。
- * 聲音庫與限頻率都與艦砲、重高砲同一套，層名由 `groundGunTier` 查；沒有層的單位（步兵、迫擊砲）
- * 不出聲。熱路徑：只有第一次見到某一層時才配置。
- */
-function noteGroundShot(unit: GroundUnitId, x: number, y: number, z: number): void {
-  const tier = groundGunTier(unit)
-  if (tier === null) return
-  const cam = ctx.camera.position
-  const d = Math.hypot(x - cam.x, y - cam.y, z - cam.z)
-  if (d >= CANNON_AUDIO_RANGE) return
-  let best = gunPick.get(tier)
-  if (best === undefined) {
-    best = { dist: Infinity, x: 0, y: 0, z: 0 }
-    gunPick.set(tier, best)
-  }
-  if (d >= best.dist) return
-  best.dist = d
-  best.x = x
-  best.y = y
-  best.z = z
-}
-
 function anyFlash(a: Float32Array): boolean {
   for (let i = 0; i < a.length; i++) if (a[i]! > 0) return true
   return false
@@ -2306,7 +2217,7 @@ function updateAudio(worldSeconds: number): void {
   // 【誰打中誰都播】僚機打中的也算。太遠的由距離衰減擋掉
   if (hitDealtPending && flying) playHitDealt()
   hitDealtPending = false
-  playCannons()
+  cannonAudio.playCannons(world, elapsed)
 
   const cam = ctx.camera.position
   const all = world.combatants

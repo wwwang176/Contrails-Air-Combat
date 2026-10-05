@@ -9,6 +9,8 @@ import { readFileSync } from 'node:fs'
 const SRC = new TextDecoder().decode(readFileSync('src/main.ts')).replace(/\r\n/g, '\n').split('\n')
 const ALL = SRC.join('\n')
 const SCENERY = readFileSync('src/render/battleScenery.ts', 'utf8')
+const CANNONS = readFileSync('src/audio/cannonAudio.ts', 'utf8').replace(/\r\n/g, '\n')
+  .split('\n').map(line => line.replace(/^  /, ''))
 
 function lines(needle: string): number[] {
   const hits: number[] = []
@@ -17,12 +19,12 @@ function lines(needle: string): number[] {
 }
 
 /** 從 `head` 那一行起、到下一個頂層 `}` 為止的函式本體 */
-function body(head: string): string {
-  const at = lines(head)[0]
-  expect(at, head).toBeDefined()
+function body(head: string, source = SRC): string {
+  const at = source.findIndex(line => line.includes(head))
+  expect(at, head).toBeGreaterThanOrEqual(0)
   let end = at! + 1
-  while (end < SRC.length && SRC[end] !== '}') end++
-  return SRC.slice(at, end + 1).join('\n')
+  while (end < source.length && source[end] !== '}') end++
+  return source.slice(at, end + 1).join('\n')
 }
 
 describe('音效的生命週期接線', () => {
@@ -159,12 +161,13 @@ describe('音效的戰鬥事件接線', () => {
    * 而三層的射速差 24 倍，不各自限頻率的話 20 mm 會把聲道吃光。
    */
   it('艦砲三層都出聲，各層各自限頻率', () => {
-    const fn = body('function playCannons(')
+    const fn = body('function playCannons(', CANNONS)
     expect(fn).not.toContain("gun.zone.tier !== 'flak'")
     expect(fn).toContain('const g = gunSound(tier)')
     expect(fn).toContain('lastGunTier.get(tier)')
     expect(fn).toContain('g.gainDb, false, g.rate, g.cutoffHz')
-    expect(body('function resetAudioState(')).toContain('lastGunTier.clear()')
+    expect(body('function resetAudioState(')).toContain('cannonAudio.reset()')
+    expect(body('function reset(', CANNONS)).toContain('lastGunTier.clear()')
   })
 
   /**
@@ -172,7 +175,7 @@ describe('音效的戰鬥事件接線', () => {
    * 貼著一座砲飛時，聽到的常常是八百公尺外那一門在響，旁邊這門悶不吭聲。
    */
   it('每一層只響離鏡頭最近的那一座', () => {
-    const fn = body('function playCannons(')
+    const fn = body('function playCannons(', CANNONS)
     // 第一趟挑最近的
     expect(fn).toContain('if (d >= best.dist) continue')
     expect(fn).toContain('best.dist = d')
@@ -181,7 +184,7 @@ describe('音效的戰鬥事件接線', () => {
     // 【滿了只停止記錄】返回的話第二趟不會跑，那一幀整個啞掉
     expect(fn).toContain('if (slot >= prevGunFlash.length) break')
     expect(fn).not.toContain('if (slot >= prevGunFlash.length) return')
-    expect(body('function resetAudioState(')).toContain('gunPick.clear()')
+    expect(body('function reset(', CANNONS)).toContain('gunPick.clear()')
   })
 
   /**
@@ -193,13 +196,15 @@ describe('音效的戰鬥事件接線', () => {
     expect(ALL).toContain('burn: emitFirePuff, impact: onGroundImpact, fired: noteGroundShot')
     expect(ALL).toContain('battleScenery.rebuild(world, pendingMission?.battle.theater)')
     expect(SCENERY).toContain('createGroundBattle(theater, assets.burn, assets.smokeTexture, assets.impact, assets.fired)')
-    const note = body('function noteGroundShot(')
+    expect(ALL).toContain('const cannonAudio = createCannonAudio(audio, ctx.camera.position)')
+    expect(ALL).toContain('const noteGroundShot = cannonAudio.noteGroundShot')
+    const note = body('function noteGroundShot(', CANNONS)
     expect(note).toContain('const tier = groundGunTier(unit)')
     expect(note).toContain('if (tier === null) return')
     expect(note).toContain('if (d >= CANNON_AUDIO_RANGE) return')
     expect(note).toContain('if (d >= best.dist) return')
     expect(note).toContain('best.dist = d')
-    const fn = body('function playCannons(')
+    const fn = body('function playCannons(', CANNONS)
     expect(fn).not.toContain('e.dist = Infinity')
     expect(fn).toContain('best.dist = Infinity')
     expect(fn.indexOf('best.dist = Infinity')).toBeGreaterThan(fn.indexOf('if (d >= best.dist) continue'))
@@ -258,7 +263,7 @@ describe('音效的戰鬥事件接線', () => {
   it('beginFrame 排在所有單次音效之前', () => {
     const fn = body('function updateAudio(')
     expect(fn.indexOf('audio.beginFrame()')).toBeGreaterThan(0)
-    for (const call of ['playCues()', 'playHitDealt()', 'playCannons()']) {
+    for (const call of ['playCues()', 'playHitDealt()', 'cannonAudio.playCannons(world, elapsed)']) {
       expect(fn.indexOf('audio.beginFrame()'), call).toBeLessThan(fn.indexOf(call))
     }
     expect(fn.indexOf('audio.beginFrame()')).toBeLessThan(fn.indexOf('audio.assign('))
