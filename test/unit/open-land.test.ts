@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { Color } from 'three'
 import {
-  fieldAt, fieldGlsl, FIELD_GLSL, FIELD_REACH, isOpenParcel, onTrack, openWoodCover, regionAt, REGION_SPACING,
-  OPEN_CONIFER_SHARE, OPEN_DOT_AA, OPEN_DOT_REACH, OPEN_TREE_SCALE, OPEN_WOOD_CELL, OPEN_WOOD_DENSITY,
-  OPEN_WOOD_GATE, OPEN_WOOD_NEAR_MARGIN,
-  valueNoise, VILLAGE_CHANCE, villageDistance, fieldSurfaceColor, WOOD_GRID, type FieldSample, type RegionSample,
+  fieldAt, FIELD_REACH, isOpenParcel, onTrack, openWoodCover, regionAt, REGION_SPACING,
+  OPEN_CONIFER_SHARE, OPEN_DOT_AA, OPEN_DOT_REACH, OPEN_TREE_SCALE, OPEN_WOOD_CELL,
+  OPEN_WOOD_DENSITY, OPEN_WOOD_GATE, OPEN_WOOD_NEAR_MARGIN, valueNoise, VILLAGE_CHANCE,
+  villageDistance, fieldSurfaceColor, WOOD_GRID, type FieldSample, type RegionSample,
 } from '../../src/render/fields'
+import { fieldGlsl, FIELD_GLSL } from '../../src/render/fieldShaders'
 import { BROAD_CROWN_R } from '../../src/specs/flora'
 import {
   createFloraBuffer, farmHedgeFlora, farmWoodFlora, FLORA_STRIDE, FloraKind, openHedgeFlora, openWoodFlora,

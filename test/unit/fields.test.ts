@@ -1,12 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { Color } from 'three'
 import {
-  edgeAt, fieldAt, fieldGlslWithSite, fieldSurfaceColor, isWoodField, regionAt, regionParams,
-  regionSeed, roadBounds, siteSurfaceColor, splitCut, EDGE_JITTER, FIELD_ANISO,
-  FIELD_GLSL, FIELD_SPACING, FIELD_SPACING_VAR, HEDGE_CHANCE, HEDGE_WIDTH,
-  onTrack, trackGap, trackWidthAt, REGION_SPACING, SPLIT_CHANCE, TRACK_WARP_MAX, TRACK_WIDTH, TRACK_WIDTH_MAX, TRACK_WIDTH_MIN, WOOD_CHANCE,
-  type FieldSample, type RegionSample, type SplitCut,
+  edgeAt, fieldAt, fieldSurfaceColor, isWoodField, regionAt, regionParams, regionSeed, splitCut,
+  EDGE_JITTER, FIELD_ANISO, FIELD_SPACING, FIELD_SPACING_VAR, HEDGE_CHANCE, HEDGE_WIDTH,
+  onTrack, trackGap, trackWidthAt, REGION_SPACING, SPLIT_CHANCE, TRACK_WARP_MAX, TRACK_WIDTH,
+  TRACK_WIDTH_MAX, TRACK_WIDTH_MIN, WOOD_CHANCE, type FieldSample, type RegionSample,
+  type SplitCut,
 } from '../../src/render/fields'
+import { fieldGlslWithSite, FIELD_GLSL } from '../../src/render/fieldShaders'
+import { roadBounds, siteSurfaceColor } from '../../src/render/siteSurface'
 import { LEUNA_SITE } from '../../src/render/terrain'
 import { FARM_EXTENT } from '../../src/world/farmland'
 

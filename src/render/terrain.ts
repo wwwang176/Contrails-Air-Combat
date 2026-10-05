@@ -54,7 +54,7 @@ import { preloadScarAtlas } from './battleScars'
 import { aschClumpFlora, buildAschScenery } from './aschScenery'
 import type { HeightFieldData } from '../world/heightfield'
 import { canopyColor, FIELD_COLORS, FLORA_COLORS, type Season } from './season'
-import type { SiteLayout } from './fields'
+import type { SiteLayout } from './siteSurface'
 import {
   buildRavineFords, buildRavineStripes, ravineKeepOutFor, steppeRavineFloraFor,
 } from './steppeRavines'

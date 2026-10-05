@@ -25,7 +25,7 @@ import {
   torpedoAt, torpedoEntry,
   type ReelDecor, type ReelEvent, type ReelGround, type ReelPoint, type ReelTerrainKind, type Shot,
 } from './reelShots'
-import type { SiteLayout } from '../render/fields'
+import type { SiteLayout } from '../render/siteSurface'
 import type { CloudSpec } from '../render/clouds'
 import { createBombs, createTorpedoes, type BombVisuals, type OrdnancePool } from '../render/bombs'
 import { createGroundModels, type GroundModels } from '../render/groundTargets'

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { Color } from 'three'
-import {
-  fieldGlsl, fieldGlslWithSite, fieldSurfaceColor, siteSurfaceColor, type SiteLayout,
-} from '../../src/render/fields'
+import { fieldGlsl, fieldGlslWithSite } from '../../src/render/fieldShaders'
+import { fieldSurfaceColor } from '../../src/render/fields'
+import { siteSurfaceColor, type SiteLayout } from '../../src/render/siteSurface'
 import { LEUNA_SITE } from '../../src/render/terrain'
 import { PLANT_PAD, plantToWorld } from '../../src/world/leuna'
 
