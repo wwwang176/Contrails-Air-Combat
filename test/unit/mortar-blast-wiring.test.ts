@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 /** 【用 import.meta.glob 而不是 fs】`main.ts` 抓 DOM，載進 vitest 會直接爆；讀原始碼 */
-const SOURCES = import.meta.glob(['../../src/main.ts', '../../src/render/battleScenery.ts'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>
+const SOURCES = import.meta.glob(['../../src/main.ts', '../../src/render/battleScenery.ts', '../../src/audio/battleAudioCues.ts'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>
 // 【換行統一成 LF】工作區在 Windows 上是 CRLF
 const MAIN = SOURCES['../../src/main.ts']!.replace(/\r\n/g, '\n')
+const CUES = SOURCES['../../src/audio/battleAudioCues.ts']!
 const SCENERY = SOURCES['../../src/render/battleScenery.ts']!
 
 describe('迫擊砲彈落地的爆炸', () => {
@@ -27,7 +28,8 @@ describe('迫擊砲彈落地的爆炸', () => {
     expect(at).toBeGreaterThan(0)
     const body = MAIN.slice(at, MAIN.indexOf('\n}\n', at))
     expect(body).toContain('emitMortarBlast(x, y, z)')
-    expect(body).toContain('pushCue(cues, CUE.Explosion, x, y, z, MORTAR_BLAST_SCALE)')
+    expect(body).toContain('battleAudioCues.queueExplosion(x, y, z, MORTAR_BLAST_SCALE)')
+    expect(CUES).toContain('pushCue(cues, CUE.Explosion, x, y, z, scale)')
   })
 
   /** 純畫面的小爆炸：不震鏡頭、不打燈、不點地面火 */

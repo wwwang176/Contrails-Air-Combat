@@ -8,6 +8,8 @@ import { readFileSync } from 'node:fs'
  */
 const SRC = new TextDecoder().decode(readFileSync('src/main.ts')).replace(/\r\n/g, '\n').split('\n')
 const ALL = SRC.join('\n')
+const CUES = readFileSync('src/audio/battleAudioCues.ts', 'utf8').replace(/\r\n/g, '\n')
+  .split('\n').map(line => line.replace(/^  /, ''))
 const SCENERY = readFileSync('src/render/battleScenery.ts', 'utf8')
 const CANNONS = readFileSync('src/audio/cannonAudio.ts', 'utf8').replace(/\r\n/g, '\n')
   .split('\n').map(line => line.replace(/^  /, ''))
@@ -60,7 +62,7 @@ describe('音效的生命週期接線', () => {
 
   it('離開戰鬥清空佇列、重設邊緣偵測的狀態', () => {
     const fn = body('function leaveBattle(')
-    expect(fn).toContain('clearCues(cues)')
+    expect(fn).toContain('battleAudioCues.clear()')
     expect(fn).toContain('resetAudioState()')
   })
 
@@ -86,7 +88,7 @@ describe('音效的戰鬥事件接線', () => {
    * 讀到的永遠是空的 —— 一個聲音都沒有，而且不報錯。
    */
   it('子步裡記事件，排在每一種事件的清除之前', () => {
-    const q = lines('queueAudioCues()').filter(inStep)
+    const q = lines('battleAudioCues.queueAudioCues(world, player, terrain, input.godView)').filter(inStep)
     expect(q).toHaveLength(1)
     for (const clear of ['clearDamage(dmg)', 'emitGroundKills(world.groundKillEvents)', 'clearKills(world.killEvents)',
       'clearImpacts(world.bombEvents)', 'clearImpacts(world.torpedoEvents)', 'clearBursts(world.burstEvents)']) {
@@ -101,11 +103,11 @@ describe('音效的戰鬥事件接線', () => {
    * 帶過來（`DAMAGE_STRIDE` 的第 5 格），質量與護甲讀自己那架的 spec。
    */
   it('自己被打中的播放速度依機體質量與部位護甲', () => {
-    expect(body('function queueAudioCues(')).toContain('pushCue(cues, CUE.HitSelf, dmg.data[o + 4]!')
-    expect(body('function playCues(')).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, BULLET_HIT_DB, true, selfHitRate(x))")
-    const fn = body('function selfHitRate(')
+    expect(body('function queueAudioCues(', CUES)).toContain('pushCue(cues, CUE.HitSelf, dmg.data[o + 4]!')
+    expect(body('function playCues(', CUES)).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, BULLET_HIT_DB, true, selfHitRate(player, x))")
+    const fn = body('function selfHitRate(', CUES)
     expect(fn).toContain('hitRate(spec.mass, spec.protection[partOf(partIndex)])')
-    expect(body('function partOf(')).toContain('HIT_PARTS[partIndex]')
+    expect(body('function partOf(', CUES)).toContain('HIT_PARTS[partIndex]')
   })
 
   /**
@@ -113,19 +115,22 @@ describe('音效的戰鬥事件接線', () => {
    * 衰減擋掉。所以距離要量**真正被打中的那一架**，不能拿「最近的敵機」來估。
    */
   it('有飛機被打中就播，速度與距離都看被打中的那一架', () => {
-    const q = body('function queueAudioCues(')
+    const q = body('function queueAudioCues(', CUES)
     expect(q).toContain('lastDealtVictim = dmg.data[o]!')
     expect(q).toContain('lastDealtPart = dmg.data[o + 4]!')
     expect(q).toContain('hitDealtPending = true')
-    const fn = body('function playHitDealt(')
+    const fn = body('function playHitDealt(', CUES)
     expect(fn).toContain('world.combatants[lastDealtVictim]')
-    expect(fn).toContain('hitFeedback(victim.aircraft.state.position.distanceTo(ctx.camera.position), HIT_FB)')
+    expect(fn).toContain('hitFeedback(victim.aircraft.state.position.distanceTo(cam), HIT_FB)')
     expect(fn).toContain('hitRate(spec.mass, spec.protection[partOf(lastDealtPart)])')
     expect(fn).toContain('false, rate, HIT_FB.cutoffHz)')
     const upd = body('function updateAudio(')
-    expect(upd).toContain('if (hitDealtPending && flying) playHitDealt()')
-    expect(upd).toContain('hitDealtPending = false')
-    expect(body('function resetAudioState(')).toContain('lastDealtVictim = -1')
+    expect(upd).toContain('battleAudioCues.playFrame(world, player, elapsed, flying)')
+    const play = body('function playFrame(', CUES)
+    expect(play).toContain('if (hitDealtPending && flying) playHitDealt(world, elapsed)')
+    expect(play).toContain('hitDealtPending = false')
+    expect(body('function resetAudioState(')).toContain('battleAudioCues.reset()')
+    expect(body('function reset(', CUES)).toContain('lastDealtVictim = -1')
   })
 
   /**
@@ -146,12 +151,12 @@ describe('音效的戰鬥事件接線', () => {
    * 光這一項就把事件佇列灌滿，爆炸與擊落全被擠掉。
    */
   it('子彈打到船殼、建築有定位的撞擊聲，而且限頻率', () => {
-    const q = body('function queueAudioCues(')
+    const q = body('function queueAudioCues(', CUES)
     expect(q).toContain('world.materialHits')
     expect(q).toContain('MATERIAL_HIT_GAP')
     expect(q).toContain('pushCue(cues, CUE.MaterialHit')
     expect(q).toContain('clearImpacts(mh)')
-    const fn = body('function playCues(')
+    const fn = body('function playCues(', CUES)
     expect(fn).toContain('const m = impactSound(scale)')
     expect(fn).toContain("audio.playPool(m.pool, 'impact', x, y, z, true, m.gainDb, false, m.rate, m.cutoffHz)")
   })
@@ -216,24 +221,25 @@ describe('音效的戰鬥事件接線', () => {
    * 兩條路只能走一條：自己那架要排除在砲塔循環的候選之外（上帝視角除外），否則一發聽成兩種聲音。
    */
   it('自己那架的後座砲塔走齊射庫：與前機槍同一組分組、同一個事件，並且不進砲塔循環', () => {
-    const rebuild = body('function rebuildVolleyGroups(')
+    const rebuild = body('function rebuildVolleyGroups(', CUES)
     expect(rebuild).toContain('ownTurretVolleyPools(player.aircraft.spec.turrets)')
     expect(rebuild).toContain('ownTurretVolley = rear !== null')
-    const q = body('function queueAudioCues(')
+    const q = body('function queueAudioCues(', CUES)
     expect(q).toContain('player.turretStates[g.turret]')
     expect(q).toContain('pushCue(cues, CUE.SelfVolley, i, 0, 0)')
-    const play = body('function playCues(')
+    const play = body('function playCues(', CUES)
     expect(play).toContain("audio.playPool(g.pool, 'fireSelf', 0, 0, 0, false, g.db)")
     const upd = body('function updateAudio(')
-    expect(upd).toContain('!(c === me && flying && ownTurretVolley)')
+    expect(upd).toContain('!(c === me && flying && battleAudioCues.ownTurretVolley)')
   })
 
   it('記錄擊落、空爆、自己被打', () => {
-    const fn = body('function queueAudioCues(')
+    const fn = body('function queueAudioCues(', CUES)
     for (const cue of ['CUE.FlakBurst', 'CUE.HitSelf']) expect(fn).toContain(`pushCue(cues, ${cue}`)
-    const call = 'queueExplosionCues(cues, world, terrain, CRASH_BLAST_HEIGHT)'
+    const call = 'queueExplosionCues(cues, world, terrain, crashBlastHeight)'
     expect(fn).toContain(call)
-    expect(lines('queueExplosionCues(')).toHaveLength(1)
+    expect(CUES.filter(line => line.includes('queueExplosionCues('))).toHaveLength(1)
+    expect(ALL).toContain('createBattleAudioCues(audio, ctx.camera.position, CRASH_BLAST_HEIGHT)')
     expect(fn.indexOf(call)).toBeGreaterThan(fn.indexOf('CUE.SelfVolley'))
     expect(fn.indexOf(call)).toBeLessThan(fn.indexOf('const f = world.burstEvents'))
   })
@@ -252,8 +258,10 @@ describe('音效的戰鬥事件接線', () => {
     expect(call).toHaveLength(1)
     expect(call[0]!).toBeGreaterThan(cam)
     const fn = body('function updateAudio(')
-    expect(fn).toContain('playCues()')
-    expect(fn).toContain('clearCues(cues)')
+    expect(fn).toContain('battleAudioCues.playFrame(world, player, elapsed, flying)')
+    const play = body('function playFrame(', CUES)
+    expect(play).toContain('playCues(player)')
+    expect(play.indexOf('clearCues(cues)')).toBeGreaterThan(play.indexOf('playCues(player)'))
   })
 
   /**
@@ -263,7 +271,7 @@ describe('音效的戰鬥事件接線', () => {
   it('beginFrame 排在所有單次音效之前', () => {
     const fn = body('function updateAudio(')
     expect(fn.indexOf('audio.beginFrame()')).toBeGreaterThan(0)
-    for (const call of ['playCues()', 'playHitDealt()', 'cannonAudio.playCannons(world, elapsed)']) {
+    for (const call of ['battleAudioCues.playFrame(world, player, elapsed, flying)', 'cannonAudio.playCannons(world, elapsed)']) {
       expect(fn.indexOf('audio.beginFrame()'), call).toBeLessThan(fn.indexOf(call))
     }
     expect(fn.indexOf('audio.beginFrame()')).toBeLessThan(fn.indexOf('audio.assign('))
@@ -275,13 +283,13 @@ describe('音效的戰鬥事件接線', () => {
    * 打中敵機、砲擊、空爆、擦過不疊 —— 太密集，聲道會被吃光。
    */
   it('爆炸、水花、自己被打疊兩層；受創疊命中', () => {
-    const fn = body('function playCues(')
+    const fn = body('function playCues(', CUES)
     expect(fn).toContain("x, y, z, true, db, true, rate)")
     expect(fn).toContain("audio.playPool('splash', 'splash', x, y, z, true, db, true, rate)")
-    expect(fn).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, BULLET_HIT_DB, true, selfHitRate(x))")
+    expect(fn).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, BULLET_HIT_DB, true, selfHitRate(player, x))")
     expect(fn).toContain("audio.playPool('flakBurst', 'flakBurst', x, y, z, true, 0, true)")
     expect(fn).toContain('playHeavyHit(x)')
-    const heavy = body('function playHeavyHit(')
+    const heavy = body('function playHeavyHit(', CUES)
     expect(heavy).toContain("audio.playPool('damage'")
     expect(heavy).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, db + LAYER_DB)")
   })
@@ -292,8 +300,8 @@ describe('音效的戰鬥事件接線', () => {
    * 或多加在受創那一層，空爆的受創聲會跟著變小而沒有任何測試變紅。
    */
   it('機槍命中的額外增益只出現在那一條', () => {
-    expect(ALL.match(/BULLET_HIT_DB/g) ?? []).toHaveLength(2)
-    expect(body('function playHeavyHit(')).not.toContain('BULLET_HIT_DB')
+    expect(CUES.join('\n').match(/BULLET_HIT_DB/g) ?? []).toHaveLength(2)
+    expect(body('function playHeavyHit(', CUES)).not.toContain('BULLET_HIT_DB')
   })
 
   /**
@@ -337,13 +345,13 @@ describe('音效的戰鬥事件接線', () => {
    * 兩者共用爆炸庫，差別只在類別（`CATEGORY.blast` 的 `rolloff`）。
    */
   it('炸彈、魚雷、地面目標走 blast 類別，飛機擊落走 explosion', () => {
-    const fn = body('function playCues(')
+    const fn = body('function playCues(', CUES)
     expect(fn).toContain("cues.data[o]! === CUE.Blast ? 'blast' : 'explosion'")
     expect(fn).toContain("audio.playPool('explosion', 'blast', x, y, z, true, db - 12")
   })
 
   it('炸彈與魚雷的爆炸、水花帶當量', () => {
-    const play = body('function playCues(')
+    const play = body('function playCues(', CUES)
     expect(play).toContain('blastGainDb(scale)')
     expect(play).toContain('blastRate(scale)')
   })
@@ -353,7 +361,7 @@ describe('音效的戰鬥事件接線', () => {
    * 不限的話 60 fps 會疊將近 40 層，比單獨一次大 16 dB，還會把聲道池佔滿。
    */
   it('打中敵機不疊、限制頻率、依距離衰減與變悶', () => {
-    const fn = body('function playHitDealt(')
+    const fn = body('function playHitDealt(', CUES)
     expect(fn).toContain('HIT_DEALT_GAP')
     expect(fn).toContain('hitFeedback(')
     expect(fn).toContain("audio.playPool('hit', 'hitDealt', 0, 0, 0, false, HIT_FB.gainDb, false, rate, HIT_FB.cutoffHz)")
@@ -369,7 +377,7 @@ describe('音效的戰鬥事件接線', () => {
 
   /** 【被高射砲炸到也要有感覺】爆風的傷害不走子彈那條事件，只能自己判 */
   it('高射砲的爆風打到自己時記一筆機身受創', () => {
-    const fn = body('function queueAudioCues(')
+    const fn = body('function queueAudioCues(', CUES)
     expect(fn).toContain('pushCue(cues, CUE.Damage')
     expect(fn).toContain('f.radius[i]')
   })
@@ -388,7 +396,7 @@ describe('音效的戰鬥事件接線', () => {
    */
   it('自己的槍用齊射 one-shot，別人的才用開火循環', () => {
     expect(ALL).not.toContain("audio.selfLoop('fire'")
-    expect(body('function playCues(')).toContain("audio.playPool(g.pool, 'fireSelf'")
+    expect(body('function playCues(', CUES)).toContain("audio.playPool(g.pool, 'fireSelf'")
     expect(body('function updateAudio(')).toContain("audio.assign('fire'")
   })
 
@@ -397,10 +405,10 @@ describe('音效的戰鬥事件接線', () => {
    * 每一幀才看一次的話整次擊發會被跳過 —— 不報錯，只是偶爾沒聲音。
    */
   it('自己開火在子步裡做邊緣偵測', () => {
-    const fn = body('function queueAudioCues(')
+    const fn = body('function queueAudioCues(', CUES)
     expect(fn).toContain('pushCue(cues, CUE.SelfVolley')
     expect(fn).toContain('prevVolleyFlash')
-    expect(fn).toContain('input.godView')
+    expect(fn).toContain('godView')
   })
 
   /**
@@ -409,7 +417,7 @@ describe('音效的戰鬥事件接線', () => {
    */
   it('player 只在 setPlayer 裡寫，而它同時重算齊射分組', () => {
     const fn = body('function setPlayer(')
-    expect(fn).toContain('rebuildVolleyGroups()')
+    expect(fn).toContain('battleAudioCues.rebuildVolleyGroups(player)')
     const outside = ALL.replace(fn, '').replace('let player!: Combatant', '')
     expect(outside).not.toMatch(/(^|[^.\w])player = /m)
   })
@@ -425,11 +433,11 @@ describe('音效的戰鬥事件接線', () => {
    * —— 貼在鏡頭上播等於「在耳邊」，與畫面完全對不上。
    */
   it('上帝視角時不記、不播自己身上的單次音效', () => {
-    expect(body('function queueAudioCues(')).toContain('input.godView')
+    expect(body('function queueAudioCues(', CUES)).toContain('godView')
     const fn = body('function updateAudio(')
-    const at = fn.indexOf('playHitDealt()')
-    expect(at).toBeGreaterThan(0)
-    expect(fn.slice(Math.max(0, at - 120), at)).toContain('flying')
+    expect(fn).toContain('const flying = me.alive && !input.godView')
+    expect(fn).toContain('battleAudioCues.playFrame(world, player, elapsed, flying)')
+    expect(body('function playFrame(', CUES)).toContain('if (hitDealtPending && flying)')
   })
 
   it('增援預警換新時播無線電', () => {
