@@ -5,6 +5,7 @@ import {
 } from 'three'
 import { hash01 } from './scatter'
 import { applyFireFog } from './fireFog'
+import { SMOKE_WIND } from './wind'
 import type { Anchors } from './anchors'
 
 export interface ParticleConfig {
@@ -66,6 +67,11 @@ export interface ParticleConfig {
    * 【給了它就等於關掉軟邊圓形】見 `injectBillboard` 的 `soft`。
    */
   alphaMap?: Texture | undefined
+  /**
+   * 順風飄（`render/wind.ts` 的 `SMOKE_WIND`）。煙與塵開；火、火花、水花不開。
+   * 吹的是位置（隨空氣平移），與粒子自己的上升、擴散速度無關 —— 阻尼為 0 的池子也吹得動
+   */
+  wind?: boolean
   /**
    * 吃霧的比例（`render/fireFog.ts`）。**省略 = three 的霧**，煙、塵、水霧都是。
    * 火的那幾池給 `FIRE_FOG`：自己發光的東西，遠處不該跟煙一樣被霧吃掉
@@ -288,6 +294,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
   const shadeJitter = cfg.shadeJitter ?? 0
   const riseSpan = cfg.riseSpan ?? 0
   const riseRange = cfg.riseRange ?? 0.7
+  const windy = cfg.wind === true
   /**
    * 【起始年齡設無限大】等於「一出生就是死的」，不必另外一個 alive 陣列。
    *
@@ -493,9 +500,10 @@ export function createParticles(cfg: ParticleConfig): Particles {
         vx[i] = nvx
         vy[i] = nvy
         vz[i] = nvz
-        const nx = px[i]! + nvx * dt
+        // 【吸附的不吹】那時座標是錨點的區域座標，加世界的風方向不對
+        const nx = px[i]! + (nvx + (windy && at < 0 ? SMOKE_WIND.x : 0)) * dt
         const ny = py[i]! + nvy * dt
-        const nz = pz[i]! + nvz * dt
+        const nz = pz[i]! + (nvz + (windy && at < 0 ? SMOKE_WIND.z : 0)) * dt
         px[i] = nx
         py[i] = ny
         pz[i] = nz

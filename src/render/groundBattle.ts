@@ -334,14 +334,14 @@ export function createGroundBattle(
     gravity: 0, drag: 0, alphaFrom: 1, color: flashColor,
   })
   const gunSmoke = createParticles({
-    capacity: 512, blending: NormalBlending, life: 3, lifeJitter: 0.3, sizeFrom: 5, sizeTo: 14,
+    capacity: 512, blending: NormalBlending, wind: true, life: 3, lifeJitter: 0.3, sizeFrom: 5, sizeTo: 14,
     gravity: 0.6, drag: 1.2, alphaFrom: 0.55, shadeJitter: 0.3, color: gunSmokeColor,
   })
   const dust = createDust(1024, 1, smokeTexture)
   const dusts = theater.dusts ?? []
   /** 塵團。卡片沒有出處就沒有這個池 */
   const clouds = dusts.length === 0 ? null : createParticles({
-    capacity: DUST_CLOUD_CAPACITY, alphaMap: smokeTexture, blending: NormalBlending,
+    capacity: DUST_CLOUD_CAPACITY, alphaMap: smokeTexture, blending: NormalBlending, wind: true,
     life: DUST_CLOUD_LIFE, lifeJitter: DUST_CLOUD_LIFE_JITTER,
     sizeFrom: DUST_CLOUD_SIZE_FROM, sizeTo: DUST_CLOUD_SIZE_TO,
     gravity: 0, drag: 0, alphaFrom: DUST_CLOUD_ALPHA, shadeJitter: 0.3, color: dustCloudColor,

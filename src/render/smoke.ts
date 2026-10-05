@@ -299,6 +299,7 @@ export function createShipFireSmoke(
     capacity,
     alphaMap,
     blending: NormalBlending,
+    wind: true,
     life: SHIP_FIRE_SMOKE_LIFE,
     sizeFrom: SHIP_FIRE_SMOKE_SIZE_FROM,
     sizeTo: SHIP_FIRE_SMOKE_SIZE_TO,
@@ -360,6 +361,7 @@ export function createSteam(capacity: number = STEAM_CAPACITY, alphaMap?: Textur
     capacity,
     alphaMap,
     blending: NormalBlending,
+    wind: true,
     life: STEAM_LIFE,
     sizeFrom: 6,
     sizeTo: 26,
@@ -379,6 +381,7 @@ export function createSmoke(capacity: number = SMOKE_CAPACITY): Particles {
   return createParticles({
     capacity,
     blending: NormalBlending,
+    wind: true,
     life: SMOKE_LIFE,
     sizeFrom: SMOKE_SIZE_FROM,
     sizeTo: SMOKE_SIZE_TO,

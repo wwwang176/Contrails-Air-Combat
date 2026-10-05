@@ -2,6 +2,7 @@ import './render/heightFogInstall'
 import { Color, Euler, Quaternion, Vector3, type FogExp2, type Mesh, type Object3D } from 'three'
 import { CLOUD_ATLAS_URL, cloudColorOf, cloudFieldSpecs, createClouds } from './render/clouds'
 import { skirmishCloudField } from './world/cloudField'
+import { SMOKE_WIND, windOf } from './render/wind'
 import { FixedStepAccumulator, MAX_FRAME_SECONDS, clampFrameSeconds } from './core/loop'
 import { createPerfOverlay } from './core/perf'
 import { createRangeProbe } from './hud/rangeProbe'
@@ -1480,6 +1481,9 @@ function leaveBattle(): void {
   clearBattleScenery()
   // 短片下一幀換段時放它自己的雲；機庫沒有雲
   clouds.clear()
+  // 選單短片與機庫沒有風
+  SMOKE_WIND.x = 0
+  SMOKE_WIND.z = 0
 }
 
 /**
@@ -1768,6 +1772,8 @@ function buildBattleTerrain(): void {
   // 煙的材質不是 three 內建受光材質；時段換完要把同一顆太陽同步進 shader。
   syncFireSmokeLighting()
   resetArena()
+  // 【風在建地圖時定一次】只吹煙與塵、只是畫面。重開不重建地形，風也不換
+  windOf((Math.random() * 0x100000000) >>> 0, SMOKE_WIND)
   // 雲場鋪在這一場的界上，所以排在 `resetArena` 換好 `arenaBounds` 之後
   const card = mode === 'mission' ? pendingMission : null
   clouds.set(
@@ -4944,6 +4950,9 @@ function probeLead(): { x: number; y: number; r: number; lx: number; ly: number;
     lx: +best.leadX.toFixed(4), ly: +best.leadY.toFixed(4), range: +best.range.toFixed(0),
   }
 }
+
+/** **量測出口**：這一場的風（m/s，只吹煙與塵） */
+;(window as unknown as Record<string, unknown>)['__wind'] = () => ({ ...SMOKE_WIND })
 
 /**
  * **量測出口**：這一場的界與倒數狀態。給 `(x, z)` 時先把玩家水平搬過去（高度不動），

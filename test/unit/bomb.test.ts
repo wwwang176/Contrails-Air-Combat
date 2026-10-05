@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { BOMB_BLAST_DAMAGE as D } from '../../src/weapons/bomb'
 import { G0 } from '../../src/core/math'
 import {
-  BOMB_MAX_SECONDS, BOMB_SPREAD_RAD, BOMB_TERMINAL_SPEED, TORPEDO_SPREAD_RAD,
-  BOMBS_CAPACITY, Bombs, bombDragK, stepBomb, solveImpact, spreadDirection, spreadPair,
+  BOMB_MAX_SECONDS, BOMB_TERMINAL_SPEED, DROP_KICK_SPEED, TORPEDO_SPREAD_RAD,
+  BOMBS_CAPACITY, Bombs, bombDragK, dropKick, stepBomb, solveImpact, spreadDirection, spreadPair,
   type BombState, type Impact,
 } from '../../src/world/bomb'
 import { World } from '../../src/world/World'
@@ -170,7 +170,7 @@ describe('Bombs 池', () => {
   })
 })
 
-describe('spreadDirection：投彈的離散', () => {
+describe('spreadDirection：投雷的方向偏移', () => {
   const vec = (): BombState => ({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 })
 
   it('角度為 0 時逐位元恆等 —— 落點的數學驗證不得被它污染', () => {
@@ -186,19 +186,19 @@ describe('spreadDirection：投彈的離散', () => {
   it('速率幾乎不變 —— 它偏的是方向不是能量', () => {
     const o = vec()
     const s0 = Math.hypot(30, -5, -80)
-    spreadDirection(30, -5, -80, BOMB_SPREAD_RAD, -BOMB_SPREAD_RAD, o)
+    spreadDirection(30, -5, -80, TORPEDO_SPREAD_RAD, -TORPEDO_SPREAD_RAD, o)
     const s1 = Math.hypot(o.vx, o.vy, o.vz)
     // 【上界由常數推出來，不寫死位數】小角度近似下 |v| 長 (θu² + θv²)/2 的
     // 相對量，兩軸同幅時就是 θ²。寫死位數的話，調大離散會讓這一條假紅
     expect(s1 / s0 - 1).toBeGreaterThan(0)
-    expect(s1 / s0 - 1).toBeLessThan(BOMB_SPREAD_RAD * BOMB_SPREAD_RAD * 1.01)
+    expect(s1 / s0 - 1).toBeLessThan(TORPEDO_SPREAD_RAD * TORPEDO_SPREAD_RAD * 1.01)
   })
 
   it('偏角不超過單軸上限的合成量', () => {
     const o = vec()
-    const max = BOMB_SPREAD_RAD * Math.SQRT2 * 1.01
+    const max = TORPEDO_SPREAD_RAD * Math.SQRT2 * 1.01
     for (const [ax, ay] of [[1, 1], [1, -1], [-1, 1], [-1, -1], [1, 0], [0, 1]] as const) {
-      spreadDirection(0, 0, -90, ax * BOMB_SPREAD_RAD, ay * BOMB_SPREAD_RAD, o)
+      spreadDirection(0, 0, -90, ax * TORPEDO_SPREAD_RAD, ay * TORPEDO_SPREAD_RAD, o)
       const c = (o.vz * -90) / (90 * Math.hypot(o.vx, o.vy, o.vz))
       expect(Math.acos(Math.min(1, c))).toBeLessThan(max)
     }
@@ -207,17 +207,17 @@ describe('spreadDirection：投彈的離散', () => {
   it('兩個軸各自獨立，方向與符號對得上', () => {
     const o = vec()
     // 機首朝 −Z 飛：+ax 往 +X（右）、+ay 往 +Y（上）
-    spreadDirection(0, 0, -90, BOMB_SPREAD_RAD, 0, o)
+    spreadDirection(0, 0, -90, TORPEDO_SPREAD_RAD, 0, o)
     expect(o.vx).toBeGreaterThan(0)
     expect(Math.abs(o.vy)).toBeLessThan(1e-9)
-    spreadDirection(0, 0, -90, 0, BOMB_SPREAD_RAD, o)
+    spreadDirection(0, 0, -90, 0, TORPEDO_SPREAD_RAD, o)
     expect(o.vy).toBeGreaterThan(0)
     expect(Math.abs(o.vx)).toBeLessThan(1e-9)
   })
 
   it('垂直投彈（水平分量為 0）不產生 NaN', () => {
     const o = vec()
-    spreadDirection(0, -200, 0, BOMB_SPREAD_RAD, BOMB_SPREAD_RAD, o)
+    spreadDirection(0, -200, 0, TORPEDO_SPREAD_RAD, TORPEDO_SPREAD_RAD, o)
     expect(Number.isFinite(o.vx)).toBe(true)
     expect(Number.isFinite(o.vy)).toBe(true)
     expect(Number.isFinite(o.vz)).toBe(true)
@@ -294,29 +294,65 @@ describe('落地事件的水陸之分', () => {
   })
 })
 
-/**
- * 【炸彈與魚雷的離散幅度各自獨立】兩者共用同一組序號與同一支 `spreadDirection`，
- * 幅度卻是兩個常數。合成一個的話，調落彈散佈會靜靜地把雷擊的命中率一起改掉
- * —— 而雷擊看的是提前量，投出去那一刻的偏角直接變成整段航程的橫向誤差。
- */
-describe('投彈與投雷的離散幅度分開', () => {
-  /** 投放速度與輸入方向的夾角，rad */
-  function deviation(vx: number, vy: number, vz: number): number {
-    const c = (vz * -90) / (90 * Math.hypot(vx, vy, vz))
-    return Math.acos(Math.min(1, c))
-  }
+describe('dropKick：投放那一刻的隨機推力', () => {
+  const v = (): { x: number; y: number; z: number } => ({ x: 0, y: 0, z: 0 })
 
-  it('同一個序號下，炸彈的偏角是魚雷的 BOMB/TORPEDO 倍', () => {
+  it('大小恆為 DROP_KICK_SPEED、同一個序號每次一樣', () => {
+    const a = v()
+    const b = v()
+    for (const n of [0, 1, 7, 1234, 99999]) {
+      dropKick(n, a)
+      dropKick(n, b)
+      expect(a).toEqual(b)
+      expect(Math.hypot(a.x, a.y, a.z)).toBeCloseTo(DROP_KICK_SPEED, 9)
+    }
+  })
+
+  it('方向在球面上均勻：平均向量接近 0、各軸絕對值平均接近一半', () => {
+    const o = v()
+    const N = 4000
+    let sx = 0, sy = 0, sz = 0, ax = 0, ay = 0, az = 0
+    for (let n = 0; n < N; n++) {
+      dropKick(n, o)
+      sx += o.x; sy += o.y; sz += o.z
+      ax += Math.abs(o.x); ay += Math.abs(o.y); az += Math.abs(o.z)
+    }
+    expect(Math.hypot(sx, sy, sz) / N).toBeLessThan(0.1 * DROP_KICK_SPEED)
+    for (const s of [ax, ay, az]) expect(s / N / DROP_KICK_SPEED).toBeCloseTo(0.5, 1)
+  })
+
+  /**
+   * 【這條是推力存在的理由】落點誤差 ≈ 推力 × 落下時間：俯衝在低處放彈、落得快，
+   * 平拋從高處落很久。角度偏移做不到 —— 它跟著投放速度放大
+   */
+  it('俯衝的落點誤差遠小於平拋，平拋越高越散', () => {
+    const k = bombDragK(BOMB_TERMINAL_SPEED)
+    const flat = (): number => 0
+    const kick = v()
+    const miss = (y: number, vx: number, vy: number, vz: number): number => {
+      const c: Impact = { x: 0, y: 0, z: 0, seconds: 0, speed: 0 }
+      solveImpact({ x: 0, y, z: 0, vx, vy, vz }, k, flat, DT, c)
+      const o: Impact = { x: 0, y: 0, z: 0, seconds: 0, speed: 0 }
+      let sum = 0
+      for (let n = 0; n < 200; n++) {
+        dropKick(n, kick)
+        solveImpact({ x: 0, y, z: 0, vx: vx + kick.x, vy: vy + kick.y, vz: vz + kick.z }, k, flat, DT, o)
+        sum += Math.hypot(o.x - c.x, o.z - c.z)
+      }
+      return sum / 200
+    }
+    // 俯衝：600 m、俯角 60°、130 m/s；平拋：100 m/s
+    const dive = miss(600, 0, -130 * Math.sin(Math.PI / 3), -130 * Math.cos(Math.PI / 3))
+    const level1500 = miss(1500, 0, 0, -100)
+    const level4000 = miss(4000, 0, 0, -100)
+    expect(dive).toBeLessThan(level1500 / 2)
+    expect(level4000).toBeGreaterThan(level1500)
+  })
+
+  it('World.dropBomb：炸彈的初速與投放速度恰好差一個推力', () => {
     const w = new World()
-    // 【兩邊都是第一枚】序號各自從 0 起跳，所以 `spreadPair` 給的是同一組
-    // u、v —— 兩者的差別只剩幅度這一個常數
-    w.dropBomb(0, 4000, 0, 0, 0, -90, 500, 0)
-    w.dropTorpedo(0, 50, 0, 0, 0, -90, 500, 0, -1, 0)
-    const b = deviation(w.bombs.vx[0]!, w.bombs.vy[0]!, w.bombs.vz[0]!)
-    const t = deviation(w.torpedoes.vx[0]!, w.torpedoes.vy[0]!, w.torpedoes.vz[0]!)
-    // 【這一組 u、v 不能恰好是 0】是的話兩邊都不偏，比值沒有意義
-    expect(t).toBeGreaterThan(1e-9)
-    // 【4 位】`spreadDirection` 走小角度近似，比值本身帶 1e-6 量級的誤差
-    expect(b / t).toBeCloseTo(BOMB_SPREAD_RAD / TORPEDO_SPREAD_RAD, 4)
+    w.dropBomb(0, 4000, 0, 30, -5, -90, 500, 0)
+    const d = Math.hypot(w.bombs.vx[0]! - 30, w.bombs.vy[0]! + 5, w.bombs.vz[0]! + 90)
+    expect(d).toBeCloseTo(DROP_KICK_SPEED, 9)
   })
 })

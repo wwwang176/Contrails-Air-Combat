@@ -65,6 +65,7 @@ export function createFlakBursts(
     capacity,
     alphaMap,
     blending: NormalBlending,
+    wind: true,
     life: 4,
     // 【壽命要抖】同一朵的十八顆若同時消失，那朵雲會被切齊地「關掉」而不是散開
     lifeJitter: 0.3,

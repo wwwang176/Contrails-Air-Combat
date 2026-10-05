@@ -25,22 +25,23 @@ export const BOMB_TERMINAL_SPEED = 280
 export const BOMB_MAX_SECONDS = 90
 
 /**
- * 投彈方向的隨機偏移，**弧度**（±0.2°）。
+ * 投放物離手那一刻的隨機推力，m/s。方向在球面上均勻、大小固定（`dropKick`）。
  *
- * 【它不是瞄具的誤差，是彈的離散】同一串投下去的彈不會落在一條數學直線上
- * —— 掛架的釋放、氣流、彈體本身的差異都有。0.2° 在 4,000 m 的落點上是
- * 約 ±14 m，看得出「一串」而不是「一條線」，又不足以讓瞄具失去意義。
+ * 【它是彈的離散，不是瞄具的誤差】落點誤差約等於「推力 × 落下時間」：俯衝在低處
+ * 放彈、四秒就落地，誤差約 ±8 m；平拋從 1,500 m 落十七秒，約 ±30 m —— 俯衝轟炸比
+ * 平拋準就來自這裡。速度方向的角度偏移做不到這件事：它跟著投放速度放大，俯衝反而吃虧。
+ *
+ * 瞄具與落點圈解的是推力**之前**的彈道：推力也套進瞄具的話，散佈就變成免費的情報。
  *
  * **起始值，由試飛裁定。**
  */
-export const BOMB_SPREAD_RAD = (0.2 * Math.PI) / 180
+export const DROP_KICK_SPEED = 2
 
 /**
- * 投雷方向的隨機偏移，**弧度**（±0.1°）。
+ * 投雷方向的隨機偏移，**弧度**（±0.1°）。入水後的航向照這個方向走（推力只偏入水點）。
  *
- * 【為什麼不跟著炸彈】魚雷是貼海低速投放、投下之後自己走一段直線航程，
- * 命中與否看的是提前量而不是落點；離散加大等於直接砍雷擊的命中率。
- * 兩者共用一個常數的話，調炸彈的落彈散佈會靜靜地把雷擊也一起改掉。
+ * 【幅度小】魚雷是貼海低速投放、投下之後自己走一段直線航程，命中與否看的是提前量
+ * 而不是落點；方向偏一點就是整段航程的橫向誤差，加大等於直接砍雷擊的命中率。
  */
 export const TORPEDO_SPREAD_RAD = (0.1 * Math.PI) / 180
 
@@ -151,6 +152,24 @@ export function spreadPair(n: number, out: { u: number; v: number }): void {
   let g = Math.imul(h ^ 0x85ebca6b, 0xc2b2ae35)
   g ^= g >>> 13
   out.v = ((g >>> 0) / 0x80000000) - 1
+}
+
+/** `dropKick` 的雜湊輸入與角度偏移錯開：同一個序號的兩者不相關 */
+const KICK_SALT = 0x5bd1e995
+const KICK_PAIR = { u: 0, v: 0 }
+
+/**
+ * 第 `n` 個投放物的推力，m/s，寫進 `out`。大小 `DROP_KICK_SPEED`、方向在球面上均勻
+ * （垂直分量均勻、方位角均勻）。由序號雜湊而來 —— 同一場重播結果相同。
+ */
+export function dropKick(n: number, out: { x: number; y: number; z: number }): void {
+  spreadPair(n ^ KICK_SALT, KICK_PAIR)
+  const y = KICK_PAIR.u
+  const a = (KICK_PAIR.v + 1) * Math.PI
+  const r = Math.sqrt(1 - y * y)
+  out.x = r * Math.cos(a) * DROP_KICK_SPEED
+  out.y = y * DROP_KICK_SPEED
+  out.z = r * Math.sin(a) * DROP_KICK_SPEED
 }
 
 /** `solveImpact` 內部重用的狀態 —— 模組層級的單例，避免每幀配置 */

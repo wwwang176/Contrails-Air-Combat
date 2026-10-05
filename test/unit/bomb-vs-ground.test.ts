@@ -23,9 +23,12 @@ function place(world: World, id: GroundUnitId = 'chimney', x = 0, z = 0): Ground
   return t
 }
 
-/** 從 `(x, 400, z)` 垂直投一顆，跑到它消失為止 */
+/**
+ * 從 `(x, 400, z)` 垂直投一顆，跑到它消失為止。直接放進池子、不走 `dropBomb`：
+ * 這一支測的是命中與傷害，投放推力會讓它從 400 m 飄開十幾公尺
+ */
 function dropOn(world: World, x: number, z: number, damage = BOMB_BLAST_DAMAGE): void {
-  world.dropBomb(x, 400, z, 0, 0, 0, damage, 0)
+  world.bombs.spawn(x, 400, z, 0, 0, 0, damage, 0)
   for (let i = 0; i < 240 * 30 && world.bombs.live > 0; i++) world.step(DT)
 }
 

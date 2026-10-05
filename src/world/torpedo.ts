@@ -201,9 +201,12 @@ export class Torpedoes {
   /**
    * 水平航向，單位向量。入水時由入水速度的水平分量決定（`torpedoHeading`）；
    * **垂直入水那種退化情況沿用投放瞬間的機首方向**，所以 `spawn` 就要收它。
+   * 帶推力的那幾枚（`kicked`）在 `spawn` 時就由推力之前的速度定好。
    */
   readonly headX: Float64Array
   readonly headZ: Float64Array
+  /** 1 = 投放時帶了推力，航向在 `spawn` 定好、入水時不重算 */
+  readonly kicked: Uint8Array
   /**
    * 投放者的隊別。**0 = 藍、1 = 紅**，與 `Bombs.team` 同一個編碼。
    *
@@ -247,6 +250,7 @@ export class Torpedoes {
     this.vx = f(); this.vy = f(); this.vz = f()
     this.age = f(); this.run = f(); this.damage = f()
     this.headX = f(); this.headZ = f()
+    this.kicked = new Uint8Array(capacity)
     this.serial = f()
     this.team = new Int8Array(capacity)
     this.owner = new Int32Array(capacity)
@@ -264,18 +268,30 @@ export class Torpedoes {
    *                    **這一層有預設值，`World.dropTorpedo` 那一層沒有** ——
    *                    理由同 `Bombs.spawn`
    * @param owner       投放者的 combatant 索引。預設 −1 的理由同上
+   * @param kx/ky/kz    離手的推力，m/s（`dropKick`）。只進空中段的速度：入水點會偏，
+   *                    **入水後的航向照推力之前的速度走**
    */
   spawn(
     x: number, y: number, z: number,
     vx: number, vy: number, vz: number, damage: number,
     headX: number, headZ: number, team = 0, owner = -1,
+    kx = 0, ky = 0, kz = 0,
   ): number {
     const i = this.cursor
     this.cursor = (i + 1) % this.capacity
     if (this.active[i] === 0) this.liveCount++
     this.x[i] = x; this.y[i] = y; this.z[i] = z
-    this.vx[i] = vx; this.vy[i] = vy; this.vz[i] = vz
-    this.headX[i] = headX; this.headZ[i] = headZ
+    this.vx[i] = vx + kx; this.vy[i] = vy + ky; this.vz[i] = vz + kz
+    // 【有推力時航向在投放時就定】要的是推力之前的方向，入水速度已經混了推力。
+    // 沒有推力的照舊在入水時由入水速度算：兩者只在數學上相同，浮點上差最後一位，
+    // 水平速度貼著退化門檻時甚至會走不同的分支
+    this.kicked[i] = kx !== 0 || ky !== 0 || kz !== 0 ? 1 : 0
+    if (this.kicked[i] === 1) {
+      torpedoHeading(vx, vz, headX, headZ, this.head)
+      this.headX[i] = this.head[0]!; this.headZ[i] = this.head[1]!
+    } else {
+      this.headX[i] = headX; this.headZ[i] = headZ
+    }
     this.damage[i] = damage
     // 【一定要寫，不能靠 clear】`clear` 只清 `active` 與 `serial`；環狀指標
     // 繞回來時這一格會沿用前一枚的隊別
@@ -393,12 +409,14 @@ export class Torpedoes {
 
     onEntry(ix, g, iz)
 
-    // 【航向由入水速度的水平分量決定】退化時沿用 `spawn` 帶進來的機首方向。
-    // **與 HUD 的航跡線共用同一支** —— 兩邊各寫一份會在退化那一點分家，而
-    // 那只在垂直下墜時出現，看不到也測不到
-    torpedoHeading(s.vx, s.vz, this.headX[i]!, this.headZ[i]!, this.head)
-    this.headX[i] = this.head[0]!
-    this.headZ[i] = this.head[1]!
+    // 【航向由入水速度的水平分量決定】退化時沿用 `spawn` 帶進來的機首方向；帶推力的
+    // 用 `spawn` 存好的。**與 HUD 的航跡線共用同一支** —— 兩邊各寫一份會在退化那一點
+    // 分家，而那只在垂直下墜時出現，看不到也測不到
+    if (this.kicked[i] === 0) {
+      torpedoHeading(s.vx, s.vz, this.headX[i]!, this.headZ[i]!, this.head)
+      this.headX[i] = this.head[0]!
+      this.headZ[i] = this.head[1]!
+    }
     this.x[i] = ix
     this.y[i] = -this.tuning.depth
     this.z[i] = iz

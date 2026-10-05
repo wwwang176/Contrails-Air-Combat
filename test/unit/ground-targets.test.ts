@@ -43,8 +43,9 @@ function shoot(world: World, x: number, team = 0, damage = 100, caliber = 20): v
   for (let i = 0; i < 60; i++) world.step(DT)
 }
 
+/** 垂直投一顆。直接放進池子：這一支測的是命中，投放推力會讓它從 400 m 飄開 */
 function dropOn(world: World, x: number, z: number): void {
-  world.dropBomb(x, 400, z, 0, 0, 0, BOMB_BLAST_DAMAGE, 0)
+  world.bombs.spawn(x, 400, z, 0, 0, 0, BOMB_BLAST_DAMAGE, 0)
   for (let i = 0; i < 240 * 30 && world.bombs.live > 0; i++) world.step(DT)
 }
 
