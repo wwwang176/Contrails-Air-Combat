@@ -1,4 +1,6 @@
 import './render/heightFogInstall'
+import { createEffectStepper } from './render/effectStepper'
+import { createSteamEmission } from './render/steamEmission'
 import { createBlastPresentation, CRASH_BLAST_HEIGHT, KILL_BLAST_INHERIT } from './render/blastPresentation'
 import { createBattleScenery } from './render/battleScenery'
 import { createSceneWeather } from './render/sceneWeather'
@@ -43,7 +45,7 @@ import { createFireChunks } from './render/chunks'
 import { createFirePuff } from './render/firePuff'
 import { JET_RISE, createWaterJets } from './render/waterJets'
 import {
-  AIR_BLAST, BLAST_PACE, LAND_BLAST, WATER_BLAST, WRECK_WATER_BLAST,
+  AIR_BLAST, BLAST_PACE, LAND_BLAST, WATER_BLAST,
   createBlastSmoke, createDust, createEmberSmoke, createFireGlow, createWaterMist,
   emitBlast, emitEmber, emitFlakBlasts, emitMist, resetFlakBlastSeed,
   type BlastPools,
@@ -57,7 +59,7 @@ import { createGroundModels } from './render/groundTargets'
 import { createSearchlights, makeGlareTexture } from './render/searchlights'
 import { createGroundBattle } from './render/groundBattle'
 import { BATTLE_FOG, stepBattleFog } from './render/heightFog'
-import { settleGroundTargets, type GroundTarget } from './world/groundTargets'
+import { settleGroundTargets } from './world/groundTargets'
 import type { Ship } from './world/ships'
 import {
   balloonHills, settleBalloons, syncBalloonHills, type BalloonHillSet,
@@ -65,10 +67,7 @@ import {
 import { createBalloonModels } from './render/balloons'
 import type { TerrainSource } from './ai/terrainSense'
 import { clearBursts, createBursts, pushBurst } from './world/flak'
-import {
-  createShipFireSmoke, createSmoke, createSteam, emitSmoke,
-  DEBRIS_SMOKE_SIZE, STEAM_PLUME_SPEED,
-} from './render/smoke'
+import { createShipFireSmoke, createSmoke, createSteam } from './render/smoke'
 import { addSmokeLighting } from './render/smokeLighting'
 import { createBlastLights } from './render/blastLights'
 import { battleLights } from './battle/battleLights'
@@ -80,9 +79,7 @@ import {
 } from './render/groundFires'
 import { createFireCrowd, updateFireCrowd } from './render/fireCrowd'
 import { hash01 } from './core/hash'
-import {
-  createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
-} from './render/spray'
+import { createSpray, emitSpray, WATER_COLOR } from './render/spray'
 import { createVortex } from './render/vortex'
 import { createOrderMarkers } from './render/orderMarkers'
 import { createDebris } from './render/debris'
@@ -91,9 +88,7 @@ import {
   WRECK_FIRE_SMOKE_SCALE,
 } from './render/wrecks'
 import { bodyColorOf } from './render/geometry/buildAircraft'
-import {
-  IMPACT_STRIDE, clearImpacts, createImpacts,
-} from './world/events'
+import { clearImpacts, createImpacts } from './world/events'
 import { clearKills } from './world/kills'
 import { clearDamage, DAMAGE_STRIDE } from './world/damage'
 import { preloadLiveryVariants } from './render/geometry/buildAircraft'
@@ -182,7 +177,6 @@ import type { ReelTerrainKind } from './app/reelShots'
 import { createShowcase, type Showcase } from './app/showcase'
 import { preloadStartupAssets } from './app/startupAssets'
 import { warmBattleGraphics } from './app/battleWarmup'
-import { PLANT_STACKS } from './world/leuna'
 import { assetUrl } from './core/asset'
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
@@ -656,6 +650,7 @@ ctx.scene.add(shipFireSmoke.object)
 /** 廠區的白煙：煙囪與冷卻塔頂持續冒的蒸汽（`emitPlantSteam`） */
 const steam = createSteam(undefined, smokeTexture)
 ctx.scene.add(steam.object)
+const steamEmission = createSteamEmission(steam)
 const spray = createSpray(WATER_COLOR)
 ctx.scene.add(spray.object)
 const vortex = createVortex()
@@ -822,6 +817,12 @@ const emitWreckFirePuff = createFirePuff(
   BLAST_POOLS, wreckFireSmoke, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_SCALE, wrecks.anchors,
 )
 
+const stepEffects = createEffectStepper({
+  sparks, blastSparks, wrecks, debris, emitWreckFirePuff, smoke, spray, BLAST_POOLS,
+  splashes, fireball, steam, shipFireSmoke, wreckFireSmoke, blastJets,
+  blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, blastMist, flakBursts, blastLights,
+})
+
 /**
  * 燒著往下掉的氣球放一朵火。與殘骸的引擎火同一份小號配方，但不吸附錨點 ——
  * 氣球的位置每幀由 `render/balloons.ts` 給。**在模組層建一次**，理由同上。
@@ -857,88 +858,6 @@ const POOLS = [
   // 最後那一顆炸彈的餘震會接在新一場的第一幀上
   cameraShake,
 ]
-
-/** 每一座冒煙的構件每秒幾顆蒸汽 */
-const STEAM_PER_SECOND = 6
-/**
- * 蒸汽被吹斜的水平速度，m/s，與抖動的幅度。
- *
- * 【風向要固定】每一顆各抽一個方向的話，柱子是往四面散開的一叢；真的煙囪
- * 是整片往同一邊斜。八根煙囪的斜度一致，才有「同一片天空」的感覺。
- */
-const STEAM_WIND_X = 2.6
-const STEAM_WIND_Z = -1.4
-const STEAM_GUST = 0.7
-let steamAccum = 0
-let steamSeed = 0
-/**
- * 廠區的白煙：每一座**活著的**煙囪與冷卻塔在頂端持續冒蒸汽，加上佈景的
- * 八根煙囪（打不掉，所以炸完六座構件之後廠區仍在冒煙）。純裝飾，種子用
- * 計數器 —— 與 `emitFirePuff` 同一套。
- *
- * 【這裡不配置記憶體】每幀跑。`PLANT_STACKS` 是模組常數而且已經是世界
- * 座標，迴圈裡沒有 `new`、沒有換算。
- */
-function emitPlantSteam(frameSeconds: number, targets: readonly GroundTarget[]): void {
-  steamAccum += frameSeconds * STEAM_PER_SECOND
-  const n = Math.floor(steamAccum)
-  if (n <= 0) return
-  steamAccum -= n
-  if (terrainKind === 'leuna') {
-    for (const p of PLANT_STACKS) {
-      for (let k = 0; k < n; k++) {
-        const s = (steamSeed = (steamSeed + 1) | 0)
-        const gx = (hash01(s * 3 + 1) * 2 - 1) * STEAM_GUST
-        const gz = (hash01(s * 3 + 2) * 2 - 1) * STEAM_GUST
-        const ox = (hash01(s * 3 + 3) * 2 - 1) * 1.5
-        steam.emit(p.x + ox, p.y, p.z,
-          STEAM_WIND_X + gx, STEAM_PLUME_SPEED, STEAM_WIND_Z + gz, 1)
-      }
-    }
-  }
-  for (const t of targets) {
-    if (!t.alive) continue
-    const id = t.unit.id
-    if (id !== 'chimney' && id !== 'coolingTower') continue
-    for (let k = 0; k < n; k++) {
-      const s = (steamSeed = (steamSeed + 1) | 0)
-      const gx = (hash01(s * 3 + 1) * 2 - 1) * STEAM_GUST
-      const gz = (hash01(s * 3 + 2) * 2 - 1) * STEAM_GUST
-      // 冷卻塔的頂寬，蒸汽從整個頂面冒；煙囪從一個點
-      const spread = id === 'coolingTower' ? 8 : 1.5
-      const ox = (hash01(s * 3 + 3) * 2 - 1) * spread
-      steam.emit(t.position.x + ox, t.impactY, t.position.z,
-        STEAM_WIND_X + gx, STEAM_PLUME_SPEED, STEAM_WIND_Z + gz, 1)
-    }
-  }
-}
-
-/** 每一枚亮著的照明彈每秒幾顆白煙 */
-const FLARE_SMOKE_PER_SECOND = 4
-let flareSmokeAccum = 0
-
-/**
- * 照明彈的白煙：傘降的煙是往上拖的。借 `steam` 池（與廠區的蒸汽同一個），
- * 種子用同一個計數器。每幀跑，不配置。
- */
-function emitFlareSmoke(frameSeconds: number): void {
-  const fl = world.flares
-  if (fl.count === 0) return
-  flareSmokeAccum += frameSeconds * FLARE_SMOKE_PER_SECOND
-  const n = Math.floor(flareSmokeAccum)
-  if (n <= 0) return
-  flareSmokeAccum -= n
-  for (let i = 0; i < fl.capacity; i++) {
-    // 還沒點燃的不冒煙
-    if (fl.live[i] === 0 || fl.age[i]! < 0) continue
-    for (let k = 0; k < n; k++) {
-      const s = (steamSeed = (steamSeed + 1) | 0)
-      const gx = (hash01(s * 3 + 1) * 2 - 1) * STEAM_GUST
-      const gz = (hash01(s * 3 + 2) * 2 - 1) * STEAM_GUST
-      steam.emit(fl.x[i]!, fl.y[i]!, fl.z[i]!, STEAM_WIND_X * 0.5 + gx, STEAM_PLUME_SPEED, STEAM_WIND_Z * 0.5 + gz, 1.5)
-    }
-  }
-}
 
 function resetPools(): void {
   for (const p of POOLS) p.reset()
@@ -2083,8 +2002,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   updateFireCrowd(fireCrowd, groundFires, shipFires, world.ships, worldSeconds)
   stepShipFires(shipFires, world.ships, worldSeconds, emitFirePuff, fireCrowd.ship)
   stepGroundFires(groundFires, worldSeconds, emitFirePuff, fireCrowd.ground)
-  emitPlantSteam(worldSeconds, world.groundTargets)
-  emitFlareSmoke(worldSeconds)
+  steamEmission.emitPlantSteam(worldSeconds, world.groundTargets, terrainKind)
+  steamEmission.emitFlareSmoke(worldSeconds, world.flares)
   // 【槍焰用內插姿態】它是一個狀態而不是一個瞬間，所以位置在這裡重算 ——
   // 用物理位置的話槍焰會相對機身抖動一個子步的位移（M7 spec §2.1）
   muzzles.update(world.combatants, renderPositions, renderQuaternions)
@@ -2092,7 +2011,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   turretBarrels.update(world.combatants, renderPositions, renderQuaternions)
   turretMuzzles.update(world.combatants, renderPositions, renderQuaternions)
   flareLights.update(world.flares, elapsed)
-  stepEffects(worldSeconds, world.time)
+  stepEffects(worldSeconds, world.time, terrain, elapsed)
   // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
   // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
   battleScenery.groundModels?.update(world.groundTargets, ctx.camera.position, worldSeconds)
@@ -2555,72 +2474,6 @@ function drawHangar(frameSeconds: number, show: Showcase): void {
 }
 
 /**
- * 殘骸、零件與爆炸那一組池子的一幀。**戰鬥與選單的短片共用。**
- *
- * 【裡面不得讀 `world`】選單第一次出現時 `world` 還沒建（`startWorld` 才賦值）。
- * 種子時間由呼叫端給：戰鬥是 `world.time`、選單是 `elapsed`。
- */
-function stepEffects(worldSeconds: number, seedTime: number): void {
-  // 【火花與水柱在幀率積分】純裝飾，不參與判定也不需要決定性
-  sparks.step(worldSeconds)
-  // 【爆炸的火星走 `elapsed`】位置在著色器裡由出生到現在的時間算出來 ——
-  // 暫停時它不走，慢動作時它一起慢
-  blastSparks.step(elapsed)
-  // 【殘骸與零件先步進，再把它們吐出來的事件餵給煙、噴濺與水柱】兩者的
-  // 事件緩衝在各自的 step 開頭排空，所以這裡讀到的恆是這一幀的
-  // 【落地與落水用兩支不同的函式】`heightAt` 決定「碰到地面了沒」，
-  // `waterAt` 決定「那是水嗎」。共用一支的話摔在島上會噴水柱
-  wrecks.step(worldSeconds, terrain.heightAt, terrain.waterAt, elapsed)
-  debris.step(worldSeconds, terrain.heightAt, terrain.waterAt, elapsed)
-  // 【殘骸的引擎在燒】走船火那一份配方，小一號。位置由 `wrecks` 每一步從
-  // 機體座標轉成世界座標，法線那三格帶的是殘骸的速度 —— 火團要繼承它
-  {
-    const d = wrecks.fireEvents.data
-    for (let e = 0; e < wrecks.fireEvents.count; e++) {
-      const o = e * IMPACT_STRIDE
-      emitWreckFirePuff(d[o]!, d[o + 1]!, d[o + 2]!, d[o + 3]!)
-    }
-  }
-  emitSmoke(smoke, debris.smokeEvents, DEBRIS_SMOKE_SIZE)
-  emitSpray(spray, wrecks.sprayEvents, WRECK_SPRAY_COUNT)
-  // 【殘骸落水掀一個水冠】粗水柱塌下留水霧、柱腳噴水花 —— 與魚雷、炸彈落水同一套池
-  {
-    const d = wrecks.sprayEvents.data
-    for (let e = 0; e < wrecks.sprayEvents.count; e++) {
-      const o = e * IMPACT_STRIDE
-      emitBlast(BLAST_POOLS, WRECK_WATER_BLAST, d[o]!, d[o + 1]!, d[o + 2]!,
-        (e * 173 + Math.round(seedTime * 60)) | 0)
-    }
-  }
-  emitSpray(spray, debris.sprayEvents, DEBRIS_SPRAY_COUNT)
-  // 殘骸入水的那一圈水柱沿用 M7 的池子 —— 用數量換規模，splash.ts 不用改
-  splashes.emit(wrecks.splashEvents, terrain.heightAt, elapsed)
-  // 零件入水各濺一根小水柱。與噴濺讀同一份事件：同一次入水的兩個表現，
-  // 位置相同。高低粗細由 splashSize 依格子隨機
-  splashes.emit(debris.sprayEvents, terrain.heightAt, elapsed)
-  splashes.step(worldSeconds)
-  fireball.step(worldSeconds)
-  smoke.step(worldSeconds)
-  steam.step(worldSeconds)
-  shipFireSmoke.step(worldSeconds)
-  wreckFireSmoke.step(worldSeconds)
-  // 【爆炸那一組】水冠要在水霧之前 —— 它的 `onFade` 會往水霧池發射，
-  // 同一幀生的那幾團才不會被水霧自己的 `step` 漏掉一幀
-  blastJets.step(worldSeconds)
-  // 【這兩個要拿到殘骸的錨點】引擎火吸附在殘骸上，世界座標由池子每一幀
-  // 自己組。不給的話那些火當場收掉 —— 畫面上是「飛機不燒了」
-  blastChunks.step(worldSeconds, wrecks.anchors)
-  blastGlow.step(worldSeconds, wrecks.anchors)
-  blastEmber.step(worldSeconds)
-  blastSmoke.step(worldSeconds)
-  blastDust.step(worldSeconds)
-  blastMist.step(worldSeconds)
-  flakBursts.step(worldSeconds)
-  // 【畫面時間】閃光是純表現，與火花、火球同一條
-  blastLights.step(worldSeconds)
-}
-
-/**
  * 短片裡受損拖的煙，相對殘骸煙池（`wreckFireSmoke`）的出生尺寸。
  *
  * 【走殘骸那一池，不走通用煙池】通用的那一份是 2.5 秒的實心軟圓，一路拖出來是
@@ -2782,12 +2635,12 @@ function drawMenuBackground(frameSeconds: number): void {
   // 【定格時特效也停】只停短片的話，殘骸與煙照樣往下掉、往外散，截到的不是那一秒
   // 【慢動作時特效也慢】短片變速時，煙、火、曳光照畫面秒數散開的話，只有飛機在慢
   const fx = menuReel.hold ? 0 : frameSeconds * menuReel.rate
-  stepEffects(fx, elapsed)
+  stepEffects(fx, elapsed, terrain, elapsed)
   spray.step(fx)
   vortex.step(fx)
   reelTrackDust.step(fx)
   // 短片地上的煙囪與冷卻塔冒白煙（炸毀的就停）
-  emitPlantSteam(fx, menuReel.props)
+  steamEmission.emitPlantSteam(fx, menuReel.props, terrainKind)
   // 短片投下的炸彈點的地面火、魚雷的航跡。【擠在一起的火少冒煙】短片的地面火也要
   // 照密度節流，不然一串炸彈的火全速冒煙；戰鬥的船火池在選單裡是空的
   updateFireCrowd(fireCrowd, groundFires, shipFires, NO_SHIPS, fx)
@@ -3193,7 +3046,7 @@ if (initialRecoveryFailure !== null) {
     menuReel.hold = hold
     menuReel.seek(shot, at, (dt) => {
       elapsed += dt
-      stepEffects(dt, elapsed)
+      stepEffects(dt, elapsed, terrain, elapsed)
       spray.step(dt)
       vortex.step(dt)
     })

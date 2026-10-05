@@ -454,7 +454,7 @@ export function emitKillSmoke(pool: Particles, events: KillEvents): void {
 }
 
 export function emitSmoke(
-  pool: Particles, events: ImpactEvents, sizeScale = 1,
+  pool: Pick<Particles, 'emit'>, events: ImpactEvents, sizeScale = 1,
 ): void {
   const d = events.data
   for (let e = 0; e < events.count; e++) {

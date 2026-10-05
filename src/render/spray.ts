@@ -90,7 +90,7 @@ const DIR = new Vector3()
  * @param count 這一筆事件噴幾顆。殘骸用 `WRECK_SPRAY_COUNT`、零件用
  *              `DEBRIS_SPRAY_COUNT` —— 同一個池子，兩種規模
  */
-export function emitSpray(pool: Particles, events: ImpactEvents, count: number): void {
+export function emitSpray(pool: Pick<Particles, 'emit'>, events: ImpactEvents, count: number): void {
   const d = events.data
   for (let e = 0; e < events.count; e++) {
     const o = e * IMPACT_STRIDE
