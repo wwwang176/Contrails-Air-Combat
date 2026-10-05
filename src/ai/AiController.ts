@@ -97,7 +97,7 @@ export interface StrikeRef {
   index: number
 }
 import { ACE, type DifficultyProfile } from './profile'
-import type { FlightOrder } from './command'
+import type { FlightOrder } from './commandTypes'
 import { losBlocked } from '../world/occlusion'
 import { CommandDelay } from './delay'
 import { THROTTLE_RATE } from '../input/throttle'

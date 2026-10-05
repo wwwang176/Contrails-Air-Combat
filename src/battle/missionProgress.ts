@@ -1,5 +1,5 @@
 import { Vector3 } from 'three'
-import type { FlightOrder } from '../ai/command'
+import type { FlightOrder } from '../ai/commandTypes'
 import type { Combatant, World } from '../world/World'
 import type { Beat, BeatState } from './beats'
 import type { FlightIndex } from './flights'

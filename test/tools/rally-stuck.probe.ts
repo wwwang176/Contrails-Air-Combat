@@ -26,7 +26,7 @@
 import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
 import { battleConfigFrom, DEFAULT_SKIRMISH } from '../../src/battle/skirmish'
 import { AiController } from '../../src/ai/AiController'
-import type { CommandState, CommandUnit, FlightOrder } from '../../src/ai/command'
+import type { CommandState, CommandUnit, FlightOrder } from '../../src/ai/commandTypes'
 import type { Flight } from '../../src/battle/flights'
 
 const DT = 1 / 240

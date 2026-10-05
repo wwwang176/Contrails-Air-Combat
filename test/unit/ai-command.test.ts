@@ -1,10 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import {
-  planFlightOrder, planFlankOrder, planFocusTarget, createCommandState, stepCommand, rankFlights,
-  DEFAULT_COMMAND,
-  type CommandUnit, type CommandFlight, type FlightOrder,
-} from '../../src/ai/command'
+import { planFlightOrder, planFlankOrder, planFocusTarget, rankFlights } from '../../src/ai/commandPlanning'
+import { createCommandState, stepCommand } from '../../src/ai/command'
+import { DEFAULT_COMMAND } from '../../src/ai/commandConfig'
+import { type CommandUnit, type CommandFlight, type FlightOrder } from '../../src/ai/commandTypes'
 import { DEFAULT_STEER } from '../../src/ai/steerConfig'
 import { THREAT_RANGE } from '../../src/ai/assess'
 

@@ -12,7 +12,7 @@ import { ACE, VETERAN } from '../../src/ai/profile'
 import { MAX_REACTION_DELAY } from '../../src/ai/delay'
 import { INTENTS } from '../../src/ai/rules'
 import { rallyAim } from '../../src/ai/rally'
-import type { FlightOrder } from '../../src/ai/command'
+import type { FlightOrder } from '../../src/ai/commandTypes'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
 

@@ -1,6 +1,7 @@
 import { Vector3 } from 'three'
 import { AI_DECISION_HZ, AiController } from '../ai/AiController'
-import { stepCommand, type CommandUnit } from '../ai/command'
+import { stepCommand } from '../ai/command'
+import { type CommandUnit } from '../ai/commandTypes'
 import { manoeuvreSpeed } from '../ai/doctrine'
 import { PRESSURE_RANGE, teamSlot } from '../ai/target'
 import { serviceCeiling } from '../analysis/envelope'

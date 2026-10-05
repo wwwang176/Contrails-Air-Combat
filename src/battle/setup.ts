@@ -17,10 +17,8 @@ import { settle, spawnMember, unitFrame, type FeelCache } from './flightSpawn'
 import { placeBalloons, placeFleet, placeGround } from './missionSpawns'
 import { stepBeats } from './missionBeats'
 import { stepFlareRotation } from './flareRotation'
-import {
-  createCommandState,
-  type CommandState, type CommandUnit, type FlightOrder,
-} from '../ai/command'
+import { createCommandState } from '../ai/command'
+import { type CommandState, type CommandUnit, type FlightOrder } from '../ai/commandTypes'
 import { makeCommandUnit, stepCommandLayer, stepPressure } from './commandLayer'
 import { evacOrderOf, stepMissionProgress } from './missionProgress'
 import {

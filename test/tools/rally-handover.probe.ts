@@ -26,7 +26,7 @@ import { battleConfigFrom, DEFAULT_SKIRMISH } from '../../src/battle/skirmish'
 import { AiController } from '../../src/ai/AiController'
 import { PlayerController } from '../../src/control/PlayerController'
 import { createInputState } from '../../src/input/InputState'
-import type { CommandState, CommandUnit } from '../../src/ai/command'
+import type { CommandState, CommandUnit } from '../../src/ai/commandTypes'
 import type { Flight } from '../../src/battle/flights'
 
 const DT = 1 / 240

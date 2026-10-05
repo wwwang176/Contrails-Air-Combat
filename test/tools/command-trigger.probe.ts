@@ -16,7 +16,7 @@
  */
 import { Vector3 } from 'three'
 import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
-import { DEFAULT_COMMAND } from '../../src/ai/command'
+import { DEFAULT_COMMAND } from '../../src/ai/commandConfig'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 
