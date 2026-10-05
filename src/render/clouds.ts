@@ -4,6 +4,8 @@ import {
 } from 'three'
 import { hash01 } from './scatter'
 import type { DayPalette } from './timeOfDay'
+import { CLOUD_FIELD_MARGIN, cloudFieldCount, type CloudField } from '../world/cloudField'
+import type { ArenaBounds } from '../world/arena'
 
 /**
  * # 靜止的雲朵
@@ -68,8 +70,11 @@ export const CLOUD_TILES: readonly (readonly [number, number, number, number])[]
   [0.906, 0.98, -0.008, -0.006], [0.945, 0.93, 0.012, -0.035], [0.918, 0.855, -0.002, -0.002], [0.922, 0.762, 0, -0.002],
   [0.922, 0.715, 0, -0.131], [0.922, 0.664, 0, -0.168], [0.922, 0.609, 0, -0.164], [0.918, 0.672, -0.002, 0.16],
 ]
-/** 全部雲朵合計最多幾團雲塊 */
-export const CLOUD_PUFF_CAPACITY = 1536
+/**
+ * 全部雲朵合計最多幾團雲塊。最密的一場（半徑 20 km、`many`，440 朵）最壞是 13,200 團；
+ * 超過的雲塊被靜靜截掉，所以每一關與每一種遭遇戰組合的總數由 `cloud-field.test.ts` 守
+ */
+export const CLOUD_PUFF_CAPACITY = 16384
 /** 每這麼多公尺半徑一團雲塊；一朵雲的團數夾在 `CLOUD_PUFFS_MIN`～`CLOUD_PUFFS_MAX` */
 export const CLOUD_PUFF_SPACING = 4.7
 export const CLOUD_PUFFS_MIN = 12
@@ -189,6 +194,32 @@ export function scatterClouds(s: CloudScatter): CloudSpec[] {
     })
   }
   return out
+}
+
+/** 一場的雲場裡每朵雲的半徑範圍，m（同短片的遠景雲：幾公里外仍讀得出形狀） */
+export const CLOUD_FIELD_R_MIN = 60
+export const CLOUD_FIELD_R_MAX = 140
+
+/**
+ * 一場的雲：在戰場圓心、半徑「戰場半徑 + `CLOUD_FIELD_MARGIN`」的圓裡按面積均勻撒
+ * `cloudFieldCount` 朵。`key` 是關卡鍵（任務 id、遭遇戰的地形與時段），同一關每次一樣
+ */
+export function cloudFieldSpecs(f: CloudField, b: ArenaBounds, key: string): CloudSpec[] {
+  return scatterClouds({
+    x: b.x, z: b.z, inner: 0, outer: b.radius + CLOUD_FIELD_MARGIN,
+    yMin: f.yMin, yMax: f.yMax, rMin: CLOUD_FIELD_R_MIN, rMax: CLOUD_FIELD_R_MAX,
+    count: cloudFieldCount(f, b.radius), seed: seedOf(key),
+  })
+}
+
+/** 字串 → 種子（FNV-1a，無號 32 位元） */
+function seedOf(key: string): number {
+  let h = 0x811c9dc5
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return h >>> 0
 }
 
 /**

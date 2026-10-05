@@ -38,7 +38,7 @@ function evacCard(distance = 20000, radius = 1000, seconds = 176): ReadyMissionC
       blueSpec: kill.blueSpec, redSpec: kill.redSpec, convoySpec: null,
       blueCount: 4, redCount: 8, convoyCount: 0, convoyPriority: 1,
       targetDistance: distance, targetRadius: radius, seconds,
-      entry: 'pursuit', terrain: 'archipelago', arena: kill.arena,
+      entry: 'pursuit', terrain: 'archipelago', arena: kill.arena, clouds: kill.clouds,
     },
   }
 }

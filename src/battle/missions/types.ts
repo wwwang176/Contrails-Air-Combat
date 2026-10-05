@@ -10,6 +10,7 @@ import type { Team } from '../../world/World'
 import type { TerrainKind } from '../../world/terrainKind'
 import type { TimeOfDay } from '../../world/timeOfDay'
 import type { ArenaBounds } from '../../world/arena'
+import type { CloudField } from '../../world/cloudField'
 import type { Loadout } from '../../weapons/stores'
 import type { TakeoffLine } from '../../control/takeoffRoll'
 import type { GroundMotion } from '../../world/groundMotion'
@@ -600,6 +601,11 @@ export interface MissionBattle {
    * 與時段同理，只在 `main.ts` 讀，不進 `BattleConfig`。
    */
   readonly arena: ArenaBounds
+  /**
+   * 這一關的雲（`world/cloudField.ts`）：雲底高度與雲量，鋪滿「`arena` 半徑 + 8 km」的圓。
+   * 只是畫面，與時段同理不進 `BattleConfig`
+   */
+  readonly clouds: CloudField
 }
 
 /**

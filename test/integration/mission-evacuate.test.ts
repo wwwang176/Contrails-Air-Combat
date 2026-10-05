@@ -90,7 +90,7 @@ const CARD: ReadyMissionCard = (() => {
       // 直飛約 57 秒抵達，80 秒留了四成餘裕。
       blueCount: 4, redCount: 4, convoyCount: 0, convoyPriority: 1,
       targetDistance: 4000, targetRadius: 1000, seconds: 80,
-      entry: 'pursuit', terrain: 'archipelago', arena: kill.arena,
+      entry: 'pursuit', terrain: 'archipelago', arena: kill.arena, clouds: kill.clouds,
     },
   }
 })()

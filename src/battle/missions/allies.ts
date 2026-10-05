@@ -35,6 +35,8 @@ export const ALLIES: readonly MissionCard[] = [
       terrain: 'farmland',
       // 南北一條走廊：箱子從 z +5.5 km 飛到終點 −12 km，從側面進場的波次在 x +8.2 km
       arena: { x: 0, z: -3000, radius: 12000 },
+      // 夏天的晴天積雲，在 4,000 m 的轟炸機腳下
+      clouds: { yMin: 1200, yMax: 1800, amount: 'some' },
       /**
        * 【航程約 2 分 50 秒】終點在 z = −12,000、轟炸機出生在 z ≈ +5,000，
        * 以 B-17G 的開局巡航 355 km/h 飛 17 km。兩個波次與重生填滿那三分鐘。
@@ -98,6 +100,8 @@ export const ALLIES: readonly MissionCard[] = [
       terrain: 'leuna',
       // 進場走廊加上廠區；最遠的是廠區東南角的重砲（5.4, −12.0 km）
       arena: { x: 0, z: -4000, radius: 13000 },
+      // 高過 1,500 m 的投彈高度，不擋攻擊路線
+      clouds: { yMin: 2000, yMax: 2600, amount: 'few' },
       // 十一月的正午：太陽低、天色灰（`render/timeOfDay.ts`）
       timeOfDay: 'novemberNoon',
       /**
@@ -163,6 +167,8 @@ export const ALLIES: readonly MissionCard[] = [
       // 圍著艦隊；最遠的是雷擊波次的出生點（3.6, −10.2 km）。重生的零戰最多在界外
       // 0.5 km 出生，出生後朝艦隊飛進來
       arena: { x: 0, z: -2000, radius: 12000 },
+      // 熱帶海上的積雲低
+      clouds: { yMin: 600, yMax: 900, amount: 'some' },
       fleet: TF58_GROUP,
       /**
        * 【2,000 m 而不是預設的 4,000】G4M 進場之後要降到

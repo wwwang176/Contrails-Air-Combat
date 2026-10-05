@@ -95,6 +95,8 @@ export const JAPAN: readonly MissionCard[] = [
       terrain: 'archipelago',
       // 圍著艦隊；雙方開場在 z ±5 km
       arena: { x: 0, z: -1000, radius: 10000 },
+      // 熱帶積雲
+      clouds: { yMin: 600, yMax: 900, amount: 'some' },
       fleet: GUADALCANAL_FLEET,
       sinkCount: 3,
       // 【低空】陸攻從 5 km 外進場，4,000 m 開場的話到船團上空還沒降到投雷
@@ -128,6 +130,8 @@ export const JAPAN: readonly MissionCard[] = [
       terrain: 'leyte',
       // 灘頭到撤離點（0, +9 km）的走廊；最遠的是最後一個波次（7.7, +7.5 km）
       arena: { x: 2000, z: 2000, radius: 11000 },
+      // 暴雨的雲低又多；暗色雲與天空接近，要多才看得出來
+      clouds: { yMin: 400, yMax: 900, amount: 'many' },
       altitude: 1500,
       loadouts: { ki84: KI84_BOMB_LOADOUT },
       // 【僚機先打卡車】遭到敵機直接瞄準時才自衛。掛著彈時先投彈、投完掃射
@@ -260,6 +264,8 @@ export const JAPAN: readonly MissionCard[] = [
       terrain: 'sea',
       // 圍著艦隊；雙方開場在 z ±5 km
       arena: { x: 0, z: 0, radius: 10000 },
+      // 黃昏的橘雲
+      clouds: { yMin: 800, yMax: 1500, amount: 'some' },
       fleet: RENNELL_FLEET,
       // 【低空】卡片寫的是「貼海飛行」。用預設的 4,000 m 的話，開場時
       // 艦隊在 6.3 km 外、3.85 km 正下方 —— 不低頭看不到船。**起始值。**

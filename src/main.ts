@@ -1,6 +1,7 @@
 import './render/heightFogInstall'
 import { Color, Euler, Quaternion, Vector3, type FogExp2, type Mesh, type Object3D } from 'three'
-import { CLOUD_ATLAS_URL, cloudColorOf, createClouds } from './render/clouds'
+import { CLOUD_ATLAS_URL, cloudColorOf, cloudFieldSpecs, createClouds } from './render/clouds'
+import { skirmishCloudField } from './world/cloudField'
 import { FixedStepAccumulator, MAX_FRAME_SECONDS, clampFrameSeconds } from './core/loop'
 import { createPerfOverlay } from './core/perf'
 import { createRangeProbe } from './hud/rangeProbe'
@@ -851,7 +852,10 @@ ctx.scene.add(blastDust.object)
 /** 短片開動的車在車尾揚起的塵：與地面戰的行進揚塵同一個配方（壽命倍率 1，見 `render/groundBattle.ts`） */
 const reelTrackDust = createDust(256, 1, smokeTexture)
 ctx.scene.add(reelTrackDust.object)
-/** 天上的靜止雲朵（`render/clouds.ts`）。短片換段時由舞台的 `setClouds` 換一批 */
+/**
+ * 天上的靜止雲朵（`render/clouds.ts`）。戰鬥由建場（`buildBattleTerrain`）鋪這一場的雲場；
+ * 短片換段時由舞台的 `setClouds` 換一批
+ */
 const clouds = createClouds(new TextureLoader().load(assetUrl(CLOUD_ATLAS_URL)))
 ctx.scene.add(clouds.object)
 const CLOUD_COLOR = new Color()
@@ -1474,6 +1478,8 @@ function leaveBattle(): void {
   boardActions.hidden = true
   boardEl.classList.remove('finished')
   clearBattleScenery()
+  // 短片下一幀換段時放它自己的雲；機庫沒有雲
+  clouds.clear()
 }
 
 /**
@@ -1762,6 +1768,16 @@ function buildBattleTerrain(): void {
   // 煙的材質不是 three 內建受光材質；時段換完要把同一顆太陽同步進 shader。
   syncFireSmokeLighting()
   resetArena()
+  // 雲場鋪在這一場的界上，所以排在 `resetArena` 換好 `arenaBounds` 之後
+  const card = mode === 'mission' ? pendingMission : null
+  clouds.set(
+    cloudFieldSpecs(
+      card !== null ? card.battle.clouds : skirmishCloudField(terrainKind, timeOfDay),
+      arenaBounds,
+      card !== null ? card.id : `skirmish:${terrainKind}:${timeOfDay}`,
+    ),
+    cloudColorOf(DAY_PALETTES[timeOfDay], CLOUD_COLOR),
+  )
 }
 
 /**
@@ -4583,6 +4599,8 @@ const GFX_HIDDEN_LAYER = 31
     ground: () => (groundModels === null ? [] : [groundModels.object]),
     balloons: () => (balloonModels === null ? [] : [balloonModels.object]),
     rain: () => (rain === null ? [] : [rain.object]),
+    // 雲場（顏色那一遍與深度那一遍一起）
+    clouds: () => [clouds.object],
     // 雨的兩半分開量：空中的雨絲（第一個孩子）、地面的水花（第二個）
     rainLines: () => (rain === null ? [] : rain.object.children.slice(0, 1)),
     rainSplash: () => (rain === null ? [] : rain.object.children.slice(1, 2)),
@@ -4922,6 +4940,24 @@ function probeLead(): { x: number; y: number; r: number; lx: number; ly: number;
   return {
     x: +best.x.toFixed(4), y: +best.y.toFixed(4), r: +best.radius.toFixed(4),
     lx: +best.leadX.toFixed(4), ly: +best.leadY.toFixed(4), range: +best.range.toFixed(0),
+  }
+}
+
+/**
+ * **量測出口**：這一場的界與倒數狀態。給 `(x, z)` 時先把玩家水平搬過去（高度不動），
+ * 驗界外警告、倒數與接手僚機用
+ */
+;(window as unknown as Record<string, unknown>)['__arena'] = (x?: number, z?: number) => {
+  if (screen !== 'battle' || loadingBattle) return null
+  if (x !== undefined && z !== undefined) {
+    const p = player.aircraft.state.position
+    p.x = x
+    p.z = z
+  }
+  const p = player.aircraft.state.position
+  return {
+    bounds: { ...arenaBounds }, outside: arena.outside, remaining: arena.remaining, expired: arena.expired,
+    seat: player.index, alive: player.alive, x: p.x, z: p.z,
   }
 }
 

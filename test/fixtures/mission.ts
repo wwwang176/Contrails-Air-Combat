@@ -89,6 +89,7 @@ function killCard(): ReadyMissionCard {
       entry: 'bounce',
       terrain: 'farmland',
       arena: SKIRMISH_ARENA,
+      clouds: { yMin: 1200, yMax: 1800, amount: 'few' },
     },
   }
 }
