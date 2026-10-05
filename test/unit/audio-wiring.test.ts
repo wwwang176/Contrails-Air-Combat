@@ -8,6 +8,8 @@ import { readFileSync } from 'node:fs'
  */
 const SRC = new TextDecoder().decode(readFileSync('src/main.ts')).replace(/\r\n/g, '\n').split('\n')
 const ALL = SRC.join('\n')
+const FLIGHT = readFileSync('src/audio/flightAudio.ts', 'utf8').replace(/\r\n/g, '\n')
+  .split('\n').map(line => line.replace(/^  /, ''))
 const LOOPS = readFileSync('src/audio/aircraftLoopAudio.ts', 'utf8').replace(/\r\n/g, '\n')
   .split('\n').map(line => line.replace(/^  /, ''))
 const CUES = readFileSync('src/audio/battleAudioCues.ts', 'utf8').replace(/\r\n/g, '\n')
@@ -140,7 +142,7 @@ describe('音效的戰鬥事件接線', () => {
    * 一樣該有聲音；那時也不屬於任何一邊，兩邊的子彈都算（隊伍傳 −1）。
    */
   it('擦過判定用鏡頭位置，上帝視角時兩邊的子彈都算', () => {
-    const fn = body('function updateAudio(')
+    const fn = body('function update(', FLIGHT)
     expect(fn).toContain('nearMiss(world.projectiles, team, eye.x, eye.y, eye.z, FLYBY_RADIUS)')
     expect(fn).toContain('const team = input.godView ? -1 : teamSlot(me.team)')
     // 擦過排在「沒坐在座艙裡就提前結束」之前
@@ -279,6 +281,7 @@ describe('音效的戰鬥事件接線', () => {
     }
     expect(fn.indexOf('aircraftLoopAudio.update(')).toBeGreaterThan(fn.indexOf('cannonAudio.playCannons('))
     expect(fn.indexOf('aircraftLoopAudio.update(')).toBeLessThan(fn.indexOf('audio.endFrame()'))
+    expect(fn.indexOf('audio.endFrame()')).toBeLessThan(fn.indexOf('flightAudio.update('))
   })
 
   /**
@@ -335,6 +338,9 @@ describe('音效的戰鬥事件接線', () => {
     expect(upd).toContain(call)
     expect(upd.indexOf(call)).toBeLessThan(upd.indexOf('aircraftLoopAudio.update('))
     expect(body('function resetAudioState(')).toContain('listenerMotion.reset()')
+    expect(body('function resetAudioState(')).toContain('flightAudio.reset()')
+    expect(ALL).toContain('const flightAudio = createFlightAudio(audio, ctx.camera.position, input, {')
+    expect(ALL).toContain('playHeavyHit: battleAudioCues.playHeavyHit, teamSlot,')
   })
 
   /**
@@ -372,8 +378,8 @@ describe('音效的戰鬥事件接線', () => {
 
   /** 【投彈時飛機本身不出聲】每一顆炸彈自己的呼嘯就是回饋，包括自己投的 */
   it('投彈投雷不另外出聲，自己投的炸彈也會呼嘯', () => {
-    expect(ALL).not.toContain("audio.playPool('release'")
-    const fn = body('function updateAudio(')
+    expect(ALL + FLIGHT.join('\n')).not.toContain("audio.playPool('release'")
+    const fn = body('function update(', FLIGHT)
     expect(fn).toContain('audio.playFile(SINGLE_FILES.whistle')
     expect(fn).not.toContain('bombs.owner[i] === me.index')
   })
@@ -387,8 +393,9 @@ describe('音效的戰鬥事件接線', () => {
 
   /** 【超速也要警告】原本只有飛出邊界會響；超速是另一種「再這樣下去會出事」 */
   it('飛出邊界或超速時警告蜂鳴', () => {
-    const fn = body('function updateAudio(')
-    expect(fn).toContain('arena.outside')
+    const fn = body('function update(', FLIGHT)
+    expect(body('function updateAudio(')).toContain('flightAudio.update(world, me, elapsed, worldSeconds, hudFrame.arenaShow && arena.outside)')
+    expect(fn).toContain('arenaWarning')
     expect(fn).toContain('OVERSPEED_FULL')
   })
 
@@ -426,7 +433,7 @@ describe('音效的戰鬥事件接線', () => {
   })
 
   it('按 B 切換投彈視角時響一下彈艙', () => {
-    const fn = body('function updateAudio(')
+    const fn = body('function update(', FLIGHT)
     expect(fn).toContain('prevViewMode')
     expect(fn).toContain("audio.playFile(SINGLE_FILES.bayToggle")
   })

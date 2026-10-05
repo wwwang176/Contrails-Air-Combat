@@ -11,24 +11,19 @@ import { createPerfOverlay } from './core/perf'
 import { createRangeProbe } from './hud/rangeProbe'
 import { DEG } from './core/math'
 import { indicatedAirspeed } from './core/airspeed'
+import { overspeedShake } from './core/overspeedFeedback'
 import { createScene } from './render/scene'
 import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality } from './render/quality'
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
 import { createCannonAudio } from './audio/cannonAudio'
+import { createFlightAudio } from './audio/flightAudio'
 import { createAircraftLoopAudio } from './audio/aircraftLoopAudio'
 import { createListenerMotion } from './audio/listenerMotion'
 import { createBattleAudioCues } from './audio/battleAudioCues'
-import {
-  SINGLE_FILES, engineFile, sirenFile,
-} from './audio/catalog'
+import { SINGLE_FILES } from './audio/catalog'
 import { STRIKE_HEIGHT, applyFlash, createStorm, rollThunder, stepStorm } from './render/storm'
 import { createRain } from './render/rain'
-import { nearMiss } from './audio/nearMiss'
-import {
-  engineRate, noseDownRad,
-  shakeGainDb, shakeInterval, sirenParams, windParams,
-} from './audio/curves'
 import { DAY_PALETTES, applyTimeOfDay, type TimeOfDay } from './render/timeOfDay'
 import { flatSeaCrashPolicy } from './world/seaCrash'
 import { arenaKills, createArenaState, SKIRMISH_ARENA, stepArena, type ArenaBounds } from './world/arena'
@@ -139,9 +134,8 @@ import { deathCamAim, enterDeathCam } from './camera/deathCam'
 import { applyBlend, createCameraBlend, startBlend } from './camera/cameraBlend'
 import {
   GROUND_KILL_SHAKE, GUN_LOST_SHAKE, KILL_SHAKE,
-  OVERSPEED_FULL, OVERSPEED_SHAKE,
   addShake, applyCameraShake, createCameraShake, hudShakeAngle, hudShakeShiftX,
-  hudShakeShiftY, ordnanceShakeScale, overspeedShake, stepCameraShake,
+  hudShakeShiftY, ordnanceShakeScale, stepCameraShake,
 } from './camera/cameraShake'
 import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
@@ -1871,31 +1865,12 @@ function trackPlayerOrder(): void {
 // 但 240 Hz 裡不碰 Web Audio —— `queueAudioCues` 只寫五個數字進佇列，
 // `updateAudio` 每一幀在鏡頭定位之後才播（距離、延遲、低通都量到鏡頭）。
 
-/** 敵彈擦過的判定半徑，m；兩次擦過聲之間至少隔幾秒 */
-const FLYBY_RADIUS = 20
-const FLYBY_GAP = 0.12
-/** 炸彈呼嘯：離自己多近、正在下落才播，m */
-const WHISTLE_RANGE = 400
-/** 一幀掉超過這個比例的 HP 算重擊（高射砲、機砲） */
-const HEAVY_HIT = 0.08
-
-/** 俯衝警笛的暫存：`sirenParams` 的輸出，與每架這一幀的播放速度與增益（依 combatant 的 index） */
-const SIREN = { rate: 0, gainDb: 0 }
-
-const WIND = { cutoffHz: 0, gainDb: 0 }
-/** 炸彈呼嘯：每個炸彈槽播過沒有、上一幀的 age（age 變小代表槽被重用） */
-const whistled = new Uint8Array(512)
-const prevBombAge = new Float64Array(512)
-
 const listenerMotion = createListenerMotion()
 const camVel = listenerMotion.velocity
 const aircraftLoopAudio = createAircraftLoopAudio(audio, ctx.camera.position, camVel)
-
-let prevPlayerHp = -1
-let prevReloading = false
-let prevViewMode: typeof input.viewMode = 'third'
-let rattleTimer = 0
-let lastFlyby = -Infinity
+const flightAudio = createFlightAudio(audio, ctx.camera.position, input, {
+  playHeavyHit: battleAudioCues.playHeavyHit, teamSlot,
+})
 
 /**
  * 上一幀的狀態全部歸零。開戰、離開、接手僚機時呼叫 —— 不歸零的話，
@@ -1907,15 +1882,9 @@ function resetAudioState(): void {
   audio.setTimeScale(1)
   cannonAudio.reset()
   listenerMotion.reset()
-  whistled.fill(0)
-  prevBombAge.fill(0)
+  flightAudio.reset()
   aircraftLoopAudio.reset()
-  prevPlayerHp = -1
-  prevReloading = false
-  rattleTimer = 0
-  lastFlyby = -Infinity
   battleAudioCues.reset()
-  prevViewMode = input.viewMode
 }
 
 /**
@@ -1945,76 +1914,7 @@ function updateAudio(worldSeconds: number): void {
   aircraftLoopAudio.update(world.combatants, renderPositions, me, elapsed, flying, battleAudioCues.ownTurretVolley)
   audio.endFrame()
 
-  // 自己身上的循環
-  const spec = me.aircraft.spec
-  audio.selfLoop('engine', flying ? engineFile(spec.id) : null, engineRate(me.command.throttle), 0)
-  const vneRatio = indicatedAirspeed(me.aircraft.diag.aero.tas, me.aircraft.diag.air.sigma) / spec.limits.vne
-  windParams(vneRatio, WIND)
-  audio.selfLoop('wind', flying ? SINGLE_FILES.wind : null, 1, WIND.gainDb, WIND.cutoffHz)
-  // 俯衝警笛：自己的（不定位）。機頭朝下 10° 以上才響（10–45° 漸變），音量與音高隨空速；沒有警笛檔的機種是 null
-  const sirenSelf = sirenFile(spec.id)
-  sirenParams(vneRatio, noseDownRad(me.aircraft.state.orientation), SIREN)
-  audio.selfLoop('siren', flying && sirenSelf !== null ? sirenSelf : null, SIREN.rate, SIREN.gainDb)
-  // 警告蜂鳴：飛出邊界，或速度進了紅線（與 HUD 的紅線警告同一個門檻）
-  const warn = flying && ((hudFrame.arenaShow && arena.outside) || vneRatio >= OVERSPEED_FULL)
-  audio.selfLoop('warn', warn ? SINGLE_FILES.warn : null, 1, 0)
-
-  // 【擦過看的是鏡頭，不是機身】上帝視角時鏡頭在世界裡自由飛，從它旁邊掠過的
-  // 子彈一樣該有聲音。坐在座艙裡時鏡頭就在機身上，兩者等價
-  const eye = ctx.camera.position
-  if (elapsed - lastFlyby >= FLYBY_GAP) {
-    const team = input.godView ? -1 : teamSlot(me.team)
-    const k = nearMiss(world.projectiles, team, eye.x, eye.y, eye.z, FLYBY_RADIUS)
-    if (k >= 0) {
-      lastFlyby = elapsed
-      const p = world.projectiles
-      audio.playPool('flyby', 'flyby', p.x[k]!, p.y[k]!, p.z[k]!, true)
-    }
-  }
-
-  if (!flying) {
-    prevPlayerHp = -1
-    return
-  }
-  const pos = me.aircraft.state.position
-  // 附近有炸彈落下 —— **自己投的也算**，那就是投彈的回饋
-  const bombs = world.bombs
-  const cap = Math.min(bombs.capacity, whistled.length)
-  for (let i = 0; i < cap; i++) {
-    if (bombs.age[i]! < prevBombAge[i]!) whistled[i] = 0
-    prevBombAge[i] = bombs.age[i]!
-    if (!bombs.active[i] || whistled[i] || bombs.vy[i]! >= 0) continue
-    const dx = bombs.x[i]! - pos.x, dy = bombs.y[i]! - pos.y, dz = bombs.z[i]! - pos.z
-    if (dx * dx + dy * dy + dz * dz > WHISTLE_RANGE * WHISTLE_RANGE) continue
-    whistled[i] = 1
-    audio.playFile(SINGLE_FILES.whistle, 'whistle', bombs.x[i]!, bombs.y[i]!, bombs.z[i]!, true)
-  }
-  // 重擊：HP 一幀掉很多（高射砲、機砲）
-  const drop = prevPlayerHp >= 0 ? prevPlayerHp - me.hp : 0
-  if (drop > spec.hp * HEAVY_HIT) battleAudioCues.playHeavyHit(Math.min(1, drop / (spec.hp * HEAVY_HIT * 2)))
-  prevPlayerHp = me.hp
-  // 機身晃動：超速或重傷
-  const k = Math.min(1, overspeedShake(vneRatio) / OVERSPEED_SHAKE)
-  if (k > 0) {
-    rattleTimer -= worldSeconds
-    if (rattleTimer <= 0) {
-      audio.playPool('rattle', 'rattle', 0, 0, 0, false, shakeGainDb(k))
-      rattleTimer = shakeInterval(k, Math.random)
-    }
-  } else {
-    rattleTimer = 0
-  }
-  // 彈艙補滿
-  const reloading = playerBay().reloading
-  if (prevReloading && !reloading) audio.playFile(SINGLE_FILES.reloadDone, 'reload', 0, 0, 0, false)
-  prevReloading = reloading
-  // 進出投彈瞄準視角：彈艙的機械聲
-  if (input.viewMode !== prevViewMode) {
-    if (input.viewMode === 'bomb' || prevViewMode === 'bomb') {
-      audio.playFile(SINGLE_FILES.bayToggle, 'reload', 0, 0, 0, false)
-    }
-    prevViewMode = input.viewMode
-  }
+  flightAudio.update(world, me, elapsed, worldSeconds, hudFrame.arenaShow && arena.outside)
 }
 
 /**

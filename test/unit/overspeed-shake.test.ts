@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { PerspectiveCamera } from 'three'
 import {
-  OVERSPEED_FULL, OVERSPEED_ONSET, OVERSPEED_SHAKE, SHAKE_SECONDS,
-  applyCameraShake, createCameraShake, overspeedShake, stepCameraShake,
+  SHAKE_SECONDS, applyCameraShake, createCameraShake, stepCameraShake,
 } from '../../src/camera/cameraShake'
+import { OVERSPEED_FULL, OVERSPEED_ONSET, OVERSPEED_SHAKE, overspeedShake } from '../../src/core/overspeedFeedback'
 
 /**
  * # 超速的持續搖晃
