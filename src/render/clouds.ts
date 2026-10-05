@@ -38,7 +38,10 @@ export interface CloudSpec {
   readonly radius: number
 }
 
-/** 一團雲塊：相對雲底中心的位移、直徑（m）、明暗（1 = 雲頂的亮度）、貼圖集第幾張、翻不翻 */
+/**
+ * 一團雲塊：相對雲底中心的位移、直徑（m）、明暗（1 = 雲頂的亮度）、貼圖集第幾張、翻不翻，
+ * 與大小名次（0～1，越大的雲塊越高；遠處先丟名次低的，見 `CLOUD_LOD_*`）
+ */
 export interface CloudPuff {
   dx: number
   dy: number
@@ -47,6 +50,7 @@ export interface CloudPuff {
   shade: number
   tile: number
   flip: boolean
+  rank: number
 }
 
 /** 雲塊貼圖集：`CLOUD_ATLAS_SIDE` × `CLOUD_ATLAS_SIDE` 張 */
@@ -103,6 +107,21 @@ export const CLOUD_DEPTH_CUTOFF = 0.5
  */
 export const CLOUD_DEPTH_PUSH = 1
 /**
+ * 遠處的雲少用雲塊：離相機 `CLOUD_LOD_NEAR` 以內全畫，到 `CLOUD_LOD_FAR` 只留大小名次最高的
+ * `CLOUD_LOD_KEEP`（大的雲塊撐住輪廓）。被丟的雲塊在名次邊界 `CLOUD_LOD_BAND` 內淡出，不會一塊塊跳。
+ * 整片雲層一次看到幾百朵時，遠的那幾百朵在畫面上很小，雲塊少了看不出來
+ */
+export const CLOUD_LOD_NEAR = 1200
+export const CLOUD_LOD_FAR = 3500
+export const CLOUD_LOD_KEEP = 0.35
+export const CLOUD_LOD_BAND = 0.15
+/**
+ * 最遠畫到哪，m：`CLOUD_DRAW_FADE` 起淡出、`CLOUD_DRAW_FAR` 外整塊不畫。場景的霧太淡，幾公里外的雲
+ * 遮不掉，要自己收
+ */
+export const CLOUD_DRAW_FADE = 6000
+export const CLOUD_DRAW_FAR = 8000
+/**
  * 雲的顏色那一遍排在所有半透明物件前面畫。雲與煙都不寫深度、物件又都在原點（距離排序分不出
  * 先後），晚畫的那一方在重疊處永遠蓋在上面；雲先畫，近處的煙才疊得在雲上
  */
@@ -130,7 +149,8 @@ export function cloudPuff(c: CloudSpec, seed: number, k: number, out: CloudPuff)
   out.dx = Math.cos(a) * r * c.radius
   out.dz = Math.sin(a) * r * c.radius
   out.dy = lift * CLOUD_DOME * c.radius
-  out.size = c.radius * CLOUD_PUFF_SIZE * (0.7 + 0.5 * hash01(h + 4))
+  out.rank = hash01(h + 4)
+  out.size = c.radius * CLOUD_PUFF_SIZE * (0.7 + 0.5 * out.rank)
   out.shade = 1 - CLOUD_BASE_DARK * (1 - lift)
   out.tile = Math.floor(hash01(h + 5) * CLOUD_ATLAS_SIDE * CLOUD_ATLAS_SIDE)
   out.flip = hash01(h + 6) < 0.5
@@ -165,6 +185,7 @@ export function injectCloudPuff(shader: { vertexShader: string; fragmentShader: 
        attribute float aTile;
        attribute float aFlip;
        attribute vec4 aExtent;
+       attribute float aRank;
        varying float vAlpha;
        varying float vCloudDist;`,
     )
@@ -180,8 +201,7 @@ export function injectCloudPuff(shader: { vertexShader: string; fragmentShader: 
     )
     .replace(
       '#include <project_vertex>',
-      `vAlpha = aAlpha;
-       vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+      `vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
        float instScale = length(instanceMatrix[0].xyz);
        // 世界上方在畫面上的方向；正上下看時它縮成一點，平順退回畫面上方
        vec2 worldUp = (viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xy;
@@ -191,6 +211,11 @@ export function injectCloudPuff(shader: { vertexShader: string; fragmentShader: 
        up2 = length(up2) > 1e-4 ? normalize(up2) : vec2(0.0, 1.0);
        vec2 right2 = vec2(up2.y, -up2.x);
        vCloudDist = -mvPosition.z;
+       // 遠處只留大小名次高的雲塊（CLOUD_LOD_*），被丟的在名次邊界內淡出；再遠整片淡出（CLOUD_DRAW_*）
+       float keep = mix(1.0, ${CLOUD_LOD_KEEP.toFixed(3)}, smoothstep(${CLOUD_LOD_NEAR.toFixed(1)}, ${CLOUD_LOD_FAR.toFixed(1)}, vCloudDist));
+       float lodFade = clamp((aRank - (1.0 - keep)) / ${CLOUD_LOD_BAND.toFixed(3)}, 0.0, 1.0);
+       float farFade = 1.0 - smoothstep(${CLOUD_DRAW_FADE.toFixed(1)}, ${CLOUD_DRAW_FAR.toFixed(1)}, vCloudDist);
+       vAlpha = aAlpha * lodFade * farFade;
        // 這一張雲塊實際佔的長方形（CLOUD_TILES）：縮回原本的寬高、挪回原本的位置；左右翻時偏移也翻
        vec2 local = vec2(
          position.x * aExtent.x + (aFlip > 0.5 ? -aExtent.z : aExtent.z),
@@ -201,7 +226,8 @@ export function injectCloudPuff(shader: { vertexShader: string; fragmentShader: 
        gl_Position = projectionMatrix * mvPosition;
        // 【幾乎透明的不畫】中心離相機不到 CLOUD_CULL_NEAR 的雲塊不透明度不到 5%，照樣光柵化的話
        // 穿雲時是十幾層全螢幕的透明混合。四個頂點的中心深度相同，整塊一起移出裁切範圍
-       if (vCloudDist < ${CLOUD_CULL_NEAR.toFixed(1)}) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);`,
+       // 遠處被丟掉、超出最遠距離的雲塊也一樣整塊移出
+       if (vCloudDist < ${CLOUD_CULL_NEAR.toFixed(1)} || vAlpha <= 0.0) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);`,
     )
   shader.fragmentShader = shader.fragmentShader
     .replace(
@@ -248,7 +274,7 @@ const POS = new Vector3()
 const SCALE = new Vector3()
 const ROT = new Quaternion()
 const TINT = new Color()
-const PUFF: CloudPuff = { dx: 0, dy: 0, dz: 0, size: 0, shade: 1, tile: 0, flip: false }
+const PUFF: CloudPuff = { dx: 0, dy: 0, dz: 0, size: 0, shade: 1, tile: 0, flip: false, rank: 0 }
 
 /** `atlas` 是雲塊貼圖集（`CLOUD_ATLAS_URL`）：白色、透明度在 alpha */
 export function createClouds(atlas: Texture, capacity = CLOUD_PUFF_CAPACITY): Clouds {
@@ -259,6 +285,8 @@ export function createClouds(atlas: Texture, capacity = CLOUD_PUFF_CAPACITY): Cl
   const tiles = new InstancedBufferAttribute(new Float32Array(capacity), 1)
   const flips = new InstancedBufferAttribute(new Float32Array(capacity), 1)
   const extents = new InstancedBufferAttribute(new Float32Array(capacity * 4), 4)
+  const ranks = new InstancedBufferAttribute(new Float32Array(capacity), 1)
+  geometry.setAttribute('aRank', ranks)
   geometry.setAttribute('aAlpha', alphas)
   geometry.setAttribute('aTile', tiles)
   geometry.setAttribute('aFlip', flips)
@@ -315,6 +343,7 @@ export function createClouds(atlas: Texture, capacity = CLOUD_PUFF_CAPACITY): Cl
           ;(flips.array as Float32Array)[n] = PUFF.flip ? 1 : 0
           const e = CLOUD_TILES[PUFF.tile]!
           ;(extents.array as Float32Array).set(e, n * 4)
+          ;(ranks.array as Float32Array)[n] = PUFF.rank
           n++
         }
       })
@@ -325,6 +354,7 @@ export function createClouds(atlas: Texture, capacity = CLOUD_PUFF_CAPACITY): Cl
       tiles.needsUpdate = true
       flips.needsUpdate = true
       extents.needsUpdate = true
+      ranks.needsUpdate = true
     },
 
     clear() {

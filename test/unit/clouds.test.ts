@@ -6,7 +6,7 @@ import {
 } from '../../src/render/clouds'
 import { DAY_PALETTES } from '../../src/render/timeOfDay'
 
-const blank = (): CloudPuff => ({ dx: 0, dy: 0, dz: 0, size: 0, shade: 0, tile: 0, flip: false })
+const blank = (): CloudPuff => ({ dx: 0, dy: 0, dz: 0, size: 0, shade: 0, tile: 0, flip: false, rank: 0 })
 
 describe('injectCloudPuff：雲塊的著色器', () => {
   it('對 three 真正的 basic 著色器有作用：貼圖集取張、上方對齊世界上方、靠近淡出', () => {
@@ -21,10 +21,14 @@ describe('injectCloudPuff：雲塊的著色器', () => {
     expect(shader.vertexShader).toContain('viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)')
     expect(shader.vertexShader).toContain('vCloudDist = -mvPosition.z')
     // 幾乎透明的雲塊整塊移出裁切範圍，不進光柵化
-    expect(shader.vertexShader).toMatch(/if \(vCloudDist < [\d.]+\) gl_Position = vec4\(2\.0, 2\.0, 2\.0, 1\.0\)/)
+    expect(shader.vertexShader).toMatch(/if \(vCloudDist < [\d.]+ \|\| vAlpha <= 0\.0\) gl_Position = vec4\(2\.0, 2\.0, 2\.0, 1\.0\)/)
     // 每張雲塊照自己的長方形縮放、偏移
     expect(shader.vertexShader).toContain('attribute vec4 aExtent')
     expect(shader.vertexShader).toContain('position.x * aExtent.x')
+    // 遠處只留名次高的雲塊、再遠整片淡出；淡到 0 的整塊移出
+    expect(shader.vertexShader).toContain('attribute float aRank')
+    expect(shader.vertexShader).toContain('vAlpha = aAlpha * lodFade * farFade')
+    expect(shader.vertexShader).toContain('|| vAlpha <= 0.0)')
     expect(shader.fragmentShader).toContain('smoothstep(')
     expect(shader.fragmentShader).toContain('vCloudDist')
   })
@@ -61,6 +65,16 @@ describe('cloudPuff：一朵雲的雲塊', () => {
       expect(a.tile).toBeGreaterThanOrEqual(0)
       expect(a.tile).toBeLessThan(CLOUD_ATLAS_SIDE * CLOUD_ATLAS_SIDE)
     }
+  })
+
+  it('大小名次在 0～1、名次越高的雲塊越大（遠處先丟小的）', () => {
+    const puffs = Array.from({ length: 30 }, (_, k) => ({ ...cloudPuff(c, 2, k, p) }))
+    for (const q of puffs) {
+      expect(q.rank).toBeGreaterThanOrEqual(0)
+      expect(q.rank).toBeLessThan(1)
+    }
+    puffs.sort((u, v) => u.rank - v.rank)
+    for (let k = 1; k < puffs.length; k++) expect(puffs[k]!.size).toBeGreaterThanOrEqual(puffs[k - 1]!.size)
   })
 
   it('越高的煙團越亮（雲底暗）', () => {
