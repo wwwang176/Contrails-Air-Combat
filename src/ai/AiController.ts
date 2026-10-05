@@ -6,12 +6,23 @@ import {
 import {
   createRuleState, stepRules, DEFAULT_RULES, type Intent, type RuleConfig,
 } from './rules'
+import { clearBandPerch, createBandState, stepBand } from './bandState'
+import { createAirPassState, resetAirPass, stepAirPass } from './airPass'
 import {
-  buildEngageBasis, clearBandPerch, createAirPassState, createBandState, resetAirPass, stepAirPass, createDefendState, createEngageBasis, createTrackState,
-  engageKnobs, redlineDiveIas, stepBand,
-  geometryGate, holdTurnLevel, shrinkTowardNose, stepDefend, stepExtendSide, steerCommand, stepTrack,
-  DEFAULT_STEER, TRACK_TURN_CONE, type Knobs, type SteerMode,
+  engageKnobs,
+  redlineDiveIas,
+  geometryGate,
+  holdTurnLevel,
+  shrinkTowardNose,
+  steerCommand,
+  TRACK_TURN_CONE,
+  type Knobs,
+  type SteerMode,
 } from './steer'
+import { createDefendState, stepDefend, stepExtendSide } from './defendState'
+import { createTrackState, stepTrack } from './trackState'
+import { DEFAULT_STEER } from './steerConfig'
+import { buildEngageBasis, createEngageBasis } from './engageGeometry'
 import { DEFAULT_DOCTRINE, energyPull, manoeuvreSpeed } from './doctrine'
 import {
   BURST_LENGTH_MAX, BURST_LENGTH_MIN, DEFAULT_AI_BURST, DEFAULT_FIRE, burstDuty, shouldFire,
@@ -63,7 +74,7 @@ const DT_SOLVE = 1 / 240
 /**
  * 戰鬥機對地投彈時，離目標至少要這麼高才放，m。
  *
- * 【為什麼】爆風炸得到投彈的自己（`World.applyBombBlast`）。低空俯衝放手之後
+ * 【為什麼】爆風炸得到投彈的自己（`world/bombBlast.ts`）。低空俯衝放手之後
  * 飛機差不多是從落點正上方掠過，炸彈落地那一刻離爆心大約就是這個高度 ——
  * 要大過殺傷半徑（基準彈 30 m）一截。**起始值，由試飛裁定。**
  */

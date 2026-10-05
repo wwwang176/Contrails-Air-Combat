@@ -29,7 +29,8 @@
 import { createBattle, stepBattle } from '../../src/battle/setup'
 import { battleConfigFrom, DEFAULT_SKIRMISH } from '../../src/battle/skirmish'
 import { AiController } from '../../src/ai/AiController'
-import { DEFAULT_STEER, extendPitchAngle } from '../../src/ai/steer'
+import { DEFAULT_STEER } from '../../src/ai/steerConfig'
+import { extendPitchAngle } from '../../src/ai/steer'
 import type { Combatant } from '../../src/world/World'
 
 const DT = 1 / 240

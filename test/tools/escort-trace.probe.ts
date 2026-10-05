@@ -35,7 +35,7 @@ import type { Controller } from '../../src/control/Controller'
 import type { Command } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 import { instantaneousTurnRate } from '../../src/analysis/envelope'
-import { DEFAULT_STEER } from '../../src/ai/steer'
+import { DEFAULT_STEER } from '../../src/ai/steerConfig'
 import { DEFAULT_DOCTRINE } from '../../src/ai/doctrine'
 import { readyCard } from '../fixtures/mission'
 

@@ -5,7 +5,7 @@ import {
   DEFAULT_COMMAND,
   type CommandUnit, type CommandFlight, type FlightOrder,
 } from '../../src/ai/command'
-import { DEFAULT_STEER } from '../../src/ai/steer'
+import { DEFAULT_STEER } from '../../src/ai/steerConfig'
 import { THREAT_RANGE } from '../../src/ai/assess'
 
 /** 造一架快照。預設健康、在原點、朝 −Z、升限 12000 */

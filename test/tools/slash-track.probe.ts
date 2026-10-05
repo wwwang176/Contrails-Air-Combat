@@ -32,7 +32,8 @@ import { BF109K4 } from '../../src/specs/bf109k4'
 // 定義了一個叫 `DEG` 的 `180/π` —— 別跟著抄。
 import { RAD } from '../../src/core/math'
 import { instantaneousTurnRate } from '../../src/analysis/envelope'
-import { DEFAULT_STEER, engageKnobs, type Knobs } from '../../src/ai/steer'
+import { DEFAULT_STEER } from '../../src/ai/steerConfig'
+import { engageKnobs, type Knobs } from '../../src/ai/steer'
 import type { AircraftSpec } from '../../src/specs/types'
 
 const DT = 1 / 240

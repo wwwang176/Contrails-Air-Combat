@@ -5,7 +5,7 @@ import { createCommand } from '../../src/control/Controller'
 import {
   applySafety, flightPathRate, recoveryAltitude, recoveryClearance, DEFAULT_SAFETY,
 } from '../../src/ai/safety'
-import { DEFAULT_STEER } from '../../src/ai/steer'
+import { DEFAULT_STEER } from '../../src/ai/steerConfig'
 import { P51D } from '../../src/specs/p51d'
 import { A6M5 } from '../../src/specs/a6m5'
 import { B17G } from '../../src/specs/b17g'

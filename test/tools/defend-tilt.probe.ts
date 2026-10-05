@@ -12,7 +12,7 @@
  * 通過 —— 那是反證，不是支持。方向、兩個開局的一致性、最小效果量三者缺一
  * 不可。
  */
-import { DEFAULT_STEER } from '../../src/ai/steer'
+import { DEFAULT_STEER } from '../../src/ai/steerConfig'
 import { measureDrift, showDrift, DRIFT_HEADER, OPENINGS } from './drift'
 
 const RAD = Math.PI / 180

@@ -17,7 +17,7 @@ import { NO_INTERCEPT, solveLead } from '../../src/world/lead'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 import type { LandField } from '../../src/world/occlusion'
 import { manoeuvreSpeed } from '../../src/ai/doctrine'
-import { DEFAULT_STEER } from '../../src/ai/steer'
+import { DEFAULT_STEER } from '../../src/ai/steerConfig'
 import {
   createGroundStrafeState, groundAttackCommand, groundStrafeReattackRange,
 } from '../../src/ai/shipAttack'

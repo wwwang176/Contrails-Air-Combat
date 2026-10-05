@@ -7,7 +7,7 @@ import { createTargetBoard } from '../../src/ai/target'
 import { VETERAN } from '../../src/ai/profile'
 import { shouldFire } from '../../src/ai/fire'
 import { P51D } from '../../src/specs/p51d'
-import type { EngageBasis } from '../../src/ai/steer'
+import type { EngageBasis } from '../../src/ai/engageGeometry'
 import type { Command, Controller } from '../../src/control/Controller'
 
 /**

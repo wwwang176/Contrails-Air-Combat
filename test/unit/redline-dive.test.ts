@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { redlineDiveIas, DEFAULT_STEER } from '../../src/ai/steer'
+import { redlineDiveIas } from '../../src/ai/steer'
+import { DEFAULT_STEER } from '../../src/ai/steerConfig'
 import { F4F4 } from '../../src/specs/f4f4'
 import { A6M5 } from '../../src/specs/a6m5'
 import { P51D } from '../../src/specs/p51d'

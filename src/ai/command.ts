@@ -1,6 +1,6 @@
 import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
-import { DEFAULT_STEER } from './steer'
+import { DEFAULT_STEER } from './steerConfig'
 
 /**
  * 規劃需要知道的每架資訊。
@@ -1232,7 +1232,7 @@ export function stepCommand(
  *
  * 【為什麼是模組層級的可變陣列】三個規劃函式都收 `readonly CommandUnit[]`
  * 是為了單元測試好寫字面陣列；而這裡每次規劃都 `new Array` 會在 20v20 下
- * 每兩秒配置幾十次。重用並在每次使用前 `length = 0`，與 `setup.ts` 的
+ * 每兩秒配置幾十次。重用並在每次使用前 `length = 0`，與 `combatEvents.ts` 的
  * `ASSISTS` 同一個做法。
  *
  * **`MEMBERS` 與 `TARGET` 不得在同一次 `gather` 之間交錯使用** —— 它們是

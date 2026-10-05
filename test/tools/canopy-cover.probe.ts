@@ -8,7 +8,7 @@ import { createArchipelago, type IslandDesc } from '../../src/world/archipelago'
 import { createFloraBuffer, createIslandFlora, FloraKind, FLORA_STRIDE } from '../../src/render/flora'
 import { isGrass } from '../../src/render/island'
 
-const CONE_R = 7      // 針葉的樹冠半徑，m —— floraShapes 的 CONE_CROWN_R
+const CONE_R = 7      // 針葉的樹冠半徑，m —— specs/flora 的 CONE_CROWN_R
 const BUSH_R = 6      // 灌木的半徑，m
 const arch = createArchipelago()
 const source = createIslandFlora(arch.field, arch.islands)

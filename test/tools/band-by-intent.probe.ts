@@ -15,7 +15,7 @@ import { createBattle, stepBattle } from '../../src/battle/setup'
 import { battleConfigFrom, uniform } from '../../src/battle/skirmish'
 import { AiController } from '../../src/ai/AiController'
 import { INTENTS, type Intent } from '../../src/ai/rules'
-import type { BandKind } from '../../src/ai/steer'
+import type { BandKind } from '../../src/ai/bandState'
 import type { Combatant } from '../../src/world/World'
 
 const DT = 1 / 240
