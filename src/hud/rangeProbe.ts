@@ -1,5 +1,10 @@
 import { Vector3, type Camera } from 'three'
-import type { Terrain } from '../render/terrain'
+
+/** 測距只讀高度與可選的分層說明，不依賴地形的模型、材質或生命週期。 */
+export interface RangeProbeTerrain {
+  heightAt(x: number, z: number, time: number): number
+  describeAt?(x: number, z: number): readonly string[]
+}
 
 /**
  * # 測距（F4）：畫面中央瞄到的那一點有多遠、落在哪一圈
@@ -19,7 +24,7 @@ const PERIOD = 0.1
 
 export interface RangeProbe {
   /** 每幀叫；關著的時候什麼都不做 */
-  update(camera: Camera, terrain: Terrain, time: number): void
+  update(camera: Pick<Camera, 'getWorldPosition' | 'getWorldDirection'>, terrain: RangeProbeTerrain, time: number): void
 }
 
 export function createRangeProbe(): RangeProbe {
@@ -56,7 +61,7 @@ export function createRangeProbe(): RangeProbe {
   const origin = new Vector3()
   const dir = new Vector3()
   /** 視線在 t 公尺處是不是已經在地面下 */
-  const below = (terrain: Terrain, t: number, time: number): boolean =>
+  const below = (terrain: RangeProbeTerrain, t: number, time: number): boolean =>
     origin.y + dir.y * t <= terrain.heightAt(origin.x + dir.x * t, origin.z + dir.z * t, time)
 
   return {
