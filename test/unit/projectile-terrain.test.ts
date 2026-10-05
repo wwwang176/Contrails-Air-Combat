@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3, Quaternion } from 'three'
-import { World, SEA_KILL_Y } from '../../src/world/World'
+import { World } from '../../src/world/World'
+import { SEA_KILL_Y } from '../../src/world/projectileHits'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createHeightField } from '../../src/world/heightfield'
 import type { LandField } from '../../src/world/occlusion'
