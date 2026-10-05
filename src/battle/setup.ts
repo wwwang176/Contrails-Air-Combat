@@ -1,254 +1,55 @@
-import { createConvoy, type ConvoyIndex, type TransitRoute } from './convoy'
-import { Quaternion } from 'three'
+import type { BattleConfig } from './battleConfig'
+import type { Battle } from './battleState'
+import { createConvoy } from './convoy'
 import { World, type Combatant, type Team } from '../world/World'
 import type { Aircraft } from '../aircraft/Aircraft'
 import { AiController } from '../ai/AiController'
-import { createTargetBoard, type TargetBoard } from '../ai/target'
-import { ACE, type DifficultyProfile } from '../ai/profile'
+import { createTargetBoard } from '../ai/target'
+import { ACE } from '../ai/profile'
 import { resetBombBay } from '../weapons/bomb'
 import {
-  compactFlights, createFlights, stationReferenceOf,
-  type Flight, type FlightIndex,
+  compactFlights, createFlights, stationReferenceOf, type Flight,
 } from './flights'
 import {
-  assertOrderOfBattle, lineAbreast, type OrderOfBattle,
+  assertOrderOfBattle, lineAbreast,
 } from './order'
 import { STATION_OFFSETS } from '../ai/station'
-import { settle, spawnMember, unitFrame, type FeelCache } from './flightSpawn'
+import { settle, spawnMember, unitFrame } from './flightSpawn'
 import { placeBalloons, placeFleet, placeGround } from './missionSpawns'
 import { stepBeats } from './missionBeats'
 import { stepFlareRotation } from './flareRotation'
 import { createCommandState } from '../ai/command'
-import { type CommandState, type CommandUnit, type FlightOrder } from '../ai/commandTypes'
+import { type CommandUnit, type FlightOrder } from '../ai/commandTypes'
 import { makeCommandUnit, stepCommandLayer, stepPressure } from './commandLayer'
 import { evacOrderOf, stepMissionProgress } from './missionProgress'
 import {
-  createBeatStates, type Beat, type BeatState, type FlareBeat,
+  createBeatStates, type Beat,
 } from './beats'
 import { clearImpacts } from '../world/events'
 import {
-  createBattleReport, resetBattleReport, type BattleReport,
+  createBattleReport, resetBattleReport,
 } from './report'
 import { drainKills, drainReports } from './combatEvents'
 import { pilotNames } from './names'
-import { createRoster, type Roster } from './pilots'
-import type { FeelKind } from '../specs/feel'
+import { createRoster } from './pilots'
 import { P51D } from '../specs/p51d'
 import { BF109K4 } from '../specs/bf109k4'
-// 【為什麼再匯出還要 import】`export type { X } from` 不會把 X 帶進本檔的
-// 區域範圍，而 `Battle.outcome` 的宣告用得到它。
 import { HEAD_ON } from './entry'
 import {
-  NEUTRAL_TUNING,
-  createMissionState, resetMissionState,
-  type MissionRules, type MissionState, type MissionTuning,
-  type Outcome,
+  NEUTRAL_TUNING, createMissionState, resetMissionState,
 } from './mission'
 import type { Controller } from '../control/Controller'
 import type { AircraftSpec } from '../specs/types'
 import { resetShip } from '../world/ships'
-import { resetShipGuns, type ShipGunSpec } from '../world/shipGuns'
+import { resetShipGuns } from '../world/shipGuns'
 import { resetGroundTarget } from '../world/groundTargets'
-import type { MessageKey } from '../i18n'
 import { clearBursts, clearFlak } from '../world/flak'
 import { clearFlares, FLARE_LANES } from '../world/flares'
-import type { BalloonEntry, GroundEntry, MissionFleet } from './missions'
 import { resetBalloon } from '../world/balloons'
-import type { Loadout } from '../weapons/stores'
 
 export type { ConvoyIndex, TransitRoute } from './convoy'
-
-/**
- * 一場戰鬥的編制與出生幾何。全部由實測定案（M5 spec §14、M6 spec §8）。
- *
- * 【`altitudeSpread` = ±300 m】不能近到看起來要相撞，也不能遠到分隊看不到
- * 彼此。週期 5 的鋸齒讓五個分隊落在五個高度層而不是兩排。
- */
-export interface BattleConfig {
-  /**
-   * 這一場的編制。**外層是小隊、內層是那個小隊的每一架。**
-   *
-   * 【為什麼不是 blueSpec / redSpec / blueCount / redCount / entry 那幾個
-   * 欄位】那種形狀每加一種類型就要再加欄位；一個陣列決定機種、初始方位、
-   * 初始姿態、小隊的話，加第三種機體只要多一列。見 `battle/order.ts`。
-   *
-   * 【既有場景怎麼寫】`lineAbreast(HEAD_ON, P51D, 20, BF109K4, 20)` ——
-   * 產出的座標與展開寫死的版本逐位元相同。
-   */
-  units: OrderOfBattle
-  /**
-   * 預留給增援的小隊。每一筆是一支**還沒進場**的分隊。
-   *
-   * 【為什麼要在建構期就宣告】依架數的 typed array 中途重配不安全：
-   * `World.killEvents` 會被換成空的、`damageTime` 會被整張抹掉，而
-   * `TargetBoard` 的三個陣列一換參考，`readonly` 這道護欄就沒了。波次是
-   * 有限的、寫在任務卡上，所以最終架數在這裡就算得出來 —— 一次配到位，
-   * 中途加人於是不重配任何東西。
-   *
-   * 【為什麼帶 team】預留的小隊 roster 指向還不存在的座位，隊伍推不出來
-   * （見 `createFlights` 的 `teams`）。
-   *
-   * **省略（或空陣列）等於「這一場不會再有人加入」**，此時容量與開局架數
-   * 相等，整條路是恆等的。
-   */
-  readonly reserve?: readonly { readonly team: Team; readonly count: number }[]
-  /**
-   * 這一關中途會發生的事（見 `beats.ts`）。**省略 = 什麼都不會發生**，
-   * 而且 `stepBeats` 只付一次長度檢查就早退。
-   *
-   * 【容量由它推，不用另外寫】增援節拍自己帶著編組，所以
-   * `reserve` 可以從這裡算出來——兩個欄位手動同步是一個不必要的
-   * 坑。`reserve` 留給測試當低階的逃生口：兩者都給時以 `reserve` 為準。
-   */
-  readonly beats?: readonly Beat[]
-  /**
-   * transit 那幾架的終點，**不參與勝負判定**。規則是 `convoy` 時終點由規則給，
-   * 這一格不讀。**省略 = 沒有這種終點**，那時有 transit 卻不是護送規則就拋錯。
-   *
-   * 【為什麼要與規則拆開】「有終點可飛」與「勝負由抵達判定」是兩件事。轟炸機流
-   * （德 M1）要前者、不要後者 —— 勝負是 `hunt`。
-   */
-  readonly route?: TransitRoute
-  /**
-   * 這一場的艦隊。**省略 = 一艘船都不產生**，而 `World` 那三段推進都是
-   * 零長度早退，所以既有的空戰逐位元不變。
-   *
-   * 【它從卡片一路流過來】`MissionBattle.fleet` → 這裡 → `createBattle`。
-   * `missionConfigFrom` 明列回傳欄位、不透傳未知資料，所以中間少抄一次
-   * 就是「型別過了但進戰鬥零艘船」，而且不報錯。
-   */
-  readonly fleet?: MissionFleet
-  /** 這一關的地面目標。省略 = 一台都不放。透傳的約定與 `fleet` 相同。 */
-  readonly ground?: readonly GroundEntry[]
-  /** 這一關的防空氣球。省略 = 一顆都不放。透傳的約定與 `fleet` 相同。 */
-  readonly balloons?: readonly BalloonEntry[]
-  /**
-   * 複寫這一關陸上重高砲的規格。**省略 = `GROUND_FLAK_SPEC`。**
-   *
-   * 【為什麼要逐關複寫】`flakHeavy` 在盟 M2、德 M2、日 M3 都出現。洛伊納是
-   * 德國本土最密的火網，那一關的彈幕該比路邊的一座砲位猛得多 —— 直接改
-   * `GROUND_FLAK_SPEC` 會把另外兩關一起改掉。
-   *
-   * 【為什麼是整份而不是 `Partial`】與 `loadout` 同一個理由：部分複寫要
-   * 定義「沒填的欄位從哪來」，而那條規則沒有人會記得。卡片端寫
-   * `{ ...GROUND_FLAK_SPEC, roundsPerMinute: 30 }` 就看得出改了哪一格。
-   */
-  readonly flakSpec?: ShipGunSpec
-  /**
-   * 複寫玩家的掛載。**省略 = 用機種的預設**（`weapons/stores.ts` 的
-   * `loadoutOf`）。
-   *
-   * 【為什麼是整份而不是 `Partial`】部分複寫要定義「沒填的欄位從哪來」，
-   * 而那條規則沒有人會記得；整份替換則是看到什麼就是什麼。
-   *
-   * 【為什麼在 `BattleConfig` 而不是只留在卡片上】它決定投出去的東西有多痛
-   * ——那是模擬的一部分。與 `timeOfDay` 相反：那一個只影響畫面，明文規定
-   * 不進這裡（見 `missions.ts` 的說明）。
-   */
-  readonly blueLoadout?: Loadout
-  /**
-   * 依機種複寫掛載，鍵是 `spec.id`。**不分隊伍**，而且進場、增援、重生都照它
-   * （存進 `World.loadoutOverrides`）。省略 = 全部照預設表。
-   */
-  readonly loadouts?: Readonly<Record<string, Loadout>>
-  /**
-   * 依機種複寫塗裝，鍵是 `spec.id`、值是機型定義登記的變體名。**只給畫面讀**（`main.ts` 建模型時），
-   * 不進模擬。省略 = 全部預設塗裝。
-   */
-  readonly liveries?: Readonly<Record<string, string>>
-  /**
-   * 依機種指名用哪一組手感，鍵是 `spec.id`，**不分隊伍**，進場、增援、重生與地上的飛機都照它
-   * （`feeledSpec`）。省略 = 依機種角色挑。
-   */
-  readonly feels?: Readonly<Record<string, FeelKind>>
-  altitude: number
-  tas: number
-  /**
-   * 兩隊**分隊原點**的初始距離，m。
-   *
-   * 【M6 起不是「重心」】站位偏置的 `along` 全是負的（僚機在參考機後方），
-   * 平均 −90 m，而「後方」對兩隊是反向的 —— 重心因此比分隊原點多拉開
-   * 180 m。與 `lateralOffset` 同一個定義。
-   *
-   * 【M6 由 3,000 拉到 10,000】M5 實測開局到第一次有人扣扳機／中彈：
-   *
-   * ```
-   *   1,500 m → 0.6 s / 1.7 s      4,000 m →  6.3 s /  7.5 s
-   *   2,000 m → 1.2 s / 2.4 s      6,000 m → 11.4 s / 13.1 s
-   *   3,000 m → 3.7 s / 5.0 s
-   * ```
-   *
-   * 3,000 m 只給 3.7 秒 —— 隊形保持在那個開局下等於隱形功能。第一次扣
-   * 扳機約在 1,500 m、對頭接近率 400 m/s，10,000 m 給
-   * `(10000 − 1500) / 400 ≈ 21 秒`的編隊巡航。
-   *
-   * **代價**：每次重置玩家都要等這 21 秒。人工驗收要看它是「壯觀」還是
-   * 「無聊」（M6 spec §4.2 條件 19）。
-   */
-  entryRange: number
-  /**
-   * 相鄰兩個 Schwarm 的長機橫向間距，m。
-   *
-   * 【取代 M5 的 `lateralSpacing`】分隊**內部**的間距現在由站位偏置給
-   * （`STATION_OFFSETS`），這裡只管分隊**之間**。
-   *
-   * 【800 m 怎麼來】每隊總寬 `4 × 800 + 650 = 3,850 m`（650 是分隊內部
-   * 的橫向跨度），加上 ±750 的兩隊錯開，最外側的一架落在 ±2,675 m。在
-   * 10 km 的對頭距離下偏軸 `atan(2675/10000) = 15°` —— 仍然大致對頭，
-   * 不會變成側翼包抄。上界與 M5 同一條：總寬不能大到讓外側分隊看不到敵人。
-   */
-  schwarmSpacing: number
-  /**
-   * 兩隊**分隊原點**的橫向錯開量，m。藍隊 −offset/2、紅隊 +offset/2。
-   *
-   * 【為什麼一定要有】M5 實測：0 的時候藍隊每 9 秒被零損失全滅一次，
-   * 60 秒內七次，有效命中率藍 34% 對紅 97%。成因是 P-51 的六挺翼槍匯聚點
-   * 在 300 m，而那種仗打在 660–1,000 m。
-   *
-   * 【M6 的推導多一項】站位的 `across` 對紅隊會鏡射（`stationPoint` 讀的
-   * 是速度方向，而紅隊朝 +Z），所以藍隊第 k 位在 `X_藍 + a_k`、紅隊第 k 位
-   * 在 `X_紅 − a_k`，兩者橫向差是 `−offset + 2·a_k`。以累積橫向量
-   * `a = {0, +200, −250, −450}` 代入得 `−offset, −offset+400, −offset−500,
-   * −offset−900` —— 最接近 0 的是第二個，也就是**最小的一對只隔
-   * `offset − 400`**。
-   *
-   * 要它仍然滿足兩倍射擊錐（`entryRange × tan(3°) = 524 m`）：
-   *
-   *     offset − 400 ≥ 2 × 524  →  offset ≥ 1,448  →  取 1,500
-   */
-  lateralOffset: number
-  /** 高度散布的半幅，m */
-  altitudeSpread: number
-  /**
-   * 這一局全部 AI 的難度參數。**兩隊一起套。**
-   *
-   * 【為什麼是 config 而不是在這裡寫死】`DEFAULT_BATTLE` 給 `ACE`，遊戲
-   * 走的 `battleConfigFrom` 給 `VETERAN`。直接吃 `DEFAULT_BATTLE` 的測試
-   * 與探針量的是 AI 的天花板 —— 寫死的話遊戲的難度設定一動，那些量測就
-   * 跟著動，之後分不清是誰改的。
-   *
-   * 【為什麼兩隊一起套】與 `specs/feel.ts` 的手感係數同一個理由：玩家的
-   * 僚機與敵人是同一套 AI，只給敵人加延遲等於偷偷給玩家開外掛。哪天真要
-   * 做難度選單，那時再開不對稱的口。
-   */
-  aiProfile: DifficultyProfile
-  /**
-   * 這一場怎麼算贏。
-   *
-   * 【為什麼遭遇戰也吃這個】遭遇戰就是「一個沒有時限的殲滅任務」。判定
-   * 路徑因此**每一場都在走**，不是一條等著被第一次使用的死碼 —— 與地形
-   * 「種類沒變也重建」是同一條紀律（M10 spec §5.3）。
-   *
-   * 反過來說：若任務判定是一條只有任務模式才走的旁路，它會在沒有人注意
-   * 的時候腐爛，而症狀要等到玩家點下那張卡才出現。
-   */
-  rules: MissionRules
-  /**
-   * 這一關自己的小旋鈕。**遭遇戰與殲滅任務給 `NEUTRAL_TUNING`**，
-   * 那一份的每一項都等於「沒有這一關」。見 `mission.ts` 的 `MissionTuning`。
-   */
-  tuning: MissionTuning
-}
+export type { BattleConfig } from './battleConfig'
+export type { Battle } from './battleState'
 
 export const DEFAULT_BATTLE: BattleConfig = {
   // 【對頭 20v20 是預設】直接吃 `DEFAULT_BATTLE` 的整合測試與探針都建立在它上面
@@ -272,247 +73,6 @@ export const DEFAULT_BATTLE: BattleConfig = {
  * 而勝負條件不再只有「誰全滅」。這裡再匯出，既有的 import 站點不用動。
  */
 export type { Outcome } from './mission'
-
-
-export interface Battle {
-  readonly world: World
-  readonly board: TargetBoard
-  readonly blue: Combatant[]
-  readonly red: Combatant[]
-  /**
-   * 玩家目前開的那一架。恆在 `blue` 裡。
-   *
-   * 【M9 起不是 readonly】玩家陣亡會接手僚機，那時這個參考會換一架
-   * （M9 spec §7.2）。`main.ts` 每幀比對它有沒有變，變了就把鏡頭、
-   * 觀測用 AI 與第一人稱眼點一起搬過去。
-   */
-  player: Combatant
-  /** 玩家的**開局**座位。重新開始（暫停選單）時要還原回這裡 */
-  readonly playerSeat: number
-  /** 玩家的控制器。接手時要把它裝到新座位上 */
-  readonly playerController: Controller
-  /** 正在等待接手的座位；−1 = 沒有在等待 */
-  takeoverSeat: number
-  /** 接手倒數的剩餘秒數 */
-  takeoverTimer: number
-  /**
-   * 打下玩家的那個座位；−1 = 沒有兇手（自摔）。
-   *
-   * 【為什麼是 `Battle` 的狀態而不是事件】死亡鏡頭要在那 2 秒**每一幀**都
-   * 讀得到他，而擊墜事件在同一個子步就被呼叫端排空了（M9 spec §7.2）。
-   */
-  takeoverKiller: number
-  readonly cfg: BattleConfig
-  /**
-   * 每一架的開局姿態。重置時抄回去。
-   *
-   * 【為什麼要另外存】`World.respawn` 走的是 `Aircraft.reset`，它重建的是
-   * 一個「朝預設方向平飛」的狀態，不知道紅隊該朝 +Z。
-   */
-  readonly spawnOrientations: Quaternion[]
-  /**
-   * 編制。**每個物理步由 `stepBattle` 重新壓縮**（M6 spec §5.4）。
-   */
-  readonly flights: FlightIndex
-  /**
-   * 兩隊的指揮官。**索引是全域的分隊索引**（`flights.flights` 的下標），
-   * 兩個 state 都開滿長度，各自只填自己隊伍的那些格。
-   *
-   * 【為什麼不各開各的長度】`flightOf[i]` 給的是全域索引，分隊要對應回
-   * 指揮官時就得再做一次轉換。開滿比較浪費幾個 null，但少一張對照表。
-   */
-  readonly blueCommand: CommandState
-  readonly redCommand: CommandState
-  /** 距離下次重算任務壓力還有多久，s。見 `stepPressure` */
-  pressureTimer: number
-  /**
-   * 指揮層讀的每架快照，索引與 `world.combatants` 一致。
-   *
-   * 【為什麼要一份快照而不是直接傳 `Combatant`】`src/ai/command.ts` 收的是
-   * 最小介面 `CommandUnit`（見該檔的註解），而 `cornerRatio` 需要每步重算
-   * —— 它不是 `Aircraft` 上現成的欄位。物件重用，每步只改內容。
-   */
-  readonly commandUnits: CommandUnit[]
-  /**
-   * 兩隊各自的分隊索引（`flights.flights` 的下標）。
-   *
-   * 【為什麼算一次就好】分隊的隊伍歸屬**永遠不變** —— `compactFlights` 只
-   * 壓縮成員，不會把一個分隊換隊。每步重算是白花的。
-   */
-  readonly blueFlightIndices: number[]
-  readonly redFlightIndices: number[]
-  /**
-   * 指揮官**可以下令**的分隊，依隊伍分開。與上面那兩個的差別只有一項：
-   * **被護送的那些小隊不在裡面。**
-   *
-   * 【為什麼要分成兩份而不是直接把 transit 拿掉】上面那兩個同時是對手的
-   * `foe` 清單 —— 攔截時藍隊的指揮官必須**看得到**敵方轟炸機小隊才切得到
-   * 它們的側翼。拿掉的話那幾架在指揮層眼中不存在，而它們正是這一關的
-   * 全部重點。
-   *
-   * 【為什麼下令端要拿掉】命令有**配額**（`command.ts` 的 `held`）。被護送
-   * 的小隊拿著一張永遠不解除的集合令（見 `convoy.orders`），若它們也進了
-   * 排名，就會從真正在打的護航機手上分走名額 —— 而那個損失完全看不出來。
-   */
-  readonly blueOrderFlights: number[]
-  readonly redOrderFlights: number[]
-  /**
-   * 這一場被護送／被攔截的那幾架。**沒有就是 null**（遭遇戰與其餘任務）。
-   */
-  readonly convoy: ConvoyIndex | null
-  /**
-   * 已經用掉幾支預留的分隊。`reinforce` 依序填 `cfg.reserve`。
-   *
-   * 【為什麼是計數而不是「找一支空的」】依序填是決定性的；「找一支空的」
-   * 在增援全滅之後會把同一支再填一次。
-   */
-  reserveUsed: number
-  /**
-   * 三張建構期的記憶，`reinforce` 要用同一份。
-   *
-   * 【為什麼一定要同一份】`feeled` 是「base spec → 套過手感的 spec」，而
-   * 下游有三個**依物件識別**的快取（`envelope.ts` 的最佳迴轉表、
-   * `doctrine.ts` 的持續迴轉率表、這裡的 `ceilings`）。增援若各算一份新的
-   * spec 物件，數值完全相同但那三張表會全部落空 —— 症狀是進場那一瞬間的
-   * 卡頓，而且沒有任何錯誤。
-   */
-  readonly feeled: FeelCache
-  /** 轟炸機的巡航速度，見 `BOMBER_CRUISE` */
-  readonly cruises: Map<AircraftSpec, number>
-  /** 逐機種的實用升限，見 `makeCommandUnit` */
-  readonly ceilings: Map<AircraftSpec, number>
-  /**
-   * 這一場**實際**預留的分隊。`cfg.reserve` 或由 `cfg.beats` 推得，
-   * 兩者都給時以 `cfg.reserve` 為準。**`reinforce` 讀這一份，不讀 cfg**
-   */
-  readonly reserve: readonly { readonly team: Team; readonly count: number }[]
-  /** 每一個節拍走到哪裡。**執行狀態在這裡，不在 `MissionCard` 上** */
-  readonly beatStates: BeatState[]
-  /**
-   * 照明彈的輪替：`flare` 節拍生效之後，`FLARE_LANES` 個燈位各自一枚，熄了
-   * 隔 `FLARE_RELIGHT_DELAY` 秒在清單的下一個位置點新的一枚，一直輪下去。
-   * **null = 這一場沒有照明彈**。
-   */
-  flareRotation: FlareBeat | null
-  /** 每一個燈位現在是池裡哪一格。−1 = 空著（熄了、等重點） */
-  readonly flareLane: Int32Array
-  /** 每一個燈位幾秒重點。−1 = 不在等 */
-  readonly flareDue: Float64Array
-  /** 清單走到第幾個位置 */
-  flareCursor: number
-  /**
-   * 還有幾個節拍沒走完。
-   *
-   * 【為什麼不現算】`stepBeats` 每個物理步都跑，而節拍是一場裡的幾個瞬間。
-   * 沒有它的話，全部走完之後仍然每步掃一次全場數存活數。
-   */
-  beatsLeft: number
-  /**
-   * 畫面中心的訊息的鍵（`src/i18n`）。null = 沒有。
-   *
-   * 【存鍵不存文字】畫面那一層每幀查表，語言切換時已經在畫面上的訊息跟著換。
-   *
-   * 【過期由 `stepBeats` 清掉，不由畫面那一層判斷】它吃的是物理時間（與
-   * 倒數同一套）。放在畫面那一層的話，暫停時訊息會繼續倒數。
-   */
-  message: MessageKey | null
-  /** 訊息顯示到哪一個世界時間 */
-  messageUntil: number
-  /**
-   * 撤離節拍改寫過的任務目標的鍵。null = 沿用卡片上的。
-   *
-   * 【為什麼不是讓畫面那一層去推】`mission` 被換成 evacuate 之後，右上角
-   * 的計量自動變成距離，而目標文字仍然是卡片上那一句 —— 一句已經不成立的
-   * 目標，配著一個指向新終點的距離。
-   */
-  objectiveKey: MessageKey | null
-  /**
-   * **這一刻**的任務規則。開場等於 `cfg.rules`，返航節拍會換掉它。
-   *
-   * 【為什麼不能直接讀 `cfg.rules`】`cfg` 是不可變的設定，而 `stepMission`
-   * 是依規則分支的：只換 `mission` 的內容而規則還是 annihilate 的話，倒數
-   * 永遠停在原值、計量顯示的是敵機數，飛進撤離圈也不會判勝。
-   */
-  rules: MissionRules
-  /**
-   * 藍隊的撤離令：`rules` 是 evacuate 時飛往撤離點，否則 `null`。**跟著
-   * `rules` 一起換**（開場、返航節拍、重開一場三處）。
-   *
-   * 【蓋過指揮官與任務目標】`stepCommandLayer` 把它發給每一支藍隊小隊，AI 於是
-   * 放下對地攻擊往撤離點飛；飛進圈的 AI 由 `stepEvacuation` 退場。
-   */
-  evacOrder: FlightOrder | null
-  /**
-   * 這一場的結果。
-   *
-   * 【為什麼取代了自動重置】M5 到 M8 是「一方全滅 → 3 秒 → 回到滿編」。
-   * 主選單一進來那條路徑就必須消失，否則玩家永遠回不到結算畫面
-   * （M9 spec §8）。
-   */
-  outcome: Outcome
-  /**
-   * 這一場的任務狀態。**`mission.outcome` 是權威，`outcome` 是它的複本。**
-   *
-   * 【為什麼留著 `outcome` 而不是處處改讀 `mission.outcome`】`main.ts`、
-   * `ui/scoreboard`、Playwright 判準與既有的五支測試都讀它。全面改讀是一次
-   * 擴散到五個檔案的修改，而它換來的只是少一行賦值。
-   *
-   * 【為什麼是 readonly】`main.ts` 與 HUD 每幀讀 `mission.target`。換掉整個
-   * 物件會讓那些參考指向孤兒 —— 與 `Aircraft.reset` 改成就地寫回是同一條
-   * 教訓（見下方 `stepCommandLayer` 的註解）。重設走 `resetMissionState`。
-   */
-  mission: MissionState
-  /** 這一場的飛行員名冊，依座位索引 */
-  readonly roster: Roster
-  /** 名字用的隨機種子。記下來就能重現同一場的名單 */
-  seed: number
-  /**
-   * 依分隊索引：這一支重生的世界時間；−1 = 沒有在等重生。
-   *
-   * 【依分隊而不是依節拍】兩支小隊可以在同一個 `warnLead` 之內先後被殲滅，
-   * 各自要在自己的時刻重生。建構期配好，長度是 `flights.flights.length`。
-   */
-  readonly reviveAt: Float64Array
-  /** 重生節拍已經預警的批數。`batch` 條件讀它 */
-  batches: number
-  /**
-   * `drainKills` 記到哪一個擊墜流水號（`KillEvents.total`）。
-   *
-   * 【為什麼要游標】呼叫端不排空緩衝時（headless）同一筆事件每步重掃。
-   * 復活之前靠 `recordKill` 的「已陣亡就略過」把重掃變成空操作；席位復活
-   * 之後那一筆會被當成第二次陣亡 —— 陣亡數與兇手的擊墜各多記一次，而且
-   * 復活的人立刻又被標成死亡。流水號不隨排空歸零，所以不會與新的一批錯位。
-   */
-  killsSeen: number
-  /**
-   * `drainReports` 記到哪一個地面目標擊毀流水號，理由與 `killsSeen` 逐字
-   * 相同。
-   *
-   * 【為什麼只有這一個游標】船的兩條緩衝由 `drainReports` 獨佔並就地排空，
-   * 不會被重掃；地面目標那一條由 `main.ts` 排空（它要在那裡點火），所以
-   * 這一層只能靠流水號。
-   */
-  groundKillsSeen: number
-  /**
-   * 玩家自己的戰果通報。**只有玩家的**，見 `battle/report.ts`。
-   *
-   * 【為什麼住在 `Battle` 而不是 `World`】它要分辨「誰是玩家」，而那一層
-   * 連隊伍都只知道藍紅（見 `damageEvents` 的說明）。與 `roster` 同一層。
-   */
-  readonly report: BattleReport
-  /**
-   * 紅方**累計**被擊落的架數。`hunt` 規則讀它。
-   *
-   * 【為什麼記在這裡而不是從存活數推】有重生的關「開場架數減存活數」會隨著
-   * 重生退回去 —— 打光一整隊再讓它回來，進度就歸零了。而擊落是已經發生的事。
-   *
-   * 【在 `drainKills` 裡累加】那裡本來就逐筆走擊墜事件，而且有 `killsSeen`
-   * 游標擋著重掃。自己另外掃存活數的話，同一件事會有第二個實作。
-   */
-  redKilled: number
-  /** 上面那些裡面機體角色是轟炸機的。`hunt.role` 限定時要分得出來 */
-  redKilledBombers: number
-}
 
 /**
  * 造一場 N vs N。

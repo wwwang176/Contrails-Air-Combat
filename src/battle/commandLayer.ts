@@ -1,3 +1,4 @@
+import type { Battle } from './battleState'
 import { Vector3 } from 'three'
 import { AI_DECISION_HZ, AiController } from '../ai/AiController'
 import { stepCommand } from '../ai/command'
@@ -9,7 +10,6 @@ import type { Aircraft } from '../aircraft/Aircraft'
 import type { AircraftSpec } from '../specs/types'
 import type { Combatant, World } from '../world/World'
 import type { FlightIndex } from './flights'
-import type { Battle } from './setup'
 
 interface CommandSeats {
   readonly world: Pick<World, 'combatants'>

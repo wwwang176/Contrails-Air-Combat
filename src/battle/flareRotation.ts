@@ -1,10 +1,12 @@
+import type { Battle } from './battleState'
 import { FLARE_LANES, FLARE_RELIGHT_DELAY, spawnFlare } from '../world/flares'
 import type { FlareBeat } from './beats'
-import type { Battle } from './setup'
 
 /** 只暴露這個生命週期實際讀寫的戰局狀態；不建立執行期包裝物件。 */
 type FlareBattle = Pick<Battle,
-  'flareCursor' | 'flareDue' | 'flareLane' | 'flareRotation' | 'world'>
+  'flareCursor' | 'flareDue' | 'flareLane' | 'flareRotation'> & {
+    readonly world: Pick<Battle['world'], 'time' | 'flares'>
+  }
 
 /**
  * 開始輪替：清單的前 `FLARE_LANES` 個位置各點一枚（各帶自己的延遲），之後

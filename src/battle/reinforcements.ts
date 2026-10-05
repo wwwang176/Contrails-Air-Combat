@@ -1,3 +1,4 @@
+import type { Battle } from './battleState'
 import { Vector3 } from 'three'
 import type { Aircraft } from '../aircraft/Aircraft'
 import { AiController } from '../ai/AiController'
@@ -12,7 +13,6 @@ import { spawnMember, unitFrame } from './flightSpawn'
 import { makeCommandUnit } from './commandLayer'
 import { pilotNames } from './names'
 import type { FlightPlan } from './order'
-import type { Battle } from './setup'
 
 /** 只暴露這個生命週期實際讀寫的戰局狀態；不建立執行期包裝物件。 */
 type ReinforcementBattle = Pick<Battle,

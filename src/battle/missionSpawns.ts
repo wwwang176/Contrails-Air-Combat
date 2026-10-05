@@ -1,3 +1,4 @@
+import type { FeelCache } from './battleState'
 import { Quaternion, Vector3 } from 'three'
 import type { FeelKind } from '../specs/feel'
 import type { AircraftSpec } from '../specs/types'
@@ -13,7 +14,7 @@ import { createGroundTarget } from '../world/groundTargets'
 import { parkedOffset } from '../world/groundAirframe'
 import { createBalloon } from '../world/balloons'
 import type { BalloonEntry, GroundEntry, MissionFleet } from './missions'
-import { feeledSpec, type FeelCache } from './flightSpawn'
+import { feeledSpec } from './flightSpawn'
 
 /**
  * 停在地上的哪一種單位是一架飛機（`GroundTarget.airframe`）。在地上是地面目標，

@@ -1,3 +1,4 @@
+import type { Battle } from './battleState'
 import { Vector3 } from 'three'
 import type { Aircraft } from '../aircraft/Aircraft'
 import { AiController } from '../ai/AiController'
@@ -6,7 +7,6 @@ import { WAVE_LANE, type FlightPlan } from './order'
 import { openingTas, placeMember, settle, unitFrame } from './flightSpawn'
 import { arrivedAt } from './objectiveQueries'
 import { MESSAGE_SECONDS, type BeatState, type RecycleBeat } from './beats'
-import type { Battle } from './setup'
 
 /** 只暴露這個生命週期實際讀寫的戰局狀態；不建立執行期包裝物件。 */
 type RecoveryBattle = Pick<Battle,

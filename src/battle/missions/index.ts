@@ -1,5 +1,6 @@
+import type { BattleConfig } from '../battleConfig'
 import { Quaternion, Vector3 } from 'three'
-import { DEFAULT_BATTLE, type BattleConfig } from '../setup'
+import { DEFAULT_BATTLE } from '../setup'
 import { createGroundMotion, motionPose } from '../../world/groundMotion'
 import { VETERAN } from '../../ai/profile'
 import { ENTRY_PLANS, type EntryPlan, type SideEntry } from '../entry'

@@ -1,3 +1,5 @@
+import type { Battle, FeelCache } from './battleState'
+import type { BattleConfig } from './battleConfig'
 import { Quaternion, Vector3 } from 'three'
 import { Aircraft } from '../aircraft/Aircraft'
 import { maxLevelSpeed } from '../analysis/envelope'
@@ -7,10 +9,9 @@ import { atmosphere } from '../physics/atmosphere'
 import type { AirData } from '../physics/types'
 import { applyFeel, feelFor, type FeelKind } from '../specs/feel'
 import type { AircraftSpec } from '../specs/types'
-import type { World, Combatant, Team } from '../world/World'
+import type { World, Combatant } from '../world/World'
 import { STATION_REFERENCE } from './flights'
 import type { FlightPlan } from './order'
-import type { Battle, BattleConfig } from './setup'
 
 /** 生成只讀出生幾何與手感設定，不需要任務、UI 或戰果狀態。 */
 type SpawnConfig = Pick<BattleConfig,
@@ -146,8 +147,7 @@ export function unitFrame(cfg: SpawnConfig, unit: FlightPlan): UnitFrame {
   return { z, orientation, heading, nominalTas: cfg.tas * entry.speed, leadX, leadY }
 }
 
-/** `base spec → 套過手感的 spec`，每陣營一張。見 `createBattle` 的 `feeled` */
-export type FeelCache = { readonly [T in Team]: Map<AircraftSpec, AircraftSpec> }
+export type { FeelCache } from './battleState'
 
 /**
  * 一個機種套過手感的規格，一側算一次、之後共用同一個物件（下游有依物件識別的快取）。

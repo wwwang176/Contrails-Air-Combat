@@ -1,3 +1,4 @@
+import type { Battle } from './battleState'
 import type { Team } from '../world/World'
 import type { AircraftSpec } from '../specs/types'
 import { conditionMet, MESSAGE_SECONDS } from './beats'
@@ -7,7 +8,6 @@ import { resetMissionState } from './mission'
 import { fitsNextReserve, parkedLeft, reinforce } from './reinforcements'
 import { stepConveyor, stepRecycle } from './flightRecovery'
 import { dropFlares } from './flareRotation'
-import type { Battle } from './setup'
 
 /**
  * `stepBeats` 的當步快照。模組級，不配置。

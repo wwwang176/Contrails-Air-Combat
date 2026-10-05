@@ -1,4 +1,5 @@
-import { DEFAULT_BATTLE, type BattleConfig } from './setup'
+import type { BattleConfig } from './battleConfig'
+import { DEFAULT_BATTLE } from './setup'
 import { flightLine, type FlightSpec } from './order'
 import { SCHWARM_SIZE } from './flights'
 import { HEAD_ON } from './entry'

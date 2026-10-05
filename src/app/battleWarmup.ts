@@ -1,5 +1,5 @@
+import type { BattleConfig } from '../battle/battleConfig'
 import type { Object3D, Quaternion, Vector3 } from 'three'
-import type { BattleConfig } from '../battle/setup'
 import { liveryTexturesFor } from '../render/geometry/buildAircraft'
 import type { SceneContext } from '../render/scene'
 

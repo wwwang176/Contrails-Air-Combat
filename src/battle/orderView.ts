@@ -1,5 +1,14 @@
-import type { Team } from '../world/World'
-import type { Battle } from './setup'
+import type { Combatant, Team } from '../world/World'
+import type { CommandState } from '../ai/commandTypes'
+import type { FlightIndex } from './flights'
+
+/** 命令顯示只讀編制、命令與飛機位置，不需要建場或任務生命週期。 */
+interface OrderViewState {
+  readonly world: { readonly combatants: readonly Pick<Combatant, 'alive' | 'aircraft'>[] }
+  readonly flights: Pick<FlightIndex, 'flights'>
+  readonly blueCommand: Pick<CommandState, 'orders'>
+  readonly redCommand: Pick<CommandState, 'orders'>
+}
 
 /**
  * 集合點可視化的接收端。**結構型別，不 import 任何 render 模組** ——
@@ -33,14 +42,14 @@ export interface OrderSink {
  *
  * 熱路徑：不配置（每幀呼叫）。
  */
-export function fillOrderView(b: Battle, out: OrderSink): void {
+export function fillOrderView(b: OrderViewState, out: OrderSink): void {
   out.begin()
   const cs = b.world.combatants
   const fs = b.flights.flights
   for (let f = 0; f < fs.length; f++) {
     const flight = fs[f]!
     // 【兩個 state 都開滿全域分隊長度，各自只填自己那幾格】所以用同一個
-    // 索引 `f` 去查是對的，見 `setup.ts` 的 `blueCommand` 註解
+    // 索引 `f` 去查是對的，見 `battleState.ts` 的 `blueCommand` 註解
     const state = flight.team === 'blue' ? b.blueCommand : b.redCommand
     const order = state.orders[f] ?? null
     if (order === null || order.kind !== 'rally') continue

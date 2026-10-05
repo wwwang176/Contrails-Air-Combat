@@ -1,4 +1,4 @@
-import type { BattleConfig } from './setup'
+import type { BattleConfig } from './battleConfig'
 
 /** 這一場要掛哪幾組點光源 */
 export interface BattleLights {
@@ -15,7 +15,7 @@ export interface BattleLights {
  *
  * 【爆炸的閃光不在這裡】擊墜與高砲每一關都有，那一組燈恆掛（`main.ts`）。
  */
-export function battleLights(cfg: BattleConfig): BattleLights {
+export function battleLights(cfg: Pick<BattleConfig, 'beats'>): BattleLights {
   let flares = false
   for (const b of cfg.beats ?? []) if (b.kind === 'flare') flares = true
   return { flares }
