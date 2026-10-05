@@ -108,11 +108,8 @@ import {
 import { KILL_STRIDE, clearKills, type KillEvents } from './world/kills'
 import { clearDamage, DAMAGE_STRIDE } from './world/damage'
 import { HIT_PARTS, type HitPart } from './world/hit'
-import {
-  buildAircraft, buildAircraftLod, preloadLiveryVariants,
-  useAircraftLod,
-  type AircraftModel,
-} from './render/geometry/buildAircraft'
+import { preloadLiveryVariants } from './render/geometry/buildAircraft'
+import { createAircraftVisuals } from './render/aircraftVisuals'
 import { Hud } from './hud/Hud'
 import { createAudioMeter, type AudioMeter } from './hud/audioMeter'
 import type { MeterSample } from './audio/meter'
@@ -525,69 +522,8 @@ const pauseToMenu = pauseEl.querySelector('[data-act="toMenu"]') as HTMLElement
 const pauseAbandon = pauseEl.querySelector('[data-act="abandon"]') as HTMLElement
 const scoreboard = createScoreboard(boardEl)
 
-/**
- * 一架飛機的可視部分：模型 + 內插用的暫存。
- *
- * 【為什麼一架一組而不是共用】M1 只有一架，位置與姿態直接寫在模組層的兩個
- * 變數上。兩架以上就必須各自持有，否則第二架會把第一架的內插結果覆寫掉
- * ——這是「世界上只有一架飛機」這個假設最直接的殘留物。
- */
-interface Visual {
-  /**
-   * 這一席目前的模型。**只在整隊重生時換**：舊模型已經交給殘骸池，復活的
-   * 席位拿一具新的。`renderPositions` 參考的是 `position`，不受影響。
-   */
-  model: AircraftModel
-  /**
-   * 遠處用的低模。**沒有低模的機種是 `null`**，那一席一路走 `model`。
-   *
-   * 【兩具都掛在場景上，靠 `visible` 切】換的是哪一個 group 在畫，不是重建
-   * 幾何 —— 每幀重建一架 B-17 是不可能的成本。
-   */
-  lod: AircraftModel | null
-  /** 這一幀顯示的是低模嗎。`useAircraftLod` 的遲滯要讀上一幀的答案。 */
-  far: boolean
-  readonly position: Vector3
-  readonly quaternion: Quaternion
-  /**
-   * 模型已經交給殘骸池了嗎。
-   *
-   * 【為什麼需要這個旗標】殘骸池從此擁有那個 `group` 的位置與旋轉；每幀的
-   * 內插迴圈若繼續寫它，殘骸會被釘在飛機死掉的地方一動也不動。
-   */
-  wrecked: boolean
-}
-
-/** 配這一席的低模並掛上場景（沒有低模的機種是 no-op）。復活時也走這裡。 */
-function attachLod(v: Visual, id: string): void {
-  v.lod = buildAircraftLod(id)
-  if (v.lod !== null) {
-    v.lod.group.visible = false
-    ctx.scene.add(v.lod.group)
-  }
-  v.far = false
-}
-
-/** 這一場任務卡指定這個機種穿的塗裝變體；沒指定（遭遇戰、其他任務）是 `undefined` = 預設塗裝 */
-function liveryOf(c: Combatant): string | undefined {
-  return battle.cfg.liveries?.[c.aircraft.spec.id]
-}
-
-const visuals = new Map<Combatant, Visual>()
-function attachVisual(c: Combatant): Visual {
-  const v: Visual = {
-    model: buildAircraft(c.aircraft.spec, liveryOf(c)),
-    lod: null,
-    far: false,
-    position: new Vector3(),
-    quaternion: new Quaternion(),
-    wrecked: false,
-  }
-  ctx.scene.add(v.model.group)
-  attachLod(v, c.aircraft.spec.id)
-  visuals.set(c, v)
-  return v
-}
+const aircraftVisuals = createAircraftVisuals(ctx.scene)
+const visuals = aircraftVisuals.visuals
 
 // 【三個特效各一個 InstancedMesh】總共多 3 個 draw call（M7 spec §9）
 // 【容量照滿編訂而不是照這一場的架數】池子是基礎設施，建一次永不重建
@@ -1258,8 +1194,8 @@ const debrisColorOf = (index: number): number =>
 
 // 【依 c.index 索引的內插姿態】直接持有 Visual 的 Vector3/Quaternion 參考，
 // 不複製 —— 每幀的內插迴圈寫進那些物件，這裡自然就是最新的。
-let renderPositions: Vector3[] = []
-let renderQuaternions: Quaternion[] = []
+const renderPositions = aircraftVisuals.positions
+const renderQuaternions = aircraftVisuals.quaternions
 
 const rig = new CameraRig()
 
@@ -1279,9 +1215,6 @@ const godInput: GodCameraInput = {
 /** 上帝視角的注視點。重用，理由同上 */
 const godTarget = new Vector3()
 
-/** 兩個翼尖的世界座標。熱路徑：不配置。 */
-const TIP_L = new Vector3()
-const TIP_R = new Vector3()
 
 /** HUD 投影用的暫存向量；投影距離取 1000 m，遠到視差可以忽略。 */
 const probe = new Vector3()
@@ -1349,29 +1282,9 @@ function respawnPlayer() {
   resetDamageMarks(hudFrame.damageMarks)
 }
 
-/** 把一架的模型移出場景並釋放。殘骸池的回收回呼與換場都用它 */
-function releaseVisual(v: Visual): void {
-  ctx.scene.remove(v.model.group)
-  v.model.dispose()
-  if (v.lod !== null) {
-    ctx.scene.remove(v.lod.group)
-    v.lod.dispose()
-    v.lod = null
-  }
-}
-
-/**
- * 把場上的模型全部還回去。
- *
- * 【`wrecks.reset()` 必須排在清空 `visuals` 之前】殘骸池持有的模型也在
- * `visuals` 裡。順序顛倒的話同一個模型會被 `dispose()` 兩次。
- */
+/** 由顯示資源管理器與殘骸池各自釋放持有的模型。 */
 function releaseVisuals(): void {
-  wrecks.reset()
-  for (const v of visuals.values()) releaseVisual(v)
-  visuals.clear()
-  renderPositions = []
-  renderQuaternions = []
+  aircraftVisuals.clear(wrecks)
 }
 
 /**
@@ -1384,11 +1297,7 @@ function releaseVisuals(): void {
  */
 function rebuildVisuals(): void {
   releaseVisuals()
-  for (const c of world.combatants) attachVisual(c)
-  // 【依 c.index 索引的內插姿態】直接持有 Visual 的 Vector3/Quaternion
-  // 參考，不複製 —— 每幀的內插迴圈寫進那些物件，這裡自然就是最新的。
-  renderPositions = world.combatants.map((c) => visuals.get(c)!.position)
-  renderQuaternions = world.combatants.map((c) => visuals.get(c)!.quaternion)
+  aircraftVisuals.sync(world.combatants, battle.cfg.liveries)
   // 眼點是量出來的座艙位置，一機一個值
   rig.options.firstPersonOffset.copy(visuals.get(player)!.model.eyePoint)
   syncBombLoad()
@@ -1412,11 +1321,7 @@ function rebuildVisuals(): void {
  * 少一具模型不是畫面缺一架，是當場拋錯。
  */
 function syncVisuals(): void {
-  for (let i = renderPositions.length; i < world.combatants.length; i++) {
-    const v = attachVisual(world.combatants[i]!)
-    renderPositions.push(v.position)
-    renderQuaternions.push(v.quaternion)
-  }
+  aircraftVisuals.sync(world.combatants, battle.cfg.liveries)
 }
 
 /**
@@ -2941,84 +2846,10 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // reset 會把 prevPosition 一併設為新位置，因此重置不會被內插成一條
   // 橫跨半個地圖的殘影。
   propRotation += worldSeconds * (8 + input.throttle * 60)
-  for (const c of world.combatants) {
-    const v = visuals.get(c)!
-    if (v.wrecked) {
-      // 模型已經交給殘骸池，位置與旋轉從此由它寫
-      if (!c.alive) continue
-      // 【整隊重生的席位拿一具新模型】舊的那具由殘骸池在落海或被覆蓋時
-      // 釋放。配置只發生在復活那一刻
-      v.model = buildAircraft(c.aircraft.spec, liveryOf(c))
-      ctx.scene.add(v.model.group)
-      attachLod(v, c.aircraft.spec.id)
-      v.wrecked = false
-    }
-
-    v.position.lerpVectors(c.aircraft.prevPosition, c.aircraft.state.position, alpha)
-    v.quaternion.slerpQuaternions(c.aircraft.prevOrientation, c.aircraft.state.orientation, alpha)
-    // 【距離 LOD】兩具的姿態都要寫 —— 只寫顯示中的那一具，換過去的那一幀
-    // 會看到它還停在上一次顯示時的位置。
-    if (v.lod !== null) {
-      v.far = useAircraftLod(v.position.distanceToSquared(ctx.camera.position), v.far)
-      v.lod.group.position.copy(v.position)
-      v.lod.group.quaternion.copy(v.quaternion)
-    }
-    v.model.group.position.copy(v.position)
-    v.model.group.quaternion.copy(v.quaternion)
-
-    // 【整場不進場的席位不畫、不留殘骸】它從來沒有飛過
-    if (c.retired) {
-      v.model.group.visible = false
-      if (v.lod !== null) v.lod.group.visible = false
-      continue
-    }
-    if (!c.alive) {
-      // 【殘骸的判準是「還有沒有人要用這個模型」，不是「這是不是玩家」】
-      // M9 起玩家陣亡改為接手僚機，他的 alive 維持 false —— 這一段一個字
-      // 都不用改就自動替玩家的舊機體留下殘骸（M8 spec §10 預告的那件事）。
-      //
-      // 【為什麼先內插再接管】殘骸的起始姿態必須接在畫面上最後看到的位置。
-      // 用擊墜事件裡的子步位置會跳最多 0.83 m（M8 spec §3.1）。
-      v.wrecked = true
-      // 【殘骸接手目前顯示的那一具，另一具在這裡放掉】殘骸池只收一個 group，
-      // 而墜落的殘骸會一路掉到眼前 —— 交低模過去的話近看是多邊形的機身。
-      if (v.lod !== null) {
-        ctx.scene.remove(v.lod.group)
-        v.lod.dispose()
-        v.lod = null
-        v.far = false
-      }
-      const vel = c.aircraft.state.velocity
-      wrecks.adopt(v.model, c.aircraft.spec, vel.x, vel.y, vel.z, c.index)
-      continue
-    }
-
-    const shown = v.far && v.lod !== null ? v.lod : v.model
-    if (v.lod !== null) {
-      v.model.group.visible = !v.far
-      v.lod.group.visible = v.far
-    } else {
-      v.model.group.visible = true
-    }
-    shown.setPropSpin(propRotation, c.command.throttle > 0.15)
-
-    // 【翼尖凝結尾】接線點在 `v.wrecked` 與 `!c.alive` 的 continue 之後 ——
-    // 翻滾的殘骸沒有升力，本來就不該冒尾跡，那是免費得到的。
-    //
-    // 【用 v.position / v.quaternion 而不是 c.aircraft.state.*】尾跡要接在
-    // **畫面上看到的**翼尖，不是物理子步的位置。與殘骸接管用 `v` 的理由
-    // 完全相同（見上方那段註解）。
-    //
-    // 【翼尖逐機種不同】見各機種模型設定的 `wingTip`。
-    const tip = v.model.wingTip
-    TIP_L.set(-tip.x, tip.y, tip.z).applyQuaternion(v.quaternion).add(v.position)
-    TIP_R.set(tip.x, tip.y, tip.z).applyQuaternion(v.quaternion).add(v.position)
-    vortex.emit(
-      c.index, c.aircraft.diag.loadFactor,
-      TIP_L.x, TIP_L.y, TIP_L.z,
-      TIP_R.x, TIP_R.y, TIP_R.z,
-    )
-  }
+  aircraftVisuals.update(
+    world.combatants, alpha, ctx.camera.position, propRotation,
+    battle.cfg.liveries, wrecks, vortex,
+  )
   const renderPos = visuals.get(player)!.position
   const renderQuat = visuals.get(player)!.quaternion
   // 【地形跟著**鏡頭**走】海面網格是以中心點捲動的（`ocean.ts`），跟著
