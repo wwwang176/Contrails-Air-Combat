@@ -7,9 +7,8 @@ import {
 import {
   applySkyPalette, createSky, skyColorAt, SKY_GRADIENT_POWER, SKY_HORIZON, SKY_ZENITH,
 } from '../../src/render/sky'
-import {
-  createOcean, SEA_COLOR, SEA_HORIZON_COLOR, SPARKLE_STRENGTH,
-} from '../../src/render/ocean'
+import { createOcean } from '../../src/render/ocean'
+import { SEA_COLOR, SEA_HORIZON_COLOR, SPARKLE_STRENGTH } from '../../src/render/oceanStyle'
 import { createLights, applyLightPalette } from '../../src/render/lighting'
 import { FOG_COLOR, FOG_DENSITY } from '../../src/render/fog'
 import { MISSIONS } from '../../src/battle/missions'

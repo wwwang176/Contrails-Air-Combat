@@ -3,7 +3,7 @@ import { FAR_LAND_NAME } from '../render/leyteGround'
 import { PROP_DISC_RENDER_ORDER } from '../render/geometry/assembly'
 import { SKY_RENDER_ORDER } from '../render/sky'
 import { CULL } from '../render/cullRuns'
-import { OCEAN_CULL } from '../render/ocean'
+import { OCEAN_CULL } from '../render/oceanGeometry'
 import type { Terrain } from '../render/terrain'
 
 type TargetPicker = () => readonly Object3D[]

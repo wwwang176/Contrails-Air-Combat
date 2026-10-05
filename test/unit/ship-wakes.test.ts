@@ -8,7 +8,7 @@ import { SHIP_CLASSES, createShip } from '../../src/world/ships'
 import {
   TORPEDO_WAKE, WAKE_LIFT, createSinkBoxes, insideSinkBox, wakeHalfWidth,
 } from '../../src/render/wake'
-import { WAVES } from '../../src/render/ocean'
+import { WAVES } from '../../src/core/oceanWaves'
 
 /**
  * # 船的航跡

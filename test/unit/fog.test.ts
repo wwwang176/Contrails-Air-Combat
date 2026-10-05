@@ -5,7 +5,9 @@ import {
   createSky, skyColorAt, SKY_GRADIENT_POWER, SKY_HORIZON, SKY_ZENITH,
 } from '../../src/render/sky'
 import { CAMERA_FAR } from '../../src/render/scene'
-import { createOcean, FAR_SEA_SIZE, FAR_SEA_Y, SEA_COLOR } from '../../src/render/ocean'
+import { createOcean } from '../../src/render/ocean'
+import { FAR_SEA_SIZE, FAR_SEA_Y } from '../../src/render/oceanGeometry'
+import { SEA_COLOR } from '../../src/render/oceanStyle'
 import { DEFAULT_GOD_CAMERA } from '../../src/camera/godCamera'
 
 describe('fogFactor', () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { ShaderLib, Texture, type MeshBasicMaterial } from 'three'
-import { OCEAN_HEIGHT_GLSL } from '../../src/render/ocean'
+import { OCEAN_HEIGHT_GLSL } from '../../src/render/oceanShaders'
 import {
   WAKE_ALPHA, WAKE_HALF_FROM, WAKE_HALF_TO, WAKE_LIFE, WAKE_LIFT, WAKE_NODES,
   TORPEDO_WAKE, WAKE_NODE_SPACING, WAKE_REAL_NODES, createWakes, ribbonIndices, wakeAlpha,

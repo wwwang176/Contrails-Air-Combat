@@ -6,7 +6,7 @@ import { CRASH_CLEARANCE } from '../../src/aircraft/crash'
 import { flatSeaCrashPolicy } from '../../src/world/seaCrash'
 import { createTerrain } from '../../src/render/terrain'
 import { createArchipelago } from '../../src/world/archipelago'
-import { gerstnerHeight, WAVES } from '../../src/render/ocean'
+import { gerstnerHeight, WAVES } from '../../src/core/oceanWaves'
 import { P51D } from '../../src/specs/p51d'
 import type { Command, Controller } from '../../src/control/Controller'
 

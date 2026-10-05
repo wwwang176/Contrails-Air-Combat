@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Frustum, Matrix4, PerspectiveCamera, Vector3, type Mesh } from 'three'
+import { createOcean } from '../../src/render/ocean'
 import {
-  createOcean, oceanBlockRank, OCEAN_BLOCK_GRID, OCEAN_CULL, OCEAN_RING_SEGMENTS,
-} from '../../src/render/ocean'
+  oceanBlockRank, OCEAN_BLOCK_GRID, OCEAN_CULL, OCEAN_RING_SEGMENTS,
+} from '../../src/render/oceanGeometry'
 import { CULL } from '../../src/render/cullRuns'
 
 function camera(yawDeg: number, pitchDeg: number, x = 0, y = 300, z = 0): PerspectiveCamera {

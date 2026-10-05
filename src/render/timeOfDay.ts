@@ -1,6 +1,6 @@
 import { Color, Vector3 } from 'three'
 import { SKY_GRADIENT_POWER, SKY_HORIZON, SKY_ZENITH } from './sky'
-import { SEA_COLOR, SEA_HORIZON_COLOR } from './ocean'
+import { SEA_COLOR, SEA_HORIZON_COLOR } from './oceanStyle'
 import { FOG_DENSITY } from './fog'
 import type { TimeOfDay } from '../world/timeOfDay'
 // 【只匯入型別】這兩支都要用這裡的值，值匯入會成環

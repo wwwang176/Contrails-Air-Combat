@@ -3,7 +3,7 @@ import {
   type Texture,
 } from 'three'
 import { injectVertexAlpha } from './vortex'
-import { OCEAN_HEIGHT_GLSL } from './ocean'
+import { OCEAN_HEIGHT_GLSL } from './oceanShaders'
 import { TORPEDOES_CAPACITY } from '../world/torpedo'
 
 /**
