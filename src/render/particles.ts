@@ -3,7 +3,7 @@ import {
   Matrix4, MeshBasicMaterial, PlaneGeometry, Quaternion, Texture, Vector3,
   type Blending,
 } from 'three'
-import { hash01 } from './scatter'
+import { hash01 } from '../core/hash'
 import { applyFireFog } from './fireFog'
 import { SMOKE_WIND } from './wind'
 import type { Anchors } from './anchors'
@@ -117,7 +117,7 @@ export interface Particles {
  * 這一格這一次的壽命，s。
  *
  * 【為什麼用格子索引當種子而不是 `Math.random`】與這個專案其他所有隨機
- * 一樣：純函數才測得起來，而且重播可重現（見 `scatter.ts` 的 `hash01`）。
+ * 一樣：純函數才測得起來，而且重播可重現（見 `core/hash.ts` 的 `hash01`）。
  * 環形緩衝繞一圈後同一格會拿到同一個倍率，但那是 6,144 個值之後的事，
  * 而且相鄰的格子拿到的是雜湊值、彼此無關 —— 同一批發射出去的煙壽命各異，
  * 那正是要的效果。

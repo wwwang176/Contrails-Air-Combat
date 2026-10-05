@@ -3,7 +3,7 @@ import {
   MeshBasicMaterial, Quaternion, Vector2, Vector3,
 } from 'three'
 import { IMPACT_STRIDE, type ImpactEvents } from '../world/events'
-import { hash01 } from './scatter'
+import { hash01 } from '../core/hash'
 
 /**
  * 水柱的滿高，m。

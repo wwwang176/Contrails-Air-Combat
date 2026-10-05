@@ -3,7 +3,7 @@ import { atmosphere } from '../physics/atmosphere'
 import { bodyToStd, stdToBody, type StdVec } from '../physics/axes'
 import type { AirData } from '../physics/types'
 import type { AircraftSpec } from '../specs/types'
-import { hash01 } from './scatter'
+import { hash01 } from '../core/hash'
 
 /**
  * # 殘骸的角向氣動

@@ -88,7 +88,7 @@ import {
   createGroundFires, lightGroundFire, lightGroundFires, stepGroundFires,
 } from './render/groundFires'
 import { createFireCrowd, updateFireCrowd } from './render/fireCrowd'
-import { hash01 } from './render/scatter'
+import { hash01 } from './core/hash'
 import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
 } from './render/spray'

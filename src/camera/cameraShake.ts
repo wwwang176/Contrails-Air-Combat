@@ -1,6 +1,6 @@
 import { Euler, Quaternion, type Camera, type Vector3 } from 'three'
 import { DEG } from '../core/math'
-import { hash01 } from '../render/scatter'
+import { hash01 } from '../core/hash'
 
 /**
  * # 鏡頭震動

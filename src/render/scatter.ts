@@ -1,20 +1,5 @@
 import { Vector3 } from 'three'
-
-/**
- * 32 位元整數雜湊 → [0, 1)。
- *
- * 【為什麼不用 `Math.random()`】與 `battle/setup.ts` 的 `altitudeOffset`
- * 避開亂數同一個理由：亂數要嘛需要一顆種子與一個 PRNG，要嘛就毀掉可
- * 測試性。用索引的雜湊之後 `coneDirection` 是純函數，「恆在錐內」這一條
- * 才測得起來。
- */
-export function hash01(i: number): number {
-  let h = Math.imul(i ^ 0x9e3779b9, 0x85ebca6b)
-  h ^= h >>> 13
-  h = Math.imul(h, 0xc2b2ae35)
-  h ^= h >>> 16
-  return (h >>> 0) / 4294967296
-}
+import { hash01 } from '../core/hash'
 
 const AXIS = new Vector3()
 const TANGENT = new Vector3()

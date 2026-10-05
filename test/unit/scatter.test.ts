@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { coneDirection, hash01 } from '../../src/render/scatter'
+import { coneDirection } from '../../src/render/scatter'
+import { hash01 } from '../../src/core/hash'
 
 describe('hash01', () => {
   it('恆在 [0, 1)', () => {

@@ -1,7 +1,7 @@
 import { Quaternion, Vector3 } from 'three'
 import { FIRE_BLAST, emitBlast, scaleBlast, type BlastParams, type BlastPools } from './blast'
 import type { Anchors } from './anchors'
-import { hash01 } from './scatter'
+import { hash01 } from '../core/hash'
 import { SHIP_FIRE_PLUME_SPEED } from './smoke'
 import type { FirePuffFn } from './shipFires'
 import type { Particles } from './particles'

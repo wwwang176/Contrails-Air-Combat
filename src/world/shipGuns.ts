@@ -1,6 +1,6 @@
 import { Quaternion, Vector3 } from 'three'
 import { DEG } from '../core/math'
-import { hash01 } from '../render/scatter'
+import { hash01 } from '../core/hash'
 import { resetBurst, stepGunnerBurst, BURST_ON } from '../weapons/burst'
 import { stepCadence } from '../weapons/cadence'
 import { applyWobble, GOLDEN, inArc, slew, wobblePhase } from '../weapons/turret'

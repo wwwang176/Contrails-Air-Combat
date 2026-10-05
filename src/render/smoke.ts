@@ -1,6 +1,7 @@
 import { Color, NormalBlending, Vector3, type Texture } from 'three'
 import { createParticles, type Particles } from './particles'
-import { coneDirection, hash01 } from './scatter'
+import { coneDirection } from './scatter'
+import { hash01 } from '../core/hash'
 import { IMPACT_STRIDE, type ImpactEvents } from '../world/events'
 import { KILL_STRIDE, type KillEvents } from '../world/kills'
 

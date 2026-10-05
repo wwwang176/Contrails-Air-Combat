@@ -5,7 +5,7 @@ import type { ShipClassId } from '../../world/ships'
 import type { GroundUnitId } from '../../render/geometry/ground'
 import type { DecorKind } from '../../render/geometry/ground/plantDecor'
 import type { CloudSpec } from '../../render/clouds'
-import { hash01 } from '../../render/scatter'
+import { hash01 } from '../../core/hash'
 import { WRECK_TERMINAL } from '../../render/wrecks'
 import { createFlight, flightPose, type Path } from '../reelFlight'
 

@@ -2,7 +2,7 @@ import {
   Color, DynamicDrawUsage, IcosahedronGeometry, InstancedBufferAttribute,
   InstancedMesh, Matrix4, MeshBasicMaterial, Quaternion, SRGBColorSpace, Vector3,
 } from 'three'
-import { hash01 } from './scatter'
+import { hash01 } from '../core/hash'
 import { FIRE_FOG, applyFireFog } from './fireFog'
 import type { Particles } from './particles'
 import type { Anchors } from './anchors'

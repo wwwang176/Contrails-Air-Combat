@@ -1,6 +1,6 @@
 import { Vector3 } from 'three'
 import { JU87 } from '../../specs/ju87'
-import { hash01 } from '../../render/scatter'
+import { hash01 } from '../../core/hash'
 import { scatterClouds, type CloudSpec } from '../../render/clouds'
 import {
   BOMB_RELEASE_Y, barrage, bombAt, body, bodyUp, edit, propAt, propTravel, timeline, velocityAt,

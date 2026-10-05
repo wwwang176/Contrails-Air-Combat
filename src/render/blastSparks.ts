@@ -2,7 +2,8 @@ import {
   BufferAttribute, DynamicDrawUsage, InstancedBufferAttribute, InstancedBufferGeometry, Mesh,
   ShaderMaterial, Vector3,
 } from 'three'
-import { coneDirection, hash01 } from './scatter'
+import { coneDirection } from './scatter'
+import { hash01 } from '../core/hash'
 
 /**
  * # 爆炸噴出的火星

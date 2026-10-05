@@ -2,7 +2,8 @@ import {
   BoxGeometry, Color, DynamicDrawUsage, InstancedMesh, Matrix4,
   MeshStandardMaterial, Quaternion, Vector3,
 } from 'three'
-import { coneDirection, hash01 } from './scatter'
+import { coneDirection } from './scatter'
+import { hash01 } from '../core/hash'
 import { tumble } from './tumble'
 import {
   DEBRIS_SMOKE_COUNT, DEBRIS_SMOKE_INTERVAL,
