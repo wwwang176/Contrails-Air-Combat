@@ -104,7 +104,7 @@ export function resetFlakBurstSeed(): void {
  * 【方向用確定性的低差異序列，不用亂數】與 `emitFireball` 同一條紀律：
  * 純函數才測得起來，重播也才可重現。
  */
-export function emitFlakBursts(pool: Particles, events: BurstEvents): void {
+export function emitFlakBursts(pool: Pick<Particles, 'emit'>, events: BurstEvents): void {
   for (let e = 0; e < events.count; e++) {
     const x = events.x[e]!
     const y = events.y[e]!

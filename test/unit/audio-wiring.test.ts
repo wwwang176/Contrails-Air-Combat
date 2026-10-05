@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
  */
 const SRC = new TextDecoder().decode(readFileSync('src/main.ts')).replace(/\r\n/g, '\n').split('\n')
 const ALL = SRC.join('\n')
+const EVENTS = readFileSync('src/app/battleEventPresentation.ts', 'utf8').replace(/\r\n/g, '\n').split('\n')
 const FLIGHT = readFileSync('src/audio/flightAudio.ts', 'utf8').replace(/\r\n/g, '\n')
   .split('\n').map(line => line.replace(/^  /, ''))
 const LOOPS = readFileSync('src/audio/aircraftLoopAudio.ts', 'utf8').replace(/\r\n/g, '\n')
@@ -18,9 +19,9 @@ const SCENERY = readFileSync('src/render/battleScenery.ts', 'utf8')
 const CANNONS = readFileSync('src/audio/cannonAudio.ts', 'utf8').replace(/\r\n/g, '\n')
   .split('\n').map(line => line.replace(/^  /, ''))
 
-function lines(needle: string): number[] {
+function lines(needle: string, source = SRC): number[] {
   const hits: number[] = []
-  for (let i = 0; i < SRC.length; i++) if (SRC[i]!.includes(needle)) hits.push(i)
+  for (let i = 0; i < source.length; i++) if (source[i]!.includes(needle)) hits.push(i)
   return hits
 }
 
@@ -92,11 +93,12 @@ describe('音效的戰鬥事件接線', () => {
    * 讀到的永遠是空的 —— 一個聲音都沒有，而且不報錯。
    */
   it('子步裡記事件，排在每一種事件的清除之前', () => {
-    const q = lines('battleAudioCues.queueAudioCues(world, player, terrain, input.godView)').filter(inStep)
+    expect(lines('presentBattleEvents(world, player, terrain, elapsed, input.godView)').filter(inStep)).toHaveLength(1)
+    const q = lines('battleAudioCues.queueAudioCues(world, player, terrain, godView)', EVENTS)
     expect(q).toHaveLength(1)
     for (const clear of ['clearDamage(dmg)', 'blastPresentation.emitGroundKills(world.groundKillEvents, world.time, world.groundTargets)', 'clearKills(world.killEvents)',
       'clearImpacts(world.bombEvents)', 'clearImpacts(world.torpedoEvents)', 'clearBursts(world.burstEvents)']) {
-      const c = lines(clear).filter(inStep)
+      const c = lines(clear, EVENTS)
       expect(c, clear).toHaveLength(1)
       expect(q[0]!, clear).toBeLessThan(c[0]!)
     }

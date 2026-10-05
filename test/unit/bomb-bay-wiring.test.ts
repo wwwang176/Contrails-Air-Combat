@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
  * 大括號會誤判，而會誤報的護欄比沒有護欄更糟。
  */
 const SRC = new TextDecoder().decode(readFileSync('src/main.ts')).split('\n')
+const EVENTS = readFileSync('src/app/battleEventPresentation.ts', 'utf8').split('\n')
 const WORLD = new TextDecoder().decode(readFileSync('src/world/World.ts')).replace(/\r\n/g, '\n')
 const PLAYER = new TextDecoder().decode(readFileSync('src/control/PlayerController.ts'))
   .replace(/\r\n/g, '\n')
@@ -77,24 +78,24 @@ describe('標記的接線：`fillMarkers` 必須真的被呼叫', () => {
 })
 
 /**
- * # 火災的接線護欄 —— 同樣讀 `main.ts` 的原始碼
+ * # 火災的接線護欄 —— 讀事件呈現模組，畫面步進仍讀 `main.ts`
  *
- * `ship-fires.test.ts` 直接呼叫 `lightShipFires`，所以把 `main.ts` 裡那兩行
+ * `ship-fires.test.ts` 直接呼叫 `lightShipFires`，所以把事件呈現模組裡那兩行
  * 刪掉不會讓任何測試紅。而症狀是**一個火點都不會出現、零錯誤訊息**。
  *
  * **順序是這支護欄真正的內容**：兩份命中事件都在物理子步裡被 `clearImpacts`
  * 清掉。起火排在排空之後的話讀到的永遠是空的。
  */
 describe('火災的接線：起火必須排在事件排空之前', () => {
-  const lines = (needle: string): number[] => {
+  const lines = (needle: string, source = EVENTS): number[] => {
     const hits: number[] = []
-    for (let i = 0; i < SRC.length; i++) if (SRC[i]!.includes(needle)) hits.push(i)
+    for (let i = 0; i < source.length; i++) if (source[i]!.includes(needle)) hits.push(i)
     return hits
   }
 
   it('炸彈與魚雷兩份事件都拿去起火', () => {
     expect(lines('lightShipFires(')).toHaveLength(2)
-    const near = lines('lightShipFires(').map((i) => SRC[i]!).join('\n')
+    const near = lines('lightShipFires(').map((i) => EVENTS[i]!).join('\n')
     expect(near).toContain('world.bombEvents')
     expect(near).toContain('world.torpedoEvents')
   })
@@ -111,7 +112,7 @@ describe('火災的接線：起火必須排在事件排空之前', () => {
 
   /** 【燃燒一幀推一次】它是純裝飾。塞進物理子步的話一幀會燒好幾次。 */
   it('stepShipFires 吃的是 worldSeconds', () => {
-    const step = lines('stepShipFires(')
+    const step = lines('stepShipFires(', SRC)
     expect(step).toHaveLength(1)
     expect(SRC[step[0]!]!).toContain('worldSeconds')
   })

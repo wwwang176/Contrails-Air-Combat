@@ -1,4 +1,5 @@
 import './render/heightFogInstall'
+import { createBattleEventPresentation } from './app/battleEventPresentation'
 import type { BattleConfig } from './battle/battleConfig'
 import type { Battle } from './battle/battleState'
 import { createEffectStepper } from './render/effectStepper'
@@ -74,14 +75,14 @@ import { addSmokeLighting } from './render/smokeLighting'
 import { createBlastLights } from './render/blastLights'
 import { battleLights } from './battle/battleLights'
 import {
-  createShipFires, lightShipFires, stepShipFires,
+  createShipFires, stepShipFires,
 } from './render/shipFires'
 import {
-  createGroundFires, lightGroundFire, lightGroundFires, stepGroundFires,
+  createGroundFires, lightGroundFire, stepGroundFires,
 } from './render/groundFires'
 import { createFireCrowd, updateFireCrowd } from './render/fireCrowd'
 import { hash01 } from './core/hash'
-import { createSpray, emitSpray, WATER_COLOR } from './render/spray'
+import { createSpray, WATER_COLOR } from './render/spray'
 import { createVortex } from './render/vortex'
 import { createOrderMarkers } from './render/orderMarkers'
 import { createDebris } from './render/debris'
@@ -90,9 +91,7 @@ import {
   WRECK_FIRE_SMOKE_SCALE,
 } from './render/wrecks'
 import { bodyColorOf } from './render/geometry/buildAircraft'
-import { clearImpacts, createImpacts } from './world/events'
-import { clearKills } from './world/kills'
-import { clearDamage, DAMAGE_STRIDE } from './world/damage'
+import { createImpacts } from './world/events'
 import { preloadLiveryVariants } from './render/geometry/buildAircraft'
 import { createAircraftVisuals } from './render/aircraftVisuals'
 import { Hud } from './hud/Hud'
@@ -110,7 +109,7 @@ import { runFrontCount } from './hud/widgets/torpedoLine'
 import {
   TORPEDO_RUN_SAMPLES, runSampleDistance, torpedoEntersWater, torpedoHeading,
 } from './world/torpedo'
-import { pushDamageMark, resetDamageMarks, stepDamageMarks } from './hud/damageMarks'
+import { resetDamageMarks, stepDamageMarks } from './hud/damageMarks'
 import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
 import { solveImpact, type BombState, type Impact } from './world/bomb'
 import { resetBombBay, type BombBay } from './weapons/bomb'
@@ -120,7 +119,6 @@ import {
 import type { Loadout } from './weapons/stores'
 import { BOMB_PROFILE } from './ai/bombRun'
 import { TORPEDO_PROFILE } from './ai/torpedoRun'
-import { WAKE_SPRAY_COUNT } from './render/spray'
 import { createWakes } from './render/wake'
 import { createShipWakes, shipFoamTexture } from './render/shipWakes'
 import {
@@ -464,12 +462,6 @@ const METER_SAMPLE: MeterSample = {
 }
 const hudFrame = createHudFrame()
 const hudAttitude = { pitch: 0, roll: 0 }
-/**
- * 受擊方向轉座標用的暫存。**模組層** —— 排空發生在物理子步的回呼裡，
- * 一幀可能跑八次，在裡面 new 就是每幀八次配置。
- */
-const DAMAGE_DIR = new Vector3()
-const DAMAGE_VIEW = new Quaternion()
 const boardEl = document.getElementById('board') as HTMLElement
 const boardActions = boardEl.querySelector('#board-actions') as HTMLElement
 /** 結算的兩個回頭出口。依 `mode` 擇一顯示 —— 見 `stepAndDrawBattle` 尾端 */
@@ -871,6 +863,12 @@ ctx.scene.add(debris.object)
 /** combatant 索引 → 機身色。零件用它上色 —— `World` 不需要知道有塗裝這回事。 */
 const debrisColorOf = (index: number): number =>
   bodyColorOf(world.combatants[index]!.aircraft.spec)
+
+const presentBattleEvents = createBattleEventPresentation({
+  camera: ctx.camera, damageMarks: hudFrame.damageMarks, battleAudioCues,
+  sparks, splashes, blastPresentation, debris, debrisColorOf, shipFires, groundFires,
+  spray, flakBursts, BLAST_POOLS,
+})
 
 // 【依 c.index 索引的內插姿態】直接持有 Visual 的 Vector3/Quaternion 參考，
 // 不複製 —— 每幀的內插迴圈寫進那些物件，這裡自然就是最新的。
@@ -1785,68 +1783,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     const pp = player.aircraft.state.position
     stepArena(arena, arenaBounds, pp.x, pp.y, pp.z, dt)
     hitsThisFrame += player.hitsDealt
-    // 【排在所有事件清除之前】見 `queueAudioCues`
-    battleAudioCues.queueAudioCues(world, player, terrain, input.godView)
-    // 【事件必須在回呼裡排空】與上面 hitsDealt 同一個理由：World 在每個
-    // 物理步產生事件，而一幀可能跑好幾步。在幀尾才讀的話，最後一步以外
-    // 的火花與水柱全部漏掉（M7 spec §2.2）。
-    //
-    // 相機位置用的是上一幀的 —— 火花的剔除半徑是 800 m，而相機一幀移動
-    // 不到 4 m，差異在剔除判斷上看不出來。
-    sparks.emit(
-      world.hitEvents, ctx.camera.position.x, ctx.camera.position.y, ctx.camera.position.z,
-    )
-    splashes.emit(world.splashEvents, terrain.heightAt, elapsed)
-    clearImpacts(world.hitEvents)
-    clearImpacts(world.splashEvents)
-    // 【只取玩家自己的】World 不知道誰是玩家，所以它對每一架都推
-    // （受擊方向指示器 spec §3.1）。過濾在這裡做。
-    //
-    // 【相機用的是上一幀的姿態】`rig.update` 排在物理迴圈之後 —— 硬轉
-    // 90°/s、一幀 16 ms 下的誤差是 1.4°，對一個 70° 寬的光團看不出來。
-    // 為了少一幀而多開一個暫存緩衝，複雜度換不到任何看得見的東西（spec §6.1）。
-    const dmg = world.damageEvents
-    if (dmg.count > 0) {
-      DAMAGE_VIEW.copy(ctx.camera.quaternion).invert()
-      for (let i = 0; i < dmg.count; i++) {
-        const o = i * DAMAGE_STRIDE
-        if (dmg.data[o]! !== player.index) continue
-        DAMAGE_DIR.set(dmg.data[o + 1]!, dmg.data[o + 2]!, dmg.data[o + 3]!)
-          .applyQuaternion(DAMAGE_VIEW)
-        pushDamageMark(hudFrame.damageMarks, DAMAGE_DIR.x, DAMAGE_DIR.y, DAMAGE_DIR.z)
-      }
-    }
-    clearDamage(dmg)
-    // 【火球與零件走事件】它們是世界錨定的一次性效果，用事件裡的子步位置
-    // ——與火花同一個理由（M7 spec §2.2）。**玩家自己被擊墜時也要有**，
-    // 而那正是「每幀比對 alive」做不到的事（M8 spec §2.1）
-    blastPresentation.emitKillBlasts(world.killEvents, world.time, terrain)
-    blastPresentation.emitGroundKills(world.groundKillEvents, world.time, world.groundTargets)
-    blastPresentation.emitBalloonPops(world.balloonKillEvents, world.time)
-    debris.emit(world.killEvents, debrisColorOf)
-    clearKills(world.killEvents)
-    // 【炸彈的落點也走事件】`World` 只判水陸並推一筆，配方由這裡選
-    blastPresentation.emitBombBlasts(world.bombEvents, world.time, terrain, elapsed)
-    // 【起火要排在排空之前】兩份事件都在這個物理子步裡就被清掉了；等到
-    // 幀率區段才讀的話它們已經是空的，火點永遠是 0 而且不報錯
-    lightShipFires(shipFires, world.bombEvents, world.ships)
-    // 【落在陸地的炸彈也留火】水上的、打中船的、打中建築的各有各的去處
-    lightGroundFires(groundFires, world.bombEvents)
-    clearImpacts(world.bombEvents)
-    // 【魚雷的兩條管道】引爆走水冠、入水與航跡走水花。兩者都在物理子步裡
-    // 消費 —— 一枚魚雷跑 91 秒會推出 250 筆航跡，累到幀尾會滿
-    blastPresentation.emitTorpedoBlasts(world.torpedoEvents, world.time, terrain, elapsed)
-    lightShipFires(shipFires, world.torpedoEvents, world.ships)
-    clearImpacts(world.torpedoEvents)
-    emitSpray(spray, world.torpedoWakeEvents, WAKE_SPRAY_COUNT)
-    clearImpacts(world.torpedoWakeEvents)
-    // 【黑雲與火花同一個約定】`World` 只推事件，排空是呼叫端的責任。
-    // 傷害那一半 `World` 自己在物理步裡就吃掉了（見 `stepBursts`）。
-    emitFlakBursts(flakBursts, world.burstEvents)
-    // 爆點的閃光與小火球走爆炸那一組池；黑雲留在上面那個池
-    emitFlakBlasts(BLAST_POOLS, world.burstEvents)
-    blastPresentation.shakeFlakBursts(world.burstEvents)
-    clearBursts(world.burstEvents)
+    presentBattleEvents(world, player, terrain, elapsed, input.godView)
     perf.endPhysics()
   })
 
