@@ -3,6 +3,9 @@ import { Vector3 } from 'three'
 import { GROUND_UNITS } from '../../src/specs/ground'
 import { createGroundModels } from '../../src/render/groundTargets'
 import { createGroundTarget } from '../../src/world/groundTargets'
+import { createImpacts, pushImpact } from '../../src/world/events'
+import { queueExplosionCues } from '../../src/audio/explosionCues'
+import { CUE, createCueQueue } from '../../src/audio/queue'
 
 /** 【用 import.meta.glob 而不是 fs】`main.ts` 抓 DOM，載進 vitest 會直接爆；讀原始碼 */
 const SOURCES = import.meta.glob('../../src/main.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
@@ -35,7 +38,20 @@ describe('人死不爆炸', () => {
   /** 擊毀事件照推（計數與通報要用），只有畫面、震動、火與聲音略過 */
   it('擊毀的畫面與聲音兩條路都略過人', () => {
     expect(body('function emitGroundKills', '\n}\n')).toContain('if (t !== undefined && t.unit.personnel === true) continue')
-    expect(body('function queueAudioCues', '\n}\n')).toContain('unit.personnel === true) continue')
+    const groundTargets = [
+      createGroundTarget(0, 'infantry', 'red', 0, 0, 0),
+      createGroundTarget(1, 'mortar', 'red', 1, 0, 0),
+      createGroundTarget(2, 'fuelDump', 'red', 2, 0, 0),
+    ]
+    const groundKillEvents = createImpacts(3)
+    for (let i = 0; i < 3; i++) pushImpact(groundKillEvents, i, 0, 0, i, 0, 0)
+    const empty = { count: 0, data: new Float32Array(0) }
+    const cues = createCueQueue(3)
+    queueExplosionCues(cues, {
+      groundTargets, groundKillEvents, killEvents: empty, bombEvents: empty, torpedoEvents: empty,
+    }, { waterAt: () => -Infinity }, 25)
+    expect(cues.count).toBe(1)
+    expect(Array.from(cues.data.slice(0, 5))).toEqual([CUE.Blast, 2, 0, 0, 1])
   })
 
   it('略過排在放火球與點煙柱之前', () => {

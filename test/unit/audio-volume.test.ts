@@ -93,6 +93,6 @@ describe('混音餘裕', () => {
   it('engine 的 setVolume 把餘裕加進去', () => {
     const src = new TextDecoder().decode(readFileSync('src/audio/engine.ts')).replace(/\r\n/g, '\n')
     expect(src).toContain('listener.setMasterVolume(dbToGain(db + MIX_HEADROOM_DB))')
-    expect(src).toContain('uiGain.gain.value = db === null ? 0 : dbToGain(db + MIX_HEADROOM_DB)')
+    expect(src).toContain('uiAudio.setVolume(db)')
   })
 })

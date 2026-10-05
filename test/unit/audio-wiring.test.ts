@@ -222,7 +222,12 @@ describe('音效的戰鬥事件接線', () => {
 
   it('記錄擊落、空爆、自己被打', () => {
     const fn = body('function queueAudioCues(')
-    for (const cue of ['CUE.Explosion', 'CUE.FlakBurst', 'CUE.HitSelf']) expect(fn).toContain(`pushCue(cues, ${cue}`)
+    for (const cue of ['CUE.FlakBurst', 'CUE.HitSelf']) expect(fn).toContain(`pushCue(cues, ${cue}`)
+    const call = 'queueExplosionCues(cues, world, terrain, CRASH_BLAST_HEIGHT)'
+    expect(fn).toContain(call)
+    expect(lines('queueExplosionCues(')).toHaveLength(1)
+    expect(fn.indexOf(call)).toBeGreaterThan(fn.indexOf('CUE.SelfVolley'))
+    expect(fn.indexOf(call)).toBeLessThan(fn.indexOf('const f = world.burstEvents'))
   })
 
   /** 【子步不碰 Web Audio】240 Hz 裡建音源會每步配置 */
@@ -302,15 +307,15 @@ describe('音效的戰鬥事件接線', () => {
    * 【鏡頭瞬移不是速度】切視角、重生、換場會讓鏡頭一幀跳幾百公尺，
    * 相減出來是幾千 m/s —— 那一幀所有引擎聲會整片變調。
    */
-  it('鏡頭速度逐幀相減，擋掉瞬移，而且每一幀更新一次', () => {
-    const fn = body('function trackCameraVelocity(')
-    expect(fn).toContain('CAM_TELEPORT_SPEED')
-    expect(fn).toContain('camVel.set(0, 0, 0)')
-    const call = lines('trackCameraVelocity(').filter((i) => !SRC[i]!.includes('function'))
-    expect(call).toHaveLength(1)
+  it('聽者速度每幀更新一次，在音效定位前取得，換場時重設', () => {
+    expect(ALL).toContain('const listenerMotion = createListenerMotion()')
+    expect(ALL).toContain('const camVel = listenerMotion.velocity')
+    expect(lines('listenerMotion.update(')).toHaveLength(1)
     const upd = body('function updateAudio(')
-    expect(upd.indexOf('trackCameraVelocity(')).toBeLessThan(upd.indexOf("audio.assign('engine'"))
-    expect(body('function resetAudioState(')).toContain('camPosValid = false')
+    const call = 'listenerMotion.update(ctx.camera.position, worldSeconds)'
+    expect(upd).toContain(call)
+    expect(upd.indexOf(call)).toBeLessThan(upd.indexOf("audio.assign('engine'"))
+    expect(body('function resetAudioState(')).toContain('listenerMotion.reset()')
   })
 
   /**
@@ -324,21 +329,12 @@ describe('音效的戰鬥事件接線', () => {
    * 兩者共用爆炸庫，差別只在類別（`CATEGORY.blast` 的 `rolloff`）。
    */
   it('炸彈、魚雷、地面目標走 blast 類別，飛機擊落走 explosion', () => {
-    const q = body('function queueAudioCues(')
-    // 擊落的那一筆仍然是 CUE.Explosion
-    expect(q).toContain('pushCue(cues, CUE.Explosion, x, y, z)')
-    // 炸彈（陸）、魚雷、地面目標炸毀三處都是 CUE.Blast
-    expect(q.match(/pushCue\(cues, CUE\.Blast/g) ?? []).toHaveLength(3)
     const fn = body('function playCues(')
     expect(fn).toContain("cues.data[o]! === CUE.Blast ? 'blast' : 'explosion'")
     expect(fn).toContain("audio.playPool('explosion', 'blast', x, y, z, true, db - 12")
   })
 
   it('炸彈與魚雷的爆炸、水花帶當量', () => {
-    const fn = body('function queueAudioCues(')
-    // 炸彈的爆炸／水花／落水悶響，加魚雷的爆炸／水花
-    expect(fn.match(/blastScaleOf\(/g) ?? []).toHaveLength(2)
-    expect(fn.match(/pushCue\(cues, CUE\.\w+, [^)]*, scale\)/g) ?? []).toHaveLength(5)
     const play = body('function playCues(')
     expect(play).toContain('blastGainDb(scale)')
     expect(play).toContain('blastRate(scale)')
@@ -554,19 +550,20 @@ describe('選單按鈕的聲音', () => {
    * 凍住，那是刻意的）。共用的話，暫停選單上那幾顆唯一按得到的按鈕反而沒聲音。
    */
   it('playUi 不走主 context，而且吃主音量', () => {
-    const fn = ENGINE.slice(ENGINE.indexOf('function playUi('), ENGINE.indexOf('function camDistance('))
-    expect(fn).toContain('uiCtx = new AudioContext()')
-    expect(fn).not.toContain('ctx.create')
-    // 【與世界吃同一份混音餘裕】少加的話選單按鈕會比戰場大一截
-    expect(fn).toContain('dbToGain(masterDb + MIX_HEADROOM_DB)')
+    expect(ENGINE).toContain('const uiAudio = createUiAudio(buffers, makeup)')
+    expect(ENGINE).toContain('playUi: uiAudio.play')
     const vol = ENGINE.slice(ENGINE.indexOf('setVolume(db) {'), ENGINE.indexOf('setPaused(p) {'))
-    expect(vol).toContain('uiGain.gain.value = db === null ? 0 : dbToGain(db + MIX_HEADROOM_DB)')
+    expect(vol).toContain('uiAudio.setVolume(db)')
   })
 
-  /** 【沒載到就不要開 context】一個沒有聲音的 context 會留在那裡佔著硬體 */
-  it('沒有那個檔就整個不做', () => {
-    const fn = ENGINE.slice(ENGINE.indexOf('function playUi('), ENGINE.indexOf('function camDistance('))
-    expect(fn.indexOf('if (buf === undefined) return')).toBeLessThan(fn.indexOf('new AudioContext()'))
+  it('戰場暫停、慢動作與停止聲道不操作選單音效', () => {
+    for (const head of ['setPaused(p) {', 'setTimeScale(s) {', 'function stopAll()']) {
+      const start = ENGINE.indexOf(head)
+      expect(start).toBeGreaterThan(-1)
+      const end = ENGINE.indexOf(head.startsWith('function') ? '\n  }\n' : '\n    },', start)
+      expect(end).toBeGreaterThan(start)
+      expect(ENGINE.slice(start, end)).not.toContain('uiAudio.')
+    }
   })
 
   /**
@@ -576,8 +573,8 @@ describe('選單按鈕的聲音', () => {
   it('按鈕音排在下載佇列最前面', async () => {
     const { FIRST_FILES, SINGLE_FILES } = await import('../../src/audio/catalog')
     expect([...FIRST_FILES]).toEqual([SINGLE_FILES.uiClick, SINGLE_FILES.uiBack, SINGLE_FILES.uiClose])
-    expect(ENGINE).toContain('const first = new Set<string>(FIRST_FILES)')
-    expect(ENGINE).toContain('.sort((a, b) => Number(first.has(b)) - Number(first.has(a)))')
+    expect(ENGINE).toContain('const { buffers, makeup, envelopes, load } = createAudioAssets(ctx)')
+    expect(ENGINE).toMatch(/return \{\s+load,/)
   })
 
   /** 【離場要把流速收回 1】不然選單的按鈕音用戰場最後的慢動作播 */

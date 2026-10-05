@@ -1,5 +1,6 @@
 import './render/heightFogInstall'
-import { Color, Euler, Quaternion, Vector3, type FogExp2, type Mesh, type Object3D } from 'three'
+import { Color, Euler, Quaternion, Vector3, type FogExp2 } from 'three'
+import { GFX_HIDDEN_LAYER, createGraphicsDiagnostics } from './app/graphicsDiagnostics'
 import { CLOUD_ATLAS_URL, cloudColorOf, cloudFieldSpecs, createClouds } from './render/clouds'
 import { skirmishCloudField } from './world/cloudField'
 import { REEL_WIND, SMOKE_WIND, windOf } from './render/wind'
@@ -11,6 +12,8 @@ import { createScene } from './render/scene'
 import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality } from './render/quality'
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
+import { createListenerMotion } from './audio/listenerMotion'
+import { queueExplosionCues } from './audio/explosionCues'
 import {
   SINGLE_FILES, engineFile, fireFile, groundGunTier, gunSound, impactSound, ownTurretVolleyPools, sirenFile,
   turretFile, volleyPool, type Pool,
@@ -28,7 +31,6 @@ import {
   shakeGainDb, hitRate, shakeInterval, sirenParams, windParams,
 } from './audio/curves'
 import { DAY_PALETTES, applyTimeOfDay, type TimeOfDay } from './render/timeOfDay'
-import { FAR_LAND_NAME } from './render/leyteGround'
 import { flatSeaCrashPolicy } from './world/seaCrash'
 import { arenaKills, createArenaState, SKIRMISH_ARENA, stepArena, type ArenaBounds } from './world/arena'
 import { createTerrain, preloadTerrainScenery, type TerrainGfx, type TerrainKind } from './render/terrain'
@@ -57,13 +59,12 @@ import { createFireball, FIREBALL_COUNT, FIREBALL_SPEED } from './render/firebal
 import { createFlakBursts, emitFlakBursts, resetFlakBurstSeed } from './render/flakBursts'
 import { createFlareLights } from './render/flares'
 import {
-  createShipModels, preloadShipModels, shipModelTop, type ShipModels,
+  createShipModels, shipModelTop, type ShipModels,
 } from './render/ships'
 import { createGroundModels, type GroundModels } from './render/groundTargets'
 import { createSearchlights, makeGlareTexture, type Searchlights } from './render/searchlights'
 import { createGroundBattle, type GroundBattle } from './render/groundBattle'
 import { BATTLE_FOG, battleFogTint, clearBattleFog, setBattleFog, stepBattleFog } from './render/heightFog'
-import { groundModelUrls, preloadGroundModels } from './render/geometry/ground'
 import type { GroundUnitId } from './specs/ground'
 import { settleGroundTargets, type GroundTarget } from './world/groundTargets'
 import type { Ship } from './world/ships'
@@ -71,7 +72,7 @@ import {
   balloonHills, settleBalloons, syncBalloonHills, type BalloonHillSet,
 } from './world/balloons'
 import {
-  BALLOON_MODEL_COUNT, createBalloonModels, preloadBalloonModel, type BalloonModels,
+  createBalloonModels, type BalloonModels,
 } from './render/balloons'
 import type { TerrainSource } from './ai/terrainSense'
 import { clearBursts, createBursts, flakDamage, pushBurst, type BurstEvents } from './world/flak'
@@ -108,14 +109,10 @@ import { KILL_STRIDE, clearKills, type KillEvents } from './world/kills'
 import { clearDamage, DAMAGE_STRIDE } from './world/damage'
 import { HIT_PARTS, type HitPart } from './world/hit'
 import {
-  AIRCRAFT_MODEL_COUNT, buildAircraft, buildAircraftLod, liveryTexturesFor, preloadAircraftModels, preloadLiveryVariants,
+  buildAircraft, buildAircraftLod, preloadLiveryVariants,
   useAircraftLod,
   type AircraftModel,
 } from './render/geometry/buildAircraft'
-import { PROP_DISC_RENDER_ORDER } from './render/geometry/assembly'
-import { SKY_RENDER_ORDER } from './render/sky'
-import { CULL } from './render/cullRuns'
-import { OCEAN_CULL } from './render/ocean'
 import { Hud } from './hud/Hud'
 import { createAudioMeter, type AudioMeter } from './hud/audioMeter'
 import type { MeterSample } from './audio/meter'
@@ -166,7 +163,8 @@ import { solveLead, NO_INTERCEPT } from './world/lead'
 import { PROJECTILE_LIFETIME } from './world/Projectiles'
 import { PlayerController } from './control/PlayerController'
 import { AiController } from './ai/AiController'
-import { recoveryWorkerFailure, type RecoveryFailure } from './ai/recoveryWorkerClient'
+import { recoveryWorkerFailure } from './ai/recoveryWorkerClient'
+import { blockForRecoveryWorker } from './ui/recoveryBlocker'
 import { VETERAN } from './ai/profile'
 import { HEAD_ON } from './battle/entry'
 import { NEUTRAL_TUNING } from './battle/mission'
@@ -199,6 +197,8 @@ import { nextScreen, type Screen } from './ui/screens'
 import { createMenuReel, type MenuReel, type ReelSiteRequest } from './app/menuReel'
 import type { ReelTerrainKind } from './app/reelShots'
 import { createShowcase, type Showcase } from './app/showcase'
+import { preloadStartupAssets } from './app/startupAssets'
+import { warmBattleGraphics } from './app/battleWarmup'
 import { PLANT_STACKS } from './world/leuna'
 import { assetUrl } from './core/asset'
 
@@ -208,23 +208,6 @@ const perf = createPerfOverlay(ctx.renderer)
 const rangeProbe = createRangeProbe()
 const audio = createAudioEngine(ctx.camera)
 audio.setVolume(readVolume())
-
-/** 防墜 Worker 是正式安全系統；失去它時凍結遊戲並清楚告知，不做靜默降級。 */
-function blockForRecoveryWorker(failure: RecoveryFailure): void {
-  if (document.getElementById('recovery-worker-blocker') !== null) return
-  void document.exitPointerLock?.()
-  const blocker = document.createElement('section')
-  blocker.id = 'recovery-worker-blocker'
-  blocker.dataset.failure = failure
-  blocker.setAttribute('role', 'alert')
-  blocker.setAttribute('aria-live', 'assertive')
-  const title = document.createElement('h1')
-  title.textContent = t('recovery.title')
-  const detail = document.createElement('p')
-  detail.textContent = `${t(failure)} ${t('recovery.body')}`
-  blocker.append(title, detail)
-  document.body.appendChild(blocker)
-}
 
 /**
  * 目前的地形。**一律經過這個變數存取** —— 撞地判定、水柱、殘骸與零件
@@ -1693,29 +1676,7 @@ async function loadBattle(): Promise<void> {
       loading.set('loading.audio', 0.7 + 0.15 * fileFraction(done, total))
     })
     await loading.step('loading.shaders', 0.85)
-    // 【先編好】沒有這一步，第一幀要一次編完幾十個材質，進場那一下會頓
-    await ctx.renderer.compileAsync(ctx.scene, ctx.camera)
-    // 【增援批次的塗裝先傳上 GPU】場上已有的機種由下面那一次繪製帶上去；增援的
-    // 開場還不在場上，第一次出現才上傳（連同 mipmap），那一幀會卡
-    const reinforcements: string[] = []
-    for (const beat of battle.cfg.beats ?? []) {
-      if (beat.kind === 'reinforce') for (const s of beat.flight.members) reinforcements.push(s.id)
-    }
-    for (const t of await liveryTexturesFor(reinforcements, battle.cfg.liveries)) ctx.renderer.initTexture(t)
-    // 【在載入畫面後面先畫一次】編好的程式第一次真的拿來畫仍要等 —— ANGLE（D3D11）
-    // 把一部分著色器的產生留到第一次繪製，開場那一幀因此卡一兩百毫秒。暫時關掉視錐
-    // 剔除畫一次：每一個看得見的物件都畫到（鏡頭後面的自機、視野外的也算），那段
-    // 等待落在載入畫面裡；第一幀的鏡頭由主迴圈照常擺
-    ctx.camera.position.copy(spawn)
-    ctx.camera.quaternion.copy(player.aircraft.state.orientation)
-    ctx.camera.updateMatrixWorld(true)
-    const culled: Object3D[] = []
-    ctx.scene.traverse((o) => { if (o.frustumCulled) { culled.push(o); o.frustumCulled = false } })
-    ctx.renderer.render(ctx.scene, ctx.camera)
-    for (const o of culled) o.frustumCulled = true
-    // 讀回一個像素才等得到 GPU 做完；不等的話那一次繪製還排在佇列裡，開場第一幀等它
-    const gl = ctx.renderer.getContext()
-    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4))
+    await warmBattleGraphics(ctx, battle.cfg, spawn, player.aircraft.state.orientation)
     await loading.finish('brief.go')
   } finally {
     loadingBattle = false
@@ -2223,21 +2184,8 @@ let ownTurretVolley = false
  * 後座機槍比前機槍小的分貝：一挺 MG 15 比兩挺 MG 17 單薄。**起始值，由試玩裁定。**
  */
 const TURRET_VOLLEY_DB = -0.5
-/** 多普勒要聽者的速度。鏡頭沒有速度這個量，只能逐幀相減 */
-const prevCamPos = new Vector3()
-const camVel = new Vector3()
-const CAM_STEP = new Vector3()
-let camPosValid = false
-/**
- * 單幀位移換算超過這個速度就當成鏡頭瞬移，速度歸零，m/s。
- *
- * 【瞬移不是速度】切視角、重生、換場會讓鏡頭一幀跳幾百公尺，相減出來是
- * 幾千 m/s —— 那一幀所有引擎聲會整片變調。比最快的飛機（225 m/s）大得多，
- * 正常飛行不會誤判。
- */
-const CAM_TELEPORT_SPEED = 400
-/** 鏡頭速度的平滑時間常數，s —— 鏡頭晃動不該變成音高抖動 */
-const CAM_VEL_TAU = 0.05
+const listenerMotion = createListenerMotion()
+const camVel = listenerMotion.velocity
 const HIT_FB = { gainDb: 0, cutoffHz: 0 }
 let prevPlayerHp = -1
 let prevReloading = false
@@ -2269,8 +2217,7 @@ function resetAudioState(): void {
   // 音會用戰場最後的流速播 —— 聽起來像壞掉的按鈕
   audio.setTimeScale(1)
   prevGunFlash.fill(0)
-  camPosValid = false
-  camVel.set(0, 0, 0)
+  listenerMotion.reset()
   whistled.fill(0)
   prevBombAge.fill(0)
   lastGunFire.fill(-Infinity)
@@ -2295,24 +2242,6 @@ function resetAudioState(): void {
 function setPlayer(c: Combatant): void {
   player = c
   rebuildVolleyGroups()
-}
-
-/** 逐幀相減得到鏡頭速度，寫進 `camVel`。每一幀在鏡頭定位之後呼叫一次 */
-function trackCameraVelocity(dt: number): void {
-  const cam = ctx.camera.position
-  if (!camPosValid || dt <= 0) {
-    prevCamPos.copy(cam)
-    camVel.set(0, 0, 0)
-    camPosValid = true
-    return
-  }
-  CAM_STEP.subVectors(cam, prevCamPos)
-  prevCamPos.copy(cam)
-  if (CAM_STEP.length() / dt > CAM_TELEPORT_SPEED) {
-    camVel.set(0, 0, 0)
-    return
-  }
-  camVel.lerp(CAM_STEP.divideScalar(dt), 1 - Math.exp(-dt / CAM_VEL_TAU))
 }
 
 /** 自己這架的前射武器依武器種類分組 */
@@ -2370,47 +2299,7 @@ function queueAudioCues(): void {
     prevVolleyFlash[i] = now
     if (now > 0 && was <= 0 && player.alive && !input.godView) pushCue(cues, CUE.SelfVolley, i, 0, 0)
   }
-  const k = world.killEvents
-  for (let e = 0; e < k.count; e++) {
-    const o = e * KILL_STRIDE
-    const x = k.data[o]!, y = k.data[o + 1]!, z = k.data[o + 2]!
-    pushCue(cues, CUE.Explosion, x, y, z)
-    // 【落水才加水花】`onLand` 為假的也包括空中爆炸
-    const w = terrain.waterAt(x, z)
-    if (w > -Infinity && y - w <= CRASH_BLAST_HEIGHT) pushCue(cues, CUE.Splash, x, w, z)
-  }
-  // 【炸彈擊毀的不另外響】那一顆的落點事件已經響過（與 `emitGroundKills` 同一條）
-  const g = world.groundKillEvents
-  for (let e = 0; e < g.count; e++) {
-    const o = e * IMPACT_STRIDE
-    // 【人死沒有爆炸聲】與畫面同一條（`emitGroundKills`）
-    if (world.groundTargets[g.data[o + 3]!]?.unit.personnel === true) continue
-    if (g.data[o + 5]! === 0) pushCue(cues, CUE.Blast, g.data[o]!, g.data[o + 1]!, g.data[o + 2]!)
-  }
-  const b = world.bombEvents
-  for (let e = 0; e < b.count; e++) {
-    const o = e * IMPACT_STRIDE
-    const x = b.data[o]!, y = b.data[o + 1]!, z = b.data[o + 2]!
-    const kind = b.data[o + 3]!
-    // 【當量】與畫面那一套同一個來源：`ny` 帶的是爆心傷害
-    const scale = blastScaleOf(b.data[o + 4]!)
-    if (kind > 0.5 && kind < 1.5) {
-      pushCue(cues, CUE.Splash, x, y, z, scale)
-      pushCue(cues, CUE.SplashBoom, x, y, z, scale)
-    } else {
-      pushCue(cues, CUE.Blast, x, y, z, scale)
-    }
-  }
-  const t = world.torpedoEvents
-  for (let e = 0; e < t.count; e++) {
-    const o = e * IMPACT_STRIDE
-    const x = t.data[o]!, z = t.data[o + 2]!
-    const w = terrain.waterAt(x, z)
-    const y = Number.isFinite(w) ? w : t.data[o + 1]!
-    const scale = blastScaleOf(t.data[o + 4]!)
-    pushCue(cues, CUE.Blast, x, y, z, scale)
-    pushCue(cues, CUE.Splash, x, y, z, scale)
-  }
+  queueExplosionCues(cues, world, terrain, CRASH_BLAST_HEIGHT)
   const f = world.burstEvents
   const cam = ctx.camera.position
   const me = player.aircraft.state.position
@@ -2637,7 +2526,7 @@ function updateAudio(worldSeconds: number): void {
   // 【先更新聲道再播】搶聲道是比估計響度。不先把播放中的聲道更新到這一幀的距離，
   // 新的聲音拿本幀距離去跟上一幀的舊值比，明明比較響也會被擋掉
   audio.beginFrame()
-  trackCameraVelocity(worldSeconds)
+  listenerMotion.update(ctx.camera.position, worldSeconds)
   playCues()
   clearCues(cues)
   // 【誰打中誰都播】僚機打中的也算。太遠的由距離衰減擋掉
@@ -4369,37 +4258,7 @@ const initialRecoveryFailure = recoveryWorkerFailure()
 if (initialRecoveryFailure !== null) {
   blockForRecoveryWorker(initialRecoveryFailure)
 } else {
-  // 【載入畫面在 HTML 裡就蓋著】全部載完才收 —— 在那之前選單點不到，出擊不會
-  // 撞上還沒載好的樣板
-  //
-  // 【進度是檔數】每載完一支 GLB 推一格，三類加起來是 100%。字寫目前在載哪一類
-  const shipIds = ['essex', 'wichita', 'fletcher', 'lst'] as const
-  const fileTotal = AIRCRAFT_MODEL_COUNT + shipIds.length + groundModelUrls().length + BALLOON_MODEL_COUNT
-  let filesDone = 0
-  let fileLabel: MessageKey = 'loading.preparing'
-  const fileLoaded = (): void => {
-    filesDone++
-    loading.set(fileLabel, fileFraction(filesDone, fileTotal))
-  }
-  const loadGroup = (label: MessageKey): Promise<void> => {
-    fileLabel = label
-    return loading.step(label, fileFraction(filesDone, fileTotal))
-  }
-  await loading.hold()
-  await loadGroup('loading.aircraft')
-  await preloadAircraftModels(fileLoaded)
-  // 【船的 GLB 也在開場載】三個艦級全部要 —— allies-m3 的第 58 特遣支隊有
-  // 航母。少載一種的症狀是 `createShipModels` 找不到樣板**直接丟例外**，
-  // 那一關進不去，而每一條單元測試都還是綠的（GLB 載入不在它們的路徑上）。
-  await loadGroup('loading.ships')
-  await preloadShipModels(shipIds, fileLoaded)
-  // 【地面單位的 GLB 也在開場載】`createGroundModels` 是同步的，樣板沒載到就丟
-  await loadGroup('loading.ground')
-  await preloadGroundModels(undefined, fileLoaded)
-  // 【防空氣球同一個理由】`createBalloonModels` 是同步的
-  await preloadBalloonModel(fileLoaded)
-  // 【廠區與機場的佈景不在這裡】進場時才載，見 `loadBattle` 的 `preloadTerrainScenery`
-  await loading.finish('loading.done')
+  await preloadStartupAssets(loading)
   // 【不擋開場】選單先出來，音效在背景下載；進戰鬥時 `loadBattle` 才等它
   void audio.load()
   requestAnimationFrame(frame)
@@ -4448,26 +4307,6 @@ if (initialRecoveryFailure !== null) {
 }
 
 /**
- * **圖形消融的量測出口**：逐繪製層開關可見性，把幀時間歸因到具體的子系統。
- * 給 `test/e2e/frame-time.e2e.ts` 用。
- *
- * 【為什麼需要它】這個場景是**填充率**吃緊而不是 CPU
- *（像素數砍成 1/9，頓挫由每秒 5.6 次掉到 0.08 次）。但「填充率」不是一個
- * 可以動手的對象 —— 要知道是哪一層在畫，而 WebGL 沒有逐物件的計時器。
- * 唯一可靠的歸因手段就是關掉一層、重量一次、看差多少。
- *
- * 【為什麼用 layers 而不是 `visible`】模糊圓盤的 `visible` **每幀都被
- * 重寫**（跟著轉速），設了下一幀就被蓋回去。`layers` 全專案沒有別人在用，
- * 而 three 的 `projectObject` 對每個物件單獨測 `camera.layers`，所以把物件
- * 移到相機沒有啟用的那一層就等於不畫它，且不與任何逐幀邏輯打架。
- *
- * 【第 31 層是「隱形層」】相機只啟用第 0 層（three 的預設），所以移到 31
- * 就消失、移回 0 就回來。
- *
- * 【目標在呼叫的當下才解析】飛機與模糊圓盤是每一場動態生出來的，抓一次
- * 存起來會在下一場指到上一場的屍體。
- */
-/**
  * 覆蓋層此刻顯示的 FPS。**量測出口**：探針拿它與自己由 rAF 時間戳量到的
  * 真實幀率比對，兩者對不上就是覆蓋層量錯了東西。
  */
@@ -4490,146 +4329,29 @@ if (initialRecoveryFailure !== null) {
   return menuReel.status
 }
 
-/**
- * **量測出口**：上一幀的 draw call 與三角形數（`renderer.info.render`）。
- * 效能探針拿它對照 `__gfx` 關掉哪一層省了多少。
- */
-/**
- * **量測出口**：場景裡此刻還會畫的東西（圖層 0、可見），一個網格一筆：名字、
- * 類型、三角形數（非索引的算頂點／3）、材質類型、父節點名。`__gfx` 全關之後
- * 還剩多少、剩的是誰，看這一份。
- */
-;(window as unknown as Record<string, unknown>)['__sceneList'] = () => {
-  const out: {
-    name: string; type: string; tris: number; material: string; parent: string
-    geometry: string; renderOrder: number; transparent: boolean; radius: number; y: number
-  }[] = []
-  ctx.scene.traverseVisible((o) => {
-    const m = o as Mesh
-    if (!o.layers.isEnabled(0) || m.geometry === undefined) return
-    const g = m.geometry
-    const idx = g.index
-    const pos = g.getAttribute('position')
-    const n = idx !== null ? idx.count : pos !== undefined ? pos.count : 0
-    const inst = (o as unknown as { count?: number }).count
-    const mat = Array.isArray(m.material) ? m.material[0] : m.material
-    if (g.boundingSphere === null) g.computeBoundingSphere()
-    out.push({
-      name: o.name, type: o.type,
-      tris: Math.round((n / 3) * (typeof inst === 'number' ? inst : 1)),
-      material: mat?.type ?? '', parent: o.parent?.name ?? '',
-      geometry: g.type, renderOrder: o.renderOrder, transparent: mat?.transparent ?? false,
-      radius: Math.round((g.boundingSphere?.radius ?? 0) * o.getWorldScale(new Vector3()).x),
-      y: Math.round(o.getWorldPosition(new Vector3()).y),
-    })
-  })
-  return out.sort((a, b) => b.tris - a.tris)
-}
-/**
- * **量測出口**：植被、近海的塊、佈景塊的剔除總開關（`CULL`），同頁 A/B 用。
- * 不給參數就只回目前的狀態。
- */
-/**
- * **量測出口**：近海剔除的塊有多細（每層 `n` × `n`，見 `OCEAN_CULL`），同頁比較用。
- * 不給參數就只回目前的值。
- */
-;(window as unknown as Record<string, unknown>)['__oceanGrid'] = (n?: number): number => {
-  if (n !== undefined) OCEAN_CULL.grid = n
-  return OCEAN_CULL.grid
-}
-;(window as unknown as Record<string, unknown>)['__cull'] = (on?: boolean): boolean => {
-  if (on !== undefined) CULL.enabled = on
-  return CULL.enabled
-}
-;(window as unknown as Record<string, unknown>)['__renderInfo'] = () => {
-  const r = ctx.renderer.info.render
-  return { calls: r.calls, triangles: r.triangles, programs: ctx.renderer.info.programs?.length ?? 0 }
-}
-
-/**
- * **量測出口**：改田色 clipmap 的內圈半徑，回挪窗統計。同頁 A/B 用 ——
- * 半徑給得極大就等於整片地面走算式，而兩邊是同一個 program。純海面回 `null`。
- */
-;(window as unknown as Record<string, unknown>)['__fieldClip'] = (inner?: number) => {
-  const c = terrain.fieldClip
-  if (c === null) return null
-  if (inner !== undefined) c.setInnerRadius(inner)
-  return { ...c.stats }
-}
-
-/**
- * **量測出口**：遠圖整張重烘一次的毫秒數（等 GPU 做完），`trees` 決定烘不烘空地的
- * 樹點。之後的烘圖沿用這個設定。純海面回 `null`
- */
-;(window as unknown as Record<string, unknown>)['__fieldBake'] = (trees = true) =>
-  terrain.fieldClip?.benchFarBake(trees) ?? null
-
-const GFX_HIDDEN_LAYER = 31
-;(window as unknown as Record<string, unknown>)['__gfx'] = (
-  patch: Record<string, boolean>,
-) => {
-  const byRenderOrder = (order: number): Object3D[] => {
-    const out: Object3D[] = []
-    ctx.scene.traverse((o) => { if (o.renderOrder === order) out.push(o) })
-    return out
-  }
-  // 【terrain 用索引】那三個孩子的次序是 `render/terrain.ts` 明文寫下的
-  // 契約，單元測試也靠它（並自我驗證抓對了人）
-  const targets: Record<string, () => readonly Object3D[]> = {
-    farSea: () => [terrain.object.children[0]!],
-    nearSea: () => [terrain.object.children[1]!],
-    islands: () => [terrain.object.children[2]!],
-    // 【雷伊泰的遠景陸地】在陸地那一個孩子底下，依名字挑出來單獨關
-    farLand: () => {
-      const out: Object3D[] = []
-      terrain.object.traverse((o) => { if (o.name === FAR_LAND_NAME) out.push(o) })
-      return out
-    },
-    // 【用 slice 不是 children[3]!】純海面沒有第四個孩子，固定取索引的話
-    // 切到純海之後消融 flora 會對 undefined 呼叫 traverse，當場崩
-    flora: () => terrain.object.children.slice(3),
-    sky: () => byRenderOrder(SKY_RENDER_ORDER),
-    propDisc: () => byRenderOrder(PROP_DISC_RENDER_ORDER),
-    // 五個粒子池一起 —— 它們是同一種成本（半透明、關深度寫入、疊在一起）
+// 探針在呼叫時才解析物件，換場後會取到新模型；正常逐幀迴圈不呼叫它們。
+Object.assign(window, createGraphicsDiagnostics({
+  scene: ctx.scene,
+  renderer: ctx.renderer,
+  terrain: () => terrain,
+  groups: {
     particles: () => [smoke.object, fireball.object, spray.object, splashes.object, sparks.object],
-    // 【不透明、位置在著色器裡算】成本與上面那五個不同，分開關
     blastSparks: () => [blastSparks.object],
     tracers: () => [tracers.object, muzzles.object, turretMuzzles.object],
     vortex: () => [vortex.object],
-    // 【低模那一具也要收進來】只關正式模型的話，200 m 外那幾架照畫不誤
     aircraft: () => [...visuals.values()]
       .flatMap((v) => (v.lod === null ? [v.model.group] : [v.model.group, v.lod.group])),
-    // 【戰況相依的雜項】砲塔管、編隊標記、碎片、目標環。它們的位置取決於
-    // 這一場打成什麼樣，兩次執行不會一樣 —— 逐像素比對要把它們一起關掉，
-    // 否則定格的畫面仍然有 0.2～6% 的像素在跳，任何改動的差都埋在裡面。
-    battleProps: () => [turretBarrels.object, orderMarkers.object, debris.object,
-      objectiveRing.object],
-    // 【場上的單位與佈景】船、地面目標、防空氣球、雨；沒有的那一場回空的
+    battleProps: () => [turretBarrels.object, orderMarkers.object, debris.object, objectiveRing.object],
     ships: () => (shipModels === null ? [] : [shipModels.object]),
     ground: () => (groundModels === null ? [] : [groundModels.object]),
     balloons: () => (balloonModels === null ? [] : [balloonModels.object]),
     rain: () => (rain === null ? [] : [rain.object]),
-    // 雲場（顏色那一遍與深度那一遍一起）
     clouds: () => [clouds.object],
-    // 雨的兩半分開量：空中的雨絲（第一個孩子）、地面的水花（第二個）
     rainLines: () => (rain === null ? [] : rain.object.children.slice(0, 1)),
     rainSplash: () => (rain === null ? [] : rain.object.children.slice(1, 2)),
-    // 【雷伊泰灘頭的佈景】地形的第五個孩子；別的地形沒有它。`flora` 那一格
-    // 是 slice(3)，關它也會一起關掉這一個
     beach: () => (terrainKind === 'leyte' ? terrain.object.children.slice(4) : []),
-  }
-  const applied: string[] = []
-  for (const [name, on] of Object.entries(patch)) {
-    const pick = targets[name]
-    if (pick === undefined) continue
-    // 【一定要 traverse 到葉子】three 的 `projectObject` 對每個物件**單獨**測
-    // 圖層，而且不論父物件通不通過都照樣遞迴下去 —— 圖層不繼承。只設群組
-    // 的話（飛機模型、粒子池若是 Group）子網格照畫不誤。
-    for (const root of pick()) root.traverse((o) => { o.layers.set(on ? 0 : GFX_HIDDEN_LAYER) })
-    applied.push(`${name}=${on ? 'on' : 'off'}`)
-  }
-  return { applied, known: Object.keys(targets) }
-}
+  },
+}))
 
 /**
  * **量測出口**：把當前戰鬥的玩家座位讀成一個純資料點，給 Playwright 用。

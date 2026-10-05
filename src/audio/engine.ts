@@ -2,7 +2,9 @@ import { Audio, Vector3, type Camera } from 'three'
 import { PannedAudio, SilentListener } from './spatial'
 import { azimuthDeg, equalPowerMatrix, inverseDistanceGain, type ListenerPose } from './pan'
 import { assetUrl } from '../core/asset'
-import { CATEGORY, FIRST_FILES, POOLS, type Category, type Pool } from './catalog'
+import { CATEGORY, POOLS, type Category, type Pool } from './catalog'
+import { createAudioAssets } from './assets'
+import { createUiAudio } from './uiAudio'
 import { absorptionDb, dbToGain, distanceCutoffHz, fadeInCurve, soundArrived, voiceLoudnessDb } from './curves'
 import {
   HDR_ABS_FLOOR_DB, HDR_EXEMPT, envelopeAt, hdrDuckDb, hdrFloorDb, stepLoudest,
@@ -14,7 +16,7 @@ import {
 } from './pick'
 
 /**
- * # 音訊引擎 —— 遊戲裡唯一碰 Web Audio 的地方
+ * # 音訊播放引擎
  *
  * - **單次音效**：一個聲道池，全部是 `PannedAudio`（左右自己算，見 `spatial.ts`）。
  *   要定位的放在世界座標；不定位的（自己身上的聲音）永遠在正中間。池滿丟最不響的。
@@ -35,7 +37,7 @@ export type LoopPool = 'engine' | 'fire' | 'turret' | 'siren'
 
 export interface AudioEngine {
   /**
-   * 下載並解碼全部音效。重複呼叫回同一個 Promise；失敗的檔案略過。
+   * 下載並解碼全部音效。重複呼叫共用同一批載入工作；失敗的檔案略過。
    *
    * `onProgress` 每載完一支回報一次。**中途接上也會先收到當下的進度** ——
    * 開場就在背景下載了，進戰鬥時才掛上載入畫面。清單還沒到（總數未知）
@@ -73,7 +75,7 @@ export interface AudioEngine {
    * 選單按鈕。**不吃暫停，也不吃結算的慢動作** —— 暫停選單上那幾顆按鈕
    * 本來就是暫停時唯一還能按的東西，跟著一起靜音等於它們沒有聲音。
    *
-   * 走自己的 AudioContext（見 `uiCtx`），所以不受主 context 的 suspend 影響。
+   * 走自己的 AudioContext（見 `uiAudio.ts`），所以不受主 context 的 suspend 影響。
    */
   playUi(file: string, extraDb?: number): void
   /** 自己身上的循環。file 為 null 表示停。每一幀都呼叫 */
@@ -271,15 +273,13 @@ export function createAudioEngine(camera: Camera): AudioEngine {
   /** 左右矩陣的暫存，逐幀重用 */
   const panOut = new Float32Array(4)
 
-  const buffers = new Map<string, AudioBuffer>()
+  const { buffers, makeup, envelopes, load } = createAudioAssets(ctx)
+  const uiAudio = createUiAudio(buffers, makeup)
   /**
    * 每個檔上一次發聲的時刻。**同檔去相關用** —— 同時播兩份是完全同相、
    * 直接 +6 dB，所以窗內的第二份錯開幾毫秒再出來（`decorrelateDelay`）。
    */
   const lastPlayed = new Map<string, number>()
-  const makeup = new Map<string, number>()
-  /** 每個檔的素材包絡，每 `ENVELOPE_STEP` 秒一格、相對自己最響的那一格 */
-  const envelopes = new Map<string, readonly number[]>()
   /**
    * HDR 的當下最響值，dB。**立即跟上新的峰值、慢慢釋放** —— 見 `dynamics.ts`。
    * 暫停與切分頁保留（場面沒變），`stopAll` 歸零（上一場的窗口不帶進新的一場）。
@@ -297,27 +297,10 @@ export function createAudioEngine(camera: Camera): AudioEngine {
   let lagCtx = 0
   let lagReadAt = -Infinity
   const lastPick: Partial<Record<Pool, number>> = {}
-  let loading: Promise<void> | null = null
-  /** 載入進度：已載完的檔數與總數。總數在清單到手之前是 0 */
-  let filesDone = 0
-  let fileTotal = 0
-  let onProgress: ((done: number, total: number) => void) | null = null
   let unlocked = false
   let muted = false
   let paused = false
   let timeScale = 1
-  /**
-   * 選單按鈕專用的 context。**不能與世界共用** —— 暫停時主 context 整個
-   * suspend（連排程中的聲音一起凍住，那是刻意的），而暫停選單上那幾顆按鈕
-   * 是當下唯一按得到的東西。
-   *
-   * 【第一次要用才建】一載入就建的話，瀏覽器會記一個沒有手勢就開的 context
-   * 並在主控台留警告。解碼好的 AudioBuffer 不綁 context，可以直接拿來用。
-   */
-  let uiCtx: AudioContext | null = null
-  let uiGain: GainNode | null = null
-  /** 主音量，dB；null = 關閉。UI 那一條自己乘，它不走 `AudioListener` */
-  let masterDb: number | null = 0
   /** 上一次挑聲道時有幾個是空的。疊第二層之前看它 */
   let lastFreeVoices = ONE_SHOT_VOICES
 
@@ -456,32 +439,6 @@ export function createAudioEngine(camera: Camera): AudioEngine {
 
   function gainOf(file: string, cat: Category, extraDb: number): number {
     return dbToGain(CATEGORY[cat].gainDb + (makeup.get(file) ?? 0) + extraDb)
-  }
-
-  /**
-   * 選單按鈕：自己的 context、一條固定的增益、播完就丟。
-   *
-   * 【為什麼不共用聲道池】那個池的挑選會搶佔、會依距離算響度，而這一條既不
-   * 定位也不該被戰場的聲音擠掉。按鈕一次只響一下，直接開一個來源最簡單。
-   */
-  function playUi(file: string, extraDb = 0): void {
-    const buf = buffers.get(file)
-    if (buf === undefined) return
-    if (uiCtx === null) {
-      uiCtx = new AudioContext()
-      uiGain = uiCtx.createGain()
-      // 【與世界吃同一份餘裕】少加的話按鈕會比戰場大一截
-      uiGain.gain.value = masterDb === null ? 0 : dbToGain(masterDb + MIX_HEADROOM_DB)
-      uiGain.connect(uiCtx.destination)
-    }
-    // 【每次都叫 resume】分頁切回來時瀏覽器會把它擱在 suspended
-    void uiCtx.resume().catch(() => {})
-    const src = uiCtx.createBufferSource()
-    src.buffer = buf
-    const g = uiCtx.createGain()
-    g.gain.value = gainOf(file, 'ui', extraDb)
-    src.connect(g).connect(uiGain!)
-    src.start()
   }
 
   function camDistance(x: number, y: number, z: number): number {
@@ -821,55 +778,8 @@ export function createAudioEngine(camera: Camera): AudioEngine {
     lastFrameAt = -1
   }
 
-  async function loadAll(): Promise<void> {
-    const res = await fetch(assetUrl('/audio/manifest.json'))
-    const manifest = await res.json() as
-      Record<string, { loop: boolean; makeupDb: number; envelopeDb?: number[] }>
-    // 【選單的按鈕音插隊】見 `FIRST_FILES`。sort 是穩定的，其餘的順序不變
-    const first = new Set<string>(FIRST_FILES)
-    const ids = Object.keys(manifest)
-      .sort((a, b) => Number(first.has(b)) - Number(first.has(a)))
-    for (const id of ids) {
-      makeup.set(id, manifest[id]!.makeupDb)
-      const e = manifest[id]!.envelopeDb
-      if (e !== undefined) envelopes.set(id, e)
-    }
-    fileTotal = ids.length
-    onProgress?.(filesDone, fileTotal)
-    let next = 0
-    // 【最多 6 個並行】全部同時開會把瀏覽器的連線數吃滿，模型那邊的下載就卡住
-    async function worker(): Promise<void> {
-      while (next < ids.length) {
-        const id = ids[next++]!
-        try {
-          const r = await fetch(assetUrl(`/audio/${id}.mp3`))
-          buffers.set(id, await ctx.decodeAudioData(await r.arrayBuffer()))
-        } catch (e) {
-          console.warn(`音效載入失敗：${id}`, e)
-        }
-        // 【失敗的也要推一格】否則少一支檔，進度條就永遠停在 99%
-        filesDone++
-        onProgress?.(filesDone, fileTotal)
-      }
-    }
-    await Promise.all(Array.from({ length: 6 }, worker))
-  }
-
   return {
-    async load(cb) {
-      // 【中途接上也要先報一次】開場已經在背景下載，進戰鬥才掛上載入畫面 ——
-      // 不先報的話，進度條要等下一支檔載完才動，已經載完時則永遠不動
-      if (cb !== undefined) {
-        onProgress = cb
-        if (fileTotal > 0) cb(filesDone, fileTotal)
-      }
-      loading ??= loadAll().catch((e) => { console.warn('音效清單載入失敗', e) })
-      try {
-        await loading
-      } finally {
-        if (onProgress === cb) onProgress = null
-      }
-    },
+    load,
     unlock() {
       unlocked = true
       applyRunState()
@@ -879,11 +789,10 @@ export function createAudioEngine(camera: Camera): AudioEngine {
       // 一分鐘後再打開音量才冒出來。循環聲下一幀由呼叫端依當下狀態重建
       if (db === null && !muted) stopAll()
       muted = db === null
-      masterDb = db
       // 【加上混音餘裕】設定頁的「高」是 0，但那是**使用者看到的滿音量**，
       // 不是 0 dBFS。見 `MIX_HEADROOM_DB`
       if (db !== null) listener.setMasterVolume(dbToGain(db + MIX_HEADROOM_DB))
-      if (uiGain !== null) uiGain.gain.value = db === null ? 0 : dbToGain(db + MIX_HEADROOM_DB)
+      uiAudio.setVolume(db)
       applyRunState()
     },
     setPaused(p) {
@@ -896,7 +805,7 @@ export function createAudioEngine(camera: Camera): AudioEngine {
     fadeIn,
     playPool,
     playFile,
-    playUi,
+    playUi: uiAudio.play,
     selfLoop,
     beginFrame,
     assign,
