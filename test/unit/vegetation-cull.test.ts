@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Frustum, InstancedMesh, Matrix4, PerspectiveCamera, Points, Vector3, type InterleavedBufferAttribute } from 'three'
 import { createVegetation, RUN_CAP } from '../../src/render/vegetation'
-import { pushFlora, FloraKind, type FloraSource } from '../../src/render/flora'
+import { pushFlora, FloraKind, type FloraSource } from '../../src/core/floraBuffer'
 import { CULL } from '../../src/render/cullRuns'
 
 /**

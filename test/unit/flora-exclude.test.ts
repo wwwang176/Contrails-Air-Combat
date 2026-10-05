@@ -1,7 +1,9 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { InstancedMesh, Matrix4 } from 'three'
-import { createFloraBuffer, pushFlora, FLORA_STRIDE, FloraKind, type FloraSource } from '../../src/render/flora'
+import {
+  createFloraBuffer, pushFlora, FLORA_STRIDE, FloraKind, type FloraSource,
+} from '../../src/core/floraBuffer'
 import { excluding } from '../../src/render/floraExclude'
 import { preloadPlantScenery } from '../../src/render/geometry/ground/plantScenery'
 import { createTerrain } from '../../src/render/terrain'

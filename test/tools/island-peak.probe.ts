@@ -13,7 +13,7 @@
  * 單格最密與 tile 的丟棄也一起量。
  */
 import { createArchipelago } from '../../src/world/archipelago'
-import { createIslandFlora } from '../../src/render/flora'
+import { createIslandFlora } from '../../src/render/islandFlora'
 import {
   createVegetation, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS,
   ISLAND_TILES_PER_FRAME, type PoolName,
@@ -69,7 +69,8 @@ for (const name of POOLS) {
 }
 
 // ── 單格最密 ──────────────────────────────────────────────
-import { createFloraBuffer, ISLAND_GRID } from '../../src/render/flora'
+import { createFloraBuffer } from '../../src/core/floraBuffer'
+import { ISLAND_GRID } from '../../src/render/islandFlora'
 import { TILE_SIZE } from '../../src/render/vegetation'
 
 const source = createIslandFlora(arch.field, arch.islands)

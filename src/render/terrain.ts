@@ -17,11 +17,12 @@ import {
   BUSH_RANGE, createVegetation, FLORA_RADIUS, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS,
   ISLAND_TILES_PER_FRAME, LEYTE_CAPACITY, LOD_NEAR, lodFor, OUTER_JITTER, outerFor, POINT_NEAR, TILE_SIZE,
 } from './vegetation'
+import { createIslandFlora, islandCanopyCover } from './islandFlora'
+import { createLeyteFlora, leyteCanopyCoarse, leyteFarCover } from './leyteFlora'
 import {
-  createIslandFlora, createLeyteFlora, farmHedgeFlora, farmWoodFlora,
-  islandCanopyCover, leyteCanopyCoarse, leyteFarCover, openHedgeFloraFor, openWoodFloraFor, steppeBeltFloraFor,
-  type FloraSource,
+  farmHedgeFlora, farmWoodFlora, openHedgeFloraFor, openWoodFloraFor, steppeBeltFloraFor,
 } from './flora'
+import { type FloraSource } from '../core/floraBuffer'
 import { requestLeyteCanopy } from './canopyBake'
 import { createLeyteGround } from './leyteGround'
 import { buildLeyteBeach } from './leyteBeach'

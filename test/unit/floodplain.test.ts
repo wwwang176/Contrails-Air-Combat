@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Color, type BufferAttribute } from 'three'
 import { createFloodplain, FOREST_GROUND } from '../../src/render/floodplain'
 import { MEADOW, MEADOW_HALF } from '../../src/render/river'
-import { createFloraBuffer, FLORA_STRIDE, FloraKind } from '../../src/render/flora'
+import { createFloraBuffer, FLORA_STRIDE, FloraKind } from '../../src/core/floraBuffer'
 import type { WaterLine } from '../../src/world/river'
 
 /** # 河漫灘（`floodplain.ts`） */

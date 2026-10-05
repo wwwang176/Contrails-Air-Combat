@@ -9,7 +9,7 @@
  * evict、relevel 四段都在裡面，而它們的成本結構完全不同。
  */
 import { createArchipelago } from '../../src/world/archipelago'
-import { createIslandFlora } from '../../src/render/flora'
+import { createIslandFlora } from '../../src/render/islandFlora'
 import { createVegetation, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE } from '../../src/render/vegetation'
 
 const arch = createArchipelago()

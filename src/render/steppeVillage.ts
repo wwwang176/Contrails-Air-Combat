@@ -1,5 +1,5 @@
 import { BufferAttribute, BufferGeometry, Color } from 'three'
-import { FloraKind, pushFlora, type FloraSource } from './flora'
+import { FloraKind, pushFlora, type FloraSource } from '../core/floraBuffer'
 import { regionAt, steppeRidgeGap, trackGap, trackWidthAt, type RegionSample } from './fields'
 import { TILE_SIZE } from './vegetation'
 import { DECAL_LIFT } from './groundDecal'

@@ -9,8 +9,10 @@ import {
 import { fieldGlsl, FIELD_GLSL } from '../../src/render/fieldShaders'
 import { BROAD_CROWN_R } from '../../src/specs/flora'
 import {
-  createFloraBuffer, farmHedgeFlora, farmWoodFlora, FLORA_STRIDE, FloraKind, openHedgeFlora, openWoodFlora,
-  villageSite, type FloraSource,
+  createFloraBuffer, FLORA_STRIDE, FloraKind, type FloraSource,
+} from '../../src/core/floraBuffer'
+import {
+  farmHedgeFlora, farmWoodFlora, openHedgeFlora, openWoodFlora, villageSite,
 } from '../../src/render/flora'
 
 /**

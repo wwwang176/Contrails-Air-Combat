@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Color } from 'three'
-import { pushFlora, FloraKind, type FloraSource } from '../../src/render/flora'
+import { pushFlora, FloraKind, type FloraSource } from '../../src/core/floraBuffer'
 import {
   BRICK_WALL, BUILDING_DEPTH, BUILDING_WIDTH, OLD_ROOF, ROOF, SLATE, WALL,
 } from '../../src/render/floraShapes'

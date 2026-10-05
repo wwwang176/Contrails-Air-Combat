@@ -5,8 +5,9 @@ import {
 } from 'three'
 import { CULL, frustumPlanesOf, hilbertKey, shareGeometry, visibleRuns } from './cullRuns'
 import {
-  createFloraBuffer, hash2, FloraKind, FLORA_STRIDE, SHAPE_ONE, type FloraBuffer, type FloraSource,
-} from './flora'
+  createFloraBuffer, FloraKind, FLORA_STRIDE, SHAPE_ONE, type FloraBuffer, type FloraSource,
+} from '../core/floraBuffer'
+import { hash2 } from '../core/hash'
 import {
   createFloraGeometries, disposeFloraGeometries, POINT_POOLS, pointColorOf,
   POINT_SIZE, POINT_Y, type MeshPool, type PointPool, type PoolName,

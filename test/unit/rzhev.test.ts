@@ -23,7 +23,7 @@ import {
 import { Color, Quaternion, Vector3 } from 'three'
 import { MORTAR_RANGE_MAX, MORTAR_RANGE_MIN } from '../../src/render/groundBattle'
 import { farmLaneVillages } from '../../src/render/farmSettlements'
-import { createFloraBuffer, FloraKind } from '../../src/render/flora'
+import { createFloraBuffer, FloraKind } from '../../src/core/floraBuffer'
 import { steppeLayout } from '../../src/render/steppeVillage'
 import { FIELD_COLORS } from '../../src/render/season'
 import { openHedgeFlora, openHedgeFloraFor, openWoodFlora, openWoodFloraFor } from '../../src/render/flora'

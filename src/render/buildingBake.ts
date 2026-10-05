@@ -1,5 +1,7 @@
 import { BufferAttribute, BufferGeometry, Color } from 'three'
-import { createFloraBuffer, FLORA_STRIDE, FloraKind, SHAPE_ONE, type FloraSource } from './flora'
+import {
+  createFloraBuffer, FLORA_STRIDE, FloraKind, SHAPE_ONE, type FloraSource,
+} from '../core/floraBuffer'
 import {
   BRICK_WALL, buildingColors, BUILDING_DEPTH, BUILDING_WIDTH, CHURCH_WALL,
   OLD_ROOF, ROOF, SLATE, TAR_ROOF, WALL,

@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import {
-  createFloraBuffer, farmVillageFlora, villageSite, FloraKind, FLORA_STRIDE,
-  LANE_BAND, VILLAGE_SPAN,
-} from '../../src/render/flora'
+import { createFloraBuffer, FloraKind, FLORA_STRIDE } from '../../src/core/floraBuffer'
+import { farmVillageFlora, villageSite, LANE_BAND, VILLAGE_SPAN } from '../../src/render/flora'
 import {
   regionAt, trackGap, trackWidthAt, REGION_SPACING, TRACK_WIDTH, type RegionSample,
 } from '../../src/render/fields'

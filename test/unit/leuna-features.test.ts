@@ -21,8 +21,9 @@ import {
   bakeKeepOut, corridorZone, excludingZones, type KeepOut, type KeepOutZone,
 } from '../../src/render/keepOutMask'
 import {
-  createFloraBuffer, farmHedgeFlora, farmWoodFlora, FLORA_STRIDE, FloraKind, SHAPE_ONE, type FloraSource,
-} from '../../src/render/flora'
+  createFloraBuffer, FLORA_STRIDE, FloraKind, SHAPE_ONE, type FloraSource,
+} from '../../src/core/floraBuffer'
+import { farmHedgeFlora, farmWoodFlora } from '../../src/render/flora'
 import {
   createVegetation, FLORA_RADIUS, MAX_PER_TILE, TILE_SIZE,
 } from '../../src/render/vegetation'

@@ -1,6 +1,6 @@
 import { Group, type Mesh, type MeshStandardMaterial } from 'three'
 import { assetUrl } from '../core/asset'
-import type { FloraSource } from './flora'
+import type { FloraSource } from '../core/floraBuffer'
 import { createFloodplain } from './floodplain'
 import { terrainGrid } from './groundDecal'
 import { corridorZone, type KeepOutZone } from './keepOutMask'

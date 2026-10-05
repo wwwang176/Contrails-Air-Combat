@@ -2,7 +2,7 @@ import type { BufferGeometry } from 'three'
 import { buildDepot } from './depot'
 import { BUILDING_DEPTH, BUILDING_ROOF, BUILDING_WALL, BUILDING_WIDTH, buildingGeometry, TAR_ROOF } from './floraShapes'
 import { CRATE_FIELDS, HUTS, TREE_CLUMPS, VEHICLES, type Hut } from '../world/asch'
-import { FloraKind, pushFlora, type FloraSource } from './flora'
+import { FloraKind, pushFlora, type FloraSource } from '../core/floraBuffer'
 
 /**
  * # Y-29 的佈景

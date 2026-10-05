@@ -3,7 +3,7 @@ import {
   bakeKeepOut, COVER_EDGE, COVER_IN, COVER_OUT, corridorZone, excludingZones, MASK_CELL, unionCover,
   type KeepOutZone,
 } from '../../src/render/keepOutMask'
-import type { FloraSource } from '../../src/render/flora'
+import type { FloraSource } from '../../src/core/floraBuffer'
 
 /**
  * # 不長樹的範圍與遮罩（`keepOutMask.ts`）

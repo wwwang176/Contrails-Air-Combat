@@ -1,5 +1,7 @@
 import type { Mesh } from 'three'
-import { FloraKind, hash2, pushFlora, valueNoise, type FloraSource } from './flora'
+import { FloraKind, pushFlora, type FloraSource } from '../core/floraBuffer'
+import { hash2 } from '../core/hash'
+import { valueNoise } from './fields'
 import { buildDecals, DECAL_GRID, type DecalGrid, type DecalRegion } from './groundDecal'
 import { MEADOW, MEADOW_HALF } from './river'
 import { canopyColor, FLORA_COLORS } from './season'

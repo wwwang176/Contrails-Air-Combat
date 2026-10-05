@@ -1,7 +1,7 @@
 import { Color, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three'
 import { createLights } from '../../../src/render/lighting'
 import { createVegetation } from '../../../src/render/vegetation'
-import { pushFlora, FloraKind, type FloraSource } from '../../../src/render/flora'
+import { pushFlora, FloraKind, type FloraSource } from '../../../src/core/floraBuffer'
 
 /**
  * **遠處那三個點池的量測台**。由 `test/e2e/flora-card.e2e.ts` 在瀏覽器裡載入。

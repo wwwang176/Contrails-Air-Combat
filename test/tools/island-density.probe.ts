@@ -14,7 +14,8 @@
  * ```
  */
 import { createArchipelago } from '../../src/world/archipelago'
-import { createFloraBuffer, createIslandFlora, ISLAND_GRID } from '../../src/render/flora'
+import { createFloraBuffer } from '../../src/core/floraBuffer'
+import { createIslandFlora, ISLAND_GRID } from '../../src/render/islandFlora'
 import { FLORA_RADIUS, MAX_PER_TILE, TILE_SIZE, lodFor, POINT_NEAR, LOD_NEAR } from '../../src/render/vegetation'
 
 const SCAN_HALF = 12000

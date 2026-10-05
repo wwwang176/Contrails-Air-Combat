@@ -1,8 +1,9 @@
 import { Color } from 'three'
 import { type Season } from './season'
 import { type BattleScars } from './battleScars'
-import type { FloraSource } from './flora'
-import { hash2, hash1, fieldSurfaceColor } from './fields'
+import type { FloraSource } from '../core/floraBuffer'
+import { fieldSurfaceColor } from './fields'
+import { hash2, hash1 } from '../core/hash'
 
 /**
  * 廠區的地面：墊面是混凝土、道路是柏油。**只有洛伊納有**；農地不給，

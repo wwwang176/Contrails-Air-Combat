@@ -1,4 +1,5 @@
 import { Color } from 'three'
+import { hash1, hash2 } from '../core/hash'
 import { FIELD_COLORS, PALETTE_STEPS, type FieldColors, type Season } from './season'
 import { BROAD_CROWN_R } from '../specs/flora'
 
@@ -277,25 +278,6 @@ export interface FieldSample {
   /** 這一塊地的中心（對切過的是那一半的中心），世界座標 */
   cx: number
   cz: number
-}
-
-/**
- * 32 位元的兩維整數雜湊。**不得 `Math.random`** —— 見檔頭。
- *
- * 【與 `core/hash.ts` 的 `hash01` 為什麼不共用】那一支吃一個索引，這裡要
- * 兩個座標而且要拿到 32 位元全部。
- */
-export function hash2(i: number, j: number): number {
-  let h = Math.imul(i | 0, 0x27d4eb2d) ^ Math.imul(j | 0, 0x85ebca6b)
-  h = Math.imul(h ^ (h >>> 15), 0x2545f491)
-  return (h ^ (h >>> 13)) >>> 0
-}
-
-/** 32 位元的整數再攪一次。要由同一顆雜湊取好幾個不相關的數時用它 */
-export function hash1(h: number): number {
-  h = Math.imul(h ^ (h >>> 16), 0x7feb352d)
-  h = Math.imul(h ^ (h >>> 15), 0x846ca68b)
-  return (h ^ (h >>> 16)) >>> 0
 }
 
 /**

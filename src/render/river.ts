@@ -1,7 +1,7 @@
 import {
   BufferAttribute, BufferGeometry, Group, Mesh, MeshStandardMaterial,
 } from 'three'
-import { FloraKind, pushFlora, type FloraSource } from './flora'
+import { FloraKind, pushFlora, type FloraSource } from '../core/floraBuffer'
 import {
   CHANNEL_HALF, RiverIndex, type WaterLine,
 } from '../world/river'

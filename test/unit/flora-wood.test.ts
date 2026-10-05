@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { Color } from 'three'
-import {
-  createFloraBuffer, farmWoodFlora, FloraKind, FLORA_STRIDE, WOOD_GRID,
-} from '../../src/render/flora'
+import { createFloraBuffer, FloraKind, FLORA_STRIDE } from '../../src/core/floraBuffer'
+import { farmWoodFlora } from '../../src/render/flora'
+import { WOOD_GRID } from '../../src/render/fields'
 import {
   fieldAt, fieldSurfaceColor, isWoodField, onTrack, regionAt, HEDGE_WIDTH,
   type FieldSample, type RegionSample,

@@ -1,9 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Color } from 'three'
-import {
-  createFloraBuffer, createIslandFlora, islandCanopyCover, FloraKind, FLORA_STRIDE,
-  ISLAND_GRID,
-} from '../../src/render/flora'
+import { createFloraBuffer, FloraKind, FLORA_STRIDE } from '../../src/core/floraBuffer'
+import { createIslandFlora, islandCanopyCover, ISLAND_GRID } from '../../src/render/islandFlora'
 import { BUSH_R, CONE_CROWN_R } from '../../src/specs/flora'
 import { createArchipelago, type IslandDesc } from '../../src/world/archipelago'
 import { isGrass, shade } from '../../src/render/island'

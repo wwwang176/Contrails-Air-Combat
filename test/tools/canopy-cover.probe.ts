@@ -5,7 +5,8 @@
  * 按覆蓋率的面積平均」—— 不是隨手調的濃淡。
  */
 import { createArchipelago, type IslandDesc } from '../../src/world/archipelago'
-import { createFloraBuffer, createIslandFlora, FloraKind, FLORA_STRIDE } from '../../src/render/flora'
+import { createFloraBuffer, FloraKind, FLORA_STRIDE } from '../../src/core/floraBuffer'
+import { createIslandFlora } from '../../src/render/islandFlora'
 import { isGrass } from '../../src/render/island'
 
 const CONE_R = 7      // 針葉的樹冠半徑，m —— specs/flora 的 CONE_CROWN_R

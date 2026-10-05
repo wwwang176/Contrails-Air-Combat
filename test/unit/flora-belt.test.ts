@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { BELT_CHANCE } from '../../src/render/fields'
 import {
-  BELT_CHANCE, BELT_GROVE_HALF, BELT_ROAD_CLEAR, BELT_ROW_GAP, BELT_VILLAGE_CLEAR, createFloraBuffer, FLORA_STRIDE, FloraKind,
-  hash1, steppeBeltFloraFor, type FloraBuffer,
+  BELT_GROVE_HALF, BELT_ROAD_CLEAR, BELT_ROW_GAP, BELT_VILLAGE_CLEAR, steppeBeltFloraFor,
 } from '../../src/render/flora'
+import {
+  createFloraBuffer, FLORA_STRIDE, FloraKind, type FloraBuffer,
+} from '../../src/core/floraBuffer'
+import { hash1 } from '../../src/core/hash'
 import {
   regionAt, steppeNearestEdge, steppeRidgeGap, trackGap, trackWidthAt, villageDistance, type RegionSample, type SteppeEdge,
 } from '../../src/render/fields'

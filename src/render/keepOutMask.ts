@@ -1,4 +1,4 @@
-import type { FloraSource } from './flora'
+import type { FloraSource } from '../core/floraBuffer'
 import { excludingWhere, type BoxTest } from './floraExclude'
 import { RiverIndex, type WaterLine } from '../world/river'
 

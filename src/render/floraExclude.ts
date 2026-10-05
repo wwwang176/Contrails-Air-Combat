@@ -1,4 +1,6 @@
-import { createFloraBuffer, FLORA_STRIDE, type FloraBuffer, type FloraSource } from './flora'
+import {
+  createFloraBuffer, FLORA_STRIDE, type FloraBuffer, type FloraSource,
+} from '../core/floraBuffer'
 
 /**
  * 把一個散佈器包成「矩形內不長」。

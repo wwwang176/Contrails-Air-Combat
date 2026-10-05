@@ -12,9 +12,8 @@
  * 跑法：`node node_modules/vite-node/vite-node.mjs test/tools/flora-radius.probe.ts`
  */
 import { createFarmland, outsideZero } from '../../src/world/farmland'
-import {
-  createFloraBuffer, farmHedgeFlora, farmVillageFlora, farmWoodFlora, FloraKind,
-} from '../../src/render/flora'
+import { createFloraBuffer, FloraKind } from '../../src/core/floraBuffer'
+import { farmHedgeFlora, farmVillageFlora, farmWoodFlora } from '../../src/render/flora'
 import { lodFor, TILE_SIZE } from '../../src/render/vegetation'
 
 const BUSH_RANGE = 900

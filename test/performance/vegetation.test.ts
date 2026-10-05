@@ -7,9 +7,10 @@ import {
   LOD_HYSTERESIS, LOD_NEAR, MAX_PER_TILE, REBUILD_EVERY, REBUILD_MOVE,
   TILES_PER_FRAME, TILE_SIZE, type PoolName,
 } from '../../src/render/vegetation'
+import { createFloraBuffer, pushFlora, FloraKind, type FloraSource } from '../../src/core/floraBuffer'
+import { createIslandFlora } from '../../src/render/islandFlora'
 import {
-  createFloraBuffer, createIslandFlora, farmHedgeFlora, farmVillageFlora,
-  farmWoodFlora, openHedgeFlora, openWoodFlora, pushFlora, FloraKind, type FloraSource,
+  farmHedgeFlora, farmVillageFlora, farmWoodFlora, openHedgeFlora, openWoodFlora,
 } from '../../src/render/flora'
 import { createArchipelago } from '../../src/world/archipelago'
 import { FARM_EXTENT } from '../../src/world/farmland'
