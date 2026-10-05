@@ -86,7 +86,7 @@ export const CLOUD_BASE_DARK = 0.08
  */
 export const CLOUD_FLATTEN = 0.6
 /** 每團雲塊的不透明度（再乘上貼圖本身的透明度） */
-export const CLOUD_ALPHA = 0.85
+export const CLOUD_ALPHA = 0.7
 /** 離相機這麼近完全透明、這麼遠才完全不透明，m */
 export const CLOUD_FADE_NEAR = 25
 export const CLOUD_FADE_FAR = 90
