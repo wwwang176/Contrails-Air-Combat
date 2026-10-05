@@ -157,6 +157,15 @@ export function cloudPuff(c: CloudSpec, seed: number, k: number, out: CloudPuff)
   return out
 }
 
+/**
+ * 個別時段的雲色再往指定顏色拉（`mix` = 0 不動、1 整個換掉）。光照算出來的雲色只跟著
+ * 燈走：黃昏的低角度日光被天光沖淡成粉褐、暴雨的散射光仍是淺灰，都不像那個時段的雲
+ */
+export const CLOUD_TINT: Partial<Record<DayPalette['id'], { readonly color: number, readonly mix: number }>> = {
+  dusk: { color: 0xff7a2a, mix: 0.5 },
+  storm: { color: 0x1c1f24, mix: 0.85 },
+}
+
 const SKY = new Color()
 
 /** 這個時段的雲色（雲頂、受光面），寫進 `out` */
@@ -164,7 +173,9 @@ export function cloudColorOf(p: DayPalette, out: Color): Color {
   out.set(p.sunColor).multiplyScalar(CLOUD_SUN * Math.min(1, p.sunIntensity / CLOUD_SUN_REF))
   out.add(SKY.set(p.hemiSky).multiplyScalar(CLOUD_SKY * p.hemiIntensity))
   out.add(SKY.set(p.ambientColor).multiplyScalar(CLOUD_AMBIENT * p.ambientIntensity))
-  return out.setRGB(Math.min(1, out.r), Math.min(1, out.g), Math.min(1, out.b))
+  out.setRGB(Math.min(1, out.r), Math.min(1, out.g), Math.min(1, out.b))
+  const tint = CLOUD_TINT[p.id]
+  return tint ? out.lerp(SKY.set(tint.color), tint.mix) : out
 }
 
 /**

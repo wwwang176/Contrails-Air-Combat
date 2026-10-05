@@ -102,6 +102,14 @@ describe('cloudColorOf：雲色照時段', () => {
     const c = cloudColorOf(DAY_PALETTES.noon, new Color())
     expect(Math.max(c.r, c.g, c.b)).toBeLessThanOrEqual(1)
   })
+
+  it('黃昏偏橘（紅明顯多於藍）、暴雨偏黑（比夜間以外的時段都暗）', () => {
+    const dusk = cloudColorOf(DAY_PALETTES.dusk, new Color())
+    expect(dusk.r).toBeGreaterThan(dusk.g)
+    expect(dusk.g).toBeGreaterThan(dusk.b)
+    expect(dusk.b / dusk.r).toBeLessThan(0.3)
+    for (const id of ['dawn', 'noon', 'dusk', 'novemberNoon'] as const) expect(lum('storm')).toBeLessThan(lum(id) * 0.6)
+  })
 })
 
 describe('createClouds：一顆 InstancedMesh', () => {
