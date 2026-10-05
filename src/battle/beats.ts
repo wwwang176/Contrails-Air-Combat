@@ -250,3 +250,6 @@ export function conditionMet(
   if (time >= when.byLatest) return true
   return aliveOf(when.team, when.role) <= when.atMost
 }
+
+/** 畫面中心訊息從生效那一刻起再顯示幾秒 */
+export const MESSAGE_SECONDS = 4

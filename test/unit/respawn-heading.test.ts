@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { Vector3 } from 'three'
 import { MISSIONS, missionConfigFrom, type ReadyMissionCard } from '../../src/battle/missions'
-import { createBattle, settleAtSpawn } from '../../src/battle/setup'
+import { createBattle } from '../../src/battle/setup'
+import { settleAtSpawn } from '../../src/battle/flightSpawn'
 
 /**
  * 玩家重生要回到**開局的朝向**，不是 `Aircraft.reset` 的預設朝向（−Z）。

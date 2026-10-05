@@ -10,7 +10,7 @@ import type { AircraftSpec } from '../specs/types'
 import type { World, Combatant, Team } from '../world/World'
 import { STATION_REFERENCE } from './flights'
 import type { FlightPlan } from './order'
-import type { BattleConfig } from './setup'
+import type { Battle, BattleConfig } from './setup'
 
 /** 生成只讀出生幾何與手感設定，不需要任務、UI 或戰果狀態。 */
 type SpawnConfig = Pick<BattleConfig,
@@ -240,4 +240,28 @@ export function placeMember(
   const ref = STATION_REFERENCE[k]!
   if (ref < 0) out.set(frame.leadX, frame.leadY, frame.z)
   else stationPoint(made[ref]!, STATION_OFFSETS[k]!, 0, out)
+}
+
+/**
+ * 把一架放到某個點、朝某個方向、以某個空速平飛。`prev*` 一併設成同一值，
+ * 否則畫面會從舊位置內插出一條橫跨半個地圖的殘影。
+ *
+ * **`resetBattle` 與 `reviveFlight` 共用。**
+ */
+export function settle(c: Combatant, pos: Vector3, q: Quaternion, tas: number): void {
+  const a = c.aircraft
+  a.state.position.copy(pos)
+  a.prevPosition.copy(pos)
+  a.state.orientation.copy(q)
+  a.prevOrientation.copy(q)
+  a.state.velocity.copy(FWD).applyQuaternion(q).multiplyScalar(tas)
+}
+
+/**
+ * 把這一席放回開局的位置、姿態與速度。`Aircraft.reset` 之後呼叫 —— reset 一律
+ * 朝 −Z，藍隊不朝 −Z 出生的關卡（德 M3 朝東、德 M4 朝南）少了這一步，玩家重生就背對目標。
+ * 玩家重生（`main.ts` 的 `respawnPlayer`）走這一支
+ */
+export function settleAtSpawn(b: Pick<Battle, 'spawnOrientations'>, c: Combatant): void {
+  settle(c, c.spawnPosition, b.spawnOrientations[c.index]!, c.spawnTas)
 }
