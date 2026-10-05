@@ -4901,6 +4901,8 @@ const GFX_HIDDEN_LAYER = 31
     mode = 'skirmish'
     pendingMission = null
     screen = 'battle'
+    // 【與選單進戰鬥同一條】短片不停的話，離場清掉的雲它不會再鋪回來
+    menuReel.stop()
     enterBattle()
     setPausedState(false)
     menu.show(screen)
