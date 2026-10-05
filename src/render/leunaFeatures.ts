@@ -6,9 +6,9 @@ import { terrainGrid } from './groundDecal'
 import { corridorZone, type KeepOutZone } from './keepOutMask'
 import type { PoolName } from './floraShapes'
 import type { RiverSet } from './river'
-import {
-  buildGreens, buildSettlementGround, buildStreets, settlementLayout, settlementZone,
-} from './settlements'
+import { settlementLayout } from './settlements'
+import { settlementZone } from './settlementSpatial'
+import { buildGreens, buildSettlementGround, buildStreets } from './settlementGround'
 import { buildMines, mineTest, mineZone } from './mines'
 import { buildMotorway, motorwayProfiles } from './motorway'
 import { FLAK_SITES } from '../world/leuna'

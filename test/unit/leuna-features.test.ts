@@ -12,7 +12,8 @@ import {
   buildLeunaDressing, preloadLeunaFeatures, rightOfSaale, type LandDressing,
 } from '../../src/render/leunaFeatures'
 import { motorwayProfiles } from '../../src/render/motorway'
-import { settlementLayout, settlementTest } from '../../src/render/settlements'
+import { settlementLayout } from '../../src/render/settlements'
+import { settlementTest } from '../../src/render/settlementSpatial'
 import { BUILDING_DEPTH, BUILDING_WALL, BUILDING_WIDTH } from '../../src/render/floraShapes'
 import { DECAL_LIFT } from '../../src/render/groundDecal'
 import { CLEAR_HALF, riverBankFlora, type RiverSet } from '../../src/render/river'
@@ -657,7 +658,7 @@ describe('史實的村形', () => {
 
   /** 【村不鋪地面】農莊只沿巷排，鋪滿輪廓的話是一大片沒有田紋的平地 */
   it('只有鎮有地面', () => {
-    const src = readFileSync('src/render/settlements.ts', 'utf8').replace(/\r\n/g, '\n')
+    const src = readFileSync('src/render/settlementGround.ts', 'utf8').replace(/\r\n/g, '\n')
     expect(src).toContain(".filter((p) => p.kind === 'town')")
   })
 })
@@ -681,6 +682,7 @@ describe('逐株查詢不配置', () => {
   /** 【空桶不得 `?? []`】keepOut 在植被補格時每一株都問，每問一次配一個陣列 */
   it('聚落的分桶查詢用共用的空陣列', () => {
     const src = readFileSync('src/render/settlements.ts', 'utf8')
+      + readFileSync('src/render/settlementSpatial.ts', 'utf8')
     // 只抓程式碼（後面接右括號），不抓註解裡提到的寫法
     expect(src).not.toMatch(/\?\? \[\]\s*\)/)
   })
