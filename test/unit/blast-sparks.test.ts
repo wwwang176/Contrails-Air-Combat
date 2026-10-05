@@ -109,11 +109,11 @@ describe('一次爆炸噴出去的火星', () => {
 })
 
 /**
- * 接線護欄 —— 讀 `main.ts` 的原始碼。只有炸彈與魚雷的爆炸噴火星；
+ * 接線護欄 —— 讀 `blastPresentation.ts` 的原始碼。只有炸彈與魚雷的爆炸噴火星；
  * 擊墜、地面目標擊毀、落水的炸彈不噴。接錯不會報錯，只是多噴或少噴。
  */
 describe('火星的接線', () => {
-  const SRC = new TextDecoder().decode(readFileSync('src/main.ts')).replace(/\r\n/g, '\n').split('\n')
+  const SRC = new TextDecoder().decode(readFileSync('src/render/blastPresentation.ts')).replace(/\r\n/g, '\n').replace(/^  /gm, '').split('\n')
 
   function body(head: string): string {
     const at = SRC.findIndex((l) => l.includes(head))
@@ -123,13 +123,9 @@ describe('火星的接線', () => {
     return SRC.slice(at, end + 1).join('\n')
   }
 
-  /** 選單短片的 `fx` 方法：從 `    name(` 那一行到同一縮排的 `    },` */
+  /** 選單短片轉交給呈現器的同名函式 */
   function method(head: string): string {
-    const at = SRC.findIndex((l) => l.startsWith(`    ${head}(`))
-    expect(at, head).toBeGreaterThanOrEqual(0)
-    let end = at + 1
-    while (end < SRC.length && SRC[end] !== '    },') end++
-    return SRC.slice(at, end + 1).join('\n')
+    return body('function reel' + head[0]!.toUpperCase() + head.slice(1))
   }
 
   /** 選單短片裡噴火星的四個方法：炸彈落地、魚雷命中、炸彈落在船上、導演指定的大爆炸 */

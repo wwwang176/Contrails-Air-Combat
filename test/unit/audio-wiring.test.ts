@@ -94,7 +94,7 @@ describe('音效的戰鬥事件接線', () => {
   it('子步裡記事件，排在每一種事件的清除之前', () => {
     const q = lines('battleAudioCues.queueAudioCues(world, player, terrain, input.godView)').filter(inStep)
     expect(q).toHaveLength(1)
-    for (const clear of ['clearDamage(dmg)', 'emitGroundKills(world.groundKillEvents)', 'clearKills(world.killEvents)',
+    for (const clear of ['clearDamage(dmg)', 'blastPresentation.emitGroundKills(world.groundKillEvents, world.time, world.groundTargets)', 'clearKills(world.killEvents)',
       'clearImpacts(world.bombEvents)', 'clearImpacts(world.torpedoEvents)', 'clearBursts(world.burstEvents)']) {
       const c = lines(clear).filter(inStep)
       expect(c, clear).toHaveLength(1)

@@ -8,12 +8,12 @@ import { queueExplosionCues } from '../../src/audio/explosionCues'
 import { CUE, createCueQueue } from '../../src/audio/queue'
 
 /** 【用 import.meta.glob 而不是 fs】`main.ts` 抓 DOM，載進 vitest 會直接爆；讀原始碼 */
-const SOURCES = import.meta.glob('../../src/main.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
+const SOURCES = import.meta.glob('../../src/render/blastPresentation.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
 // 【換行統一成 LF】工作區在 Windows 上是 CRLF
-const MAIN = Object.values(SOURCES)[0]!.replace(/\r\n/g, '\n')
+const PRESENTATION = Object.values(SOURCES)[0]!.replace(/\r\n/g, '\n').replace(/^  /gm, '')
 const body = (from: string, to: string): string => {
-  const at = MAIN.indexOf(from)
-  return MAIN.slice(at, MAIN.indexOf(to, at))
+  const at = PRESENTATION.indexOf(from)
+  return PRESENTATION.slice(at, PRESENTATION.indexOf(to, at))
 }
 
 describe('人死不爆炸', () => {
