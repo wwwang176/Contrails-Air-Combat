@@ -29,6 +29,12 @@ describe('injectCloudPuff：雲塊的著色器', () => {
     expect(shader.fragmentShader).toContain('vCloudDist')
   })
 
+  it('深度那一遍：透明度不到門檻的柔邊丟掉、不寫深度', () => {
+    const shader = { vertexShader: ShaderLib.basic.vertexShader, fragmentShader: ShaderLib.basic.fragmentShader }
+    injectCloudPuff(shader, true)
+    expect(shader.fragmentShader).toMatch(/diffuseColor\.a \* vAlpha \* smoothstep\([^)]*\) < [\d.]+\) discard;/)
+  })
+
   it('雲塊長方形表與貼圖集一組：筆數等於格數、寬高不超過原正方形、長方形不超出正方形', () => {
     expect(CLOUD_TILES.length).toBe(CLOUD_ATLAS_SIDE * CLOUD_ATLAS_SIDE)
     for (const [w, h, ox, oy] of CLOUD_TILES) {
@@ -88,11 +94,23 @@ describe('createClouds：一顆 InstancedMesh', () => {
   it('畫的團數是全部雲的團數總和，超過容量就截掉；clear 歸零', () => {
     const clouds = createClouds(new Texture(), 20)
     clouds.set([{ x: 0, y: 1000, z: 0, radius: 40 }], new Color(1, 1, 1))
-    expect(clouds.object.count).toBe(cloudPuffCount(40))
+    expect(clouds.mesh.count).toBe(cloudPuffCount(40))
     clouds.set([{ x: 0, y: 1000, z: 0, radius: 200 }, { x: 500, y: 1000, z: 0, radius: 200 }], new Color(1, 1, 1))
-    expect(clouds.object.count).toBe(20)
+    expect(clouds.mesh.count).toBe(20)
     clouds.clear()
-    expect(clouds.object.count).toBe(0)
+    expect(clouds.mesh.count).toBe(0)
+    clouds.dispose()
+  })
+
+  it('深度那一遍與顏色那一遍是同一批雲塊：同一份矩陣、同樣的團數；深度那一遍是實心物件', () => {
+    const clouds = createClouds(new Texture(), 64)
+    clouds.set([{ x: 0, y: 1000, z: 0, radius: 60 }], new Color(1, 1, 1))
+    expect(clouds.depth.count).toBe(clouds.mesh.count)
+    expect(clouds.depth.instanceMatrix).toBe(clouds.mesh.instanceMatrix)
+    const m = clouds.depth.material as { transparent: boolean, colorWrite: boolean, depthWrite: boolean }
+    expect(m.transparent).toBe(false)
+    expect(m.colorWrite).toBe(false)
+    expect(m.depthWrite).toBe(true)
     clouds.dispose()
   })
 })

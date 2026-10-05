@@ -8,6 +8,7 @@ import { applyTimeOfDay, DAY_PALETTES, type TimeOfDay } from '../render/timeOfDa
 import { buildAircraft, preloadAircraftModels } from '../render/geometry/buildAircraft'
 import { CLOUD_ATLAS_URL, cloudColorOf, cloudPuffCount, createClouds, type CloudSpec } from '../render/clouds'
 import { hash01 } from '../render/scatter'
+import { createShipFireSmoke, SHIP_FIRE_PLUME_SPEED } from '../render/smoke'
 import { JU87 } from '../specs/ju87'
 import { assetUrl } from '../core/asset'
 
@@ -61,6 +62,79 @@ ctx.scene.add(stuka.group)
 const atlas = await new TextureLoader().loadAsync(assetUrl(CLOUD_ATLAS_URL))
 const clouds = createClouds(atlas)
 ctx.scene.add(clouds.object)
+
+/**
+ * 遮擋測試：最大那朵雲附近同一高度兩柱煙（遊戲的船火煙池），一柱在雲後面、一柱在雲與鏡頭之間。
+ * 雲的深度那一遍開著時，雲核心後面的煙要被擋住、前面的煙要疊在雲上
+ */
+const smokeTexture = await new TextureLoader().loadAsync(assetUrl('/textures/smoke.png'))
+const smoke = createShipFireSmoke(4096, smokeTexture)
+smoke.object.visible = false
+ctx.scene.add(smoke.object)
+const SMOKE_INTERVAL = 0.3
+const SMOKE_PUFFS = 14
+let smokeClock = 0
+let smokeSeed = 0
+
+/** 兩柱煙的位置與遮擋測試鏡頭，都以最大那朵雲為準 */
+function occlusionLayout(): { back: Vector3, front: Vector3, cam: Vector3, look: Vector3 } {
+  const c = field.reduce((a, b) => (b.radius > a.radius ? b : a))
+  const r = c.radius
+  return {
+    back: new Vector3(c.x - 0.35 * r, c.y - 30, c.z - 2.2 * r),
+    front: new Vector3(c.x + 0.6 * r, c.y - 30, c.z + 1.5 * r),
+    cam: new Vector3(c.x, c.y + 0.35 * r, c.z + 3.2 * r),
+    look: new Vector3(c.x, c.y + 0.3 * r, c.z),
+  }
+}
+
+function emitColumn(at: Vector3): void {
+  for (let k = 0; k < SMOKE_PUFFS; k++) {
+    const s = smokeSeed++
+    const a = hash01(s * 3 + 1) * Math.PI * 2
+    const rr = hash01(s * 3 + 2) * 1.6
+    smoke.emit(at.x, at.y, at.z, Math.cos(a) * rr, SHIP_FIRE_PLUME_SPEED * (0.75 + 0.5 * hash01(s * 3 + 3)), Math.sin(a) * rr)
+  }
+}
+
+function stepSmoke(dt: number): void {
+  if (!smoke.object.visible) return
+  const { back, front } = occlusionLayout()
+  smokeClock -= dt
+  while (smokeClock <= 0) {
+    emitColumn(back)
+    emitColumn(front)
+    smokeClock += SMOKE_INTERVAL
+  }
+  smoke.step(dt)
+}
+
+const smokeToggle = document.getElementById('smoke-toggle') as HTMLButtonElement
+const depthToggle = document.getElementById('depth-toggle') as HTMLButtonElement
+const occlusionCam = document.getElementById('occlusion-cam') as HTMLButtonElement
+let depthPrepass = true
+
+function setSmoke(on: boolean): void {
+  smoke.object.visible = on
+  smokeToggle.classList.toggle('on', on)
+  smokeToggle.textContent = on ? '煙柱：開' : '煙柱：關'
+  if (on) {
+    smoke.reset()
+    smokeClock = 0
+    // 一開就是成熟的煙柱，不必等二十秒
+    for (let t = 0; t < 20; t += 0.1) stepSmoke(0.1)
+  }
+}
+
+function setDepth(on: boolean): void {
+  depthPrepass = on
+  clouds.setDepthPrepass(on)
+  depthToggle.classList.toggle('on', on)
+  depthToggle.textContent = on ? '雲的深度：開' : '雲的深度：關'
+}
+
+smokeToggle.addEventListener('click', () => setSmoke(!smoke.object.visible))
+depthToggle.addEventListener('click', () => setDepth(!depthPrepass))
 
 /** 第 `n` 朵以內的雲：前幾朵擺在斯圖卡的航線兩旁（看得到擦過），其餘撒在周圍 */
 function cloudField(n: number): CloudSpec[] {
@@ -117,6 +191,16 @@ function setMode(m: CameraMode): void {
   description.textContent = DESCRIPTIONS[m]
   for (const b of buttons('[data-cam]')) b.classList.toggle('on', b.dataset['cam'] === m)
 }
+
+/** 遮擋測試鏡頭：從最大那朵雲的正前方看，後面那柱煙在雲後、前面那柱在雲與鏡頭之間 */
+function occlusionView(): void {
+  setMode('orbit')
+  const { cam, look } = occlusionLayout()
+  controls.target.copy(look)
+  ctx.camera.position.copy(cam)
+  controls.update()
+}
+occlusionCam.addEventListener('click', occlusionView)
 
 // 自動鏡頭時一拖曳就交回環繞
 canvas.addEventListener('pointerdown', () => {
@@ -212,6 +296,7 @@ function frame(now: number): void {
   stukaAt(elapsed, stuka.group.position)
   stuka.group.rotation.set(0, 0, 0)
   placeCamera(dt, elapsed)
+  stepSmoke(dt)
   terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
   ctx.renderer.render(ctx.scene, ctx.camera)
   performanceStats.end()
@@ -222,7 +307,7 @@ function frame(now: number): void {
 }
 
 ;(window as unknown as Record<string, unknown>)['__clouds'] = {
-  setMode, setTimeOfDay,
+  setMode, setTimeOfDay, setSmoke, setDepth, occlusionView,
   /** 換到 `m` 鏡頭的第 `t` 秒並定格（截圖對時用）；`resume()` 繼續走 */
   freeze(m: CameraMode, t: number) {
     setMode(m)

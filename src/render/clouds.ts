@@ -1,5 +1,5 @@
 import {
-  Color, InstancedBufferAttribute, InstancedMesh, Matrix4, MeshBasicMaterial, NormalBlending,
+  Color, Group, InstancedBufferAttribute, InstancedMesh, Matrix4, MeshBasicMaterial, NormalBlending,
   PlaneGeometry, Quaternion, SRGBColorSpace, type Texture, Vector3,
 } from 'three'
 import { hash01 } from './scatter'
@@ -91,6 +91,22 @@ export const CLOUD_FADE_FAR = 90
  * 的 13% 處），看不出少了；照樣畫的話穿雲時是十幾層全螢幕的透明混合
  */
 export const CLOUD_CULL_NEAR = 33
+/**
+ * 深度那一遍只寫「貼圖透明度 × 不透明度 × 淡出」到這麼高的地方 —— 雲塊的核心。柔邊不寫，
+ * 後面的東西透得過柔邊；寫了的話柔邊後面的煙被切成一塊硬邊
+ */
+export const CLOUD_DEPTH_CUTOFF = 0.5
+/**
+ * 深度那一遍寫的深度往後推多少，倍雲塊直徑。雲的白是十幾層雲塊疊出來的；深度照雲塊本身的
+ * 位置寫的話，最前面那塊的核心把同一朵雲後面的雲塊全擋掉，那裡只剩一層、又薄又灰。往後推，
+ * 同一朵雲的雲塊互不阻擋，雲後面遠處的煙仍被擋住
+ */
+export const CLOUD_DEPTH_PUSH = 1
+/**
+ * 雲的顏色那一遍排在所有半透明物件前面畫。雲與煙都不寫深度、物件又都在原點（距離排序分不出
+ * 先後），晚畫的那一方在重疊處永遠蓋在上面；雲先畫，近處的煙才疊得在雲上
+ */
+export const CLOUD_RENDER_ORDER = -10
 /** 雲色配方：日光、天空半球光、環境光各佔多少；日光強度以正午 2.2 為 1 */
 export const CLOUD_SUN = 0.65
 export const CLOUD_SKY = 0.45
@@ -137,7 +153,7 @@ export function cloudColorOf(p: DayPalette, out: Color): Color {
  * `ShaderLib.basic` 斷言注入有發生 —— `String.replace` 找不到目標時不報錯，雲會靜靜地
  * 退化成一整張貼圖集、而且不再面向相機
  */
-export function injectCloudPuff(shader: { vertexShader: string; fragmentShader: string }): void {
+export function injectCloudPuff(shader: { vertexShader: string; fragmentShader: string }, depthOnly = false): void {
   const inv = (1 / CLOUD_ATLAS_SIDE).toFixed(6)
   const last = (CLOUD_ATLAS_SIDE - 1).toFixed(1)
   const side = CLOUD_ATLAS_SIDE.toFixed(1)
@@ -179,7 +195,9 @@ export function injectCloudPuff(shader: { vertexShader: string; fragmentShader: 
        vec2 local = vec2(
          position.x * aExtent.x + (aFlip > 0.5 ? -aExtent.z : aExtent.z),
          position.y * aExtent.y + aExtent.w);
-       mvPosition.xy += (right2 * local.x + up2 * local.y) * instScale;
+       mvPosition.xy += (right2 * local.x + up2 * local.y) * instScale;${depthOnly ? `
+       // 深度往後推（CLOUD_DEPTH_PUSH）：同一朵雲的雲塊互不阻擋
+       mvPosition.z -= instScale * ${CLOUD_DEPTH_PUSH.toFixed(3)};` : ''}
        gl_Position = projectionMatrix * mvPosition;
        // 【幾乎透明的不畫】中心離相機不到 CLOUD_CULL_NEAR 的雲塊不透明度不到 5%，照樣光柵化的話
        // 穿雲時是十幾層全螢幕的透明混合。四個頂點的中心深度相同，整塊一起移出裁切範圍
@@ -194,7 +212,11 @@ export function injectCloudPuff(shader: { vertexShader: string; fragmentShader: 
     )
     .replace(
       '#include <map_fragment>',
-      `#include <map_fragment>
+      depthOnly
+        ? `#include <map_fragment>
+       // 【深度那一遍只寫核心】透明度不到 CLOUD_DEPTH_CUTOFF 的柔邊與淡出中的雲塊不寫深度
+       if (diffuseColor.a * vAlpha * smoothstep(${CLOUD_FADE_NEAR.toFixed(1)}, ${CLOUD_FADE_FAR.toFixed(1)}, vCloudDist) < ${CLOUD_DEPTH_CUTOFF.toFixed(3)}) discard;`
+        : `#include <map_fragment>
        // 照片內部的明暗往白色拉（CLOUD_FLATTEN）；雲底變暗與時段雲色在之後的逐塊顏色裡乘上
        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), ${CLOUD_FLATTEN.toFixed(3)});`,
     )
@@ -206,7 +228,14 @@ export function injectCloudPuff(shader: { vertexShader: string; fragmentShader: 
 }
 
 export interface Clouds {
-  readonly object: InstancedMesh
+  /** 加進場景的那一個：深度那一遍與顏色那一遍兩顆網格 */
+  readonly object: Group
+  /** 顏色那一遍（畫面上看到的雲） */
+  readonly mesh: InstancedMesh
+  /** 深度那一遍：只寫雲塊核心的深度、不畫顏色，當成實心物件在所有半透明物件之前畫 */
+  readonly depth: InstancedMesh
+  /** 開關深度那一遍（量測與對照用；預設開） */
+  setDepthPrepass(on: boolean): void
   /** 換成這一批雲（世界座標）與雲色。建場時呼叫，不在幀迴圈裡；超出容量的雲塊丟掉 */
   set(list: readonly CloudSpec[], color: Color): void
   /** 拿掉全部雲 */
@@ -240,15 +269,38 @@ export function createClouds(atlas: Texture, capacity = CLOUD_PUFF_CAPACITY): Cl
   })
   material.onBeforeCompile = (s): void => injectCloudPuff(s)
   material.customProgramCacheKey = () => 'clouds'
+  // 【深度那一遍是實心物件】不透明的那一批在所有半透明物件之前畫：雲核心後面的煙、同一朵雲
+  // 背面的雲塊，深度都比不過而被擋掉；只寫深度、不寫顏色
+  const depthMaterial = new MeshBasicMaterial({ map: atlas, colorWrite: false, depthWrite: true })
+  depthMaterial.onBeforeCompile = (s): void => injectCloudPuff(s, true)
+  depthMaterial.customProgramCacheKey = () => 'clouds-depth'
 
   const object = new InstancedMesh(geometry, material, capacity)
   // 包圍球建立時全在原點 —— 開著視錐剔除的話相機一離開原點整批不見
   object.frustumCulled = false
   object.count = 0
+  object.renderOrder = CLOUD_RENDER_ORDER
   object.name = 'clouds'
+  const depth = new InstancedMesh(geometry, depthMaterial, capacity)
+  // 【同一份雲塊位置】兩遍的頂點算法一樣、矩陣是同一份，深度與顏色那一遍的雲塊才疊得剛好
+  depth.instanceMatrix = object.instanceMatrix
+  depth.frustumCulled = false
+  depth.count = 0
+  // 【排在天空之後】天空也是實心物件；它晚畫的話，雲核心先寫了深度的地方天空畫不上去，露出底色
+  depth.renderOrder = 1000
+  depth.name = 'clouds.depth'
+  const group = new Group()
+  group.name = 'clouds'
+  group.add(depth, object)
 
   return {
-    object,
+    object: group,
+    mesh: object,
+    depth,
+
+    setDepthPrepass(on) {
+      depth.visible = on
+    },
 
     set(list, color) {
       let n = 0
@@ -267,6 +319,7 @@ export function createClouds(atlas: Texture, capacity = CLOUD_PUFF_CAPACITY): Cl
         }
       })
       object.count = n
+      depth.count = n
       object.instanceMatrix.needsUpdate = true
       if (object.instanceColor) object.instanceColor.needsUpdate = true
       tiles.needsUpdate = true
@@ -276,12 +329,15 @@ export function createClouds(atlas: Texture, capacity = CLOUD_PUFF_CAPACITY): Cl
 
     clear() {
       object.count = 0
+      depth.count = 0
     },
 
     dispose() {
       geometry.dispose()
       material.dispose()
+      depthMaterial.dispose()
       object.dispose()
+      depth.dispose()
     },
   }
 }
