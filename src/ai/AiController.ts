@@ -1,9 +1,6 @@
+import { createCommandOutputState, emitAiCommand } from './commandOutput'
 import { attackShip, createSurfaceAttackState, strafeGround, type StrikeRef } from './surfaceAttack'
 import { Vector3 } from 'three'
-import {
-  captureLevel, captureGroundBuffer, stepGroundReleaseCapture, GROUND_RELEASE_TRIAL_SECONDS,
-  type GroundCaptureState, type GroundReleaseGate,
-} from './recoveryCapture'
 import {
   alarmFactor, alarmRamp, considerThreatFrom, createSituation, evaluateEnergy,
   evaluateGeometry, evaluateThreat, threatFactor, trackingFactor,
@@ -38,14 +35,10 @@ import {
   createTargetState, selectTarget, DEFAULT_TARGET,
   type TargetBoard, type TargetConfig,
 } from './target'
-import { applySafety, type SafetyAction } from './safety'
+import type { SafetyAction } from './safety'
+import { resetRecoveryAssist } from './recoveryWorkerClient'
 import {
-  createRecoveryAssist, resetRecoveryAssist, updateRecoveryAssist, updateRecoveryTrialAssist,
-  type RecoveryTrialStatus,
-} from './recoveryWorkerClient'
-import {
-  createSense, resetSense, senseTerrain, SENSE_INTERVAL,
-  type TerrainSense, type TerrainSource,
+  resetSense, SENSE_INTERVAL, type TerrainSource,
 } from './terrainSense'
 import {
   DEFAULT_STATION, STATION_OFFSETS, stationCommand, stationPoint,
@@ -72,8 +65,6 @@ import type { GroundUnitId } from '../specs/ground'
 import { ACE, type DifficultyProfile } from './profile'
 import type { FlightOrder } from './commandTypes'
 import { losBlocked } from '../world/occlusion'
-import { CommandDelay } from './delay'
-import { THROTTLE_RATE } from '../input/throttle'
 import { NO_INTERCEPT } from '../world/lead'
 import { bestSustainedTurnRadiusCached } from '../analysis/envelope'
 
@@ -126,21 +117,15 @@ const ESCORT_OFFSETS: readonly StationOffset[] = [
  * 都是純函數（spec §4.3）——這是 L4 的對戰矩陣能在 node 裡跑幾百場的前提。
  */
 export class AiController implements Controller {
-  /** 完整物理防墜預演的固定快照與非同步狀態；每架 AI 只配置一次。 */
-  private readonly recoveryAssist = createRecoveryAssist()
-  /** 水平捕獲期間，讓同一個 Worker 驗證尚未送出的對地低頭命令。 */
-  private readonly recoveryTrialAssist = createRecoveryAssist()
-  private recoveryTrialActive = false
-  private readonly groundReleaseGate: GroundReleaseGate = { safeSince: -1, sequence: -1 }
-  private recoveryClock = 0
+  private readonly output = createCommandOutputState()
   /** 最近一筆有效 Worker 預演的連續改出風險；只供 HUD／探針觀測。 */
-  get recoveryUrgency(): number { return this.recoveryAssist.urgency }
+  get recoveryUrgency(): number { return this.output.recoveryAssist.urgency }
   /** 硬改出後正在水平捕獲；只供探針與測試觀測。 */
-  get recoveryCapture(): boolean { return this.groundCapture.active }
+  get recoveryCapture(): boolean { return this.output.groundCapture.active }
   /** HUD 顯示的當前戰術階段；`off` 代表沒有比意圖更細的行為要補充。 */
-  get hudPhase(): string { return this.tacticalPhase }
+  get hudPhase(): string { return this.output.tacticalPhase }
   /** HUD 顯示的安全接管；`off` 代表原本意圖仍掌握控制權。 */
-  get hudOverride(): string { return this.controlOverride }
+  get hudOverride(): string { return this.output.controlOverride }
   /** 這一格實際正在掃射的地面目標；只供探針與測試觀測。 */
   get groundTarget(): GroundTarget | null {
     if (!this.surface.groundAttackActive || this.surface.groundAim < 0) return null
@@ -259,9 +244,6 @@ export class AiController implements Controller {
   readonly bombAim = createBombAim()
   /** 對地航次的私有狀態，只在建立控制器時配置一次。 */
   private readonly surface = createSurfaceAttackState()
-  /** 不參與決策，只把這一格真正採用的安全／掃射行為交給 HUD。 */
-  private tacticalPhase = 'off'
-  private controlOverride = 'off'
   /**
    * 俯衝投彈的狀態（`ai/diveBomb.ts`）。**只有 `spec.diveBomber` 的機種會動它**；其他機種這一份
    * 永遠是初始值。
@@ -317,7 +299,7 @@ export class AiController implements Controller {
    * 上一場「我正在繞第 17 座島」的承諾不得帶進新的一場。
    */
   clearTerrainState(): void {
-    resetSense(this.sense)
+    resetSense(this.output.sense)
     // 【攻擊狀態機也要清】上一場「我正在對第 3 艘做直飛」的鎖定不得帶進
     // 新的一場 —— 與地形的承諾同一個理由，也同一個呼叫點。
     resetStrike(this.strike)
@@ -329,21 +311,21 @@ export class AiController implements Controller {
     this.surface.groundAim = -1
     this.surface.groundAttackActive = false
     this.surface.groundStrafeActive = false
-    this.tacticalPhase = 'off'
-    this.controlOverride = 'off'
+    this.output.tacticalPhase = 'off'
+    this.output.controlOverride = 'off'
     resetGroundStrafe(this.surface.groundStrafe)
     // 【連採樣節拍一起重設】只清 sense 的話，新場最多要等 11 個物理步才會
     // 第一次感知，那段時間 AI 是用 floor = 0 在飛。負的起點讓
     // (senseTick + sensePhase) 在下一次 emit 就命中 0
-    this.senseTick = -this.sensePhase
-    this.recoveryClock = 0
-    this.groundCapture.active = false
-    this.groundCapture.armed = false
-    resetRecoveryAssist(this.recoveryAssist)
-    resetRecoveryAssist(this.recoveryTrialAssist)
-    this.recoveryTrialActive = false
-    this.groundReleaseGate.safeSince = -1
-    this.groundReleaseGate.sequence = -1
+    this.output.senseTick = -this.sensePhase
+    this.output.recoveryClock = 0
+    this.output.groundCapture.active = false
+    this.output.groundCapture.armed = false
+    resetRecoveryAssist(this.output.recoveryAssist)
+    resetRecoveryAssist(this.output.recoveryTrialAssist)
+    this.output.recoveryTrialActive = false
+    this.output.groundReleaseGate.safeSince = -1
+    this.output.groundReleaseGate.sequence = -1
     this.resetAirTactics()
   }
 
@@ -361,11 +343,6 @@ export class AiController implements Controller {
     this.bandTarget = null
     resetAirPass(this.airPass)
   }
-
-  /** 地形感知的結果與鎖存狀態 */
-  private readonly sense: TerrainSense = createSense()
-  /** 物理步的計數，用來每 SENSE_INTERVAL 步重算一次 */
-  private senseTick = 0
   /**
    * 這一架的感知相位 —— **由座位決定，不是由建立順序**。
    *
@@ -491,12 +468,6 @@ export class AiController implements Controller {
    */
   mode: SteerMode = 'normal'
   safetyActive = false
-  /** 硬防墜解除後先捕獲水平，避免下一格又把低空目標交回俯衝。 */
-  private readonly groundCapture: GroundCaptureState = { active: false, armed: false }
-  /** 上一格送出的油門。NaN = 還沒送過，第一格直接用命令值。見 `emit` */
-  private lastThrottle = NaN
-  /** 守線介入過、油門還在以速率追命令值。見 `emit` */
-  private throttleRamp = false
   /**
    * 安全層這一格接管了哪一種：`'none'` / `'ground'`（撞地）/ `'stall'`（失速）。
    *
@@ -590,7 +561,6 @@ export class AiController implements Controller {
    * 反應延遲流進呼叫端的 `out`。
    */
   private readonly raw = createCommand()
-  private readonly delay = new CommandDelay()
   /** 距離下一次意圖仲裁還有多久，s */
   private decisionTimer = 0
 
@@ -1132,140 +1102,9 @@ export class AiController implements Controller {
     this.emit(self, dt, out)
   }
 
-  /**
-   * 把 `raw` 送出去：先過反應延遲，再過安全層。
-   *
-   * 【安全層為什麼排在延遲之後】延遲模擬的是**判讀與決策**的耗時；「快撞地
-   * 了」是反射，不是判讀。把安全層一起延遲會讓 AI 撞地率上升，而那是一個
-   * 與難度無關的退步 —— 玩家不會覺得「敵人比較弱」，只會覺得「敵人會自殺」。
-   * 安全層讀的是飛機**當下**的狀態，所以它必須拿當下的狀態算（spec §4.2）。
-   *
-   * 【為什麼只有一個呼叫點】`update` 有三條輸出路徑（站位、平飛、交戰），
-   * 以前各自呼叫 `applySafety`。收斂成一個之後，「延遲在安全層之前」這件事
-   * 不可能被新增的分支繞過。
-   *
-   * `profile.reactionDelay = 0`（`ACE`）時 `CommandDelay` 走位元等價的捷徑，
-   * 所以這一層對既有的全部測試是無作用的。
-   *
-   * 【延遲會讓 AI 飛得更低，但那不是這個順序的錯】五個低空受控場景、120 秒、
-   * 取全場最低高度：
-   *
-   * ```
-   * 延遲     對頭@600  對頭@400  追擊@500  側舷@700  俯衝@2000   最低  觸海
-   * 0.00        387      400      121      115       228      115   無
-   * 0.30        600      170      499       63       568       63   無
-   * 0.50        386      348      257       −0       547       −0   有
-   * 0.80        549      389      488      275       524      275   無
-   * ```
-   *
-   * 0.5 s 那一場的軌跡查到根因，**在 `applySafety` 不在這裡**：它的閉式解
-   * 假設俯衝角不再變陡。t=113.0 時高度 367 m、γ=−40°，需要 279 m，通過；
-   * 0.75 秒後 γ 已經 −60°，需要 459 m，而高度只剩 292 m —— 需求的成長比
-   * 飛機拉得起來的還快。零延遲的同一場也只剩 115 m，是同一個病，延遲只是
-   * 讓 AI 更常撞上它。修它要動 `DEFAULT_SAFETY.factor`，那會移動全部既有
-   * 基準，另案處理。
-   */
+  /** 所有戰術分支都經過同一條延遲與安全輸出流程。 */
   private emit(self: Aircraft, dt: number, out: Command): void {
-    this.tacticalPhase = 'off'
-    this.controlOverride = 'off'
-    this.delay.push(this.raw, this.profile.reactionDelay, dt, out,
-      this.profile.trimTau ?? 0, this.profile.fireDelay ?? this.profile.reactionDelay)
-    // 【地板是局部值，不寫回 this.seaHeight】見那個欄位的說明
-    let floor = this.seaHeight
-    let sense: TerrainSense | undefined
-    if (this.terrain !== null) {
-      if ((this.senseTick++ + this.sensePhase) % SENSE_INTERVAL === 0) {
-        senseTerrain(self, this.terrain, this.sense)
-      }
-      if (this.sense.floor > floor) floor = this.sense.floor
-      sense = this.sense
-    }
-    this.recoveryClock += dt
-    const rolloutNeeded = updateRecoveryAssist(
-      this.recoveryAssist, self, floor, sense?.turn ?? 0, this.recoveryClock,
-    )
-    const desiredDownward = out.aimWorld.y < 0
-    let trialStatus: RecoveryTrialStatus = 'pending'
-    if (this.surface.groundStrafeActive && this.groundCapture.active && desiredDownward) {
-      this.recoveryTrialActive = true
-      trialStatus = updateRecoveryTrialAssist(
-        this.recoveryTrialAssist, self, floor, sense?.turn ?? 0, this.recoveryClock,
-        out, GROUND_RELEASE_TRIAL_SECONDS,
-      )
-    } else if (this.recoveryTrialActive) {
-      resetRecoveryAssist(this.recoveryTrialAssist)
-      this.recoveryTrialActive = false
-      this.groundReleaseGate.safeSince = -1
-      this.groundReleaseGate.sequence = -1
-    }
-    this.safetyAction = applySafety(self, floor, out, undefined, sense, rolloutNeeded)
-    const hardGround = this.safetyAction === 'ground'
-    // 解除閘門只屬於對地掃射。空戰、對艦與轟炸航路若繼承這個狀態，會在
-    // 沒有地面射擊解的情況下被水平捕獲，污染既有任務的飛行軌跡。
-    if (!this.surface.groundStrafeActive && this.groundCapture.active) {
-      this.groundCapture.active = false
-      this.groundCapture.armed = false
-      this.groundReleaseGate.safeSince = -1
-      this.groundReleaseGate.sequence = -1
-    }
-    const capture = this.surface.groundStrafeActive
-      && stepGroundReleaseCapture(
-        this.groundCapture, this.groundReleaseGate, hardGround,
-        desiredDownward, self.state.velocity.y, this.recoveryTrialAssist.resultSequence,
-        this.recoveryTrialAssist.resultSentAt, trialStatus,
-      )
-    if (!this.groundCapture.active && this.recoveryTrialActive) {
-      resetRecoveryAssist(this.recoveryTrialAssist)
-      this.recoveryTrialActive = false
-      this.groundReleaseGate.safeSince = -1
-      this.groundReleaseGate.sequence = -1
-    }
-    if (this.safetyAction === 'none' && capture) {
-      // Worker 判定目前還不能安全交還低頭命令時，以 6° 把改出所需的空間補足；
-      // 等候新結果或已安全時維持水平，避免把一次接管擴成大幅豚跳。
-      if (this.surface.groundStrafeActive && trialStatus === 'unsafe') {
-        captureGroundBuffer(self, out)
-      } else {
-        captureLevel(self, out)
-      }
-      this.safetyAction = 'ground'
-    }
-    if (this.band.kind === 'regain') this.tacticalPhase = '回升'
-    if (this.surface.groundStrafeActive) {
-      if (this.surface.groundStrafe.phase === 'egress') this.tacticalPhase = '對地離場'
-      else if (out.firing) this.tacticalPhase = '對地射擊'
-      else this.tacticalPhase = '對地進場'
-    }
-    if (hardGround) {
-      this.controlOverride = '防墜拉起'
-    } else if (capture) {
-      if (trialStatus === 'unsafe') this.controlOverride = '防墜補高'
-      else if (trialStatus === 'safe') this.controlOverride = '防墜確認'
-      else this.controlOverride = '防墜驗證'
-    } else if (this.safetyAction === 'terrain') {
-      this.controlOverride = '地形迴避'
-    } else if (this.safetyAction === 'overspeed') {
-      this.controlOverride = '超速保護'
-    }
-    this.safetyActive = this.safetyAction !== 'none'
-    // 【守線的油門走與玩家同一個速率】玩家的油門是按住鍵以 THROTTLE_RATE
-    // 推的，AI 直接寫值等於瞬間收滿 —— 守線那一格看起來像引擎被關掉。
-    // 守線介入時開始以那個速率走，放開後也以同樣速率推回，追上命令值就
-    // 回到直接寫值。
-    //
-    // 【為什麼不是所有 AI 全程都走速率】那會改掉每一架的時機：實測 P-51 對
-    // Bf109 的側翼品質由「比對照低 0.05」掉到 0.04，紅掉一條門檻定死的
-    // 護欄。守線之外的 AI 一個字不變。
-    if (this.safetyAction === 'overspeed') this.throttleRamp = true
-    if (this.throttleRamp) {
-      if (Number.isNaN(this.lastThrottle)) this.lastThrottle = out.throttle
-      const step = THROTTLE_RATE * dt
-      const d = out.throttle - this.lastThrottle
-      if (d > step) out.throttle = this.lastThrottle + step
-      else if (d < -step) out.throttle = this.lastThrottle - step
-      else if (this.safetyAction !== 'overspeed') this.throttleRamp = false
-    }
-    this.lastThrottle = out.throttle
+    emitAiCommand(this.output, this, self, dt, out, this.raw, this.surface)
   }
 
   /**
