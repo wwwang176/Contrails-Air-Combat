@@ -2,7 +2,7 @@ import './render/heightFogInstall'
 import { Color, Euler, Quaternion, Vector3, type FogExp2, type Mesh, type Object3D } from 'three'
 import { CLOUD_ATLAS_URL, cloudColorOf, cloudFieldSpecs, createClouds } from './render/clouds'
 import { skirmishCloudField } from './world/cloudField'
-import { SMOKE_WIND, windOf } from './render/wind'
+import { REEL_WIND, SMOKE_WIND, windOf } from './render/wind'
 import { FixedStepAccumulator, MAX_FRAME_SECONDS, clampFrameSeconds } from './core/loop'
 import { createPerfOverlay } from './core/perf'
 import { createRangeProbe } from './hud/rangeProbe'
@@ -1481,9 +1481,8 @@ function leaveBattle(): void {
   clearBattleScenery()
   // 短片下一幀換段時放它自己的雲；機庫沒有雲
   clouds.clear()
-  // 選單短片與機庫沒有風
-  SMOKE_WIND.x = 0
-  SMOKE_WIND.z = 0
+  // 回到選單：短片的風
+  Object.assign(SMOKE_WIND, REEL_WIND)
 }
 
 /**
@@ -3798,6 +3797,9 @@ let menuTimeOfDay: TimeOfDay = 'noon'
 const reelRows = Array.from(document.querySelectorAll<HTMLElement>('#landing .rows, #menu .rows'))
 /** 選單頁的主角位置（畫面寬度的成數）；開場與主選單每次重量，量到之前用這個值 */
 let reelSubjectRight = 0.7
+
+// 開場就是選單：短片的風（進戰鬥時建地圖換成那一張的風、離開戰鬥換回來）
+Object.assign(SMOKE_WIND, REEL_WIND)
 
 /**
  * 主選單背景的短片（`app/menuReel.ts`）。選單類畫面都在放；進機庫與戰鬥時停下。
