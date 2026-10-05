@@ -1,6 +1,7 @@
 import { Vector3 } from 'three'
 import { G4M } from '../../specs/g4m'
 import { F4F4 } from '../../specs/f4f4'
+import { scatterClouds } from '../../render/clouds'
 import {
   BOMB_RELEASE_Y, TORPEDO_SPEED, barrage, body, bodyUp, edit, interceptShip, rampedOffset, shipAt, timeline,
   torpedoAt, torpedoEntry, velocityAt, wingman,
@@ -428,6 +429,8 @@ const flakAhead: Path = (t, out) => lead(t, out).add(S3.set(-40, 25, -170))
 export const STRIKE: Shot = {
   id: 'strike',
   duration: 33,
+  // 鏡頭在 70 m 以下、飛機在 880 m 以下，雲整層放在 1000 m 以上，頭頂也撒
+  clouds: scatterClouds({ x: 0, z: -1500, inner: 0, outer: 6500, yMin: 1000, yMax: 1800, rMin: 60, rMax: 140, count: 60, seed: 5 }),
   timeOfDay: 'dusk',
   faceSun: true,
   clear: { x: 0, z: -1600, radius: 3000 },

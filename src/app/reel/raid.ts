@@ -1,6 +1,7 @@
 import { Vector3 } from 'three'
 import { HE111 } from '../../specs/he111'
 import { F4F4 } from '../../specs/f4f4'
+import { scatterClouds } from '../../render/clouds'
 import {
   BOMB_RELEASE_Y, barrage, body, bodyUp, bombAt, edit, rampedOffset, timeline, velocityAt, wingman,
   type Cut, type Path, type ReelCamera, type ReelPlane, type ReelProp, type ReelShip, type Shot,
@@ -426,6 +427,8 @@ const PLANES: readonly ReelPlane[] = [
 export const RAID: Shot = {
   id: 'raid',
   duration: 32,
+  // 鏡頭在 310 m 以下、飛機在 490 m 以下，雲整層放在 650 m 以上，頭頂也撒
+  clouds: scatterClouds({ x: 1000, z: 1500, inner: 0, outer: 6500, yMin: 650, yMax: 1300, rMin: 60, rMax: 140, count: 60, seed: 6 }),
   timeOfDay: 'storm',
   faceSun: false,
   site: 'island',

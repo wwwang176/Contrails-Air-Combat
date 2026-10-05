@@ -1,6 +1,7 @@
 import { Vector3 } from 'three'
 import { F6F5 } from '../../specs/f6f5'
 import { F4F4 } from '../../specs/f4f4'
+import { scatterClouds } from '../../render/clouds'
 import {
   body, bodyUp, edit, rampedOffset, shipAt, wingman,
   type Cut, type Path, type ReelCamera, type ReelPlane, type ReelShip, type Shot,
@@ -321,6 +322,8 @@ const PLANES: readonly ReelPlane[] = [
 export const FLEET: Shot = {
   id: 'fleet',
   duration: 32,
+  // 鏡頭在 390 m 以下、飛機在 570 m 以下，雲整層放在 800 m 以上，頭頂也撒
+  clouds: scatterClouds({ x: 0, z: -600, inner: 0, outer: 6500, yMin: 800, yMax: 1500, rMin: 60, rMax: 140, count: 60, seed: 4 }),
   timeOfDay: 'dawn',
   faceSun: true,
   clear: { x: 0, z: -100, radius: 3000 },
