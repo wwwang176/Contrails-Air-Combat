@@ -2,13 +2,13 @@ import type { Aircraft } from '../aircraft/Aircraft'
 import type { StationOffset } from './station'
 import type { TargetBoard } from './target'
 
-/** Stable offsets keep the two escort positions from overlapping. */
+/** 固定的偏移，兩個護航站位才不會重疊 */
 export const ESCORT_OFFSETS: readonly StationOffset[] = [
   { along: -150, across: 350, up: 450 },
   { along: -150, across: -350, up: 450 },
 ]
 
-/** Selects the nearest living friendly bomber without allocating on the AI path. */
+/** 選最近的一架活著的友軍轟炸機。AI 路徑上，不配置記憶體 */
 export function selectEscortIndex(
   self: { readonly state: Pick<Aircraft['state'], 'position'> },
   candidates: TargetBoard['candidates'],

@@ -1,8 +1,12 @@
-/** Spatial occupancy index used while placing settlement geometry and flora. */
+/** 佔位格網的格寬，m */
 const OCC_CELL = 32
+/** 佔位圓最大的半徑，m（大教堂 13 × 2 + 10）。查詢的範圍由它決定 */
 const OCC_MAX = 36
 
-/** Tracks circular footprints in a fixed grid for nearby placement checks. */
+/**
+ * 已經佔掉的圓。**所有聚落共用一份**（`settlementFlora`）—— 相鄰的村可以只隔
+ * 三四百公尺。依格分桶：鎮上幾千棟，逐一比對是平方的。
+ */
 export class Occupancy {
   private readonly xs: number[] = []
   private readonly zs: number[] = []

@@ -19,15 +19,20 @@ interface Tiles {
 
 interface VegetationRebuild {
   readonly active: boolean
-  /** Start only while inactive; consume dirty flags and fix the packing order for this job. */
+  /** 只在沒有進行中時開始；吃掉髒旗標，並定下這一輪的打包順序 */
   start(poolDirty: Record<PoolName, boolean>): void
-  /** Process whole tiles up to the work budget; true when the buffers are published. */
+  /** 在工作預算內處理整格的 tile；緩衝換上去的那一次回 true */
   step(budget: number): boolean
 }
 
 /**
- * Packs cached flora into the inactive GPU buffers and publishes completed pools together.
- * The streaming owner must leave tile buffers and LODs unchanged while active.
+ * 進行中的重建。**寫的是沒掛上的那一份，全部寫完才一起換上去。**
+ *
+ * 【進行中不補格、不放格、不換級】放掉的 tile 緩衝會被新的格借走，寫到
+ * 一半的重建就會讀到另一格的資料；級數中途變了則前後半段用的是兩套級數。
+ * 暫停到完成為止，寫出來的就等於「開始那一幀一次寫完」的內容。
+ *
+ * 狀態全部開場配好，重建不配置。
  */
 export function createVegetationRebuild(
   cap: Readonly<Record<PoolName, number>>,
@@ -287,15 +292,6 @@ export function createVegetationRebuild(
     stats.rebuilds++
   }
 
-  /**
-   * 進行中的重建。**寫的是沒掛上的那一份，全部寫完才一起換上去。**
-   *
-   * 【進行中不補格、不放格、不換級】放掉的 tile 緩衝會被新的格借走，寫到
-   * 一半的重建就會讀到另一格的資料；級數中途變了則前後半段用的是兩套級數。
-   * 暫停到完成為止，寫出來的就等於「開始那一幀一次寫完」的內容。
-   *
-   * 狀態全部開場配好，重建不配置。
-   */
   const state = { active: false, start: startRebuild, step: stepRebuild }
   return state
 }

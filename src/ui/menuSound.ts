@@ -6,7 +6,7 @@ const CLOSE_ACTS = new Set([
   'settingsCancel', 'reloadNo', 'planePickCancel',
 ])
 
-/** Maps menu action identifiers to the corresponding UI sound. */
+/** 選單動作代號對應到該播的介面音效 */
 export function uiSound(act: string | undefined): string {
   if (act === undefined) return SINGLE_FILES.uiClick
   if (BACK_ACTS.has(act)) return SINGLE_FILES.uiBack

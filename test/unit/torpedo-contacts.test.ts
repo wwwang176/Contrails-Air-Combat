@@ -13,8 +13,8 @@ function fixture(ships: Ship[]) {
   return { world, contacts: createTorpedoContacts(world) }
 }
 
-describe('torpedo contact callbacks', () => {
-  it('chooses the first hull along the segment and clears the previous hit on a miss', () => {
+describe('魚雷碰撞的回呼', () => {
+  it('取線段上第一個碰到的船殼；落空時清掉上一次的命中', () => {
     const far = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, 100, 0, 0)
     const near = createShip(1, SHIP_CLASSES.fletcher, 'red', 0, -100, 0, 0)
     const { world, contacts } = fixture([far, near])
@@ -30,7 +30,7 @@ describe('torpedo contact callbacks', () => {
     expect(world.torpedoEvents.data[11]).toBe(-1)
   })
 
-  it('keeps hit ownership separate when worlds alternate queries before resolving', () => {
+  it('兩個世界在結算前交錯查詢，命中各算各的', () => {
     const enemy = createShip(4, SHIP_CLASSES.fletcher, 'red', 0, 0, 0, 0)
     const ally = createShip(8, SHIP_CLASSES.fletcher, 'blue', 0, 0, 0, 0)
     const a = fixture([enemy]), b = fixture([ally])
@@ -47,7 +47,7 @@ describe('torpedo contact callbacks', () => {
     expect(b.world.torpedoEvents.count).toBe(0)
   })
 
-  it('reads the current water query and fleet through callbacks created before setup', () => {
+  it('回呼在佈置前就建好，讀的仍是當下的水面查詢與艦隊', () => {
     const { world, contacts } = fixture([])
     expect(contacts.block(0, -1, -300, 0, -1, 300)).toBe(NO_HIT)
     world.ships.push(createShip(0, SHIP_CLASSES.fletcher, 'red', 0, 0, 0, 0))

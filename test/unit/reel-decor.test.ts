@@ -20,8 +20,8 @@ function fixture() {
   return { group, fx, decor, mesh }
 }
 
-describe('reel scenery ownership', () => {
-  it('merges buildings into one mesh and burns only nearby vertex ranges in place', () => {
+describe('短片佈景的資源管理', () => {
+  it('建築併成一顆網格；只就地燒黑附近那幾段頂點', () => {
     const f = fixture()
     f.decor.build([ITEM, { ...ITEM, x: 100 }], FLAT, IDENTITY, 0)
     expect(f.group.children).toHaveLength(1)
@@ -49,7 +49,7 @@ describe('reel scenery ownership', () => {
     expect(f.fx.groundKill).toHaveBeenCalledTimes(1)
   })
 
-  it('uses the shot transform and terrain height for fire positions', () => {
+  it('起火位置用鏡次的座標轉換與地形高度', () => {
     const f = fixture()
     const toWorld = (v: Vector3) => v.applyAxisAngle(new Vector3(0, 1, 0), Math.PI / 2)
       .add(new Vector3(100, 0, 200))
@@ -64,7 +64,7 @@ describe('reel scenery ownership', () => {
     expect(f.fx.groundKill).toHaveBeenCalledWith(120, 12, 190, 2)
   })
 
-  it('preserves the strict explosion radius boundary', () => {
+  it('爆炸半徑的邊界不含等號', () => {
     const f = fixture()
     f.decor.build([ITEM], FLAT, IDENTITY, 0)
     f.decor.burn(20, 0)
@@ -73,7 +73,7 @@ describe('reel scenery ownership', () => {
     expect(f.fx.groundKill).toHaveBeenCalledTimes(1)
   })
 
-  it('releases old geometry once, retains siblings, and reuses material across shots', () => {
+  it('換鏡次時舊幾何只釋放一次、不動旁邊的物件，材質跨鏡次重用', () => {
     const f = fixture()
     const sibling = new Group()
     f.group.add(sibling)

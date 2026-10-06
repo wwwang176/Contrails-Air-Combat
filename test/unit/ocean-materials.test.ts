@@ -11,8 +11,8 @@ function compile(material: MeshStandardMaterial) {
   return shader
 }
 
-describe('ocean material resources', () => {
-  it.each([false, true])('shares live uniforms between near/far and height users; table=%s', useTable => {
+describe('海面材質的資源', () => {
+  it.each([false, true])('近景、遠景與讀高度的一方共用同一份 uniform；table=%s', useTable => {
     const surface = createOceanMaterials(null, useTable)
     try {
       const near = compile(surface.material), far = compile(surface.farMaterial)
@@ -51,7 +51,7 @@ describe('ocean material resources', () => {
     } finally { surface.dispose() }
   })
 
-  it('changes both materials and the shared palette without modifying another ocean', () => {
+  it('換色盤時兩個材質與共用色盤一起換，不影響另一片海', () => {
     const a = createOceanMaterials(null, true), b = createOceanMaterials(null, true)
     try {
       const original = b.material.color.getHex()
@@ -67,7 +67,7 @@ describe('ocean material resources', () => {
     } finally { a.dispose(); b.dispose() }
   })
 
-  it.each([false, true])('releases every owned material, texture and table resource; table=%s', useTable => {
+  it.each([false, true])('釋放自己擁有的每一個材質、貼圖與查表資源；table=%s', useTable => {
     const a = createOceanMaterials(null, useTable), b = createOceanMaterials(null, useTable)
     const disposed = vi.fn(), otherDisposed = vi.fn()
     const resources = [a.material, a.farMaterial, a.sparkle.uShoreMap.value]

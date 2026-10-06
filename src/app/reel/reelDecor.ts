@@ -16,7 +16,7 @@ interface DecorItem {
 /** 燒黑的佈景建築。與地面目標殘骸同一個焦黑（`render/groundTargets.ts`） */
 const DECOR_BURNT = new Color(0x2a2421)
 
-/** Owns merged scenery geometry across reel shots; the material is reused. */
+/** 管理各個短片鏡次合併後的佈景幾何；材質跨鏡次重用 */
 export function createReelDecor(
   group: Group,
   fx: { groundKill(x: number, y: number, z: number, fires: number): void },

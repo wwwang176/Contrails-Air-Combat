@@ -12,8 +12,8 @@ const mission: AfterActionMission = {
   titleKey: 'mission.japan-m1.title', battle: { objectiveKey: 'mission.japan-m1.objective' },
 }
 
-describe('after-action report', () => {
-  it('reports skirmish defaults and the supplied frozen duration', () => {
+describe('結算戰報', () => {
+  it('遭遇戰給預設標題與目標，時長用傳進來的凍結值', () => {
     const report = buildAfterAction(battle(), [], 'skirmish', null, 123.5)
     expect(report).toEqual({
       mode: 'skirmish', titleKey: 'result.skirmish', objectiveKey: 'mission.killAll.objective',
@@ -21,7 +21,7 @@ describe('after-action report', () => {
     })
   })
 
-  it('uses the mission title and gives an updated battle objective priority over the card', () => {
+  it('用任務標題；戰鬥中更新過的目標優先於任務卡上的', () => {
     const report = buildAfterAction(battle(), [], 'mission', mission, 10)
     expect(report.titleKey).toBe(mission.titleKey)
     expect(report.objectiveKey).toBe(mission.battle.objectiveKey)
@@ -31,7 +31,7 @@ describe('after-action report', () => {
     expect(buildAfterAction(battle(), [], 'mission', null, 10).titleKey).toBe('result.skirmish')
   })
 
-  it('counts only blue flights and chooses the first blue player entry', () => {
+  it('只數藍隊編隊，取第一個藍隊的玩家單位', () => {
     const b = battle([
       { team: 'red', player: true }, { team: 'blue' }, { team: 'red' },
       { team: 'blue', player: true }, { team: 'blue', player: true },
@@ -42,13 +42,13 @@ describe('after-action report', () => {
   })
 
   it.each([[-10, 0], [0, 0], [P51D.hp / 2, 0.5], [P51D.hp, 1], [P51D.hp * 2, 1]])(
-    'reports health %s as %s', (hp, expected) => {
+    '血量 %s 報成 %s', (hp, expected) => {
     const b = { ...battle(), player: { hp, aircraft: { spec: P51D } } }
     expect(buildAfterAction(b, [], 'skirmish', null, 0).playerHp01)
       .toBe(expected)
   })
 
-  it('counts positive HP at convoy seat indices and keeps a detached report snapshot', () => {
+  it('船團座位上 HP 為正的才算活著，戰報是脫鉤的快照', () => {
     const seats = [{ hp: 100 }, { hp: 0 }, { hp: 0.1 }, { hp: -5 }]
     const b = { ...battle(), convoy: { seats: [1, 2, 3] } }
     const report = buildAfterAction(b, seats, 'mission', mission, 10)

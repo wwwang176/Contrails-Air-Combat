@@ -26,7 +26,7 @@ function fixture() {
     setRing(next: typeof ring) { ring = next } }
 }
 
-describe('battle inspection', () => {
+describe('戰鬥探針', () => {
   it('圓環跨場重建後，查詢反映新圓環是否掛在場景中', () => {
     const f = fixture()
     expect(f.inspection.__probe()!.ring).toBe(false)
@@ -38,7 +38,7 @@ describe('battle inspection', () => {
     f.setRing({ object: new Object3D() })
     expect(f.inspection.__probe()!.ring).toBe(false)
   })
-  it('does not read simulation state until queried and returns no player probe outside battle', () => {
+  it('被查詢之前不讀模擬狀態；不在戰鬥中時玩家探針回 null', () => {
     const f = fixture()
     expect(f.reads).toBe(0)
     f.state.screen = 'landing'
@@ -54,7 +54,7 @@ describe('battle inspection', () => {
     expect(f.state.world.time).toBe(1.2345)
   })
 
-  it('queries the new battle after replacement and preserves the browser result shapes', () => {
+  it('換場之後查的是新的戰鬥，回給瀏覽器的資料形狀不變', () => {
     const f = fixture()
     const battle = createBattle({ update() {} })
     battle.world.time = 90
@@ -70,7 +70,7 @@ describe('battle inspection', () => {
     expect(f.inspection.__ships()).toEqual([{ cls: 'fletcher', alive: true, x: 30, z: 40, heading: 90 }])
   })
 
-  it('selects the nearest usable lead marker and excludes hidden or friendly contacts', () => {
+  it('取最近一個可用的提前量標記，排除隱藏的與友軍的接觸目標', () => {
     const f = fixture()
     f.hudFrame.contactCount = 3
     for (let i = 0; i < 3; i++) Object.assign(f.hudFrame.contacts[i]!, {

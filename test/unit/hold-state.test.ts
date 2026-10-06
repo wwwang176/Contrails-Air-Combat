@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { clearInputHolds } from '../../src/input/holdState'
 import { createInputState } from '../../src/input/InputState'
 
-describe('input hold state', () => {
-  it('clears keyboard throttle, braking, and god-view movement together', () => {
+describe('按住類輸入的狀態', () => {
+  it('鍵盤油門、煞車與上帝視角移動一起清掉', () => {
     const state = createInputState()
     const hold = { up: true, down: true }
     state.braking = true

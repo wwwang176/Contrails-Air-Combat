@@ -4,7 +4,7 @@ import type { Team } from '../world/team'
 import type { AfterAction } from '../ui/scoreboard'
 import { shortName } from '../i18n/names'
 
-/** The report reads presentation data, without requiring a running battle world. */
+/** 戰報只讀呈現用的資料，不需要一個正在跑的戰鬥世界 */
 export interface AfterActionBattle {
   readonly cfg: { readonly units: readonly { readonly team: Team; readonly player?: boolean }[] }
   readonly player: { readonly hp: number; readonly aircraft: { readonly spec: AircraftSpec } }
@@ -17,7 +17,7 @@ export interface AfterActionMission {
   readonly battle: { readonly objectiveKey?: MessageKey }
 }
 
-/** Builds the final report once; the caller supplies the frozen battle duration. */
+/** 建一次結算戰報。戰鬥時長由呼叫端給凍結後的值 */
 export function buildAfterAction(
   battle: AfterActionBattle,
   seats: readonly { readonly hp: number }[],
@@ -25,7 +25,7 @@ export function buildAfterAction(
   mission: AfterActionMission | null,
   seconds: number,
 ): AfterAction {
-  // Count only blue flights. Red units may be interleaved in mission configs.
+  // 只數藍隊的編隊。任務設定裡紅隊單位可能夾在中間
   let blueFlight = 0
   let playerFlight = 1
   for (const unit of battle.cfg.units) {

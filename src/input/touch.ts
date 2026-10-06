@@ -17,7 +17,6 @@ const TOUCH_AIM_SENSITIVITY = 1.6
  */
 const PHONE_PORTRAIT = '(pointer: coarse) and (orientation: portrait) and (max-width: 600px)'
 
-/** 一根手指按下時抓到的東西。整段拖曳都算它，拖出範圍也不換 */
 export interface TouchControls {
   /** 交給 `bindings.tick` 的按住狀態 */
   readonly hold: TouchHold

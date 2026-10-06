@@ -4,10 +4,10 @@ import type { Team } from '../world/team'
 import type { AfterAction, Scoreboard } from '../ui/scoreboard'
 import { scoreRows, sortScoreRows } from '../ui/scoreboardRows'
 
-/** Rebuilding a full table is limited to four times a second while TAB is held. */
+/** 按住 TAB 時，整張表每秒最多重建四次 */
 const BOARD_PERIOD = 0.25
 
-/** Owns redraw timing for one reusable scoreboard, independently of DOM and simulation. */
+/** 管一張重複使用的計分板什麼時候重畫，與 DOM、模擬都無關 */
 export function createBattleScoreboard(
   scoreboard: Pick<Scoreboard, 'render' | 'setVisible'>,
   afterAction: (endedAt: number) => AfterAction,
@@ -32,8 +32,8 @@ export function createBattleScoreboard(
     const finished = outcome !== 'fighting'
     if (finished && battleEndedAt < 0) battleEndedAt = elapsed
     const showBoard = held || finished
-    // Build rows only when visible and due. Keep the final report unchanged so
-    // expanding/collapsing its details and selecting text survives later frames.
+    // 只在顯示中而且到時間了才建列。結算戰報畫過就不再動，
+    // 否則之後的幀會把展開／收合的細節與選取的文字洗掉
     if (showBoard && (finished ? !aarDrawn : elapsed >= boardNextDraw)) {
       scoreboard.render(
         sortScoreRows(scoreRows(roster, seats, 'blue')),
@@ -44,7 +44,7 @@ export function createBattleScoreboard(
       aarDrawn = finished
       boardNextDraw = elapsed + BOARD_PERIOD
     }
-    // Reopening TAB must render immediately, even within the previous interval.
+    // 重新按下 TAB 要立刻畫，即使還在上一個間隔內
     if (!showBoard) boardNextDraw = 0
     scoreboard.setVisible(showBoard)
   }

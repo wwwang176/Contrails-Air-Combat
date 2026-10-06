@@ -2,6 +2,7 @@ import type { InputState } from './InputState'
 import { endLook } from './actions'
 import type { TouchHold } from './holdState'
 
+/** 一根手指按下時抓到的東西。整段拖曳都算它，拖出範圍也不換 */
 export type GripKind = 'aim' | 'look' | 'fire' | 'up' | 'down' | 'score' | 'bomb' | 'view' | 'pause'
 
 export interface Grip {

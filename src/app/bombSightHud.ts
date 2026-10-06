@@ -39,7 +39,7 @@ interface BombSightPlayer {
   }
 }
 
-/** Projects the bomb sight and torpedo run into the reusable HUD frame buffers. */
+/** 把投彈瞄準器與魚雷航跡投影進重複使用的 HUD 幀緩衝 */
 export function updateBombSightHud(
   deps: BombSightHudDependencies,
   hudFrame: HudFrame,

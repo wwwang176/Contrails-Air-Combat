@@ -13,7 +13,13 @@ export function createAudioOutput(ctx: BaseAudioContext, input: GainNode) {
   fade.connect(ctx.destination)
   let limGain = 1
   let limPeak = 0
-  // 載入中或載入失敗時維持直通；processorerror 後也必須恢復直通。
+  /**
+   * 限幅器。**接上之前先直通** —— `addModule` 是非同步的，而且可能失敗。
+   *
+   * 【兩種失敗都要旁路】載入失敗不插節點；載好之後 `process()` 拋例外會觸發
+   * `processorerror`，那個節點從此永遠輸出靜音，而它在最後一道 —— 症狀是
+   * 整場突然全部沒聲音。
+   */
   let limiter: AudioWorkletNode | null = null
   void ctx.audioWorklet?.addModule(assetUrl('/audio/limiter.js')).then(() => {
     const node = new AudioWorkletNode(ctx, 'limiter')

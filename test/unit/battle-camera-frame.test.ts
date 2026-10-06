@@ -38,8 +38,8 @@ function fixture() {
   return { deps, output, input, aircraft, rig, world, position, quaternion, step }
 }
 
-describe('battle camera frame', () => {
-  it('writes interpolated attitude directly into the existing HUD output', () => {
+describe('戰鬥幀的鏡頭', () => {
+  it('內插後的姿態直接寫進既有的 HUD 輸出物件', () => {
     const f = fixture()
     const attitude = f.output.attitude
     f.quaternion.setFromAxisAngle(new Vector3(1, 0, 0), Math.PI / 6)
@@ -56,7 +56,7 @@ describe('battle camera frame', () => {
     expect(attitude.roll).toBeCloseTo(0)
   })
 
-  it('reuses the solved impact and clears stale targeting when the sight is disabled', () => {
+  it('重用解出的落點；瞄準器關掉時清掉過期的目標', () => {
     const f = fixture()
     f.input.viewMode = 'bomb'
     const mount = new Vector3(0, -2, 0)
@@ -74,7 +74,7 @@ describe('battle camera frame', () => {
     expect(f.output.bombTarget).toBeNull()
   })
 
-  it('uses frame time for free-camera movement while the simulation is paused', () => {
+  it('模擬暫停時，自由鏡頭照幀時間移動', () => {
     const f = fixture()
     f.deps.godCam.position.set(0, 1000, 0)
     f.input.godView = true
@@ -89,7 +89,7 @@ describe('battle camera frame', () => {
     expect(f.output.bombTarget).toBeNull()
   })
 
-  it('reports an unsolved sight without retaining the previous impact target', () => {
+  it('瞄準器解不出來時回報無解，不留著上一次的落點', () => {
     const f = fixture()
     f.input.viewMode = 'bomb'
     f.input.bombRelease = true

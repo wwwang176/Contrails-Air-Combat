@@ -70,7 +70,7 @@ const topOf = (): number => TOP
 /** 沒有主要目標 */
 const NONE: MarkerObjectives = { ship: () => false, ground: () => false, ref: { x: 0, y: 0, z: 0 } }
 
-describe('battle HUD marker frame', () => {
+describe('戰鬥幀的 HUD 標記', () => {
   function dependencies(): BattleHudMarkersDependencies {
     return {
       markerPools: [],
@@ -80,7 +80,7 @@ describe('battle HUD marker frame', () => {
     }
   }
 
-  it('switches ordnance pools between battles while reusing presentation buffers', () => {
+  it('換場時換成新一場的彈藥池，呈現用的緩衝照樣重用', () => {
     const deps = dependencies()
     const f = createHudFrame()
     const pools = deps.markerPools
@@ -119,7 +119,7 @@ describe('battle HUD marker frame', () => {
     expect(ref).not.toBe(position)
   })
 
-  it('includes ship and ground objectives and uses the current reference position', () => {
+  it('船與地面目標也列進來，距離從當下的參考位置算', () => {
     const deps = dependencies()
     deps.markerObjectives.ship = () => true
     deps.markerObjectives.ground = () => true
@@ -136,7 +136,7 @@ describe('battle HUD marker frame', () => {
     expect(f.markers[1]!.objective).toBe(true)
   })
 
-  it('advances hit feedback once by frame time, including zero-time frames', () => {
+  it('命中回饋每幀依幀時間推進一次，幀時間為 0 也一樣', () => {
     const deps = dependencies()
     const f = createHudFrame()
     const damageMarks = f.damageMarks

@@ -31,8 +31,8 @@ function fixture(count = 4) {
   return { world, visuals, player, hudFrame, camera, flights, renderPos, godPosition, fill }
 }
 
-describe('HUD contact feed', () => {
-  it('projects rendered positions and uses current formation membership', () => {
+describe('HUD 接觸目標的資料', () => {
+  it('投影的是渲染位置，編隊歸屬用當下的', () => {
     const f = fixture()
     expect(f.fill()).toBe(f.renderPos)
     expect(f.hudFrame.contactCount).toBe(3)
@@ -56,7 +56,7 @@ describe('HUD contact feed', () => {
     expect(f.hudFrame.contacts[1]!.flightAlive).toBe(1)
   })
 
-  it('includes the player in god view and uses the camera location for range and height', () => {
+  it('上帝視角把玩家也列進來，距離與高度差從鏡頭位置算', () => {
     const f = fixture()
     expect(f.fill(true)).toBe(f.godPosition)
     expect(f.hudFrame.contactCount).toBe(4)
@@ -70,7 +70,7 @@ describe('HUD contact feed', () => {
     expect(Number.isFinite(self.radius)).toBe(true)
   })
 
-  it('reuses the pool and clears lead validity for gunless aircraft and a new player', () => {
+  it('重用同一個池；沒有槍的機體與換了玩家時清掉提前量', () => {
     const f = fixture()
     const pool = f.hudFrame.contacts, first = pool[0]!
     f.fill()
@@ -87,7 +87,7 @@ describe('HUD contact feed', () => {
     expect(pool[2]!.leadValid).toBe(false)
   })
 
-  it('caps the pool and removes all contacts by count when the world empties', () => {
+  it('池有上限；世界清空時靠計數歸零移除全部接觸目標', () => {
     const f = fixture(HUD_MAX_CONTACTS + 5)
     f.fill(true)
     expect(f.hudFrame.contactCount).toBe(HUD_MAX_CONTACTS)

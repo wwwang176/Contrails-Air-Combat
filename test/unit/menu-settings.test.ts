@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createMenuSettings } from '../../src/ui/menuSettings'
 
-/** Only the DOM surface used by option rows; game rendering is not involved. */
+/** 只有選項列會用到的那一點 DOM 介面；不牽涉遊戲渲染 */
 class Element {
   children: Element[] = []
   hidden = true
@@ -43,8 +43,8 @@ function fixture() {
 
 afterEach(() => vi.unstubAllGlobals())
 
-describe('menu settings transaction', () => {
-  it('does not apply drafts and restores applied values when reopened after cancellation', () => {
+describe('設定頁的確定才套用', () => {
+  it('草稿不套用；取消後再打開，顯示的是已套用的值', () => {
     const f = fixture()
     f.view.renderQuality(0.75)
     f.view.renderVolume(null)
@@ -61,7 +61,7 @@ describe('menu settings transaction', () => {
     expect(f.settings.hidden).toBe(true)
   })
 
-  it('waits for reload confirmation and applies other settings before reloading', () => {
+  it('等重載確認之後，先套用其他設定再重載', () => {
     const f = fixture()
     f.view.openSettings()
     f.rows.quality.children[4]!.click()
@@ -81,7 +81,7 @@ describe('menu settings transaction', () => {
     expect(f.reload.hidden).toBe(true)
   })
 
-  it('declining reload reverts only antialias; language changes after the settings close', () => {
+  it('拒絕重載只退回反鋸齒；語言在設定頁關掉之後才換', () => {
     const f = fixture()
     f.view.openSettings()
     f.rows.quality.children[3]!.click()

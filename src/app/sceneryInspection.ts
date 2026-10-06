@@ -23,7 +23,7 @@ interface SceneryInspectionDependencies {
   readonly fog: { readonly a: { w: number } }
 }
 
-/** External scene probes read live scenery only when invoked, including after a battle switch. */
+/** 外部的場景探針只在被呼叫時才讀當下的場景，換了一場戰鬥之後也一樣 */
 export function createSceneryInspection({
   groundTargets, battleScenery, visuals, cameraPosition, fog,
 }: SceneryInspectionDependencies) {

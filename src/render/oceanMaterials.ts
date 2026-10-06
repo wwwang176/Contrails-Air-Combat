@@ -30,7 +30,7 @@ import {
   FACE_TABLE_FRAGMENT, FACE_TABLE_VERTEX, FACE_FRAGMENT_TABLE, sparkleFragment,
 } from './oceanShaders'
 
-/** Owns the near/far material pair, shared uniforms and optional face lookup resources. */
+/** 管近景／遠景這一對材質、共用的 uniform，以及可選的面查表資源 */
 export function createOceanMaterials(shore: ShoreFieldData | null, useTable: boolean) {
   const material = new MeshPhysicalMaterial({
     color: SEA_COLOR,
@@ -326,7 +326,7 @@ ${SPARKLE_COMMON}${displace ? '\n  attribute float oceanCell;' : ''}`,
     dispose(): void {
       material.dispose()
       farMaterial.dispose()
-      // Textures and render targets are not disposed by Material.dispose().
+      // 【貼圖要自己收】material.dispose() 不會去收 uniform 裡的貼圖
       shoreTexture.dispose()
       tableTarget?.dispose()
       tableMaterial?.dispose()

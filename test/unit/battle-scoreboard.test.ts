@@ -23,8 +23,8 @@ function fixture() {
   return { view, afterAction, board, roster }
 }
 
-describe('battle scoreboard redraw scheduling', () => {
-  it('does not build rows or reports while hidden', () => {
+describe('計分板的重畫時機', () => {
+  it('隱藏時不建列、也不建戰報', () => {
     const f = fixture()
     f.board.update(UNREAD_ROSTER, SEATS, 'fighting', false, 10)
     expect(f.view.render).not.toHaveBeenCalled()
@@ -32,7 +32,7 @@ describe('battle scoreboard redraw scheduling', () => {
     expect(f.view.setVisible).toHaveBeenCalledWith(false)
   })
 
-  it('limits live redraws to 0.25 seconds and renders immediately when reopened', () => {
+  it('戰鬥中每 0.25 秒最多重畫一次，重新打開時立刻畫', () => {
     const f = fixture()
     f.board.update(f.roster, SEATS, 'fighting', true, 10)
     expect(f.view.render).toHaveBeenCalledTimes(1)
@@ -47,7 +47,7 @@ describe('battle scoreboard redraw scheduling', () => {
     expect(f.view.render.mock.calls[2]!.slice(2)).toEqual([null, null])
   })
 
-  it('builds sorted team snapshots without sorting the source roster', () => {
+  it('各隊排好序的快照另外建，不去排原本的名冊', () => {
     const f = fixture()
     f.roster.pilots[1]!.kills = 3
     f.board.update(f.roster, SEATS, 'fighting', true, 10)
@@ -59,7 +59,7 @@ describe('battle scoreboard redraw scheduling', () => {
     expect(blue[0]!.kills).toBe(3)
   })
 
-  it.each(['victory', 'defeat'] as const)('renders %s immediately and only once', (outcome) => {
+  it.each(['victory', 'defeat'] as const)('%s 立刻畫，而且只畫一次', (outcome) => {
     const f = fixture()
     f.board.update(f.roster, SEATS, 'fighting', true, 10)
     f.board.update(f.roster, SEATS, outcome, false, 10.1)
@@ -75,7 +75,7 @@ describe('battle scoreboard redraw scheduling', () => {
     expect(f.view.setVisible).toHaveBeenLastCalledWith(true)
   })
 
-  it('resets final-report and throttle state when starting another battle', () => {
+  it('開下一場時重設結算戰報與節流的狀態', () => {
     const f = fixture()
     f.board.update(f.roster, SEATS, 'victory', false, 20)
     f.board.reset()
@@ -87,7 +87,7 @@ describe('battle scoreboard redraw scheduling', () => {
     expect(f.afterAction).toHaveBeenLastCalledWith(20.02)
   })
 
-  it('retains the first finish time if rendering fails and is retried', () => {
+  it('畫失敗後重試，結束時間仍是第一次記下的', () => {
     const f = fixture()
     f.view.render.mockImplementationOnce(() => { throw new Error('render failed') })
     expect(() => f.board.update(f.roster, SEATS, 'victory', false, 10)).toThrow('render failed')
@@ -98,12 +98,12 @@ describe('battle scoreboard redraw scheduling', () => {
   })
 })
 
-describe('battle scoreboard wiring', () => {
+describe('計分板的接線', () => {
   const file = ts.createSourceFile('main.ts', readFileSync('src/main.ts', 'utf8'), ts.ScriptTarget.Latest, true)
   it.each([
     ['startWorld', 'battleScoreboard.reset'],
     ['stepAndDrawBattle', 'battleScoreboard.update'],
-  ])('%s calls %s once outside conditional branches', (fnName, callName) => {
+  ])('%s 在條件分支外呼叫 %s 一次', (fnName, callName) => {
     const fn = file.statements.find((node): node is ts.FunctionDeclaration =>
       ts.isFunctionDeclaration(node) && node.name?.text === fnName)
     expect(fn?.body).toBeDefined()

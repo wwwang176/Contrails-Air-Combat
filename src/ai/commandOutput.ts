@@ -66,7 +66,9 @@ export function resetCommandOutputTerrain(state: CommandOutputState, selfIndex: 
   resetSense(state.sense)
   state.tacticalPhase = 'off'
   state.controlOverride = 'off'
-  // 下一次輸出立即採樣，之後繼續沿用座位相位的感知節拍。
+  // 【連採樣節拍一起重設】只清 sense 的話，新場最多要等 11 個物理步才會
+  // 第一次感知，那段時間 AI 是用 floor = 0 在飛。負的起點讓
+  // (senseTick + 感知相位) 在下一次輸出就命中 0
   state.senseTick = -(selfIndex % SENSE_INTERVAL)
   state.recoveryClock = 0
   state.groundCapture.active = false
@@ -123,6 +125,11 @@ export function emitAiCommand(
   let floor = ctx.seaHeight
   let sense: TerrainSense | undefined
   if (ctx.terrain !== null) {
+    // 【感知相位 `selfIndex % SENSE_INTERVAL` 由座位決定，不是由建立順序】沒有錯開
+    // 的話 40 架會在同一個物理步一起算，做出週期性的尖峰，而那會直接打在
+    // frame-time 量的 1% low 上。不用全域遞增的計數器：那樣相位會取決於這個
+    // process 先前建過幾架 AI —— 重開、接手次數不同就會改變之後每一架的相位，
+    // 仍然是決定性的，但同一個座位在不同場次會拿到不同的相位，難以重現。
     if ((state.senseTick++ + (ctx.selfIndex % SENSE_INTERVAL)) % SENSE_INTERVAL === 0) {
       senseTerrain(self, ctx.terrain, state.sense)
     }

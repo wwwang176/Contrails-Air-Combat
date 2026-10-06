@@ -2,7 +2,7 @@ import type { Showcase } from './showcase'
 import type { SceneContext } from '../render/scene'
 import type { Terrain } from '../render/terrain'
 
-/** Renders one hangar frame and keeps hangar-only wiring together. */
+/** 渲染一幀機庫畫面；只有機庫用到的接線集中在這裡 */
 export function renderHangarFrame(
   frameSeconds: number,
   elapsed: number,

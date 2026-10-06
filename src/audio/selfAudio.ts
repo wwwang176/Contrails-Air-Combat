@@ -20,7 +20,7 @@ interface SelfVoice {
   gain: number
 }
 
-/** Owns the four player loops and their file transitions; channels are created once. */
+/** 管理玩家的四條循環音與它們的檔案切換；聲道只建一次 */
 export function createSelfAudio(
   listener: AudioListener,
   buffers: ReadonlyMap<string, AudioBuffer>,

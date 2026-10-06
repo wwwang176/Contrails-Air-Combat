@@ -30,7 +30,7 @@ export interface BattleFlightHudDependencies {
 
 type Aircraft = Combatant['aircraft']
 
-/** Writes flight telemetry and control state into the already allocated HUD frame. */
+/** 把飛行數據與操控狀態寫進已經配置好的 HUD 幀 */
 export function updateBattleFlightHud(
   deps: BattleFlightHudDependencies,
   hudFrame: HudFrame,

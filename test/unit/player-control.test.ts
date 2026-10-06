@@ -30,8 +30,8 @@ function setup() {
   return { world, player, input, deps, control, battle, step }
 }
 
-describe('player control transitions', () => {
-  it('enters god view with immediate AI handoff and restores manual control on exit', () => {
+describe('玩家操控的切換', () => {
+  it('進上帝視角立刻交給 AI，離開時還給手動操控', () => {
     const { player, input, deps, step } = setup()
     const resetTrack = vi.spyOn(player.aircraft.director, 'resetTrack')
     input.godView = true
@@ -56,7 +56,7 @@ describe('player control transitions', () => {
     expect(resetTrack).toHaveBeenCalledTimes(1)
   })
 
-  it('clears death effects only on entry and preserves god-camera input while dying', () => {
+  it('死亡效果只在剛死時清一次；死亡中照樣吃上帝鏡頭的輸入', () => {
     const { player, input, deps, control, battle, step } = setup()
     battle.takeoverSeat = 1
     input.godView = true
@@ -86,7 +86,7 @@ describe('player control transitions', () => {
     expect(player.controller).toBe(deps.playerAi)
   })
 
-  it('applies assistance after manual slew and releases its target in bomb or AI mode', () => {
+  it('手動轉動準星之後才套瞄準輔助；投彈視角或 AI 飛時放掉輔助目標', () => {
     const { player, world, input, deps, step } = setup()
     input.aimDeltaX = 0.1
     const initial = input.aimWorld.clone()
@@ -105,7 +105,7 @@ describe('player control transitions', () => {
     expect(deps.aimAssist.reset).toHaveBeenCalledTimes(2)
   })
 
-  it('clears held controls and blend state between battles without a stale exit edge', () => {
+  it('換場時清掉按住的操控與過渡狀態，不留下過期的離開邊緣', () => {
     const { input, deps, control, step } = setup()
     input.godView = true
     step()

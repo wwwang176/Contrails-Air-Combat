@@ -11,7 +11,7 @@ const CAMPAIGN_BLURB: Record<Campaign, { readonly lineKey: MessageKey }> = {
   japan: { lineKey: 'campaign.japan.blurb' },
 }
 
-/** Owns campaign selection, remembered mission selection and briefing actions. */
+/** 管戰役選擇、記住的關卡選擇與任務簡報上的動作 */
 export function createMenuCampaign(
   el: { campaignCards: HTMLElement; campName: HTMLElement; missionTrail: HTMLElement; route: HTMLElement; brief: HTMLElement },
   hooks: { onEvent(event: 'mission' | 'fight'): void; onMission(card: ReadyMissionCard): void },

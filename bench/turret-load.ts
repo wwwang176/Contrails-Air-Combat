@@ -13,7 +13,7 @@ export const LOAD_DT = 1 / 240
 
 export interface TurretLoadState {
   battle: Battle
-  /** Synthetic load poses, restored before each step so coverage cannot drift. */
+  /** 合成負載的擺位。每步之前還原，射界覆蓋才不會漂掉 */
   readonly poses: readonly FlightState[]
   /**
    * 這一份是不是「包圍」擺位。
@@ -138,7 +138,7 @@ function capturePoses(state: TurretLoadState): void {
   const cs = state.battle.world.combatants
   for (let i = 0; i < cs.length; i++) {
     const flight = cs[i]!.aircraft.state, pose = state.poses[i]!
-    // Equal velocities keep every tail turret's intercept inside its arc.
+    // 速度全部相同，每一座尾砲塔的截擊點才會留在射界內
     if (state.surrounded) flight.velocity.set(0, 0, -120)
     pose.position.copy(flight.position)
     pose.velocity.copy(flight.velocity)
@@ -169,8 +169,8 @@ function fill(state: TurretLoadState): void {
 }
 
 export function stepTurretLoad(state: TurretLoadState): void {
-  // Fixture maintenance is included in the measurement, equally for search/track.
-  // AI, physics, target search and projectile simulation still run normally.
+  // 還原擺位的成本計入量測，搜尋與追瞄兩份一樣。
+  // AI、物理、目標搜尋與彈丸模擬照常執行
   const cs = state.battle.world.combatants
   for (let i = 0; i < cs.length; i++) {
     const flight = cs[i]!.aircraft.state, pose = state.poses[i]!

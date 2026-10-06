@@ -59,7 +59,7 @@ const TIMES: readonly OptItem<TimeOfDay>[] = [
     sil: '<svg width="56" height="26"><rect y="18" width="56" height="8" fill="#1c252c"/><rect width="56" height="18" fill="#3a444d"/><path d="M8 7q4-5 10-2q5-4 11 0q6-2 8 3z" fill="#262e35"/><path d="M30 8l-4 6h4l-3 6" stroke="#f2ecc8" stroke-width="1.5" fill="none"/><path d="M12 11l-2 6M18 11l-2 6M44 9l-2 6M50 9l-2 6" stroke="#7b8894"/></svg>' },
 ]
 
-/** Owns formation editing and its aircraft picker; the caller applies each proposed setup. */
+/** 管編隊編輯與選機視窗；每一次提出的設定由呼叫端套用 */
 export function createMenuSkirmish(
   el: { presets: HTMLElement; mine: HTMLElement; foe: HTMLElement; versus: HTMLElement;
     terrain: HTMLElement; alt: HTMLElement; tod: HTMLElement; go: HTMLButtonElement },

@@ -1,6 +1,6 @@
 import { resetTurretLoad, stepTurretLoad, type TurretLoadState } from './turret-load'
 
-/** Count only live shooters with live airborne targets. Called outside timing. */
+/** 只算活著、而且目標也活著在空中的射手。在計時之外呼叫 */
 export function turretCoverage(state: TurretLoadState): { total: number; targeted: number } {
   const cs = state.battle.world.combatants
   let total = 0, targeted = 0
@@ -15,12 +15,12 @@ export function turretCoverage(state: TurretLoadState): { total: number; targete
   return { total, targeted }
 }
 
-/** Both the regression gate and standalone probe measure this same workload. */
+/** 迴歸門檻與獨立探針量的都是這同一份負載 */
 export function measureTurretLoad(make: () => TurretLoadState) {
   const state = make()
   for (let i = 0; i < 300; i++) stepTurretLoad(state)
   resetTurretLoad(state)
-  // Reset clears acquisition. Warm the reset fixture before starting the clock.
+  // 重置會清掉目標鎖定。開始計時前先把重置後的負載暖機
   for (let i = 0; i < 300; i++) stepTurretLoad(state)
   const expected = state.surrounded ? 160 : 0
   const checkCoverage = () => {

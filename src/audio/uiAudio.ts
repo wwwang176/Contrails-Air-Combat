@@ -3,7 +3,10 @@ import { dbToGain } from './curves'
 import { MIX_HEADROOM_DB } from './volume'
 
 /**
- * 選單按鈕使用獨立 context，不受戰場的暫停、慢動作或聲道配額影響。
+ * 選單按鈕專用的 context。**不能與世界共用** —— 暫停時主 context 整個
+ * suspend（連排程中的聲音一起凍住，那是刻意的），而暫停選單上那幾顆按鈕
+ * 是當下唯一按得到的東西。也不受慢動作與聲道配額影響。
+ *
  * 解碼後的 AudioBuffer 不綁 context，直接共用素材載入器的緩衝。
  */
 export function createUiAudio(
@@ -21,7 +24,8 @@ export function createUiAudio(
   function play(file: string, extraDb = 0): void {
     const buf = buffers.get(file)
     if (buf === undefined) return
-    // 第一次有素材可播才建立 context，避免無聲時仍佔用音訊硬體。
+    // 【第一次要用才建】一載入就建的話，瀏覽器會記一個沒有手勢就開的 context
+    // 並在主控台留警告。
     if (uiCtx === null) {
       uiCtx = new AudioContext()
       uiGain = uiCtx.createGain()

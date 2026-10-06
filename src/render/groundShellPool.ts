@@ -25,7 +25,7 @@ function createShellPool(capacity: number): ShellPool {
   }
 }
 
-/** Fixed-capacity visual projectiles; target selection and rendering remain with the caller. */
+/** 固定容量的視覺彈丸。選目標與畫出來都是呼叫端的事 */
 export function createGroundShellPool(
   capacity: number, small: boolean,
   flash: Pick<Particles, 'emit'>, dust: Pick<Particles, 'emit'>,
@@ -95,7 +95,7 @@ export function createGroundShellPool(
     get hitShots() { return hitShots },
     reset(): void {
       pool.owner.fill(-1)
-      // Keep the ring cursor, as before; reset only removes live shots and counters.
+      // 環狀游標不歸零；重置只清掉飛行中的彈丸與計數
       shots = 0
       hitShots = 0
     },

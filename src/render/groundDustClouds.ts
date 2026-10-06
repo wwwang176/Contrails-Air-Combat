@@ -58,7 +58,7 @@ function dustCloudColor(_t: number, out: Color): void {
   out.setRGB(BATTLE_FOG.b.x * DUST_CLOUD_SHADE, BATTLE_FOG.b.y * DUST_CLOUD_SHADE, BATTLE_FOG.b.z * DUST_CLOUD_SHADE)
 }
 
-/** Owns ambient dust emission, warm-up and particle resource lifetime. */
+/** 塵團池：到點放出、開場預熱、重置與回收。`dusts` 為空時不建池，`object` 為 null */
 export function createGroundDustClouds(
   dusts: readonly { readonly x: number; readonly z: number }[], smokeTexture?: Texture,
 ) {

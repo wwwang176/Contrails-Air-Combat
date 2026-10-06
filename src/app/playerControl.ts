@@ -29,7 +29,7 @@ interface PlayerControlDependencies {
   damageMarks: DamageMark[]
 }
 
-/** Bind shared controls once; battle and player are supplied afresh after takeover. */
+/** 共用的操控只綁一次；戰鬥與玩家在接手之後重新傳入 */
 export function createPlayerControl({
   input, bindings, camera, rig, playerAi, playerController, aimAssist,
   visuals, godCam, godBlend, godInput, damageMarks,

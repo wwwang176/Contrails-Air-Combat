@@ -24,8 +24,8 @@ const target = (id: Target['unit']['id'], team: Target['team'] = 'red'): Target 
   unit: { id }, team, hp: 100, alive: true,
 })
 
-describe('scenery inspection', () => {
-  it('does not read an uninitialised world when installing probes or when scenery is absent', () => {
+describe('場景探針', () => {
+  it('裝探針時、或場景不存在時，不去讀還沒初始化的世界', () => {
     const f = fixture()
     expect(f.groundTargets).not.toHaveBeenCalled()
     expect(f.probes.__hideGround()).toEqual({ hidden: 0, kinds: [] })
@@ -37,7 +37,7 @@ describe('scenery inspection', () => {
     expect(f.fog.a.w).toBe(0)
   })
 
-  it('hides descendants by unit kind and follows replacement models and target lists', () => {
+  it('依單位種類隱藏整棵子物件；模型與目標清單換掉後跟著換', () => {
     const f = fixture(), object = new Group(), tank = new Group(), child = new Object3D(), gun = new Group()
     tank.add(child); object.add(tank, gun)
     f.battleScenery.groundModels = { object, lodState: () => ({ withLod: 0, far: 0 }) }
@@ -57,7 +57,7 @@ describe('scenery inspection', () => {
     expect(tank.layers.mask).toBe(1)
   })
 
-  it('reports live LOD state and camera distance, excluding aircraft without LOD', () => {
+  it('回報當下的 LOD 狀態與鏡頭距離，沒有 LOD 的飛機不算', () => {
     const f = fixture()
     f.visuals.set(0, { lod: null, far: false, position: new Vector3() })
     f.visuals.set(1, { lod: {}, far: true, position: new Vector3(0, 0, 100) })
@@ -67,7 +67,7 @@ describe('scenery inspection', () => {
     expect(f.probes.__lod().nearest).toBe(Infinity)
   })
 
-  it('switches fog and dust visibility and returns detached mortar landing snapshots', () => {
+  it('切換霧與塵團的顯示；迫擊砲落點回傳脫鉤的快照', () => {
     const f = fixture(), dust = new Object3D()
     dust.name = 'groundBattle.dustClouds'
     const landing = { x: 1, y: 2, z: 3 }
@@ -87,7 +87,7 @@ describe('scenery inspection', () => {
     expect(f.probes.__dustClouds()).toBeNull()
   })
 
-  it('wrecks only the requested number of living red units in the current world', () => {
+  it('只擊毀當下世界裡指定數量的活著的紅隊單位', () => {
     const f = fixture(), red = [target('tank'), target('tank')], blue = target('tank', 'blue')
     f.setTargets([...red, blue, target('atGun')])
     expect(f.probes.__wreckGround('tank', 1)).toBe(1)

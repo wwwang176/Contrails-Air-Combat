@@ -6,8 +6,8 @@ import { P51D } from '../../src/specs/p51d'
 import { turretPivot } from '../../src/weapons/turret'
 import { SHIP_AA_ZONES } from '../../src/world/shipAA'
 
-describe('hangar weapon geometry', () => {
-  it('places aircraft arcs at each actual turret pivot with finite, bounded geometry', () => {
+describe('機庫的武器幾何', () => {
+  it('飛機的射界弧放在每一座砲塔真正的轉軸上，幾何有限而且有界', () => {
     const group = buildArcs({ turrets: B17G.turrets })
     expect(group.children).toHaveLength(B17G.turrets.length)
     const pivot = new Vector3()
@@ -25,7 +25,7 @@ describe('hangar weapon geometry', () => {
     disposeBarrels(group)
   })
 
-  it('creates no barrel resources for an aircraft without turrets and releases shared resources once', () => {
+  it('沒有砲塔的飛機不建砲管；共用的資源只釋放一次', () => {
     expect(buildBarrels({ turrets: P51D.turrets }).children).toHaveLength(0)
     const group = buildBarrels({ turrets: B17G.turrets })
     expect(group.children).toHaveLength(B17G.turrets.reduce((n, t) => n + t.guns, 0))
@@ -38,7 +38,7 @@ describe('hangar weapon geometry', () => {
     for (const spy of disposed) expect(spy).toHaveBeenCalledOnce()
   })
 
-  it('uses the ship gun-zone positions and safely handles unknown ships', () => {
+  it('船用砲區的位置；不認得的船回空的群組', () => {
     expect(buildShipArcs('unknown').children).toHaveLength(0)
     for (const id of ['essex', 'fletcher', 'wichita', 'lst']) {
       const group = buildShipArcs(id)

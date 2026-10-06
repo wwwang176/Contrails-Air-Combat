@@ -21,8 +21,8 @@ function fixture() {
   return { frame, playPool, feed, battle, card, setLanguage(value: string) { language = value } }
 }
 
-describe('mission HUD feed', () => {
-  it('plays radio only on new banner/message keys and clears their ages when absent', () => {
+describe('任務 HUD 的資料', () => {
+  it('橫幅／訊息換了新的鍵才播無線電；沒有時把經過時間清成 -1', () => {
     const f = fixture()
     f.battle.message = MESSAGE
     f.feed.fillMissionHud(f.battle, 'mission', f.card, 10)
@@ -42,7 +42,7 @@ describe('mission HUD feed', () => {
     expect(f.playPool).toHaveBeenCalledTimes(2)
   })
 
-  it('translates existing text after a language change without replaying radio or restarting its clock', () => {
+  it('換語言後重譯現有文字，不重播無線電、也不重新計時', () => {
     const f = fixture()
     f.battle.message = MESSAGE
     f.feed.fillMissionHud(f.battle, 'mission', f.card, 10)
@@ -57,7 +57,7 @@ describe('mission HUD feed', () => {
     expect(f.playPool).toHaveBeenCalledTimes(2)
   })
 
-  it('uses the current objective and restarts the same banner on a new battle', () => {
+  it('用當下的目標；新的一場即使橫幅相同也重新播', () => {
     const f = fixture()
     f.feed.fillMissionHud(f.battle, 'mission', f.card, 10)
     f.battle.objectiveKey = OBJECTIVE
@@ -70,7 +70,7 @@ describe('mission HUD feed', () => {
     expect(f.playPool).toHaveBeenCalledTimes(3)
   })
 
-  it('reads the current mission state and convoy threshold without changing them', () => {
+  it('讀當下的任務狀態與船團門檻，不改動它們', () => {
     const f = fixture()
     f.battle.rules = { kind: 'convoy', owner: 'blue', point: f.battle.mission.target, radius: 20, need: 4 }
     Object.assign(f.battle.mission, { metric: 300, metricTotal: 7, arrived: 2, remaining: 5, secondsLeft: 40 })

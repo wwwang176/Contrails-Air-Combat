@@ -6,14 +6,14 @@ const AIM_B = new Vector3()
 const DUTCH_F = new Vector3()
 const DUTCH_R = new Vector3()
 
-/** Blends two look directions from the same camera position without allocating. */
+/** 從同一個鏡頭位置混合兩個注視方向，不配置記憶體 */
 export function aimBetween(from: Vector3, a: Vector3, b: Vector3, weight: number, out: Vector3): Vector3 {
   AIM_A.subVectors(a, from).normalize().multiplyScalar(100 * (1 - weight))
   AIM_B.subVectors(b, from).normalize().multiplyScalar(100 * weight)
   return out.copy(from).add(AIM_A).add(AIM_B)
 }
 
-/** Applies the shared short impact shake envelope. */
+/** 疊上共用的短促衝擊震動包絡 */
 export function jolt(t: number, t0: number, amp: number, out: Vector3): Vector3 {
   const u = t - t0
   if (u < 0 || u > 0.6) return out
@@ -23,7 +23,7 @@ export function jolt(t: number, t0: number, amp: number, out: Vector3): Vector3 
   return out
 }
 
-/** Rolls a reel camera around its current viewing direction. */
+/** 讓短片鏡頭繞目前的視線方向滾轉 */
 export function dutch(out: ReelCamera, degrees: number): void {
   DUTCH_F.subVectors(out.target, out.position).normalize()
   DUTCH_R.crossVectors(DUTCH_F, out.up).normalize()

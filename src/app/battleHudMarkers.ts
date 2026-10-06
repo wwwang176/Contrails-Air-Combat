@@ -20,13 +20,13 @@ export interface BattleHudMarkersDependencies {
   readonly shipMarkerTop: ShipMarkerTop
 }
 
-/** Only the presentation data is required; simulation methods stay in World. */
+/** 只需要呈現用的資料，模擬方法留在 `World` */
 export type BattleHudMarkerWorld = Pick<World, 'ships' | 'groundTargets'> & {
   readonly bombs: MarkerPool
   readonly torpedoes: MarkerPool
 }
 
-/** Updates contacts-adjacent markers and frame-scoped hit feedback. */
+/** 更新接觸目標以外的標記（彈藥、船、地面目標），並依幀時間推進命中回饋 */
 export function updateBattleHudMarkers(
   deps: BattleHudMarkersDependencies,
   hudFrame: HudFrame,

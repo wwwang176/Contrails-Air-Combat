@@ -4,7 +4,7 @@ import { shortName } from '../i18n/names'
 import { escapeHtml } from './menuOptions'
 import { campaignLabel, fullName, HANGAR_SPECS, roleWord, silBadge } from './menuAircraft'
 
-/** Owns the selected dossier; translating its text does not rebuild the 3D showcase. */
+/** 管目前選中的機體檔案；換語言只重寫文字，不重建 3D 展示 */
 export function createMenuHangar(
   el: { rack: HTMLElement; sheet: HTMLElement },
   hooks: { onAircraft(spec: AircraftSpec): void },

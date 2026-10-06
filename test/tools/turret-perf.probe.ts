@@ -3,9 +3,9 @@
  *
  *   npx vite-node test/tools/turret-perf.probe.ts
  *
- * vite-node uses SSR transforms; compare timings only within the same runner.
- * Search/track totals include restoring synthetic poses. The difference from
- * multi-load is not an isolated measurement of turret code.
+ * vite-node 走 SSR 轉譯，計時只能在同一個執行器裡互相比較。
+ * 搜尋／追瞄的總時間含還原合成擺位的成本，與 `multi-load` 的差不是
+ * 砲塔程式碼單獨的量測。
  *
  * 三份負載的架數與彈丸池相同，紅隊的機種與擺位不同；搜尋、追瞄負載另含
  * 固定相對姿態的成本，因此相減僅供比較整份負載：

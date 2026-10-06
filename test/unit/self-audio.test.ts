@@ -34,8 +34,8 @@ function fixture() {
   return { audio, ctx, buffers, makeup, playback, filter, lowpass }
 }
 
-describe('player loop audio', () => {
-  it('creates four reusable loops and filters only wind; missing buffers stay silent', () => {
+describe('玩家的循環音', () => {
+  it('建四條重複使用的循環，只有風聲加濾波；缺檔時保持無聲', () => {
     const f = fixture()
     expect(channels).toHaveLength(4)
     expect(channels.every(c => c.setLoop.mock.calls[0]?.[0] === true)).toBe(true)
@@ -55,7 +55,7 @@ describe('player loop audio', () => {
     expect(f.lowpass).toHaveBeenCalledOnce()
   })
 
-  it('uses each category and current makeup, time scale and wind cutoff without restarting', () => {
+  it('各用自己的類別，套當下的補償增益、時間倍率與風聲截止頻率，不重新起播', () => {
     const f = fixture()
     const slots = ['engine', 'wind', 'warn', 'siren'] as const
     const categories = ['engineSelf', 'wind', 'warn', 'sirenSelf'] as const
@@ -77,7 +77,7 @@ describe('player loop audio', () => {
     expect(channels.every(c => c.play.mock.calls.length === 1)).toBe(true)
   })
 
-  it('fades the old file before switching and never plays both at once', () => {
+  it('換檔前先淡出舊檔，兩個檔永遠不同時播', () => {
     const f = fixture()
     const c = channels[0]!
     f.audio.selfLoop('engine', 'a', 1, 0)
@@ -97,7 +97,7 @@ describe('player loop audio', () => {
     expect(c.gain.gain.setTargetAtTime).toHaveBeenLastCalledWith(dbToGain(CATEGORY.engineSelf.gainDb), 1.1, 0.05)
   })
 
-  it('cancels a pending switch when the original file is requested again', () => {
+  it('等待切換中又要回正在播的檔，就取消切換', () => {
     const f = fixture()
     f.audio.selfLoop('engine', 'a', 1, 0)
     f.ctx.currentTime = 1
@@ -111,7 +111,7 @@ describe('player loop audio', () => {
     expect(channels[0]!.setBuffer).toHaveBeenCalledOnce()
   })
 
-  it('replaces a pending file without extending the fade or playing the stale target', () => {
+  it('等待中的檔被換掉時，淡出不延長，也不播過期的那一個', () => {
     const f = fixture()
     f.audio.selfLoop('engine', 'a', 1, 0)
     f.ctx.currentTime = 1
@@ -123,7 +123,7 @@ describe('player loop audio', () => {
     expect(channels[0]!.setBuffer.mock.calls).toEqual([[f.buffers.get('a')], [f.buffers.get('c')]])
   })
 
-  it.each(['null', 'missing', 'muted'] as const)('fades to silence for %s and can restart', kind => {
+  it.each(['null', 'missing', 'muted'] as const)('%s 時淡出到無聲，之後還能再起播', kind => {
     const f = fixture()
     f.audio.selfLoop('engine', 'a', 1, 0)
     f.ctx.currentTime = 1
@@ -141,7 +141,7 @@ describe('player loop audio', () => {
     expect(channels[0]!.play).toHaveBeenCalledTimes(2)
   })
 
-  it('stops all four channels immediately and clears transitions before the next battle', () => {
+  it('四個聲道立刻全停，下一場之前清掉切換中的狀態', () => {
     const f = fixture()
     for (const slot of ['engine', 'wind', 'warn', 'siren'] as const) {
       f.audio.selfLoop(slot, 'a', 1, 0)

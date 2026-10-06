@@ -22,8 +22,8 @@ function fixture() {
   return { ctx, input, fade, limiter, construct, create, resolve, reject }
 }
 
-describe('world audio output', () => {
-  it('keeps sound connected while loading, then inserts the limiter after the fade', async () => {
+describe('世界音訊的輸出端', () => {
+  it('載入中聲音照樣接通，載完才把限幅器接在淡入之後', async () => {
     const f = fixture()
     const output = f.create()
     expect(f.input.disconnect).toHaveBeenCalledOnce()
@@ -55,7 +55,7 @@ describe('world audio output', () => {
     expect(f.limiter.disconnect).toHaveBeenCalledOnce()
   })
 
-  it('restores direct output after a processor failure', async () => {
+  it('處理器出錯後改回直接輸出', async () => {
     const f = fixture()
     const output = f.create()
     f.resolve()
@@ -68,7 +68,7 @@ describe('world audio output', () => {
     expect(f.limiter.port.postMessage).not.toHaveBeenCalled()
   })
 
-  it('retains direct output when the worklet fails to load or is unavailable', async () => {
+  it('worklet 載入失敗或不支援時維持直接輸出', async () => {
     const f = fixture()
     const output = f.create()
     f.reject(new Error('unavailable'))
@@ -82,7 +82,7 @@ describe('world audio output', () => {
     expect(() => createAudioOutput(ctx as unknown as BaseAudioContext, f.input as unknown as GainNode)).not.toThrow()
   })
 
-  it('replaces the fade schedule using a reused curve and fails open if scheduling throws', () => {
+  it('淡入排程用同一條曲線覆蓋前一次；排程丟例外時直接放到全音量', () => {
     const f = fixture()
     const { fadeIn } = f.create()
     fadeIn(0.8)

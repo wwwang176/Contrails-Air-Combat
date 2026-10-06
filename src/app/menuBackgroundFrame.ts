@@ -37,7 +37,7 @@ export interface MenuBackgroundFrameDeps {
   readonly playThunder: (distance: number, bearing: number) => void
 }
 
-/** Advances and renders one menu-reel frame without involving battle state. */
+/** 推進並渲染一幀主選單背景短片，不碰戰鬥狀態 */
 export function createMenuBackgroundFrame(deps: MenuBackgroundFrameDeps) {
   const {
     ctx, menuReel, getTerrain, getTerrainKind, sceneWeather, stepEffects, spray, vortex, reelTrackDust,
@@ -50,12 +50,17 @@ export function createMenuBackgroundFrame(deps: MenuBackgroundFrameDeps) {
     // 短片可能在 update 裡換場；此時才讀取，不能保留已釋放的地形。
     const terrain = getTerrain()
     const terrainKind = getTerrainKind()
+    // 【定格時特效也停】只停短片的話，殘骸與煙照樣往下掉、往外散，截到的不是那一秒
+    // 【慢動作時特效也慢】短片變速時，煙、火、曳光照畫面秒數散開的話，只有飛機在慢
     const fx = menuReel.hold ? 0 : frameSeconds * menuReel.rate
     stepEffects(fx, elapsed, terrain, elapsed)
     spray.step(fx)
     vortex.step(fx)
     reelTrackDust.step(fx)
+    // 短片地上的煙囪與冷卻塔冒白煙（炸毀的就停）
     steamEmission.emitPlantSteam(fx, menuReel.props, terrainKind)
+    // 短片投下的炸彈點的地面火、魚雷的航跡。【擠在一起的火少冒煙】短片的地面火也要
+    // 照密度節流，不然一串炸彈的火全速冒煙；戰鬥的船火池在選單裡是空的
     updateFireCrowd(fireCrowd, groundFires, shipFires, noShips, fx)
     stepGroundFires(groundFires, fx, emitFirePuff, fireCrowd.ground)
     wakes.bindOcean(terrain.oceanHeight)

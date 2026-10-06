@@ -3,7 +3,7 @@ import { setLang } from '../../src/i18n'
 import { ALL_SPECS, type SkirmishSetup } from '../../src/battle/skirmish'
 import type { Screen } from '../../src/ui/screens'
 
-/** Runs the actual menu with observable game hooks, without a renderer or simulation. */
+/** 跑真正的選單，遊戲鉤子換成可觀察的紀錄；沒有渲染器也沒有模擬 */
 export function mount() {
   const events: unknown[][] = []
   let setup: SkirmishSetup = {

@@ -13,7 +13,7 @@ import { createGroundTarget } from '../../src/world/groundTargets'
 function setup() {
   const fireball = { emit: vi.fn() }
   const gunFireball = { emit: vi.fn() }
-  // Record particle emissions at the pool boundary; no WebGL context is needed.
+  // 在粒子池的介面記下發射，不需要 WebGL 環境
   const pools = {
     fireball, smoke: { emit: vi.fn() }, dust: { emit: vi.fn() },
     spray: { emit: vi.fn() }, jets: { emit: vi.fn() }, splashEvents: createImpacts(),

@@ -27,18 +27,35 @@ export type GroundUnitId =
   | 'parkedB17' | 'fuelDump' | 'bombDump' | 'searchlight'
   | 'parkedP51'
 
-/** 地面單位的共用規格；模型來源與建構函式由渲染層登記。 */
+/**
+ * 地面單位的登記表。模型來源與建構函式由渲染層登記（`GROUND_MODELS`）。
+ *
+ * 【`real*` 是驗收用的】展示區與護欄測試拿它跟包圍盒對照。差超過幾個百分點
+ * 就表示某個零件的座標寫錯了 —— 那種錯不會報錯，只會讓單位在地圖上靜靜地比
+ * 它該有的尺寸小一截。
+ *
+ * 【`hull` 是一台一個大盒】遊戲座標（X 橫向、Y 上、−Z 車頭）的 AABB，就是
+ * **砲管以外**整台的包圍盒 —— 砲管會轉，盒子不能跟著它。地面目標不需要逐部位
+ * 傷害，一個盒就夠。`ground-units.test.ts` 守著它們沒有浮空、蓋住砲管以外的
+ * 全部頂點。
+ */
 export interface GroundUnit {
+  /** 顯示名稱由它查（`src/i18n/names.ts` 的 `groundUnitName`） */
   id: GroundUnitId
-  /** 開發工具展示的用途說明。 */
+  /** 這個單位在哪一關用得到，以及它是誰的。只給開發工具頁看 */
   note: string
-  /** 全長（含砲管）、全寬與全高，m；供模型尺寸驗證。 */
+  /** 真車全長，m（含砲管）。展示區拿它跟包圍盒的 Z 幅度對照。 */
   realLength: number
+  /** 真車全寬，m。 */
   realWidth: number
+  /** 真車全高，m。 */
   realHeight: number
-  /** 人員死亡只退場，不爆炸或起火。 */
+  /**
+   * 這一種是人。**人死了不爆炸、不起火、不冒煙**：呈現上只是人不見了。
+   * 擊毀事件照推（計數與通報照常），只有畫面與音效略過。
+   */
   personnel?: true
-  /** X 橫向、Y 上、−Z 車頭；不含可旋轉的砲管。 */
+  /** 命中盒，遊戲座標。 */
   hull: readonly Box[]
 }
 

@@ -28,7 +28,7 @@ export interface BattleAudioControllerDeps {
   readonly renderPositions: readonly Vector3[]
 }
 
-/** Coordinates the per-frame audio boundary without owning any audio policy. */
+/** 協調每幀音訊的開頭與收尾，本身不決定任何音效規則 */
 export function createBattleAudioController(deps: BattleAudioControllerDeps) {
   const {
     audio, cannonAudio, listenerMotion, flightAudio, aircraftLoopAudio,

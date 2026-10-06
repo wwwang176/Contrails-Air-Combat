@@ -47,7 +47,7 @@ function setup() {
       spray: pool('spray'), jets: pool('jets'), splashEvents: createImpacts(),
     },
   }
-  // Only the methods exercised by the stepper need implementations, not GPU resources.
+  // 只需要實作推進器會呼叫的方法，不需要 GPU 資源
   const step = createEffectStepper(deps as unknown as EffectStepPools)
   return { deps, step, order, mistStepped: () => mistStepped }
 }

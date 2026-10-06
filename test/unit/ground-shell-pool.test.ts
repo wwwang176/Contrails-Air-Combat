@@ -7,8 +7,8 @@ function fixture(small = false, capacity = 2) {
   return { pool, flash, dust, impact }
 }
 
-describe('ground visual projectile pool', () => {
-  it('advances in place and lands exactly once at the target after a long frame', () => {
+describe('地面戰的視覺彈丸池', () => {
+  it('就地推進；長幀之後在目標點落地，而且只落一次', () => {
     const { pool, impact } = fixture()
     const source = pool.source, positions = source.x
     pool.fire(1, 2, 3, 101, 2, 3, 50, true)
@@ -25,7 +25,7 @@ describe('ground visual projectile pool', () => {
     expect([pool.shots, pool.hitShots]).toEqual([1, 1])
   })
 
-  it.each([false, true])('uses the original hit and miss effects; small=%s', small => {
+  it.each([false, true])('命中與落空各放對應的效果；small=%s', small => {
     const { pool, flash, dust, impact } = fixture(small)
     pool.fire(0, 0, 0, 100, 20, 30, 1000, true)
     pool.fire(0, 0, 0, 200, 40, 60, 1000, false)
@@ -41,7 +41,7 @@ describe('ground visual projectile pool', () => {
     expect([pool.shots, pool.hitShots]).toEqual([2, 1])
   })
 
-  it('overwrites the oldest slot at capacity without growing the buffers', () => {
+  it('滿了就覆蓋最舊的一格，緩衝不長大', () => {
     const { pool, impact } = fixture()
     const positions = pool.source.x
     for (const x of [100, 200, 300]) pool.fire(0, 0, 0, x, 0, 0, 1000, true)
@@ -52,7 +52,7 @@ describe('ground visual projectile pool', () => {
     expect(pool.shots).toBe(3)
   })
 
-  it('ignores sub-metre shots and resets live projectiles and counters without affecting another pool', () => {
+  it('不到 1 m 的射擊忽略；重置清掉飛行中的彈丸與計數，不影響另一個池', () => {
     const a = fixture(), b = fixture()
     a.pool.fire(0, 0, 0, 0.5, 0, 0, 100, true)
     expect(a.pool.shots).toBe(0)

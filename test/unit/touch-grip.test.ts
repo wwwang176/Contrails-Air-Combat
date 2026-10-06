@@ -6,8 +6,8 @@ function element() {
   return { hidden: false, classList: { remove: vi.fn() } } as unknown as HTMLElement
 }
 
-describe('touch grip release', () => {
-  it('releases look state and hides its ring', () => {
+describe('觸控握點放開', () => {
+  it('放開環視狀態並把它的圓環藏起來', () => {
     const state = createInputState()
     state.lookActive = true
     state.lookYaw = 1
@@ -21,7 +21,7 @@ describe('touch grip release', () => {
     expect(ring.hidden).toBe(true)
   })
 
-  it('clears button state without affecting unrelated holds', () => {
+  it('清掉按鈕狀態，不影響無關的按住輸入', () => {
     const state = createInputState()
     state.firing = true
     const hold = { up: true, down: false, fire: true }

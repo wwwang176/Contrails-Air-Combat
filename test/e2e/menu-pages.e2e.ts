@@ -1,7 +1,7 @@
 /**
- * Menu behavior in real Chromium, without starting the game or a dev server.
- * Run: npx vite-node test/e2e/menu-pages.e2e.ts
- * Optional MENU_COMPARE_REF compares DOM and hook traces with that Git revision.
+ * 在真的 Chromium 裡驗選單行為，不啟動遊戲、也不開開發伺服器。
+ * 跑法：npx vite-node test/e2e/menu-pages.e2e.ts
+ * 可選的 `MENU_COMPARE_REF` 會拿 DOM 與鉤子紀錄跟該 Git 版本比對。
  */
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
@@ -57,7 +57,7 @@ try {
       await page.evaluate(() => { window.__menuFixture = window.MenuFixture.mount() })
       const snapshots: unknown[] = []
       const capture = async () => {
-        // Let the dossier bars finish their scheduled DOM writes before comparing.
+        // 比對前先讓機體檔案的數值條把排定的 DOM 寫入做完
         await page.evaluate(() => new Promise<void>(done => requestAnimationFrame(() => { done() })))
         snapshots.push(await page.evaluate(() => ({
           html: document.querySelector('#ui')!.innerHTML,
