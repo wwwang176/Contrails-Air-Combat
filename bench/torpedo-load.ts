@@ -22,7 +22,10 @@ export interface TorpedoLoadState {
  * 一次高度場取樣，加上對每一艘船一次線段到船心的粗篩。
  */
 export function createTorpedoLoad(): TorpedoLoadState {
-  const card = MISSIONS.japan.find((c) => c.id === 'japan-m4') as ReadyMissionCard
+  const card = MISSIONS.japan.find(
+    (c): c is ReadyMissionCard => c.id === 'japan-m3' && c.battle !== null,
+  )
+  if (!card) throw new Error('Torpedo load requires the playable Rennell Island mission (japan-m3)')
   const cfg = missionConfigFrom(card)
   const battle = createBattle(new LoadController(), cfg)
   // 【地形照關卡設定給平海】benchmark 不建 render 層，而 `World` 的預設
