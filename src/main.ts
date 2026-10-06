@@ -99,9 +99,9 @@ import { createHudFrame } from './hud/types'
 import {
   type MarkerObjectives, type MarkerPool, type MarkerProject, type ShipMarkerTop,
 } from './hud/markerFeed'
-import { createScoreboard, type AfterAction } from './ui/scoreboard'
+import { createScoreboard } from './ui/scoreboard'
 import { createBattleScoreboard } from './app/battleScoreboard'
-import { shortName } from './ui/briefing'
+import { buildAfterAction } from './app/afterAction'
 import { resetGEffect } from './hud/widgets/gEffect'
 import { TORPEDO_RUN_SAMPLES } from './world/torpedo'
 import { resetDamageMarks } from './hud/damageMarks'
@@ -480,7 +480,9 @@ const pauseEl = document.getElementById('pause') as HTMLElement
 const pauseToMenu = pauseEl.querySelector('[data-act="toMenu"]') as HTMLElement
 const pauseAbandon = pauseEl.querySelector('[data-act="abandon"]') as HTMLElement
 const scoreboard = createScoreboard(boardEl)
-const battleScoreboard = createBattleScoreboard(scoreboard, afterAction)
+const battleScoreboard = createBattleScoreboard(scoreboard, (endedAt) => buildAfterAction(
+  battle, world.combatants, mode, pendingMission, endedAt - battleStartedAt,
+))
 
 const aircraftVisuals = createAircraftVisuals(ctx.scene)
 const visuals = aircraftVisuals.visuals
@@ -2208,34 +2210,6 @@ menu.renderAimAssist(aimAssist.enabled)
 menu.renderLang(getLang())
 menu.renderSetup(setup)
 menu.show(screen)
-
-/**
- * 結算板除了兩張表之外的東西（選單 spec §2.6）。只在分出勝負
- * 的那一幀算一次。
- *
- * 【我方第幾隊】編組表裡 `player: true` 那一筆在藍隊裡排第幾 —— 遭遇戰與
- * 任務都成立，不需要另一份索引。
- * 【轟炸機存活】`convoy.seats` 是 `world.combatants` 的索引，逐一讀 hp。
- */
-function afterAction(endedAt: number): AfterAction {
-  const blueUnits = battle.cfg.units.filter((u) => u.team === 'blue')
-  const flightAt = blueUnits.findIndex((u) => u.player === true)
-  const me = battle.player
-  const convoy = battle.convoy
-  return {
-    mode,
-    titleKey: mode === 'mission' && pendingMission !== null ? pendingMission.titleKey : 'result.skirmish',
-    objectiveKey: battle.objectiveKey ?? pendingMission?.battle.objectiveKey ?? 'mission.killAll.objective',
-    seconds: endedAt - battleStartedAt,
-    playerSpec: shortName(me.aircraft.spec),
-    playerFlight: (flightAt < 0 ? 0 : flightAt) + 1,
-    playerHp01: Math.max(0, Math.min(1, me.hp / me.aircraft.spec.hp)),
-    convoy: convoy === null ? null : {
-      alive: convoy.seats.filter((i) => world.combatants[i]!.hp > 0).length,
-      total: convoy.seats.length,
-    },
-  }
-}
 
 function frame(now: number) {
   const recoveryFailure = recoveryWorkerFailure()
