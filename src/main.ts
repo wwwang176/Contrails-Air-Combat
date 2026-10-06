@@ -95,15 +95,15 @@ import { createAircraftVisuals } from './render/aircraftVisuals'
 import { Hud } from './hud/Hud'
 import { createAudioMeter, type AudioMeter } from './hud/audioMeter'
 import type { MeterSample } from './audio/meter'
-import { createHudFrame, nextHitFlash } from './hud/types'
+import { createHudFrame } from './hud/types'
 import {
-  fillMarkers, type MarkerObjectives, type MarkerPool, type MarkerProject, type ShipMarkerTop,
+  type MarkerObjectives, type MarkerPool, type MarkerProject, type ShipMarkerTop,
 } from './hud/markerFeed'
 import { createScoreboard, scoreRows, sortScoreRows, type AfterAction } from './ui/scoreboard'
 import { shortName } from './ui/briefing'
 import { resetGEffect } from './hud/widgets/gEffect'
 import { TORPEDO_RUN_SAMPLES } from './world/torpedo'
-import { resetDamageMarks, stepDamageMarks } from './hud/damageMarks'
+import { resetDamageMarks } from './hud/damageMarks'
 import { CameraRig, thirdPersonFor } from './camera/CameraRig'
 import type { BombState, Impact } from './world/bomb'
 import { resetBombBay, type BombBay } from './weapons/bomb'
@@ -179,6 +179,10 @@ import {
   updateBattleFlightHud,
   type BattleFlightHudDependencies,
 } from './app/battleFlightHud'
+import {
+  updateBattleHudMarkers,
+  type BattleHudMarkersDependencies,
+} from './app/battleHudMarkers'
 import { warmBattleGraphics } from './app/battleWarmup'
 import { assetUrl } from './core/asset'
 import { createBattleAudioController } from './app/battleAudioController'
@@ -1000,6 +1004,12 @@ const markerObjectives: MarkerObjectives & { ref: Vector3 } = {
   ship: (s) => isObjectiveShip(s, battle.rules),
   ground: (t) => isObjectiveGround(t, battle.rules),
   ref: new Vector3(),
+}
+const battleHudMarkersDeps: BattleHudMarkersDependencies = {
+  markerPools: MARKER_POOLS as [MarkerPool, MarkerPool],
+  markerObjectives,
+  projectMarker,
+  shipMarkerTop,
 }
 
 let propRotation = 0
@@ -1834,21 +1844,16 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 【位置用池裡的物理座標，不內插】`bombVisuals`／`torpedoVisuals` 讀的
   // 就是同一組數字（見上面的 `update`），所以標記與模型逐幀對齊。飛機那一側
   // 用 `visuals` 是因為它有內插後的算繪位置，而彈藥沒有。
-  MARKER_POOLS[0] = world.bombs
-  MARKER_POOLS[1] = world.torpedoes
-  markerObjectives.ref.copy(refPos)
-  fillMarkers(
-    hudFrame, world.ships, world.groundTargets, MARKER_POOLS,
-    teamSlot(player.team), projectMarker, shipMarkerTop, markerObjectives,
+  updateBattleHudMarkers(
+    battleHudMarkersDeps,
+    hudFrame,
+    world,
+    player,
+    refPos,
+    hitsThisFrame,
+    frameSeconds,
   )
 
-  // 命中回饋：World 在命中的那一步把 hitsDealt 加上去；HUD 這一層負責計時。
-  hudFrame.hitFlash = nextHitFlash(hudFrame.hitFlash, hitsThisFrame, frameSeconds)
-  // 【一幀一次，不是一個子步一次】淡出走的是畫面時間。在子步裡步進的話，
-  // 一幀跑幾個子步就淡幾倍快 —— 而子步數會隨幀率變動。
-  stepDamageMarks(hudFrame.damageMarks, frameSeconds)
-  // 【通報接參考，不抄】池與淘汰都在 `stepBattle` 那一側。時間也一起送 ——
-  // 行的年齡吃的是物理時間，用畫面時間量的話暫停時通報會繼續淡出
   hudFrame.report = battle.report
   hudFrame.reportTime = world.time
 

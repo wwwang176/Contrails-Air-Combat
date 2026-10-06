@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
  * 大括號會誤判，而會誤報的護欄比沒有護欄更糟。
  */
 const SRC = new TextDecoder().decode(readFileSync('src/main.ts')).split('\n')
+const MARKER_SRC = new TextDecoder().decode(readFileSync('src/app/battleHudMarkers.ts')).split('\n')
 const CAMERA = new TextDecoder().decode(readFileSync('src/app/battleCameraFrame.ts')).split('\n')
 const SCENE = new TextDecoder().decode(readFileSync('src/app/battleSceneFrame.ts')).split('\n')
 const EVENTS = readFileSync('src/app/battleEventPresentation.ts', 'utf8').split('\n')
@@ -16,12 +17,6 @@ const PLAYER = new TextDecoder().decode(readFileSync('src/control/PlayerControll
   .replace(/\r\n/g, '\n')
 
 /** 唯一一行含 `needle` 的行號。找不到或找到多行都讓測試失敗 —— 那代表這支護欄該重寫 */
-function only(needle: string): number {
-  const hits: number[] = []
-  for (let i = 0; i < SRC.length; i++) if (SRC[i]!.includes(needle)) hits.push(i)
-  expect(hits, `main.ts 裡「${needle}」應該只出現一次，實際 ${hits.length} 次`).toHaveLength(1)
-  return hits[0]!
-}
 
 /**
  * 彈艙**只在物理步推進**，玩家與 AI 同一條路。
@@ -61,19 +56,19 @@ describe('彈艙只在物理步推進', () => {
  * 與上面那一支是同一個手法、同一個理由。
  */
 describe('標記的接線：`fillMarkers` 必須真的被呼叫', () => {
-  const fill = only('fillMarkers(')
+  const fill = MARKER_SRC.findIndex((line) => line.includes('  fillMarkers('))
 
   it('不在任何視角分支裡 —— 三種視角都要畫標記', () => {
     let i = fill
-    while (i > 0 && !SRC[i]!.trimStart().startsWith('if (')) i--
-    const guard = SRC[i]!.trim()
+    while (i > 0 && !MARKER_SRC[i]!.trimStart().startsWith('if (')) i--
+    const guard = MARKER_SRC[i]!.trim()
     expect(guard).not.toContain('viewMode')
     expect(guard).not.toContain('godView')
   })
 
   /** 【兩個池都要餵】少一個就是「魚雷沒有標記」，而且不會有錯誤訊息 */
   it('炸彈與魚雷兩個池都接上去', () => {
-    const near = SRC.slice(Math.max(0, fill - 6), fill).join('\n')
+    const near = MARKER_SRC.slice(Math.max(0, fill - 6), fill).join('\n')
     expect(near).toContain('world.bombs')
     expect(near).toContain('world.torpedoes')
   })
@@ -156,8 +151,8 @@ describe('特效、螺旋槳與鏡頭跟世界同一個時鐘', () => {
  */
 describe('標記的接線：地面目標必須傳進 `fillMarkers`', () => {
   it('呼叫的引數裡有 world.groundTargets', () => {
-    const fill = only('fillMarkers(')
-    const call = SRC.slice(fill, fill + 4).join('\n')
+    const fill = MARKER_SRC.findIndex((line) => line.includes('  fillMarkers('))
+    const call = MARKER_SRC.slice(fill, fill + 4).join('\n')
     expect(call).toContain('world.ships')
     expect(call).toContain('world.groundTargets')
   })
