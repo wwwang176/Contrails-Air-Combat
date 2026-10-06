@@ -167,6 +167,7 @@ import {
 import { missionConfigFrom, type ReadyMissionCard } from './battle/missions'
 import { createMenu } from './ui/menu'
 import { uiSound } from './ui/menuSound'
+import { renderHangarFrame } from './app/hangarFrame'
 import { createLoadingScreen, fileFraction } from './ui/loading'
 import {
   readSeenTutorials, tutorialsFor, unseenTutorials, type Tutorial,
@@ -2074,12 +2075,6 @@ function grabPointer(): void {
 let showcase: Showcase | null = null
 
 /** 機庫的一幀：展示場自己擺相機，地形跟著相機捲動 */
-function drawHangar(frameSeconds: number, show: Showcase): void {
-  show.update(frameSeconds, ctx.camera)
-  terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
-  ctx.renderer.render(ctx.scene, ctx.camera)
-}
-
 /**
  * 短片裡受損拖的煙，相對殘骸煙池（`wreckFireSmoke`）的出生尺寸。
  *
@@ -2547,7 +2542,7 @@ function frame(now: number) {
     // 【展示場還沒建好就照畫海天】進機庫的第一幀有可能落在 `onAircraft`
     // 之前，那一幀畫成黑的會閃一下。**這一幀不放短片** —— 放的話它會從暗場重新開一段
     if (screen === 'hangar') {
-      if (showcase !== null) drawHangar(frameSeconds, showcase)
+      if (showcase !== null) renderHangarFrame(frameSeconds, elapsed, showcase, ctx, terrain)
       else ctx.renderer.render(ctx.scene, ctx.camera)
     } else {
       drawMenuBackground(frameSeconds)
