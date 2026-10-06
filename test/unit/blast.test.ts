@@ -24,7 +24,7 @@ function fakePool(): { shots: Shot[] } & BlastPools['fireball'] {
       x: number, y: number, z: number,
       vx: number, vy: number, vz: number, size = 1,
     ): void { shots.push({ x, y, z, vx, vy, vz, size }) },
-  } as never
+  }
 }
 
 function pools(): BlastPools & { shots: Record<string, Shot[]> } {
@@ -39,7 +39,7 @@ function pools(): BlastPools & { shots: Record<string, Shot[]> } {
       fireball: fireball.shots, smoke: smoke.shots,
       dust: dust.shots, spray: spray.shots,
     },
-  } as never
+  }
 }
 
 const speedOf = (s: Shot): number => Math.hypot(s.vx, s.vy, s.vz)

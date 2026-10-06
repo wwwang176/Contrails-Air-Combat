@@ -1,5 +1,5 @@
 import { FIRE_CHUNK_DRAG, FIRE_CHUNK_LIFE, FIRE_CHUNK_SIZE } from './chunks'
-import type { BlastParams } from './blast'
+import type { BlastParams } from './blastRecipes'
 
 /** Shared lifetime multiplier for all blast particle pools. */
 export const BLAST_PACE = 0.6
