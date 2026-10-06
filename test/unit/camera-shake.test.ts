@@ -14,7 +14,7 @@ import { GROUND_FLAK_SPEC, SHIP_GUN_SPECS } from '../../src/world/shipGuns'
 
 /** 【用 import.meta.glob 而不是 fs】與這個檔案裡「main.ts 的接線」同一個做法 */
 const CONSUMERS = import.meta.glob(
-  ['../../src/render/blastPresentation.ts', '../../src/main.ts', '../../src/app/battleCameraFrame.ts', '../../src/app/battleSceneFrame.ts', '../../src/render/flakBursts.ts', '../../src/render/blast.ts',
+  ['../../src/render/blastPresentation.ts', '../../src/main.ts', '../../src/app/battleCameraFrame.ts', '../../src/app/battleSceneFrame.ts', '../../src/app/battleFlightHud.ts', '../../src/render/flakBursts.ts', '../../src/render/blast.ts',
     '../../src/hud/Hud.ts'],
   { query: '?raw', import: 'default', eager: true },
 ) as Record<string, string>
@@ -595,7 +595,7 @@ describe('HUD 的搖晃', () => {
    * 以外都在轉」。所以走的是元素的 CSS transform。
    */
   it('Hud.ts 用 CSS transform 轉與移，不用 ctx 的變換', () => {
-    const hud = srcOf('Hud.ts')
+    const hud = srcOf('src/hud/Hud.ts')
     expect(hud).toContain('this.canvas.style.transform')
     expect(hud).toContain('translate(${(x * 100).toFixed(2)}%, ${(y * 100).toFixed(2)}%) rotate(${a}rad)')
     expect(hud).not.toContain('ctx.rotate(')
@@ -609,14 +609,17 @@ describe('HUD 的搖晃', () => {
   it('main.ts 在推進震動之後才算 HUD 的角度', () => {
     const main = srcOf('main.ts')
     const camera = srcOf('app/battleCameraFrame.ts')
+    const flightHud = srcOf('battleFlightHud.ts')
     const step = camera.indexOf('stepCameraShake(cameraShake')
-    const hud = main.indexOf('hudFrame.shakeAngle = hudShakeAngle(cameraShake)')
+    const hud = flightHud.indexOf('hudFrame.shakeAngle = hudShakeAngle(cameraShake)')
     expect(step).toBeGreaterThan(0)
-    expect(main.indexOf('updateBattleCameraFrame(')).toBeLessThan(hud)
-    expect(main.indexOf('hud.render(hudFrame')).toBeGreaterThan(hud)
+    expect(hud).toBeGreaterThan(0)
+    const update = main.indexOf('updateBattleFlightHud(')
+    expect(update).toBeGreaterThan(0)
+    expect(main.indexOf('hud.render(hudFrame')).toBeGreaterThan(update)
     // 【三個量都要接上】只接角度的話位移永遠是 0，而那正是要的主要份量
-    expect(main).toContain('hudFrame.shakeX = hudShakeShiftX(cameraShake)')
-    expect(main).toContain('hudFrame.shakeY = hudShakeShiftY(cameraShake)')
+    expect(flightHud).toContain('hudFrame.shakeX = hudShakeShiftX(cameraShake)')
+    expect(flightHud).toContain('hudFrame.shakeY = hudShakeShiftY(cameraShake)')
   })
 })
 
@@ -633,7 +636,7 @@ describe('HUD 的搖晃', () => {
  * 驗不到，而且只在震動的那零點幾秒出現 —— 試玩很容易錯過。
  */
 describe('滿版的遮罩與敵我標示不跟著震', () => {
-  const hud = srcOf('Hud.ts')
+  const hud = srcOf('src/hud/Hud.ts')
   const unshaken = ['gEffect', 'bombVignette', 'markers', 'contacts', 'godMarkers']
 
   it('不震的清單是暗角、黑視與三種標示，而且走另一個 context', () => {

@@ -19,7 +19,6 @@ import { REEL_WIND, SMOKE_WIND, windOf } from './render/wind'
 import { FixedStepAccumulator, MAX_FRAME_SECONDS, clampFrameSeconds } from './core/loop'
 import { createPerfOverlay } from './core/perf'
 import { createRangeProbe } from './hud/rangeProbe'
-import { indicatedAirspeed } from './core/airspeed'
 import { createScene } from './render/scene'
 import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality } from './render/quality'
 import { readVolume, saveVolume } from './audio/volume'
@@ -100,7 +99,6 @@ import { createHudFrame, nextHitFlash } from './hud/types'
 import {
   fillMarkers, type MarkerObjectives, type MarkerPool, type MarkerProject, type ShipMarkerTop,
 } from './hud/markerFeed'
-import { headingFromOrientation } from './core/attitude'
 import { createScoreboard, scoreRows, sortScoreRows, type AfterAction } from './ui/scoreboard'
 import { shortName } from './ui/briefing'
 import { resetGEffect } from './hud/widgets/gEffect'
@@ -119,10 +117,7 @@ import {
   type GodCameraInput,
 } from './camera/godCamera'
 import { createCameraBlend } from './camera/cameraBlend'
-import {
-  KILL_SHAKE,
-  createCameraShake, hudShakeAngle, hudShakeShiftX, hudShakeShiftY,
-} from './camera/cameraShake'
+import { KILL_SHAKE, createCameraShake } from './camera/cameraShake'
 import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
 import { attachTouch } from './input/touch'
@@ -140,15 +135,13 @@ import { NEUTRAL_TUNING } from './battle/mission'
 import { BF109K4 } from './specs/bf109k4'
 import { P51D } from './specs/p51d'
 import { DEFAULT_DOCTRINE } from './ai/doctrine'
-import { extendReason } from './ai/rules'
 import type { FlightOrder } from './ai/commandTypes'
 import { createBattle } from './battle/createBattle'
-import { playerFlight, resetBattle, stepBattle } from './battle/battleRuntime'
+import { resetBattle, stepBattle } from './battle/battleRuntime'
 import { settleAtSpawn } from './battle/flightSpawn'
-import { aliveCount, isObjectiveGround, isObjectiveShip } from './battle/objectiveQueries'
+import { isObjectiveGround, isObjectiveShip } from './battle/objectiveQueries'
 import { getLang, onLangChange, readLang, saveLang, setLang, t } from './i18n'
 import { applyStaticText } from './i18n/dom'
-import { aircraftName } from './i18n/names'
 import { lineAbreast, sideSummary } from './battle/order'
 import {
   battleConfigFrom, DEFAULT_SKIRMISH, MAX_COMBATANTS, type SkirmishSetup,
@@ -182,6 +175,10 @@ import {
   type BombSightHudDependencies,
   type BombSightHudScratch,
 } from './app/bombSightHud'
+import {
+  updateBattleFlightHud,
+  type BattleFlightHudDependencies,
+} from './app/battleFlightHud'
 import { warmBattleGraphics } from './app/battleWarmup'
 import { assetUrl } from './core/asset'
 import { createBattleAudioController } from './app/battleAudioController'
@@ -965,6 +962,16 @@ const bombSightHudDeps: BombSightHudDependencies = {
   ctx,
   scratch: bombSightHudScratch,
   noseHorizontal,
+  projectDistance: HUD_PROJECT_DISTANCE,
+}
+const battleFlightHudDeps: BattleFlightHudDependencies = {
+  ctx,
+  probe,
+  cameraShake,
+  godCam,
+  playerAi,
+  touch,
+  arena,
   projectDistance: HUD_PROJECT_DISTANCE,
 }
 
@@ -1800,71 +1807,19 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     bay,
   )
 
-  probe.copy(input.aimWorld)
-    .multiplyScalar(HUD_PROJECT_DISTANCE).add(renderPos).project(ctx.camera)
-  hudFrame.aimX = probe.x * ctx.camera.aspect
-  hudFrame.aimY = probe.y
-  hudFrame.aimVisible = probe.z < 1
-
-  // 【姿態上面已經算過】投放包絡與 HUD 讀的是同一組值
-  hudFrame.tas = aircraft.diag.aero.tas
-  hudFrame.ias = indicatedAirspeed(aircraft.diag.aero.tas, aircraft.diag.air.sigma)
-  hudFrame.vneRatio = hudFrame.ias / aircraft.spec.limits.vne
-  hudFrame.mach = aircraft.diag.aero.mach
-  hudFrame.altitude = renderPos.y
-  hudFrame.verticalSpeed = aircraft.state.velocity.y
-  hudFrame.heading = headingFromOrientation(renderQuat)
-  // 【小地圖是機首朝上的，上帝視角下要改成鏡頭朝上】
-  if (input.godView) hudFrame.heading = godCam.yaw
-  hudFrame.roll = att.roll
-  hudFrame.pitch = att.pitch
-  // 【陣亡期間過載歸 1】退場的飛機不再被 `world.step` 推進，`diag.loadFactor`
-  // 於是**凍結**在死亡當下。玩家多半是在拉大 G 的時候被打下來的，照抄的話
-  // 黑視會在那 2 秒繼續累積（`ONSET_TIME` 1.6 s）—— 死亡鏡頭的全部意義是
-  // 看得見自己的火球與零件，隔著半黑的畫面看就什麼都不剩了。
-  hudFrame.loadFactor = dying ? 1 : aircraft.diag.loadFactor
-  hudFrame.alpha = aircraft.diag.aero.alpha
-  hudFrame.alphaCrit = alphaCrit
-  hudFrame.ps = aircraft.specificExcessPowerActual
-  hudFrame.es = aircraft.specificEnergy
-  // 【讀 controls 而不是 input】兩者在玩家駕駛時完全相同，但 AI 接管時
-  // input.throttle 還停在玩家鬆手前的值，顯示出來會與飛機實際在跑的油門不符。
-  hudFrame.throttle = aircraft.controls.throttle
-  hudFrame.powerW = aircraft.diag.powerW
-  // 【上帝視角下小地圖以鏡頭為中心】小地圖吃的就是這三個欄位，所以
-  // widget 一行都不用改
-  hudFrame.arenaOutside = arena.outside
-  hudFrame.arenaRemaining = arena.remaining
-  hudFrame.worldX = input.godView ? godCam.position.x : renderPos.x
-  hudFrame.worldZ = input.godView ? godCam.position.z : renderPos.z
-  hudFrame.aircraftName = aircraftName(aircraft.spec)
-  hudFrame.hp = player.hp
-  hudFrame.hpMax = player.aircraft.spec.hp
-  hudFrame.aiFlying = input.playerAi
-  // 【只在代飛時填】不代飛時 `playerAi` 沒有在跑，那三個欄位是上一次的殘值
-  if (input.playerAi) {
-    hudFrame.aiIntent = playerAi.intent
-    hudFrame.aiMode = playerAi.mode
-    hudFrame.aiPhase = playerAi.hudPhase
-    hudFrame.aiOverride = playerAi.hudOverride
-    hudFrame.aiExtendWhy = playerAi.intent === 'extend'
-      ? extendReason(playerAi.rules) : ''
-  }
-  hudFrame.godView = input.godView
-  hudFrame.touch = touch.visible
-  // 【`stepCameraShake` 之後】這一幀的震動量與相位在那裡才定案；排在它之前
-  // 的話 HUD 會慢鏡頭一幀，兩者對不起來
-  hudFrame.shakeAngle = hudShakeAngle(cameraShake)
-  hudFrame.shakeX = hudShakeShiftX(cameraShake)
-  hudFrame.shakeY = hudShakeShiftY(cameraShake)
-  hudFrame.controlAuthority = aircraft.diag.controlAuthority
-  hudFrame.blueAlive = aliveCount(battle.blue)
-  hudFrame.redAlive = aliveCount(battle.red)
-
-  // 【分隊存活】遞補之後 count 會自動變 —— members 每個物理步重新壓縮
-  const flight = playerFlight(battle)
-  hudFrame.flightAlive = flight?.count ?? 0
-  hudFrame.flightSize = flight?.roster.length ?? 0
+  updateBattleFlightHud(
+    battleFlightHudDeps,
+    hudFrame,
+    input,
+    battle,
+    player,
+    aircraft,
+    renderPos,
+    renderQuat,
+    dying,
+    att,
+    alphaCrit,
+  )
 
   const refPos = fillContacts(
     world.combatants, player, battle.flights, renderPos, input.godView, godCam.position,
