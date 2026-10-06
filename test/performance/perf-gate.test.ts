@@ -7,9 +7,9 @@ import {
 import { createAiLoad, resetAiLoad, stepAiLoad } from '../../bench/ai-load'
 import { createMultiLoad, resetMultiLoad, stepMultiLoad } from '../../bench/multi-load'
 import {
-  createTurretSearchLoad, createTurretTrackLoad, resetTurretLoad, stepTurretLoad,
-  type TurretLoadState,
+  createTurretSearchLoad, createTurretTrackLoad,
 } from '../../bench/turret-load'
+import { measureTurretLoad } from '../../bench/turret-measure'
 
 /**
  * 效能守門測試（spec §3.10 驗收要求）。
@@ -400,26 +400,9 @@ const TURRET_SEARCH_GATE_US = 900
 const TURRET_TRACK_BUDGET_US = 500
 const TURRET_TRACK_GATE_US = 3500
 
-function measureTurretLoad(make: () => TurretLoadState): number {
-  const state = make()
-  for (let i = 0; i < 300; i++) stepTurretLoad(state)
-  resetTurretLoad(state)
-
-  // 取多批的最小值，批次多而短 —— 見上面關於並行雜訊的說明
-  const BATCHES = 40
-  const N = 25
-  let best = Infinity
-  for (let b = 0; b < BATCHES; b++) {
-    const t0 = performance.now()
-    for (let i = 0; i < N; i++) stepTurretLoad(state)
-    best = Math.min(best, ((performance.now() - t0) * 1000) / N)
-  }
-  return best
-}
-
 describe('turret perf gate', () => {
   it('160 座砲塔搜不到目標時，成本仍在 20v20 的雜訊之內', () => {
-    const best = measureTurretLoad(createTurretSearchLoad)
+    const { microseconds: best } = measureTurretLoad(createTurretSearchLoad)
     expect(best).toBeLessThan(TURRET_SEARCH_GATE_US)
     if (best >= TURRET_SEARCH_BUDGET_US) {
       console.warn(
@@ -430,7 +413,7 @@ describe('turret perf gate', () => {
   })
 
   it('160 座砲塔**全部**有目標時沒有數量級的迴歸', () => {
-    const best = measureTurretLoad(createTurretTrackLoad)
+    const { microseconds: best } = measureTurretLoad(createTurretTrackLoad)
     expect(best).toBeLessThan(TURRET_TRACK_GATE_US)
     if (best >= TURRET_TRACK_BUDGET_US) {
       console.warn(

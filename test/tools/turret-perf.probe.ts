@@ -1,10 +1,14 @@
 /**
  * 量砲塔的每步成本 —— **門檻要先量再訂**。
  *
- *   npx tsx test/tools/turret-perf.probe.ts
+ *   npx vite-node test/tools/turret-perf.probe.ts
  *
- * 三份負載的架數、彈丸池、控制器完全相同，唯一的差別是紅隊的機種與擺位，
- * 所以三個數字直接可減：
+ * vite-node uses SSR transforms; compare timings only within the same runner.
+ * Search/track totals include restoring synthetic poses. The difference from
+ * multi-load is not an isolated measurement of turret code.
+ *
+ * 三份負載的架數與彈丸池相同，紅隊的機種與擺位不同；搜尋、追瞄負載另含
+ * 固定相對姿態的成本，因此相減僅供比較整份負載：
  *
  *   20v20（P-51D vs Bf 109）  既有門檻量的那一份，**砲塔數 0**
  *   搜尋（P-51D vs B-17G）    160 座砲塔，全部搜不到目標
@@ -19,9 +23,9 @@
  */
 import { createMultiLoad, resetMultiLoad, stepMultiLoad } from '../../bench/multi-load'
 import {
-  createTurretSearchLoad, createTurretTrackLoad, resetTurretLoad, stepTurretLoad,
-  type TurretLoadState,
+  createTurretSearchLoad, createTurretTrackLoad,
 } from '../../bench/turret-load'
+import { measureTurretLoad } from '../../bench/turret-measure'
 
 const BATCHES = 40
 const N = 25
@@ -36,42 +40,14 @@ function measure(step: () => void): number {
   return best
 }
 
-/** 有幾座砲塔取得了目標 / 全部幾座。 */
-function targeted(s: TurretLoadState): string {
-  let hit = 0
-  let total = 0
-  const byId = new Map<string, number>()
-  for (const c of s.battle.world.combatants) {
-    const ts = c.aircraft.spec.turrets
-    for (let i = 0; i < ts.length; i++) {
-      total++
-      if (c.turretStates[i]!.targetIndex >= 0) {
-        hit++
-        byId.set(ts[i]!.id, (byId.get(ts[i]!.id) ?? 0) + 1)
-      }
-    }
-  }
-  const detail = [...byId.entries()].map(([k, v]) => `${k}:${v}`).join(' ')
-  return `${hit}/${total}  ${detail}`
-}
-
-function turret(make: () => TurretLoadState): [number, string] {
-  const s = make()
-  for (let i = 0; i < 300; i++) stepTurretLoad(s)
-  resetTurretLoad(s)
-  for (let i = 0; i < 300; i++) stepTurretLoad(s)
-  const t = targeted(s)
-  return [measure(() => stepTurretLoad(s)), t]
-}
-
 const multi = ((): number => {
   const s = createMultiLoad()
   for (let i = 0; i < 300; i++) stepMultiLoad(s)
   resetMultiLoad(s)
   return measure(() => stepMultiLoad(s))
 })()
-const [search, searchT] = turret(createTurretSearchLoad)
-const [track, trackT] = turret(createTurretTrackLoad)
+const { microseconds: search, targeted: searchT, total: searchTotal } = measureTurretLoad(createTurretSearchLoad)
+const { microseconds: track, targeted: trackT, total: trackTotal } = measureTurretLoad(createTurretTrackLoad)
 
 const n = (v: number): string => v.toFixed(1).padStart(8)
 console.log('  負載                        每步 µs    比 20v20 多')
@@ -79,5 +55,5 @@ console.log(`  20v20（無砲塔）           ${n(multi)}          ——`)
 console.log(`  搜尋（160 座、搜不到）    ${n(search)}    ${n(search - multi)}`)
 console.log(`  追瞄（160 座、全有目標）  ${n(track)}    ${n(track - multi)}`)
 console.log('')
-console.log(`  搜尋負載取得目標：${searchT}`)
-console.log(`  追瞄負載取得目標：${trackT}`)
+console.log(`  搜尋負載取得目標：${searchT}/${searchTotal}`)
+console.log(`  追瞄負載取得目標：${trackT}/${trackTotal}`)
