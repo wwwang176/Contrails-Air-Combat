@@ -23,9 +23,10 @@ import type { TimeOfDay } from '../world/timeOfDay'
 import type { AircraftSpec } from '../specs/types'
 import { createFlight, flightPose, openSeaOrigin, type Flight } from './reelFlight'
 import {
-  BOMB_RELEASE_Y, createReelCamera, jumpAt, pickIsland, propSpeedAt, propTravel, reelShots, speedAt,
-  type ReelEvent, type ReelGround, type ReelPoint, type ReelTerrainKind, type Shot,
-} from './reelShots'
+  BOMB_RELEASE_Y, createReelCamera, jumpAt, pickIsland, propSpeedAt, propTravel, speedAt,
+} from './reel/kit'
+import { reelShots } from './reelShots'
+import type { ReelEvent, ReelGround, ReelPoint, ReelTerrainKind, Shot } from './reel/reelTypes'
 import type { SiteLayout } from '../render/siteSurface'
 import type { CloudSpec } from '../render/clouds'
 import { createBombs, createTorpedoes, type BombVisuals } from '../render/bombs'

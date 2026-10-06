@@ -1,7 +1,7 @@
 import { type BufferAttribute, type BufferGeometry, Color, Group, Matrix4, Mesh, MeshStandardMaterial, Vector3 } from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { buildDecor, DECOR_DEFAULT } from '../../render/geometry/ground/plantDecor'
-import type { ReelDecor } from '../reelShots'
+import type { ReelDecor } from './reelTypes'
 
 /** 一件佈景建築：在合併幾何裡的頂點範圍、世界位置、炸彈多近算炸到 */
 interface DecorItem {

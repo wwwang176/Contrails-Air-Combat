@@ -1,7 +1,8 @@
 import { Quaternion, Vector3 } from 'three'
 import type { Ship } from '../../world/ships'
 import type { GroundTarget } from '../../world/groundTargets'
-import { bombAt, torpedoAt, torpedoEntry, type ReelEvent, type Shot } from '../reelShots'
+import { bombAt, torpedoAt, torpedoEntry } from './kit'
+import type { ReelEvent, Shot } from './reelTypes'
 import { createReelOrdnance, type ReelOrdnance } from './reelOrdnance'
 
 export interface ReelBombardmentFx {

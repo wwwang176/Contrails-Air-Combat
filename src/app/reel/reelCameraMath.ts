@@ -1,5 +1,5 @@
 import { Vector3 } from 'three'
-import type { ReelCamera } from './kit'
+import type { ReelCamera } from './reelTypes'
 
 const AIM_A = new Vector3()
 const AIM_B = new Vector3()

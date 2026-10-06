@@ -8,7 +8,7 @@ import type { GroundTarget } from '../../world/groundTargets'
 import { createHitResult, hitAircraft, segmentPointDistanceSq } from '../../world/hit'
 import { clearImpacts, createImpacts, pushImpact, type ImpactEvents } from '../../world/events'
 import type { AircraftSpec } from '../../specs/types'
-import type { ReelEvent } from '../reelShots'
+import type { ReelEvent } from './reelTypes'
 
 /** 射擊與命中只需要姿態、槍械狀態及模型是否仍在場。 */
 export interface ReelGunActor {
