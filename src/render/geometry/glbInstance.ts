@@ -27,7 +27,7 @@ export interface GlbTemplate {
  */
 export function buildFromTemplate(t: GlbTemplate): AircraftModel {
   const group = t.group.clone(true)
-  // 每一具螺旋槳一組（多發機有好幾組），與 assembly.ts 的 `props` 同構
+  // 每一具螺旋槳一組（多發機有好幾組）
   const props: { hub: Object3D; disc: Mesh; blades: Mesh[] }[] = []
   group.traverse((o) => {
     if (!o.userData['propHub']) return

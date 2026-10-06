@@ -56,8 +56,8 @@ describe('殘骸的接管（M8 spec §8.1）', () => {
   })
 
   it('接管時螺旋槳停轉並切回葉片', () => {
-    // 【為什麼】失去動力的飛機槳是停的。模型 API 本來就支援
-    // （assembly.ts 的 setPropSpin），main.ts 的全域 propRotation 不再餵它。
+    // 【為什麼】失去動力的飛機槳是停的。接管時呼叫一次模型的 setPropSpin
+    // 停槳，之後 main.ts 的全域 propRotation 不餵殘骸。
     const w = createWrecks(4, () => {})
     const f = fakeModel()
     w.adopt(f.model, P51D, 0, 0, 0, 0)

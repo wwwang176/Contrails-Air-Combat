@@ -6,10 +6,9 @@ import type { AircraftSpec } from '../../../src/specs/types'
 /**
  * **單獨一架飛機的量測台**。由 `test/e2e/plane-identical.e2e.ts` 在瀏覽器裡載入。
  *
- * 【它在回答什麼】靜態零件合併之後畫面有沒有動。頂點資料的部分由
- * `test/unit/aircraft-merge.test.ts` 的指紋釘住了（合併前量的世界座標雜湊），
- * 這裡守的是**畫出來的像素** —— 併起來之後同材質的三角形提交次序改變，
- * 共面的地方深度平手誰贏可能翻轉，而那是頂點指紋看不見的。
+ * 【它在回答什麼】改動之後畫面有沒有動。這裡守的是**畫出來的像素** ——
+ * 同材質的三角形提交次序改變，共面的地方深度平手誰贏可能翻轉，而那是
+ * 頂點資料看不見的。
  *
  * 【為什麼不用 `pixel-identical.e2e.ts`】那一支把飛機關掉了，而且開著也不行：
  * 飛機的出生位置每一場都不同。這裡是固定姿態、固定燈光、單獨一架，兩次
@@ -39,16 +38,16 @@ export interface PlaneShot {
  * 上一次 `planeShot` 畫出來的畫布，掛在 DOM 上讓 playwright 截圖。
  *
  * 【為什麼要截圖而不是回一個雜湊】雜湊只答得出「一樣還是不一樣」。真正要
- * 知道的是**差多少**：差一個色階的邊緣像素與整片翻掉是兩件事，而合併的
- * 判準是後者不可以發生。
+ * 知道的是**差多少**：差一個色階的邊緣像素與整片翻掉是兩件事，而判準是
+ * 後者不可以發生。
  */
 const CANVAS_ID = 'plane-probe'
 
 /**
  * 由 `azimuthDeg` 方位、`pitchDeg` 俯角看一架 `id` 機種，回報像素數與雜湊。
  *
- * `blurred` 切螺旋槳的兩種狀態（模糊圓盤／三片槳葉）—— 合併若誤把槳葉併進
- * 靜態塊，切換就會失效，而那在單一狀態的截圖上看不出來。
+ * `blurred` 切螺旋槳的兩種狀態（模糊圓盤／三片槳葉）—— 槳葉若被併進靜態塊，
+ * 切換就會失效，而那在單一狀態的截圖上看不出來。
  */
 export function planeShot(
   id: string, azimuthDeg: number, pitchDeg: number, blurred: boolean,
@@ -70,8 +69,8 @@ export function planeShot(
 
   const scene = new Scene()
   scene.background = new Color(BG)
-  // 【一定要用正式場景那組燈】合併會改變法線所屬的 mesh 分組，若燈光與遊戲
-  // 不同，量到的差異就不是玩家會看到的差異
+  // 【一定要用正式場景那組燈】若燈光與遊戲不同，量到的差異就不是玩家會
+  // 看到的差異
   for (const l of createLights().all) scene.add(l)
 
   const model = buildAircraft({ id } as unknown as AircraftSpec)

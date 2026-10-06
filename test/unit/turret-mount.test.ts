@@ -8,11 +8,7 @@ import { segmentBox, NO_HIT } from '../../src/world/hit'
 import { TURRET_MOUNT_REACH } from '../../src/weapons/turret'
 import type { AircraftSpec } from '../../src/specs/types'
 
-/**
- * 【為什麼是新檔而不是加進 hitbox.test.ts】那一支的 `CASES` 一擴大，整套
- * **外形**斷言（頂點數、命中盒幾何）就會開始跑兩台轟炸機，違反
- * 「不為飛機外形寫測試」的既有裁決。這裡只跑砲塔的跨模組一致性。
- */
+/** 砲塔的跨模組一致性。只讀 spec 與命中盒，不建網格。 */
 /** 沒有駕駛員扣的前射武器：可以轉向的全是砲塔 */
 const NO_FORWARD_GUNS: readonly AircraftSpec[] = [HE111, B17G, G4M]
 /** Ju 87 有兩挺翼內 MG 17 由駕駛員扣發，所以不在上面那一份 */

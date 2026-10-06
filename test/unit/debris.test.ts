@@ -46,7 +46,7 @@ describe('bodyColorOf', () => {
   })
 
   /**
-   * 【為什麼要掃全表】`BODY_COLORS` 與 `GLB_MODELS`／`BUILDERS` 是三張各自
+   * 【為什麼要掃全表】`BODY_COLORS` 與 `GLB_MODELS` 是兩張各自
    * 維護的表，鑰匙都是 `spec.id`。少一格不會在建構期爆，會在**那一架第一次
    * 出現在畫面上**時拋錯 —— 而增援是戰鬥進行中才生成的，那時世界已經被
    * 改到一半，沒有人收拾得了。
