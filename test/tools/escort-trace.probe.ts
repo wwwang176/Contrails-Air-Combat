@@ -38,6 +38,7 @@ import { instantaneousTurnRate } from '../../src/analysis/envelope'
 import { DEFAULT_STEER } from '../../src/ai/steerConfig'
 import { DEFAULT_DOCTRINE } from '../../src/ai/doctrine'
 import { readyCard } from '../fixtures/mission'
+import { withProbeConfig } from './probe-config'
 
 const DT = 1 / 240
 const SECONDS = 300
@@ -347,10 +348,10 @@ function main(): void {
  *   DP='{"turnPlaneMargin":800}'   —— 掃描單一參數
  *
  * `TP` 蓋 `DEFAULT_STEER`（操縱層）、`DP` 蓋 `DEFAULT_DOCTRINE`（打法層）。
- * 兩個是不同的物件，蓋錯了會沉默地跑成沒有覆寫 —— 實測踩過一次。
+ * 兩個是不同的物件；共用入口會拒絕放錯層的欄位，避免跑出沒有覆寫的報表。
  *
  * 【為什麼直接改 `DEFAULT_STEER`】`AiController` 不帶自己的 `SteerConfig`，
- * 走的就是這個預設物件。探針是一次性的行程，就地改比穿一整條參數鏈誠實。
+ * 走的就是這個預設物件。同步量測期間就地覆寫，結束或失敗後還原。
  *
  * 【PowerShell 注意】`$env:TP` 會留在整個工作階段，下一次跑會沉默地沿用。
  * 用 bash 的 `TP=... npx ...`，或每次跑完 `Remove-Item Env:TP`。
@@ -360,17 +361,11 @@ function main(): void {
 declare const process: { env: Record<string, string | undefined> }
 
 const override = process.env.TP
-if (override !== undefined && override !== '') {
-  Object.assign(DEFAULT_STEER, JSON.parse(override) as Partial<typeof DEFAULT_STEER>)
-  console.error('TP override: ' + override)
-}
-
 const doctrineOverride = process.env.DP
-if (doctrineOverride !== undefined && doctrineOverride !== '') {
-  Object.assign(
-    DEFAULT_DOCTRINE, JSON.parse(doctrineOverride) as Partial<typeof DEFAULT_DOCTRINE>,
-  )
-  console.error('DP override: ' + doctrineOverride)
-}
-
-main()
+withProbeConfig(DEFAULT_STEER, override, 'TP', () => {
+  withProbeConfig(DEFAULT_DOCTRINE, doctrineOverride, 'DP', () => {
+    if (override) console.error('TP override: ' + override)
+    if (doctrineOverride) console.error('DP override: ' + doctrineOverride)
+    main()
+  })
+})
