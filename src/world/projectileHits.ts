@@ -5,7 +5,7 @@ import {
   createHitResult, hitAircraft, segmentBox, segmentPointDistanceSq,
   NO_HIT, PART_INDEX, partDamage, type HitPart,
 } from './hit'
-import type { Projectiles } from './Projectiles'
+import { ownerShipIndex, type Projectiles } from './Projectiles'
 import { pushImpact, type ImpactEvents } from './events'
 import { pushDamage, type DamageEvents } from './damage'
 import { CullIndex } from './cull'
@@ -18,7 +18,6 @@ import type { Combatant } from './combatant'
 import type { GroundTarget } from './groundTargets'
 import type { Ship } from './ships'
 import { airframePose } from './groundAirframe'
-import { ownerShipIndex } from './shipGuns'
 import { MATERIAL } from './material'
 import { popIfDead, sinkIfDead, wreckIfDead } from './targetDeaths'
 
