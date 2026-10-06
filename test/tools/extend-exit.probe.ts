@@ -45,6 +45,7 @@ import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_RULES, type RuleConfig } from '../../src/ai/rules'
 import type { Combatant } from '../../src/world/World'
 import { readyCard } from '../fixtures/mission'
+import { SegmentGaps } from './segment-gaps'
 
 const DT = 1 / 240
 const SECONDS = 300
@@ -152,7 +153,7 @@ function run(id: string, salt: number, exit: number | null): Run {
   const pt = new Uint8Array(cs.length)
   const pf = new Uint8Array(cs.length)
   const pr = new Uint8Array(cs.length)
-  const lastEnd = new Float64Array(cs.length).fill(Number.NaN)
+  const gaps = new SegmentGaps()
   let protectedAlive = 0
   let fighterAlive = 0
   let t = 0
@@ -161,14 +162,15 @@ function run(id: string, salt: number, exit: number | null): Run {
     const l = live[i] ?? null
     if (l === null) return
     live[i] = null
-    segs.push({
+    const segment: Seg = {
       seconds: at - l.t0,
       recoveredAt: l.rec,
       cause,
       kind: kindOf(l),
       gap: Infinity,
-    })
-    lastEnd[i] = at
+    }
+    segs.push(segment)
+    gaps.close(i, at, segment)
   }
 
   for (let k = 0; k < Math.round(SECONDS / DT); k++) {
@@ -193,11 +195,7 @@ function run(id: string, salt: number, exit: number | null): Run {
       const l = live[i] ?? null
 
       if (isExtend && l === null) {
-        if (!Number.isNaN(lastEnd[i]!)) {
-          for (let j = segs.length - 1; j >= 0; j--) {
-            if (!Number.isFinite(segs[j]!.gap)) { segs[j]!.gap = t - lastEnd[i]!; break }
-          }
-        }
+        gaps.enter(i, t)
         live[i] = {
           t0: t,
           rec: Infinity,
