@@ -5,12 +5,12 @@
  * 用 `cp` 備份還原，不要用 git。
  *
  * ```
- * cp src/render/flora.ts /tmp/flora.bak
+ * cp src/render/islandFlora.ts /tmp/islandFlora.bak
  * for G in 50 25 20 15 12; do
- *   sed -i "s/^export const ISLAND_GRID = [0-9]*$/export const ISLAND_GRID = $G/" src/render/flora.ts
+ *   sed -i "s/^export const ISLAND_GRID = [0-9.]*$/export const ISLAND_GRID = $G/" src/render/islandFlora.ts
  *   node node_modules/vite-node/vite-node.mjs test/tools/island-density.probe.ts
  * done
- * cp /tmp/flora.bak src/render/flora.ts
+ * cp /tmp/islandFlora.bak src/render/islandFlora.ts
  * ```
  */
 import { createArchipelago } from '../../src/world/archipelago'
