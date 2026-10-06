@@ -21,6 +21,7 @@ const VOLLEY = readFileSync('src/audio/volleyGroups.ts', 'utf8').replace(/\r\n/g
 const SCENERY = readFileSync('src/render/battleScenery.ts', 'utf8')
 const CANNONS = readFileSync('src/audio/cannonAudio.ts', 'utf8').replace(/\r\n/g, '\n')
   .split('\n').map(line => line.replace(/^  /, ''))
+const MENU_SOUND = readFileSync('src/ui/menuSound.ts', 'utf8').replace(/\r\n/g, '\n')
 
 function lines(needle: string, source = SRC): number[] {
   const hits: number[] = []
@@ -562,13 +563,13 @@ describe('選單按鈕的聲音', () => {
    */
   it('退回、關閉、一般三份名單各自分得清楚', async () => {
     const { SINGLE_FILES } = await import('../../src/audio/catalog')
-    const fn = body('function uiSound(')
+    const fn = MENU_SOUND
     expect(fn).toContain('if (BACK_ACTS.has(act)) return SINGLE_FILES.uiBack')
     expect(fn).toContain('if (CLOSE_ACTS.has(act)) return SINGLE_FILES.uiClose')
     const listOf = (head: string): string => {
-      const at = ALL.indexOf(head)
+      const at = MENU_SOUND.indexOf(head)
       expect(at, head).toBeGreaterThan(0)
-      return ALL.slice(at, ALL.indexOf('])', at))
+      return MENU_SOUND.slice(at, MENU_SOUND.indexOf('])', at))
     }
     const back = listOf('const BACK_ACTS = new Set([')
     const close = listOf('const CLOSE_ACTS = new Set([')

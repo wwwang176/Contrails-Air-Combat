@@ -30,7 +30,6 @@ import { createFlightAudio } from './audio/flightAudio'
 import { createAircraftLoopAudio } from './audio/aircraftLoopAudio'
 import { createListenerMotion } from './audio/listenerMotion'
 import { createBattleAudioCues } from './audio/battleAudioCues'
-import { SINGLE_FILES } from './audio/catalog'
 import { STRIKE_HEIGHT, applyFlash, createStorm, rollThunder, stepStorm } from './render/storm'
 import { createRain } from './render/rain'
 import { DAY_PALETTES, applyTimeOfDay, type TimeOfDay } from './render/timeOfDay'
@@ -167,6 +166,7 @@ import {
 } from './battle/skirmish'
 import { missionConfigFrom, type ReadyMissionCard } from './battle/missions'
 import { createMenu } from './ui/menu'
+import { uiSound } from './ui/menuSound'
 import { createLoadingScreen, fileFraction } from './ui/loading'
 import {
   readSeenTutorials, tutorialsFor, unseenTutorials, type Tutorial,
@@ -2269,31 +2269,6 @@ function drawMenuBackground(frameSeconds: number): void {
 let drillConfig: BattleConfig | null = null
 /** 演練場的靶機。每幀把血量釘回去（「打不死」的全部意思） */
 let drillDrone: Combatant | null = null
-
-/**
- * 按鈕音分三種，依 `data-act` 分：**退回上一頁**、**收起疊在上面的東西**、
- * 其餘都是一般的機械聲。
- *
- * 【為什麼用 act 而不是按鈕上的字】字會改、會翻譯；`data-act` 是選單那一層
- * 唯一的協定（見 `ui/menu.ts` 的事件委派）。
- *
- * 【沒有 act 的按鈕算一般的】陣營卡、任務卡、機種卡都自己掛監聽器，它們是
- * 「往前走」不是「退回來」。
- */
-const BACK_ACTS = new Set(['back', 'toSetup', 'toMission', 'toMenu'])
-/** 收起 overlay 的那幾顆：暫停、確認框、設定、教學卡 */
-const CLOSE_ACTS = new Set([
-  'resume', 'tutorialOk', 'restartNo', 'abandonNo', 'toMenuNo',
-  'settingsCancel', 'reloadNo', 'planePickCancel',
-])
-
-/** `data-act` → 要播哪一支。認不得的一律一般按鈕 */
-function uiSound(act: string | undefined): string {
-  if (act === undefined) return SINGLE_FILES.uiClick
-  if (BACK_ACTS.has(act)) return SINGLE_FILES.uiBack
-  if (CLOSE_ACTS.has(act)) return SINGLE_FILES.uiClose
-  return SINGLE_FILES.uiClick
-}
 
 /**
  * 選單按鈕的聲音。**自己掛一個事件委派，不走 `menu.ts` 的那一個** —— 那一支
