@@ -14,7 +14,7 @@ import {
   createRecoveryAssist, resetRecoveryAssist, updateRecoveryAssist, updateRecoveryTrialAssist,
   type RecoveryTrialStatus,
 } from './recoveryWorkerClient'
-import { createSense, senseTerrain, SENSE_INTERVAL, type TerrainSense, type TerrainSource } from './terrainSense'
+import { createSense, resetSense, senseTerrain, SENSE_INTERVAL, type TerrainSense, type TerrainSource } from './terrainSense'
 
 export interface CommandOutputContext {
   readonly seaHeight: number
@@ -59,6 +59,23 @@ export function createCommandOutputState(): CommandOutputState {
     throttleRamp: false,
     delay: new CommandDelay(),
   }
+}
+
+/** 換場、換座位或重生時清除地形與防墜鎖存；保留命令延遲與油門平滑歷史。 */
+export function resetCommandOutputTerrain(state: CommandOutputState, selfIndex: number): void {
+  resetSense(state.sense)
+  state.tacticalPhase = 'off'
+  state.controlOverride = 'off'
+  // 下一次輸出立即採樣，之後繼續沿用座位相位的感知節拍。
+  state.senseTick = -(selfIndex % SENSE_INTERVAL)
+  state.recoveryClock = 0
+  state.groundCapture.active = false
+  state.groundCapture.armed = false
+  resetRecoveryAssist(state.recoveryAssist)
+  resetRecoveryAssist(state.recoveryTrialAssist)
+  state.recoveryTrialActive = false
+  state.groundReleaseGate.safeSince = -1
+  state.groundReleaseGate.sequence = -1
 }
 
 /**

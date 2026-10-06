@@ -7,8 +7,10 @@ import { ACE } from '../../src/ai/profile'
 import { createBandState } from '../../src/ai/bandState'
 import { createSurfaceAttackState } from '../../src/ai/surfaceAttack'
 import {
-  createCommandOutputState, emitAiCommand, type CommandOutputContext,
+  createCommandOutputState, emitAiCommand, resetCommandOutputTerrain, type CommandOutputContext,
 } from '../../src/ai/commandOutput'
+import { AiController } from '../../src/ai/AiController'
+import * as terrainSense from '../../src/ai/terrainSense'
 import { applySafety } from '../../src/ai/safety'
 import { updateRecoveryAssist, updateRecoveryTrialAssist } from '../../src/ai/recoveryWorkerClient'
 
@@ -43,6 +45,65 @@ function setup() {
 }
 
 describe('AI 共用命令輸出', () => {
+  it('換場清除地形與防墜鎖存，重用原物件並保留油門與命令延遲歷史', () => {
+    const { state } = setup()
+    const references = { ...state }
+    Object.assign(state.sense, { floor: 800, turn: 0.4, side: 1, island: 17, clearSamples: 2 })
+    state.groundCapture.active = true
+    state.groundCapture.armed = true
+    state.groundReleaseGate.safeSince = 12
+    state.groundReleaseGate.sequence = 7
+    state.recoveryClock = 80
+    state.recoveryTrialActive = true
+    state.tacticalPhase = '對地射擊'
+    state.controlOverride = '防墜補高'
+    state.lastThrottle = 0.7
+    state.throttleRamp = true
+    for (const assist of [state.recoveryAssist, state.recoveryTrialAssist]) {
+      Object.assign(assist, { resultSequence: 7, drop: 100, active: true, urgency: 1, nextRequestAt: 90 })
+    }
+
+    resetCommandOutputTerrain(state, 5)
+
+    expect(state.sense).toEqual(terrainSense.createSense())
+    expect(state.groundCapture).toEqual({ active: false, armed: false })
+    expect(state.groundReleaseGate).toEqual({ safeSince: -1, sequence: -1 })
+    expect(state.recoveryClock).toBe(0)
+    expect(state.recoveryTrialActive).toBe(false)
+    expect(state.tacticalPhase).toBe('off')
+    expect(state.controlOverride).toBe('off')
+    for (const assist of [state.recoveryAssist, state.recoveryTrialAssist]) {
+      expect(assist).toMatchObject({ resultSequence: -1, drop: 0, active: false, urgency: 0, nextRequestAt: 0 })
+    }
+    for (const key of ['sense', 'groundCapture', 'groundReleaseGate', 'recoveryAssist', 'recoveryTrialAssist', 'delay'] as const) {
+      expect(state[key]).toBe(references[key])
+    }
+    expect(state.lastThrottle).toBe(0.7)
+    expect(state.throttleRamp).toBe(true)
+  })
+
+  it.each([-1, 0, 5, 39])('座位 %i 換場後立即感知地形，後續保持既有採樣間隔', selfIndex => {
+    const self = new Aircraft(P51D)
+    const ai = new AiController()
+    const out = createCommand()
+    ai.selfIndex = selfIndex
+    ai.terrain = { islands: [] }
+    const sense = vi.spyOn(terrainSense, 'senseTerrain')
+    try {
+      ai.update(self, 1 / 240, out)
+      ai.clearTerrainState()
+      sense.mockClear()
+      ai.update(self, 1 / 240, out)
+      expect(sense).toHaveBeenCalledTimes(1)
+      for (let i = 1; i < terrainSense.SENSE_INTERVAL; i++) ai.update(self, 1 / 240, out)
+      expect(sense).toHaveBeenCalledTimes(1)
+      ai.update(self, 1 / 240, out)
+      expect(sense).toHaveBeenCalledTimes(2)
+    } finally {
+      sense.mockRestore()
+    }
+  })
+
   it('安全層接收延遲後的命令與當下飛機，修正不再經過延遲', () => {
     const { self, state, ctx, out, step } = setup()
     const order: string[] = []

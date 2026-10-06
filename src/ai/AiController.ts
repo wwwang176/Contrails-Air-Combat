@@ -1,4 +1,4 @@
-import { createCommandOutputState, emitAiCommand } from './commandOutput'
+import { createCommandOutputState, emitAiCommand, resetCommandOutputTerrain } from './commandOutput'
 import { attackShip, createSurfaceAttackState, strafeGround, type StrikeRef } from './surfaceAttack'
 import { Vector3 } from 'three'
 import {
@@ -36,10 +36,7 @@ import {
   type TargetBoard, type TargetConfig,
 } from './target'
 import type { SafetyAction } from './safety'
-import { resetRecoveryAssist } from './recoveryWorkerClient'
-import {
-  resetSense, SENSE_INTERVAL, type TerrainSource,
-} from './terrainSense'
+import type { TerrainSource } from './terrainSense'
 import {
   DEFAULT_STATION, STATION_OFFSETS, stationCommand, stationPoint,
   type StationConfig, type StationOffset,
@@ -283,7 +280,7 @@ export class AiController implements Controller {
    * 上一場「我正在繞第 17 座島」的承諾不得帶進新的一場。
    */
   clearTerrainState(): void {
-    resetSense(this.output.sense)
+    resetCommandOutputTerrain(this.output, this.selfIndex)
     // 【攻擊狀態機也要清】上一場「我正在對第 3 艘做直飛」的鎖定不得帶進
     // 新的一場 —— 與地形的承諾同一個理由，也同一個呼叫點。
     resetStrike(this.strike)
@@ -295,21 +292,7 @@ export class AiController implements Controller {
     this.surface.groundAim = -1
     this.surface.groundAttackActive = false
     this.surface.groundStrafeActive = false
-    this.output.tacticalPhase = 'off'
-    this.output.controlOverride = 'off'
     resetGroundStrafe(this.surface.groundStrafe)
-    // 【連採樣節拍一起重設】只清 sense 的話，新場最多要等 11 個物理步才會
-    // 第一次感知，那段時間 AI 是用 floor = 0 在飛。負的起點讓
-    // (senseTick + sensePhase) 在下一次 emit 就命中 0
-    this.output.senseTick = -this.sensePhase
-    this.output.recoveryClock = 0
-    this.output.groundCapture.active = false
-    this.output.groundCapture.armed = false
-    resetRecoveryAssist(this.output.recoveryAssist)
-    resetRecoveryAssist(this.output.recoveryTrialAssist)
-    this.output.recoveryTrialActive = false
-    this.output.groundReleaseGate.safeSince = -1
-    this.output.groundReleaseGate.sequence = -1
     this.resetAirTactics()
   }
 
@@ -327,17 +310,6 @@ export class AiController implements Controller {
     this.bandTarget = null
     resetAirPass(this.airPass)
   }
-  /**
-   * 這一架的感知相位 —— **由座位決定，不是由建立順序**。
-   *
-   * 沒有錯開的話 40 架會在同一個物理步一起算，做出週期性的尖峰，而那會直接
-   * 打在 frame-time 量的 1% low 上。
-   *
-   * 【為什麼不是一個全域遞增的計數器】那樣相位會取決於這個 process 先前
-   * 建過幾架 AI —— 重開、接手次數不同就會改變之後每一架的相位。仍然是
-   * 決定性的，但同一個座位在不同場次會拿到不同的相位，難以重現。
-   */
-  private get sensePhase(): number { return this.selfIndex % SENSE_INTERVAL }
   profile: DifficultyProfile = ACE
 
   /**
