@@ -68,9 +68,8 @@ import { createGroundBattle } from './render/groundBattle'
 import { BATTLE_FOG } from './render/heightFog'
 import { settleGroundTargets } from './world/groundTargets'
 import type { Ship } from './world/ships'
-import {
-  balloonHills, settleBalloons, syncBalloonHills, type BalloonHillSet,
-} from './world/balloons'
+import { settleBalloons } from './world/balloons'
+import { balloonHills, syncBalloonHills, type BalloonHillSet } from './world/balloonHills'
 import { createBalloonModels } from './render/balloons'
 import type { TerrainSource } from './ai/terrainSense'
 import { clearBursts, createBursts, pushBurst } from './world/flak'
@@ -223,7 +222,7 @@ const terrainGfx = (): TerrainGfx => ({ renderer: ctx.renderer, fieldInner: fiel
 let terrain = createTerrain(terrainKind, terrainGfx())
 /**
  * AI 看到的地形。**平常就是 `terrain`**；有防空氣球的那一場多了幾座只有 AI
- * 看得到的山（`world/balloons.ts` 的 `balloonHills`）—— 高度場、撞地與畫面都
+ * 看得到的山（`world/balloonHills.ts` 的 `balloonHills`）—— 高度場、撞地與畫面都
  * 不動。每一場在地形接上之後重算（`startWorld`）。
  */
 let aiTerrain: TerrainSource = terrain
