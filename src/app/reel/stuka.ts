@@ -6,6 +6,7 @@ import {
   BOMB_RELEASE_Y, barrage, bombAt, body, bodyUp, edit, propAt, propTravel, timeline, velocityAt,
   type Cut, type Path, type ReelCamera, type ReelEvent, type ReelPlane, type ReelProp, type Shot,
 } from './kit'
+import { aimBetween, dutch, jolt } from './reelCameraMath'
 
 // ── 斯圖卡俯衝轟炸 ─────────────────────────────────────────
 //
@@ -513,18 +514,6 @@ const PAD_AT = onRoad((COUNT - 1) * ROAD_GAP + 7000, 260, new Vector3())
 const S1 = new Vector3()
 const S2 = new Vector3()
 
-const AIM_A = new Vector3()
-const AIM_B = new Vector3()
-/**
- * 從 `from` 看出去、介於 `a` 與 `b` 兩個方向之間的注視點（`w` = 偏向 `b` 的比例）。
- * 混的是方向不是位置 —— 一個在 20 m、一個在 600 m 的話，位置的內插幾乎就是遠的那一點
- */
-function aimBetween(from: Vector3, a: Vector3, b: Vector3, w: number, out: Vector3): Vector3 {
-  AIM_A.subVectors(a, from).normalize().multiplyScalar(100 * (1 - w))
-  AIM_B.subVectors(b, from).normalize().multiplyScalar(100 * w)
-  return out.copy(from).add(AIM_A).add(AIM_B)
-}
-
 /**
  * 手持／機上的慢晃（與 raid 同一支）：注視點繞著鏡頭偏一個小角度，頻率 0.3～1.1 Hz 互質
  * 的正弦疊起來。指向的晃動 RMS 約 0.7 × `deg` 度。偏的是角度不是公尺 —— 注視點在 5 m 與
@@ -542,29 +531,6 @@ function shake(t: number, deg: number, seed: number, out: ReelCamera): void {
  * 衝擊的一震：`t0` 起 4～5 Hz、0.18 秒衰減一半多的快抖，0.6 秒後歸零，疊進 `out`。
  * 只給炸彈落地的那幾下 —— 一直抖的話觀眾看的是鏡頭不是飛機
  */
-function jolt(t: number, t0: number, amp: number, out: Vector3): Vector3 {
-  const u = t - t0
-  if (u < 0 || u > 0.6) return out
-  const k = amp * Math.exp(-u / 0.18)
-  out.x += k * Math.sin(2 * Math.PI * 5.3 * u)
-  out.y += k * Math.sin(2 * Math.PI * 4.1 * u + 1)
-  return out
-}
-
-const DUTCH_F = new Vector3()
-const DUTCH_R = new Vector3()
-/**
- * 荷蘭角：把鏡頭的上方繞著視線轉 `deg` 度（正值 = 上方倒向畫面右邊，地平線左低右高）。
- * 在 `position`、`target`、`up` 都設好之後呼叫
- */
-function dutch(out: ReelCamera, deg: number): void {
-  DUTCH_F.subVectors(out.target, out.position).normalize()
-  DUTCH_R.crossVectors(DUTCH_F, out.up).normalize()
-  out.up.copy(DUTCH_R).cross(DUTCH_F)
-  const a = (deg * Math.PI) / 180
-  out.up.multiplyScalar(Math.cos(a)).addScaledVector(DUTCH_R, Math.sin(a))
-}
-
 /** 燒著的那一段縱隊（前三個落點的中間）：收尾幾刀背景裡的火 */
 const BURNING = onRoad(ROAD_GAP, 0, new Vector3())
 const LAST = COUNT - 1
