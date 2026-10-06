@@ -9,7 +9,7 @@ const DIST = new Float64Array(64)
  * 【插入排序、不配置】out 只有十來格、候選最多 40 —— 每幀跑一次。
  */
 export function nearestN(
-  positions: readonly Vector3[], valid: Uint8Array, count: number,
+  positions: readonly Readonly<Pick<Vector3, 'x' | 'y' | 'z'>>[], valid: Uint8Array, count: number,
   px: number, py: number, pz: number, out: Int32Array,
 ): number {
   const n = Math.min(out.length, DIST.length)

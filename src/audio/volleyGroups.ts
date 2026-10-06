@@ -1,4 +1,4 @@
-import type { Combatant } from '../world/combatant'
+import type { AircraftSpec } from '../specs/types'
 import { ownTurretVolleyPools, volleyPool, type Pool } from './catalog'
 
 export interface VolleyGroup {
@@ -8,9 +8,13 @@ export interface VolleyGroup {
   readonly db: number
 }
 
+interface VolleySource {
+  readonly aircraft: { readonly spec: Pick<AircraftSpec, 'battery' | 'turrets'> }
+}
+
 /** 依武器種類建立自機齊射群組；只在換機或重建武裝時呼叫。 */
 export function buildVolleyGroups(
-  player: Combatant, maxGroups = 8, turretDb = -0.5,
+  player: VolleySource, maxGroups = 8, turretDb = -0.5,
 ): { readonly groups: VolleyGroup[]; readonly ownTurretVolley: boolean } {
   const groups: VolleyGroup[] = []
   const mounts = player.aircraft.spec.battery.mounts
