@@ -893,7 +893,7 @@ const battleSceneFrameDeps: BattleSceneFrameDependencies = {
   vortex,
   spray,
   orderMarkers,
-  objectiveRing,
+  getObjectiveRing: () => objectiveRing,
   sceneWeather,
   emitFirePuff,
   burnBalloon,
@@ -1894,7 +1894,8 @@ window.addEventListener('resize', () => menuReel.relayout())
 
 /** 選單期間的一幀：放短片、推進特效池 */
 const drawMenuBackground = createMenuBackgroundFrame({
-  ctx, menuReel, terrain, terrainKind, sceneWeather, stepEffects, spray, vortex, reelTrackDust,
+  ctx, menuReel, getTerrain: () => terrain, getTerrainKind: () => terrainKind,
+  sceneWeather, stepEffects, spray, vortex, reelTrackDust,
   steamEmission, fireCrowd, groundFires, shipFires, wakes, noShips: NO_SHIPS, emitFirePuff,
   rainGroundAt, updateFireCrowd, stepGroundFires, playThunder,
 })
@@ -2459,5 +2460,5 @@ Object.assign(window, createSceneryInspection({
 // 只在外部探針呼叫時讀取當前戰局，不參與遊戲幀迴圈。
 Object.assign(window, createBattleInspection({
   readState: () => ({ screen, player, world, battle }),
-  input, playerAi, hudFrame, aimAssist, loop, objectiveRing,
+  input, playerAi, hudFrame, aimAssist, loop, getObjectiveRing: () => objectiveRing,
 }))

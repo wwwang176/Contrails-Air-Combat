@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { Object3D } from 'three'
 import { createBattleInspection } from '../../src/app/battleInspection'
 import { createBattle } from '../../src/battle/createBattle'
 import { AiController } from '../../src/ai/AiController'
@@ -14,16 +15,29 @@ function fixture() {
   let reads = 0
   const hudFrame = createHudFrame()
   const input = createInputState()
+  let ring = { object: new Object3D() }
   const inspection = createBattleInspection({
     readState: () => { reads++; return state },
     input, playerAi: new AiController(), hudFrame, aimAssist: { target: -1 },
-    loop: { lastSubstepCount: 3 }, objectiveRing: { object: { parent: null } },
+    loop: { lastSubstepCount: 3 }, getObjectiveRing: () => ring,
   })
   return { inspection, hudFrame, input, get state() { return state },
-    get reads() { return reads }, setState(next: typeof state) { state = next } }
+    get reads() { return reads }, setState(next: typeof state) { state = next },
+    setRing(next: typeof ring) { ring = next } }
 }
 
 describe('battle inspection', () => {
+  it('圓環跨場重建後，查詢反映新圓環是否掛在場景中', () => {
+    const f = fixture()
+    expect(f.inspection.__probe()!.ring).toBe(false)
+    const next = { object: new Object3D() }
+    const scene = new Object3D()
+    scene.add(next.object)
+    f.setRing(next)
+    expect(f.inspection.__probe()!.ring).toBe(true)
+    f.setRing({ object: new Object3D() })
+    expect(f.inspection.__probe()!.ring).toBe(false)
+  })
   it('does not read simulation state until queried and returns no player probe outside battle', () => {
     const f = fixture()
     expect(f.reads).toBe(0)

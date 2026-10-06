@@ -30,12 +30,12 @@ interface BattleInspectionDependencies {
     | 'pitch' | 'releaseAgl' | 'releaseEnv' | 'releaseOk' | 'roll' | 'runCount' | 'runX' | 'runY'>
   readonly aimAssist: Pick<AimAssist, 'target'>
   readonly loop: Pick<FixedStepAccumulator, 'lastSubstepCount'>
-  readonly objectiveRing: { readonly object: Pick<Object3D, 'parent'> }
+  getObjectiveRing(): { readonly object: Pick<Object3D, 'parent'> }
 }
 
 /** 瀏覽器量測用的純資料查詢；每次呼叫才讀戰局，換場後不保留舊世界。 */
 export function createBattleInspection({
-  readState, input, playerAi, hudFrame, aimAssist, loop, objectiveRing,
+  readState, input, playerAi, hudFrame, aimAssist, loop, getObjectiveRing,
 }: BattleInspectionDependencies) {
   /**
    * **量測出口**：場上每一席的機種與位置。
@@ -207,7 +207,7 @@ export function createBattleInspection({
        * 問的是「它有沒有被加進場景」：`hasTarget` 為真卻沒加進去，正是那個
        * 會靜靜發生的失敗（環每一幀照常更新位置與半徑，就是不在場景裡）。
        */
-      ring: objectiveRing.object.parent !== null,
+      ring: getObjectiveRing().object.parent !== null,
       /** 整隊重生已經預警的批數，與場上活著的紅方架數。試飛用來看重生有沒有發生 */
       batches: battle.batches,
       redAlive: world.combatants.reduce((n, c) => n + (c.team === 'red' && c.alive ? 1 : 0), 0),

@@ -17,8 +17,8 @@ import { applyFlash, stepStorm } from '../render/storm'
 export interface MenuBackgroundFrameDeps {
   readonly ctx: SceneContext
   readonly menuReel: MenuReel
-  readonly terrain: Terrain
-  readonly terrainKind: TerrainKind
+  getTerrain(): Terrain
+  getTerrainKind(): TerrainKind
   readonly sceneWeather: ReturnType<typeof createSceneWeather>
   readonly stepEffects: ReturnType<typeof createEffectStepper>
   readonly spray: ReturnType<typeof createSpray>
@@ -40,13 +40,16 @@ export interface MenuBackgroundFrameDeps {
 /** Advances and renders one menu-reel frame without involving battle state. */
 export function createMenuBackgroundFrame(deps: MenuBackgroundFrameDeps) {
   const {
-    ctx, menuReel, terrain, terrainKind, sceneWeather, stepEffects, spray, vortex, reelTrackDust,
+    ctx, menuReel, getTerrain, getTerrainKind, sceneWeather, stepEffects, spray, vortex, reelTrackDust,
     steamEmission, fireCrowd, groundFires, shipFires, wakes, noShips, emitFirePuff,
     rainGroundAt, updateFireCrowd, stepGroundFires, playThunder,
   } = deps
 
   return function drawMenuBackground(frameSeconds: number, elapsed: number): void {
     menuReel.update(frameSeconds, elapsed)
+    // 短片可能在 update 裡換場；此時才讀取，不能保留已釋放的地形。
+    const terrain = getTerrain()
+    const terrainKind = getTerrainKind()
     const fx = menuReel.hold ? 0 : frameSeconds * menuReel.rate
     stepEffects(fx, elapsed, terrain, elapsed)
     spray.step(fx)

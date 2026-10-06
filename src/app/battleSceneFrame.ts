@@ -49,7 +49,7 @@ export interface BattleSceneFrameDependencies {
   readonly vortex: Vortex
   readonly spray: Particles
   readonly orderMarkers: OrderMarkers
-  readonly objectiveRing: ObjectiveRing
+  getObjectiveRing(): ObjectiveRing
   readonly sceneWeather: SceneWeather
   readonly emitFirePuff: (x: number, y: number, z: number) => void
   readonly burnBalloon: (x: number, y: number, z: number) => void
@@ -74,7 +74,7 @@ export function updateBattleSceneFrame(
     ctx, fireCrowd, groundFires, shipFires, steamEmission,
     muzzles, turretBarrels, turretMuzzles, flareLights, stepEffects,
     battleScenery, blastPresentation, wakes, vortex, spray,
-    orderMarkers, objectiveRing, sceneWeather, emitFirePuff,
+    orderMarkers, sceneWeather, emitFirePuff,
     burnBalloon, rainGroundAt,
   } = deps
 
@@ -112,6 +112,7 @@ export function updateBattleSceneFrame(
   if (input.orderMarkers) fillOrderView(battle, orderMarkers)
 
   if (battle.mission.hasTarget) {
+    const objectiveRing = deps.getObjectiveRing()
     if (objectiveRing.object.parent === null) ctx.scene.add(objectiveRing.object)
     objectiveRing.update(battle.mission.target, battle.mission.targetRadius, ctx.camera)
   }
