@@ -11,6 +11,9 @@ import { ordnanceShakeScale } from '../../src/camera/cameraShake'
 const MAIN_SRC = Object.values(import.meta.glob('../../src/main.ts', {
   query: '?raw', import: 'default', eager: true,
 }) as Record<string, string>)[0]!
+const SCENE_FRAME_SRC = Object.values(import.meta.glob('../../src/app/battleSceneFrame.ts', {
+  query: '?raw', import: 'default', eager: true,
+}) as Record<string, string>)[0]!
 
 const PRESENTATION = Object.values(import.meta.glob('../../src/render/blastPresentation.ts', {
   query: '?raw', import: 'default', eager: true,
@@ -149,7 +152,7 @@ describe('createBlastLights：固定幾盞的燈池', () => {
    * 高射砲傳 `false` 不放大；船火與地面火的小爆炸不打（整場會一直閃）。
    */
   it('main.ts 的六種爆炸都打燈，高射砲不放大，火焰不打', () => {
-    const main = MAIN_SRC
+    const main = MAIN_SRC + '\n' + SCENE_FRAME_SRC
     const body = (from: string, to: string): string => {
       const source = from.startsWith('function ') ? PRESENTATION : main
       const at = source.indexOf(from)

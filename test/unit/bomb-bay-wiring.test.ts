@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs'
  */
 const SRC = new TextDecoder().decode(readFileSync('src/main.ts')).split('\n')
 const CAMERA = new TextDecoder().decode(readFileSync('src/app/battleCameraFrame.ts')).split('\n')
+const SCENE = new TextDecoder().decode(readFileSync('src/app/battleSceneFrame.ts')).split('\n')
 const EVENTS = readFileSync('src/app/battleEventPresentation.ts', 'utf8').split('\n')
 const WORLD = new TextDecoder().decode(readFileSync('src/world/World.ts')).replace(/\r\n/g, '\n')
 const PLAYER = new TextDecoder().decode(readFileSync('src/control/PlayerController.ts'))
@@ -113,9 +114,9 @@ describe('火災的接線：起火必須排在事件排空之前', () => {
 
   /** 【燃燒一幀推一次】它是純裝飾。塞進物理子步的話一幀會燒好幾次。 */
   it('stepShipFires 吃的是 worldSeconds', () => {
-    const step = lines('stepShipFires(', SRC)
+    const step = lines('stepShipFires(', SCENE)
     expect(step).toHaveLength(1)
-    expect(SRC[step[0]!]!).toContain('worldSeconds')
+    expect(SCENE[step[0]!]!).toContain('worldSeconds')
   })
 })
 

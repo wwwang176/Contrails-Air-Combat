@@ -62,7 +62,7 @@ import { createShipModels, shipModelTop } from './render/ships'
 import { createGroundModels } from './render/groundTargets'
 import { createSearchlights, makeGlareTexture } from './render/searchlights'
 import { createGroundBattle } from './render/groundBattle'
-import { BATTLE_FOG, stepBattleFog } from './render/heightFog'
+import { BATTLE_FOG } from './render/heightFog'
 import { settleGroundTargets } from './world/groundTargets'
 import type { Ship } from './world/ships'
 import {
@@ -75,9 +75,7 @@ import { createShipFireSmoke, createSmoke, createSteam } from './render/smoke'
 import { addSmokeLighting } from './render/smokeLighting'
 import { createBlastLights } from './render/blastLights'
 import { battleLights } from './battle/battleLights'
-import {
-  createShipFires, stepShipFires,
-} from './render/shipFires'
+import { createShipFires } from './render/shipFires'
 import {
   createGroundFires, lightGroundFire, stepGroundFires,
 } from './render/groundFires'
@@ -155,7 +153,6 @@ import { getLang, onLangChange, readLang, saveLang, setLang, t } from './i18n'
 import { applyStaticText } from './i18n/dom'
 import { aircraftName } from './i18n/names'
 import { lineAbreast, sideSummary } from './battle/order'
-import { fillOrderView } from './battle/orderView'
 import {
   battleConfigFrom, DEFAULT_SKIRMISH, MAX_COMBATANTS, type SkirmishSetup,
 } from './battle/skirmish'
@@ -179,6 +176,10 @@ import {
   type BattleCameraFrameOutput,
   type BattleCameraFrameScratch,
 } from './app/battleCameraFrame'
+import {
+  updateBattleSceneFrame,
+  type BattleSceneFrameDependencies,
+} from './app/battleSceneFrame'
 import { warmBattleGraphics } from './app/battleWarmup'
 import { assetUrl } from './core/asset'
 import { createBattleAudioController } from './app/battleAudioController'
@@ -915,6 +916,31 @@ const battleCameraFrameOutput: BattleCameraFrameOutput = {
   bombTarget: null,
   releaseOk: false,
   releaseEnv: null,
+}
+const battleSceneFrameDeps: BattleSceneFrameDependencies = {
+  ctx,
+  fireCrowd,
+  groundFires,
+  shipFires,
+  steamEmission,
+  muzzles,
+  turretBarrels,
+  turretMuzzles,
+  flareLights,
+  stepEffects,
+  battleScenery,
+  blastPresentation,
+  wakes,
+  vortex,
+  spray,
+  orderMarkers,
+  objectiveRing,
+  sceneWeather,
+  emitFirePuff,
+  burnBalloon,
+  rainGroundAt,
+  renderPositions,
+  renderQuaternions,
 }
 
 /** HUD 投影用的暫存向量；投影距離取 1000 m，遠到視差可以忽略。 */
@@ -1723,80 +1749,17 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 【火災走畫面時間，不是物理子步】它是純裝飾 —— 與 `sparks.step` 同一條
   // 【排在兩支 step 之前】這一幀的間隔倍率要先算好，否則兩支火用到的是
   // 上一幀的值；剛熄掉的格子也會慢一幀才歸位
-  updateFireCrowd(fireCrowd, groundFires, shipFires, world.ships, worldSeconds)
-  stepShipFires(shipFires, world.ships, worldSeconds, emitFirePuff, fireCrowd.ship)
-  stepGroundFires(groundFires, worldSeconds, emitFirePuff, fireCrowd.ground)
-  steamEmission.emitPlantSteam(worldSeconds, world.groundTargets, terrainKind)
-  steamEmission.emitFlareSmoke(worldSeconds, world.flares)
-  // 【槍焰用內插姿態】它是一個狀態而不是一個瞬間，所以位置在這裡重算 ——
-  // 用物理位置的話槍焰會相對機身抖動一個子步的位移（M7 spec §2.1）
-  muzzles.update(world.combatants, renderPositions, renderQuaternions)
-  // 【砲塔的槍管也用內插姿態】理由與槍焰完全相同
-  turretBarrels.update(world.combatants, renderPositions, renderQuaternions)
-  turretMuzzles.update(world.combatants, renderPositions, renderQuaternions)
-  flareLights.update(world.flares, elapsed)
-  stepEffects(worldSeconds, world.time, terrain, elapsed)
-  // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
-  // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
-  battleScenery.groundModels?.update(world.groundTargets, ctx.camera.position, worldSeconds)
-  // 【吃世界秒數】射擊排程是 `world.time` 的純函數；暫停時兩者都不走
-  battleScenery.groundBattle?.update(world.groundTargets, world.time, worldSeconds, world.groundAt)
-  // 【吃世界秒數】暫停時為 0，團塊停在原地
-  if (battleScenery.battleFogOn) stepBattleFog(worldSeconds)
-  battleScenery.balloonModels?.update(world.balloons, worldSeconds, terrain.collisionHeightAt, burnBalloon)
-  battleScenery.searchlights?.update(elapsed, world.combatants, ctx.camera.position)
-  battleScenery.shipModels?.update(world.ships, blastPresentation.emitGunLostBlast)
-  // ── 魚雷的航跡 ───────────────────────────────────────
-  //
-  // 【在渲染幀率餵，不在物理步】帶子是視覺，取樣間隔由它自己按走過的距離
-  // 決定 —— 與凝結尾同一個做法
-  {
-    const t = world.torpedoes
-    for (let i = 0; i < t.capacity; i++) {
-      // 【只有水中段有航跡】空中那一段沒有東西可以翻起泡沫
-      if (t.active[i] === 0 || t.phase[i] !== 1) continue
-      wakes.emit(i, t.x[i]!, t.z[i]!, t.serial[i]!)
-    }
-  }
-  // 【浪高與海面同一組 uniform】帶子要跟著看得見的浪起伏，否則會被浪蓋掉。地形每場
-  // 重建，所以每幀接一次（沒換就只是比對參考）
-  wakes.bindOcean(terrain.oceanHeight)
-  wakes.step(worldSeconds, elapsed, terrain.heightAt)
-  battleScenery.shipWakes?.bindOcean(terrain.oceanHeight)
-  battleScenery.shipWakes?.step(world.ships, worldSeconds, elapsed, terrain.heightAt)
-  vortex.step(worldSeconds)
-  spray.step(worldSeconds)
-
-  // ── 集合點的可視化（`O`）───────────────────────────────
-  // 【觀測工具，不進任何模擬】只讀指揮層的狀態，不寫。
-  //
-  // 【為什麼要有它】集合令的到達判定是「長機進到 `order.radius` 以內」，而
-  // `rallyAim` 對那個點是**純追擊、沒有抵達行為** —— 迴轉半徑大於半徑時，
-  // 長機會在球外面繞著它盤旋而永遠判不到達。那個現象在無頭模擬裡重現不
-  // 出來，但畫出來就一眼看得到。
-  //
-  // 【為什麼用 `state.position` 而不是內插後的位置】這條線只是要看「離多
-  // 遠」，一個物理步的抖動（240 Hz）在 300 m 的尺度下看不出來，而拿內插
-  // 位置要把整個 combatants 迴圈的暫存搬出來。
-  orderMarkers.setVisible(input.orderMarkers)
-  if (input.orderMarkers) fillOrderView(battle, orderMarkers)
-
-  // 【撤離圓環一定要排在 renderer.render 之前】billboard 的 `lookAt` 讀的是
-  // 相機**這一幀**的位置。排在渲染之後的話環會慢整整一幀（3D 在這裡畫、
-  // HUD 到 `hud.render` 才畫），而且新建的第一幀會停在原點、半徑 1。
-  if (battle.mission.hasTarget) {
-    // 【中途才出現的撤離點】場景歸屬在 `enterBattle` 決定過一次，而返航節拍
-    // 是在戰鬥進行中把任務換成撤離的 —— 不在這裡補的話，環每一幀照常更新
-    // 位置與半徑，卻永遠不在場景裡
-    if (objectiveRing.object.parent === null) ctx.scene.add(objectiveRing.object)
-    objectiveRing.update(battle.mission.target, battle.mission.targetRadius, ctx.camera)
-  }
-
-  // 【雨跟著這一幀的鏡頭】雨絲的方向由雨自己算：雨滴這一幀在鏡頭眼裡移動了多少。
-  // 上帝視角不轉，照停著的方向畫
-  if (sceneWeather.rain !== null) {
-    sceneWeather.rain.update(ctx.camera.position, worldSeconds, frameSeconds, input.godView, rainGroundAt)
-  }
+  updateBattleSceneFrame(
+    battleSceneFrameDeps,
+    frameSeconds,
+    worldSeconds,
+    elapsed,
+    input,
+    battle,
+    world,
+    terrain,
+    terrainKind,
+  )
 
   ctx.renderer.render(ctx.scene, ctx.camera)
 

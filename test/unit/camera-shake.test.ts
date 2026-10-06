@@ -14,7 +14,7 @@ import { GROUND_FLAK_SPEC, SHIP_GUN_SPECS } from '../../src/world/shipGuns'
 
 /** 【用 import.meta.glob 而不是 fs】與這個檔案裡「main.ts 的接線」同一個做法 */
 const CONSUMERS = import.meta.glob(
-  ['../../src/render/blastPresentation.ts', '../../src/main.ts', '../../src/app/battleCameraFrame.ts', '../../src/render/flakBursts.ts', '../../src/render/blast.ts',
+  ['../../src/render/blastPresentation.ts', '../../src/main.ts', '../../src/app/battleCameraFrame.ts', '../../src/app/battleSceneFrame.ts', '../../src/render/flakBursts.ts', '../../src/render/blast.ts',
     '../../src/hud/Hud.ts'],
   { query: '?raw', import: 'default', eager: true },
 ) as Record<string, string>
@@ -276,6 +276,10 @@ describe('main.ts 的接線', () => {
     query: '?raw', import: 'default', eager: true,
   }) as Record<string, string>
   const CAMERA = Object.values(CAMERA_SOURCES)[0]!
+  const SCENE_SOURCES = import.meta.glob('../../src/app/battleSceneFrame.ts', {
+    query: '?raw', import: 'default', eager: true,
+  }) as Record<string, string>
+  const SCENE = Object.values(SCENE_SOURCES)[0]!
   const PRESENTATION = srcOf('blastPresentation.ts').replace(/^  /gm, '')
 
   /** 取出某個函數的函數體（到第一個頂層 `\n}` 為止）。 */
@@ -303,7 +307,7 @@ describe('main.ts 的接線', () => {
    * 的回呼，所以上面那一圈函數名的列舉抓不到它。
    */
   it('艦上砲位被打掉會搖鏡頭', () => {
-    expect(MAIN).toContain('shipModels?.update(world.ships, blastPresentation.emitGunLostBlast)')
+    expect(SCENE).toContain('shipModels?.update(world.ships, blastPresentation.emitGunLostBlast)')
     expect(bodyOf('emitGunLostBlast')).toContain('addShake(')
   })
 
