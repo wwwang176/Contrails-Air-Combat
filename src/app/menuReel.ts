@@ -30,12 +30,13 @@ import {
 } from './reelShots'
 import type { SiteLayout } from '../render/siteSurface'
 import type { CloudSpec } from '../render/clouds'
-import { createBombs, createTorpedoes, type BombVisuals, type OrdnancePool } from '../render/bombs'
+import { createBombs, createTorpedoes, type BombVisuals } from '../render/bombs'
 import { createGroundModels, type GroundModels } from '../render/groundTargets'
 import { TRACK_DUST_EVERY } from '../render/groundBattle'
 import { createGroundTarget, type GroundTarget } from '../world/groundTargets'
 import { createHitResult, hitAircraft, segmentPointDistanceSq } from '../world/hit'
 import { clearImpacts, createImpacts, pushImpact, type ImpactEvents } from '../world/events'
+import { createReelOrdnance, type ReelOrdnance } from './reel/reelOrdnance'
 
 /**
  * 主選單背景的短片放映機。分鏡在 `reelShots.ts`；這裡負責建／拆演員、推進時間、
@@ -240,31 +241,6 @@ const HIT = createHitResult()
  * 填進外觀池讀的那幾格（`OrdnancePool`）。起點都是世界座標 —— 重力只往下，
  * 局部座標的旋轉不影響彈道
  */
-interface Ordnance extends OrdnancePool {
-  readonly t0: Float64Array
-  readonly p0: Vector3[]
-  readonly v0: Vector3[]
-  /** 魚雷：入水的秒數（投下後）、瞄點、打不打中、上一幀的階段、航跡的序號 */
-  readonly entry: Float64Array
-  readonly aimX: Float64Array
-  readonly aimZ: Float64Array
-  readonly hit: Uint8Array
-  readonly phase: Int8Array
-  readonly serial: Int32Array
-  next: number
-}
-
-function createOrdnance(capacity: number): Ordnance {
-  const f = (): Float64Array => new Float64Array(capacity)
-  return {
-    active: new Uint8Array(capacity), x: f(), y: f(), z: f(), vx: f(), vy: f(), vz: f(),
-    t0: f(), p0: Array.from({ length: capacity }, () => new Vector3()),
-    v0: Array.from({ length: capacity }, () => new Vector3()),
-    entry: f(), aimX: f(), aimZ: f(), hit: new Uint8Array(capacity),
-    phase: new Int8Array(capacity), serial: new Int32Array(capacity), next: 0,
-  }
-}
-
 /** 炸彈槽數（外觀池 `BOMBS_CAPACITY` 之內）；魚雷同時在水中的上限 —— 航跡池的槽數 */
 const REEL_BOMBS = 96
 const REEL_TORPEDOES = 8
@@ -358,8 +334,8 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   const bombVisuals: BombVisuals = createBombs()
   const torpedoVisuals: BombVisuals = createTorpedoes()
   group.add(tracers.object, muzzles.object, bombVisuals.object, torpedoVisuals.object)
-  const bombs = createOrdnance(REEL_BOMBS)
-  const torpedoes = createOrdnance(REEL_TORPEDOES)
+  const bombs = createReelOrdnance(REEL_BOMBS)
+  const torpedoes = createReelOrdnance(REEL_TORPEDOES)
   let torpedoSerial = 0
   /** 排著還沒投的炸彈：一串炸彈的每一枚在自己的秒數才掉出去 */
   let pendingBombs: { at: number, actor: number }[] = []
@@ -879,7 +855,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   }
 
   /** 外觀池讀的那幾格：位置與（由下一刻差出來的）速度 —— 彈體順著速度轉正 */
-  function writeOrdnance(o: Ordnance, i: number, now: Vector3, next: Vector3): void {
+  function writeOrdnance(o: ReelOrdnance, i: number, now: Vector3, next: Vector3): void {
     o.x[i] = now.x
     o.y[i] = now.y
     o.z[i] = now.z
