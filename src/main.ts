@@ -1,4 +1,5 @@
 import './render/heightFogInstall'
+import { createMissionHud } from './hud/missionFeed'
 import { createBattleInspection } from './app/battleInspection'
 import { createContactFeed } from './hud/contactFeed'
 import { createPlayerControl } from './app/playerControl'
@@ -156,7 +157,7 @@ import { createBattle } from './battle/createBattle'
 import { playerFlight, resetBattle, stepBattle } from './battle/battleRuntime'
 import { settleAtSpawn } from './battle/flightSpawn'
 import { aliveCount, isObjectiveGround, isObjectiveShip } from './battle/objectiveQueries'
-import { getLang, onLangChange, readLang, saveLang, setLang, t, type MessageKey } from './i18n'
+import { getLang, onLangChange, readLang, saveLang, setLang, t } from './i18n'
 import { applyStaticText } from './i18n/dom'
 import { aircraftName } from './i18n/names'
 import { lineAbreast, sideSummary } from './battle/order'
@@ -377,7 +378,7 @@ applyStaticText(document)
 onLangChange(() => {
   applyStaticText(document)
   scoreboard.refresh()
-  langChangedAt = elapsed
+  setMissionHudLanguageTime(elapsed)
   if (battle !== undefined) hudFrame.reportTypedBefore = battle.world.time
 })
 
@@ -1071,7 +1072,7 @@ function setMenuTerrain(kind: ReelTerrainKind, site?: ReelSiteRequest): void {
  */
 function restartBattle(): void {
   // 【重開也要有橫幅】橫幅在換成另一句時才出現，上一場留下的要清掉
-  bannerKey = null
+  resetMissionBanner()
   // 物理時間從頭算，上一場換語言的時刻對這一場沒有意義
   hudFrame.reportTypedBefore = -1
   // 【上一場的聲音不帶過來】爆炸的尾巴、延遲中的遠方爆炸、裝填的邊緣都清掉
@@ -1121,7 +1122,7 @@ function restartBattle(): void {
 function enterBattle(): void {
   // 【再打一場也要有橫幅】橫幅在換成另一句時才出現，上一場留下的要清掉；
   // 結算的「再打一場」走的是這裡，不是 `restartBattle`
-  bannerKey = null
+  resetMissionBanner()
   hudFrame.reportTypedBefore = -1
   // 1. 上一場的模型全部還回去（殘骸池持有的也在裡面）
   releaseVisuals()
@@ -1154,7 +1155,7 @@ async function loadBattle(): Promise<void> {
     await loading.hold()
     await loading.step('loading.clear', 0.05)
     // 與 `enterBattle` 同樣的第 1、2 段
-    bannerKey = null
+    resetMissionBanner()
     hudFrame.reportTypedBefore = -1
     releaseVisuals()
     resetPools()
@@ -1474,16 +1475,7 @@ function leaderLabel(point: Vector3): string {
 const loop = new FixedStepAccumulator({ stepHz: 240, maxSubsteps: 8, maxFrameSeconds: MAX_FRAME_SECONDS })
 let lastTime = performance.now()
 let elapsed = 0
-/**
- * 目標橫幅與中央訊息的打字機時鐘：記下換成另一句的那一刻，HUD 只拿到
- * 「出現了幾秒」。用 `elapsed` 而不是牆鐘，暫停時打字也停。記的是鍵，null = 沒有。
- */
-let bannerKey: MessageKey | null = null
-let bannerStart = 0
-let messageKey: MessageKey | null = null
-let messageStart = 0
-/** 最後一次換語言時的 `elapsed`；在這之前出現的橫幅與訊息整句印，見 `objectiveBannerTypeAge` */
-let langChangedAt = -Infinity
+const { fillMissionHud, resetMissionBanner, setMissionHudLanguageTime } = createMissionHud(hudFrame, audio, t)
 /** 這一場從 `elapsed` 的哪一刻開始 —— `elapsed` 是全域幀鐘，跨場不歸零 */
 let battleStartedAt = 0
 /**
@@ -2027,61 +2019,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   hudFrame.report = battle.report
   hudFrame.reportTime = world.time
 
-  // ── 任務目標 ──────────────────────────────────────────
-  //
-  // 【`objectiveActive` 由 `mode` 給而不是由 rules 推導】遭遇戰與殲滅任務的
-  // `rules` **完全相同**（任務框架 spec §5）—— 差別只在來路，那是畫面模式，
-  // 不是規則。
-  //
-  // 【計量的種類跟著 `hasTarget` 走】有撤離點就顯示距離、沒有就顯示剩餘
-  // 敵機數 —— 與 `stepMission` 寫進 `metric` 的意思逐條對應。
-  const m = battle.mission
-  hudFrame.objectiveActive = mode === 'mission'
-  // 【撤離節拍改寫過的優先】它把 `mission` 換掉了，卡片上那一句已經不成立
-  const objectiveKey = battle.objectiveKey ?? pendingMission?.battle.objectiveKey ?? null
-  hudFrame.objectiveText = objectiveKey === null ? '' : t(objectiveKey)
-  hudFrame.objectiveMetric = m.metric
-  hudFrame.objectiveMetricKind = m.metricKind
-  // 【橫幅在目標改變的那一刻出現】開場是卡片上那一句短句；返航節拍換掉
-  // 目標時是那一則訊息 —— 兩者走同一條。遭遇戰沒有橫幅
-  //
-  // 【以鍵判斷換了沒有】語言切換只換字，不算新的橫幅
-  const banner = mode !== 'mission'
-    ? null
-    : battle.objectiveKey ?? pendingMission?.battle.bannerKey ?? objectiveKey
-  if (banner !== bannerKey) {
-    bannerKey = banner
-    bannerStart = elapsed
-    // 【橫幅配電報聲】與訊息同一組；橫幅消失時不響
-    if (bannerKey !== null) audio.playPool('radio', 'radio', 0, 0, 0, false)
-  }
-  hudFrame.objectiveBanner = bannerKey === null ? '' : t(bannerKey)
-  hudFrame.objectiveBannerAge = bannerKey === null ? -1 : elapsed - bannerStart
-  hudFrame.objectiveBannerTypeAge = bannerStart <= langChangedAt ? -1 : hudFrame.objectiveBannerAge
-  // 【分母由 `mission.ts` 給】只有擊沉會填總艘數，其餘任務恆是 −1
-  hudFrame.objectiveMetricTotal = m.metricTotal
-  // 【−1 由 `mission.ts` 給】只有護送／攔截會填實際架數，其餘任務恆是 −1
-  hudFrame.objectiveRemaining = m.remaining
-  // 【門檻讀當下的規則】返航節拍會換掉規則，開場的 `cfg.rules` 可能已經過時
-  hudFrame.objectiveArrived = m.arrived
-  // 【截斷的分母是放行上限】「已抵達 1/4」—— 玩家在盯的是還能放走幾輛
-  hudFrame.objectiveNeed = battle.rules.kind === 'convoy'
-    ? battle.rules.need ?? 1
-    : battle.rules.kind === 'interdict' ? battle.rules.leak : -1
-  hudFrame.objectiveSeconds = m.secondsLeft
-  hudFrame.objectiveHasTarget = m.hasTarget
-  hudFrame.objectiveWorldX = m.target.x
-  hudFrame.objectiveWorldZ = m.target.z
-  // 【照抄，不在這裡判過期】`stepBeats` 已經依物理時間把過期的收掉了
-  hudFrame.message = battle.message === null ? '' : t(battle.message)
-  // 【打字機的時鐘】訊息換了就從頭打；沒有訊息就沒有年齡
-  if (battle.message !== messageKey) {
-    messageKey = battle.message
-    messageStart = elapsed
-    // 【增援預警配無線電】訊息消失時不響
-    if (messageKey !== null) audio.playPool('radio', 'radio', 0, 0, 0, false)
-  }
-  hudFrame.messageAge = messageKey === null || messageStart <= langChangedAt ? -1 : elapsed - messageStart
+  fillMissionHud(battle, mode, pendingMission, elapsed)
 
   hud.render(hudFrame, frameSeconds)
   if (audioMeter !== null) {
@@ -2457,7 +2395,7 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     mode = 'mission'
     pendingMission = card
     // 【再打同一關也要有橫幅】橫幅在換成另一句時才出現，上一場留下的要清掉
-    bannerKey = null
+    resetMissionBanner()
   },
   onResume() {
     setPausedState(false)
