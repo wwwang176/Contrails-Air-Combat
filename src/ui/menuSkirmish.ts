@@ -1,5 +1,6 @@
+import { specOf } from '../specs/catalog'
 import {
-  specOf, addFlight, setCount, removeFlight, setLead, applyPreset, flightsTotal,
+  addFlight, setCount, removeFlight, setLead, applyPreset, flightsTotal,
   PRESETS, ALTITUDES, MAX_SIDE, MAX_FLIGHTS, type SkirmishSetup, type Flight, type PresetKey,
 } from '../battle/skirmish'
 import { formatNumber, t } from '../i18n'

@@ -1,4 +1,4 @@
-import { ALL_SPECS, HISTORICAL, topSpeedKmh } from '../battle/skirmish'
+import { ALL_SPECS, HISTORICAL, topSpeedKmh } from '../specs/catalog'
 import { batteryDps } from '../weapons/types'
 import { TURRET_DAMAGE_SCALE } from '../weapons/turret'
 import { PART_MULTIPLIER, type HitPart } from '../world/hit'
