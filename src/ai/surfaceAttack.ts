@@ -16,9 +16,9 @@ import {
 import type { createShipAim } from './shipAttack'
 import { GROUND_BOMB_AIM_RANGE, resetBombAim, setBombBallistics, stepBombAim } from './bombRun'
 import type { createBombAim } from './bombRun'
-import { stepStrike, type StrikeProfile } from './strikeRun'
+import { resetStrike, stepStrike, type StrikeProfile } from './strikeRun'
 import type { createStrikeState } from './strikeRun'
-import { DIVE_RANK_COUNT, pickDiveTarget, stepDiveBomb } from './diveBomb'
+import { DIVE_RANK_COUNT, pickDiveTarget, resetDiveBomb, stepDiveBomb } from './diveBomb'
 import type { createDiveBombState } from './diveBomb'
 import { setTorpedoBallistics } from './torpedoRun'
 
@@ -59,6 +59,22 @@ export function createSurfaceAttackState(): SurfaceAttackState {
     groundStrafeActive: false,
     groundStrafe: createGroundStrafeState(),
   }
+}
+
+/** 換場時一併放掉對地、對艦與投彈的鎖定；一般重選目標不能呼叫。 */
+export function resetSurfaceAttack(
+  state: SurfaceAttackState,
+  ctx: Pick<SurfaceAttackContext, 'strike' | 'bombAim' | 'diveBomb' | 'shipAim' | 'strikeRef'>,
+): void {
+  resetStrike(ctx.strike)
+  resetBombAim(ctx.bombAim)
+  resetDiveBomb(ctx.diveBomb)
+  ctx.shipAim.ship = -1
+  ctx.strikeRef.index = -1
+  state.groundAim = -1
+  state.groundAttackActive = false
+  state.groundStrafeActive = false
+  resetGroundStrafe(state.groundStrafe)
 }
 
 /**

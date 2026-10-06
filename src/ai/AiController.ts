@@ -1,5 +1,5 @@
 import { createCommandOutputState, emitAiCommand, resetCommandOutputTerrain } from './commandOutput'
-import { attackShip, createSurfaceAttackState, strafeGround, type StrikeRef } from './surfaceAttack'
+import { attackShip, createSurfaceAttackState, resetSurfaceAttack, strafeGround, type StrikeRef } from './surfaceAttack'
 import { Vector3 } from 'three'
 import {
   alarmFactor, alarmRamp, considerThreatFrom, createSituation, evaluateEnergy,
@@ -48,12 +48,12 @@ import {
 import { rallyCommand } from './rally'
 import { createShipAim, resetGroundStrafe } from './shipAttack'
 import {
-  BOMB_PROFILE, createBombAim, resetBombAim,
+  BOMB_PROFILE, createBombAim,
 } from './bombRun'
 import type { StrikeProfile } from './strikeRun'
-import { createStrikeState, resetStrike } from './strikeRun'
+import { createStrikeState } from './strikeRun'
 import {
-  createDiveBombState, resetDiveBomb, type DivePhase,
+  createDiveBombState, type DivePhase,
 } from './diveBomb'
 import type { BombBay } from '../weapons/bomb'
 import type { Ship } from '../world/ships'
@@ -283,16 +283,8 @@ export class AiController implements Controller {
     resetCommandOutputTerrain(this.output, this.selfIndex)
     // 【攻擊狀態機也要清】上一場「我正在對第 3 艘做直飛」的鎖定不得帶進
     // 新的一場 —— 與地形的承諾同一個理由，也同一個呼叫點。
-    resetStrike(this.strike)
-    resetBombAim(this.bombAim)
-    resetDiveBomb(this.diveBomb)
-    this.shipAim.ship = -1
-    this.strikeRef.index = -1
+    resetSurfaceAttack(this.surface, this)
     this.escortIndex = -1
-    this.surface.groundAim = -1
-    this.surface.groundAttackActive = false
-    this.surface.groundStrafeActive = false
-    resetGroundStrafe(this.surface.groundStrafe)
     this.resetAirTactics()
   }
 
