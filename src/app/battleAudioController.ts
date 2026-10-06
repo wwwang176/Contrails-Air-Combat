@@ -14,6 +14,9 @@ type CannonAudio = ReturnType<typeof createCannonAudio>
 type FlightAudio = ReturnType<typeof createFlightAudio>
 type ListenerMotion = ReturnType<typeof createListenerMotion>
 
+/** 音效協調只讀聲源與彈藥，不需要世界的模擬或生命週期方法。 */
+type BattleAudioWorld = Pick<World, 'combatants' | 'ships' | 'groundTargets' | 'projectiles' | 'bombs'>
+
 export interface BattleAudioControllerDeps {
   readonly audio: Pick<AudioEngine, 'beginFrame' | 'endFrame' | 'setTimeScale'>
   readonly cannonAudio: CannonAudio
@@ -47,7 +50,7 @@ export function createBattleAudioController(deps: BattleAudioControllerDeps) {
   }
 
   function update(
-    world: World,
+    world: BattleAudioWorld,
     player: Combatant,
     elapsed: number,
     worldSeconds: number,

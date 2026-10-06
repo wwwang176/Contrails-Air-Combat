@@ -28,6 +28,10 @@ type SteamEmission = ReturnType<typeof createSteamEmission>
 type EffectStepper = ReturnType<typeof createEffectStepper>
 type BlastPresentation = ReturnType<typeof createBlastPresentation>
 
+/** 場景讀取目前狀態；推進物理與管理世界生命週期由呼叫端負責。 */
+type BattleSceneWorld = Pick<World, 'ships' | 'groundTargets' | 'flares' | 'combatants'
+  | 'time' | 'groundAt' | 'balloons' | 'torpedoes'>
+
 export interface BattleSceneFrameDependencies {
   readonly ctx: SceneContext
   readonly fireCrowd: FireCrowd
@@ -62,7 +66,7 @@ export function updateBattleSceneFrame(
   elapsed: number,
   input: InputState,
   battle: Battle,
-  world: World,
+  world: BattleSceneWorld,
   terrain: Terrain,
   terrainKind: TerrainKind,
 ): void {
