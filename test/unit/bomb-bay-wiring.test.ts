@@ -194,9 +194,11 @@ describe('標記的接線：地面目標必須傳進 `fillMarkers`', () => {
  * 否則它只會掃射，與同一關的友軍 AI 行為不同。不會報錯。
  */
 describe('代飛接上玩家的彈艙', () => {
-  const ALL = SRC.join('\n')
+  const ALL = readFileSync('src/app/wireBattleAi.ts', 'utf8')
 
   it('playerAi.bombBay 接的是玩家那一架的彈艙', () => {
+    expect(frameCalls(SRC, 'stepAndDrawBattle').direct).toContain('wireBattleAi')
+    expect(SRC.join('\n')).toContain('wireBattleAi(world, battle.cfg.tuning, player, playerAi, aiTerrain)')
     expect(ALL).toContain('playerAi.bombBay = player.bombBay')
     expect(ALL).not.toMatch(/playerAi\.bombBay = null/)
   })

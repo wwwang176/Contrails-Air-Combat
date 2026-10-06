@@ -112,8 +112,7 @@ import { CameraRig, thirdPersonFor } from './camera/CameraRig'
 import type { BombState, Impact } from './world/bomb'
 import { resetBombBay, type BombBay } from './weapons/bomb'
 import type { Loadout } from './weapons/stores'
-import { BOMB_PROFILE } from './ai/bombRun'
-import { TORPEDO_PROFILE } from './ai/torpedoRun'
+import { wireBattleAi } from './app/wireBattleAi'
 import { createWakes } from './render/wake'
 import { createShipWakes, shipFoamTexture } from './render/shipWakes'
 import {
@@ -266,57 +265,6 @@ ctx.scene.add(terrain.object)
 // 每個呼叫 render 的地方各自記得呼叫的話，漏掉一處就是那個畫面少一塊海。
 // 讀的是當下的 `terrain`，換場之後自然跟上
 ctx.scene.onBeforeRender = (_renderer, _scene, camera) => { terrain.cull(camera) }
-
-/**
- * 把地形接給每一架 AI，並清掉上一場的鎖存。
- *
- * 【為什麼是每幀掃一次，而不是在建立控制器的地方各接一次】接的地方不只
- * enterBattle：playerAi 跨場重用、resetBattle 在玩家接手過座位之後會建新的
- * AiController、重生也會。一一去接的話，漏掉哪一條路徑的症狀是「有一架
- * AI 看不見地形」—— 那要等到它撞山才會發現，而且看起來像 AI 有 bug。
- *
- * 【成本】40 次參考比較。只有在**不相等**時才寫入並清鎖存，所以換地形、
- * 新控制器、重生都會被接住，而穩定狀態下什麼都不做。
- */
-function wireTerrain(force = false): void {
-  for (const c of world.combatants) {
-    const ctl = c.controller
-    if (!(ctl instanceof AiController)) continue
-    // 【船跟著地形一起接】兩者的生命週期一模一樣：每一場重建、跨場重用的
-    // 控制器要換掉、重生也會建新的。分開兩個迴圈只會多一個會漏掉的地方。
-    ctl.ships = world.ships
-    ctl.groundTargets = world.groundTargets
-    // 重生可能換一顆控制器；任務優先權與地形一樣必須在這個唯一接線點補上。
-    ctl.priorityGroundUnit = c.team === 'blue'
-      ? battle.cfg.tuning.priorityGroundUnit ?? null
-      : null
-    ctl.airOnly = c.team === 'blue' && battle.cfg.tuning.airOnly === true
-    // 【投彈那兩格跟著一起接】理由與船完全相同，而且它們也是每一場、每一次
-    // 重生都要重接：`bombBay` 隨機種變（換裝、接手僚機），`bombDrag` 必須
-    // 與 `World` 是同一個值，否則 AI 算的落點與飛出去的那一顆分家。
-    ctl.bombBay = c.bombBay
-    ctl.bombDrag = world.bombDrag
-    // 【剖面跟著掛載走，不跟著機種】任務卡可以把 G4M 的魚雷複寫成炸彈
-    // （`MissionBattle.blueLoadout`），查機種的話那一關會飛雷擊航路去投彈
-    ctl.strikeProfile = c.loadout?.kind === 'torpedo' ? TORPEDO_PROFILE : BOMB_PROFILE
-    if (!force && ctl.terrain === aiTerrain) continue
-    ctl.terrain = aiTerrain
-    ctl.clearTerrainState()
-  }
-  playerAi.ships = world.ships
-  playerAi.groundTargets = world.groundTargets
-  // 【代飛與友軍 AI 投彈的方式相同】接的是玩家那一架的彈艙（`playerBay` 就是
-  // 它），發動走 `World.releaseBombs` 讀 `command.bombing` —— 與友軍 AI 同一條
-  // 路。給 null 的話代飛看不到彈艙，只會掃射。在迴圈之外寫：代飛不在座位上
-  // 時迴圈走不到它，而接手僚機會換掉 `player`
-  playerAi.bombBay = player.bombBay
-  playerAi.strikeProfile = player.loadout?.kind === 'torpedo' ? TORPEDO_PROFILE : BOMB_PROFILE
-  playerAi.bombDrag = world.bombDrag
-  if (force || playerAi.terrain !== aiTerrain) {
-    playerAi.terrain = aiTerrain
-    playerAi.clearTerrainState()
-  }
-}
 
 const tracers = createTracers()
 ctx.scene.add(tracers.object)
@@ -1183,7 +1131,7 @@ function restartBattle(): void {
     startWorld(battle.cfg)
     // 【強制清，理由與下面那條相同】`playerAi` 跨場重用，而地形沒換 ——
     // 參考比對會跳過它
-    wireTerrain(true)
+    wireBattleAi(world, battle.cfg.tuning, player, playerAi, aiTerrain, true)
     return
   }
   resetBattle(battle)
@@ -1196,10 +1144,10 @@ function restartBattle(): void {
   rebuildVisuals()
   leaveGodView()
   respawnPlayer()
-  // 【強制清，不能靠參考比對】重開一場不換 terrain，所以 wireTerrain 的
+  // 【強制清，不能靠參考比對】重開一場不換 terrain，所以 wireBattleAi 的
   // ctl.terrain === terrain 會跳過 —— 上一場「我正在繞第 17 座島」的承諾
   // 就這樣帶進了新的一場
-  wireTerrain(true)
+  wireBattleAi(world, battle.cfg.tuning, player, playerAi, aiTerrain, true)
   resetArena()
 }
 
@@ -1584,7 +1532,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   let hitsThisFrame = 0
   // 【必須在物理之前】接在幀尾的話，新的一場第一幀的 AI 是用「沒有地形」
   // 在飛 —— 而那一幀正好是最可能有人貼著島出生的時候
-  wireTerrain()
+  wireBattleAi(world, battle.cfg.tuning, player, playerAi, aiTerrain)
   // 【破掉的氣球不再是山】AI 不必繞一座不存在的山；重開一場長回來
   if (balloonHillSet !== null) syncBalloonHills(world.balloons, balloonHillSet)
   const alpha = loop.advance(frameSeconds, (dt) => {
