@@ -8,6 +8,8 @@ import { readFileSync } from 'node:fs'
  */
 const SRC = new TextDecoder().decode(readFileSync('src/main.ts')).replace(/\r\n/g, '\n').split('\n')
 const ALL = SRC.join('\n')
+const CONTROLLER = new TextDecoder().decode(readFileSync('src/app/battleAudioController.ts')).replace(/\r\n/g, '\n')
+  .split('\n').map(line => line.replace(/^  /, ''))
 const EVENTS = readFileSync('src/app/battleEventPresentation.ts', 'utf8').replace(/\r\n/g, '\n').split('\n')
 const FLIGHT = readFileSync('src/audio/flightAudio.ts', 'utf8').replace(/\r\n/g, '\n')
   .split('\n').map(line => line.replace(/^  /, ''))
@@ -28,6 +30,16 @@ function lines(needle: string, source = SRC): number[] {
 
 /** 從 `head` 那一行起、到下一個頂層 `}` 為止的函式本體 */
 function body(head: string, source = SRC): string {
+  if (source === SRC && head === 'function updateAudio(') {
+    source = CONTROLLER
+    head = 'function update('
+  } else if (source === SRC && head === 'function resetAudioState(') {
+    source = CONTROLLER
+    head = 'function reset('
+  } else if (source === SRC && head === 'function setPlayer(') {
+    source = CONTROLLER
+    head = 'function setPlayer('
+  }
   const at = source.findIndex(line => line.includes(head))
   expect(at, head).toBeGreaterThanOrEqual(0)
   let end = at! + 1
@@ -239,7 +251,7 @@ describe('音效的戰鬥事件接線', () => {
     const play = body('function playCues(', CUES)
     expect(play).toContain("audio.playPool(g.pool, 'fireSelf', 0, 0, 0, false, g.db)")
     const upd = body('function updateAudio(')
-    expect(upd).toContain('aircraftLoopAudio.update(world.combatants, renderPositions, me, elapsed, flying, battleAudioCues.ownTurretVolley)')
+    expect(upd).toMatch(/aircraftLoopAudio\.update\(\s*world\.combatants, renderPositions, me, elapsed, flying,\s*battleAudioCues\.ownTurretVolley,?\s*\)/)
     expect(body('function update(', LOOPS)).toContain('!(c === me && flying && ownTurretVolley)')
   })
 
@@ -337,9 +349,9 @@ describe('音效的戰鬥事件接線', () => {
   it('聽者速度每幀更新一次，在音效定位前取得，換場時重設', () => {
     expect(ALL).toContain('const listenerMotion = createListenerMotion()')
     expect(ALL).toContain('const camVel = listenerMotion.velocity')
-    expect(lines('listenerMotion.update(')).toHaveLength(1)
+    expect(lines('listenerMotion.update(', CONTROLLER)).toHaveLength(1)
     const upd = body('function updateAudio(')
-    const call = 'listenerMotion.update(ctx.camera.position, worldSeconds)'
+    const call = 'listenerMotion.update(cameraPosition, worldSeconds)'
     expect(upd).toContain(call)
     expect(upd.indexOf(call)).toBeLessThan(upd.indexOf('aircraftLoopAudio.update('))
     expect(body('function resetAudioState(')).toContain('listenerMotion.reset()')
@@ -399,7 +411,7 @@ describe('音效的戰鬥事件接線', () => {
   /** 【超速也要警告】原本只有飛出邊界會響；超速是另一種「再這樣下去會出事」 */
   it('飛出邊界或超速時警告蜂鳴', () => {
     const fn = body('function update(', FLIGHT)
-    expect(body('function updateAudio(')).toContain('flightAudio.update(world, me, elapsed, worldSeconds, hudFrame.arenaShow && arena.outside)')
+    expect(body('function updateAudio(')).toContain('flightAudio.update(world, me, elapsed, worldSeconds, arenaWarning)')
     expect(fn).toContain('arenaWarning')
     expect(fn).toContain('OVERSPEED_FULL')
   })
@@ -432,9 +444,8 @@ describe('音效的戰鬥事件接線', () => {
    */
   it('player 只在 setPlayer 裡寫，而它同時重算齊射分組', () => {
     const fn = body('function setPlayer(')
-    expect(fn).toContain('battleAudioCues.rebuildVolleyGroups(player)')
-    const outside = ALL.replace(fn, '').replace('let player!: Combatant', '')
-    expect(outside).not.toMatch(/(^|[^.\w])player = /m)
+    expect(fn).toContain('battleAudioCues.rebuildVolleyGroups(me)')
+    expect(ALL.match(/(^|[^.\w])player = /gm) ?? []).toHaveLength(1)
   })
 
   it('按 B 切換投彈視角時響一下彈艙', () => {
@@ -450,7 +461,7 @@ describe('音效的戰鬥事件接線', () => {
   it('上帝視角時不記、不播自己身上的單次音效', () => {
     expect(body('function queueAudioCues(', CUES)).toContain('godView')
     const fn = body('function updateAudio(')
-    expect(fn).toContain('const flying = me.alive && !input.godView')
+    expect(fn).toContain('const flying = me.alive && !godView')
     expect(fn).toContain('battleAudioCues.playFrame(world, player, elapsed, flying)')
     expect(body('function playFrame(', CUES)).toContain('if (hitDealtPending && flying)')
   })

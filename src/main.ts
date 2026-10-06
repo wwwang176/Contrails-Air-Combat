@@ -178,6 +178,7 @@ import { createShowcase, type Showcase } from './app/showcase'
 import { preloadStartupAssets } from './app/startupAssets'
 import { warmBattleGraphics } from './app/battleWarmup'
 import { assetUrl } from './core/asset'
+import { createBattleAudioController } from './app/battleAudioController'
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
@@ -1549,47 +1550,28 @@ const flightAudio = createFlightAudio(audio, ctx.camera.position, input, {
  * 上一幀的狀態全部歸零。開戰、離開、接手僚機時呼叫 —— 不歸零的話，
  * 上一架正在裝填、新的這一架沒有，會誤播「裝填完成」。
  */
+const battleAudio = createBattleAudioController({
+  audio, cannonAudio, listenerMotion, flightAudio, aircraftLoopAudio, battleAudioCues,
+  cameraPosition: ctx.camera.position, renderPositions,
+})
 function resetAudioState(): void {
-  // 【流速要收回 1】分出勝負那段是超級慢動作，離場時不收的話選單的按鈕
-  // 音會用戰場最後的流速播 —— 聽起來像壞掉的按鈕
-  audio.setTimeScale(1)
-  cannonAudio.reset()
-  listenerMotion.reset()
-  flightAudio.reset()
-  aircraftLoopAudio.reset()
-  battleAudioCues.reset()
+  battleAudio.reset()
 }
-
 /**
  * `player` 的唯一寫入點。**齊射分組與槍焰的邊緣狀態跟著換** —— 新的這一架武裝不同，
  * 沿用上一架的分組會播錯庫，或者整組沒聲音，而且兩種都不會報錯。
  */
 function setPlayer(c: Combatant): void {
   player = c
-  battleAudioCues.rebuildVolleyGroups(player)
+  battleAudio.setPlayer(c)
 }
-
 /**
  * 每一幀、鏡頭定位之後呼叫：播佇列、引擎、開火、砲塔、艦砲、擦過、呼嘯、
  * 受創、晃動、風切、警告、裝填。
  */
 function updateAudio(worldSeconds: number): void {
-  const me = player
-  // 【坐在座艙裡才有身上的聲音】上帝視角時鏡頭在世界裡，不定位的聲音會變成「在耳邊」
-  const flying = me.alive && !input.godView
-  // 【先更新聲道再播】搶聲道是比估計響度。不先把播放中的聲道更新到這一幀的距離，
-  // 新的聲音拿本幀距離去跟上一幀的舊值比，明明比較響也會被擋掉
-  audio.beginFrame()
-  listenerMotion.update(ctx.camera.position, worldSeconds)
-  battleAudioCues.playFrame(world, player, elapsed, flying)
-  cannonAudio.playCannons(world, elapsed)
-
-  aircraftLoopAudio.update(world.combatants, renderPositions, me, elapsed, flying, battleAudioCues.ownTurretVolley)
-  audio.endFrame()
-
-  flightAudio.update(world, me, elapsed, worldSeconds, hudFrame.arenaShow && arena.outside)
+  battleAudio.update(world, player, elapsed, worldSeconds, input.godView, hudFrame.arenaShow && arena.outside)
 }
-
 /**
  * 戰鬥中的一幀：推進、內插、特效、HUD、記分板。
  *

@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
  */
 const read = (p: string): string => new TextDecoder().decode(readFileSync(p)).replace(/\r\n/g, '\n')
 const MAIN = read('src/main.ts')
+const CONTROLLER = read('src/app/battleAudioController.ts')
 const FLIGHT = read('src/audio/flightAudio.ts').split('\n').map(line => line.replace(/^  /, '')).join('\n')
 const LOOPS = read('src/audio/aircraftLoopAudio.ts').split('\n').map(line => line.replace(/^  /, '')).join('\n')
 const ENGINE = read('src/audio/engine.ts')
@@ -49,7 +50,7 @@ describe('警笛：音訊引擎', () => {
 })
 
 describe('警笛：主程式', () => {
-  const main = body(MAIN, 'function updateAudio(')
+  const main = body(CONTROLLER, 'function update(')
   const self = body(FLIGHT, 'function update(')
   const fn = body(LOOPS, 'function update(')
 
@@ -95,8 +96,8 @@ describe('警笛：主程式', () => {
     expect(LOOPS).toMatch(/^const SIREN_RATE = new Float32Array\(64\)$/m)
     expect(LOOPS).toMatch(/^const SIREN_GAIN = new Float32Array\(64\)$/m)
     expect(MAIN).toContain('const aircraftLoopAudio = createAircraftLoopAudio(audio, ctx.camera.position, camVel)')
-    expect(main).toContain('aircraftLoopAudio.update(world.combatants, renderPositions, me, elapsed, flying, battleAudioCues.ownTurretVolley)')
-    expect(body(MAIN, 'function resetAudioState(')).toContain('aircraftLoopAudio.reset()')
-    expect(main).toContain('flightAudio.update(world, me, elapsed, worldSeconds, hudFrame.arenaShow && arena.outside)')
+    expect(main).toMatch(/aircraftLoopAudio\.update\(\s*world\.combatants, renderPositions, me, elapsed, flying,\s*battleAudioCues\.ownTurretVolley,?\s*\)/)
+    expect(body(CONTROLLER, 'function reset(')).toContain('aircraftLoopAudio.reset()')
+    expect(main).toContain('flightAudio.update(world, me, elapsed, worldSeconds, arenaWarning)')
   })
 })
