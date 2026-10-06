@@ -7,7 +7,7 @@ import {
 import { zh } from '../../src/i18n/zh'
 
 /** 【用 import.meta.glob 而不是 fs】`main.ts` 與 `menu.ts` 抓 DOM，載進 vitest 會直接爆；讀原始碼 */
-const SOURCES = import.meta.glob(['../../index.html', '../../src/main.ts', '../../src/ui/menu.ts'], {
+const SOURCES = import.meta.glob(['../../index.html', '../../src/main.ts', '../../src/ui/menu.ts', '../../src/ui/menuTutorial.ts'], {
   query: '?raw', import: 'default', eager: true,
 }) as Record<string, string>
 // 【換行統一成 LF】工作區在 Windows 上是 CRLF
@@ -130,8 +130,11 @@ describe('教學卡的接線', () => {
   /** 【按「了解」才算看過】只彈不記的話，每一場都會再彈 */
   it('每一張按「了解」就記成看過', () => {
     const menu = srcOf('menu.ts')
-    const at = menu.indexOf('function nextTutorial(): void {')
-    const body = menu.slice(at, menu.indexOf('\n  }\n', at))
+    expect(menu).toContain('createMenuTutorial(root, tutorial, openOverlay, closeOverlay)')
+    expect(menu).toContain("if (act === 'tutorialOk') { nextTutorial(); return }")
+    const tutorial = srcOf('menuTutorial.ts')
+    const at = tutorial.indexOf('function nextTutorial(): void {')
+    const body = tutorial.slice(at, tutorial.indexOf('\n  }\n', at))
     expect(body).toContain('markTutorialSeen(')
   })
 
