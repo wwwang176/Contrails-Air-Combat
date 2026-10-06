@@ -1006,7 +1006,7 @@ const markerObjectives: MarkerObjectives & { ref: Vector3 } = {
   ref: new Vector3(),
 }
 const battleHudMarkersDeps: BattleHudMarkersDependencies = {
-  markerPools: MARKER_POOLS as [MarkerPool, MarkerPool],
+  markerPools: MARKER_POOLS,
   markerObjectives,
   projectMarker,
   shipMarkerTop,

@@ -14,7 +14,7 @@ import { nextHitFlash } from '../hud/types'
 import { stepDamageMarks } from '../hud/damageMarks'
 
 export interface BattleHudMarkersDependencies {
-  readonly markerPools: [MarkerPool, MarkerPool]
+  readonly markerPools: MarkerPool[]
   readonly markerObjectives: MarkerObjectives & { ref: Vector3 }
   readonly projectMarker: MarkerProject
   readonly shipMarkerTop: ShipMarkerTop
