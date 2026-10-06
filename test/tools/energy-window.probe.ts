@@ -51,6 +51,7 @@ import { DEFAULT_RULES, type RuleConfig } from '../../src/ai/rules'
 import type { Combatant } from '../../src/world/World'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 import { readyCard } from '../fixtures/mission'
+import { jitterInitialVelocity } from './initial-velocity'
 
 const DT = 1 / 240
 const SECONDS = 300
@@ -58,10 +59,7 @@ const SEED = 20260805
 const STRIDE = 24
 const STEP = DT * STRIDE
 
-const CARDS: [string, 'allies' | 'axis'][] = [
-  ['allies-m1', 'axis'],
-  ['allies-m1', 'allies'],
-]
+const CARDS = ['allies-m1'] as const
 
 /** 五次微擾。0 = 不擾動的那一次 */
 const SALTS = [0, 101, 202, 303, 404]
@@ -81,16 +79,6 @@ const BIN_LABEL = [
 
 const n = (v: number, w: number, d = 1): string =>
   (Number.isFinite(v) ? v.toFixed(d) : '—').padStart(w)
-
-function jitter(b: ReturnType<typeof createBattle>, salt: number): void {
-  if (salt === 0) return
-  for (const c of b.world.combatants) {
-    let h = (salt ^ (c.index * 0x9e3779b1)) >>> 0
-    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0
-    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0
-    c.aircraft.state.velocity.multiplyScalar(1 + ((h >>> 8) / 0xffffff - 0.5) * 0.01)
-  }
-}
 
 function pct(sorted: number[], p: number): number {
   if (sorted.length === 0) return Number.NaN
@@ -153,7 +141,7 @@ function newLive(t: number, r: {
 function run(id: string, salt: number): Seg[] {
   const card = readyCard(id)
   const b = createBattle(new AiController(), missionConfigFrom(card), SEED)
-  jitter(b, salt)
+  jitterInitialVelocity(b.world.combatants, salt)
 
   // 現況 —— 量的是反事實，不需要開新機制
   const cfg: RuleConfig = { ...DEFAULT_RULES, recoveredExit: false }
@@ -246,7 +234,7 @@ function counterfactual(segs: Seg[], firstAt: (s: Seg) => number): string {
     + `　${n(100 * (1 - kept / Math.max(1e-9, total)), 6, 1)}%`
 }
 
-for (const [id] of CARDS) {
+for (const id of CARDS) {
   const segs: Seg[] = []
   for (const salt of SALTS) segs.push(...run(id, salt))
 

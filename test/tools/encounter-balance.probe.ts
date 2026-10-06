@@ -23,6 +23,7 @@ import { battleConfigFrom, DEFAULT_SKIRMISH } from '../../src/battle/skirmish'
 import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_RULES, type RuleConfig } from '../../src/ai/rules'
 import type { Combatant } from '../../src/world/World'
+import { jitterInitialVelocity } from './initial-velocity'
 
 const DT = 1 / 240
 const SECONDS = 300
@@ -31,16 +32,6 @@ const SALTS = [0, 101, 202, 303, 404]
 
 const n = (v: number, w: number, d = 1): string =>
   (Number.isFinite(v) ? v.toFixed(d) : '—').padStart(w)
-
-function jitter(b: ReturnType<typeof createBattle>, salt: number): void {
-  if (salt === 0) return
-  for (const c of b.world.combatants) {
-    let h = (salt ^ (c.index * 0x9e3779b1)) >>> 0
-    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0
-    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0
-    c.aircraft.state.velocity.multiplyScalar(1 + ((h >>> 8) / 0xffffff - 0.5) * 0.01)
-  }
-}
 
 interface Row {
   blueAlive: number
@@ -54,7 +45,7 @@ function run(salt: number, on: boolean): Row {
   const b = createBattle(
     new AiController(), battleConfigFrom(DEFAULT_SKIRMISH), SEED,
   )
-  jitter(b, salt)
+  jitterInitialVelocity(b.world.combatants, salt)
   const cfg: RuleConfig = on
     ? DEFAULT_RULES
     : { ...DEFAULT_RULES, recoveredExit: false }

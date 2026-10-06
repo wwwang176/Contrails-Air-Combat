@@ -6,6 +6,7 @@ import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_RULES } from '../../src/ai/rules'
 import { Idle } from './spawn-snapshot'
 import { readyCard } from '../fixtures/mission'
+import { jitterInitialVelocity } from './initial-velocity'
 
 /**
  * **玩家那一架按 `I` 代飛之後，每一次進入 `extend` 的完整前因。**不是測試。
@@ -31,44 +32,23 @@ const SEED = 20260805
 const STRIDE = 24
 const STEP = DT * STRIDE
 
-/** 實際玩過的兩張卡 */
-const CARDS: [string, 'allies' | 'axis'][] = [
-  ['allies-m1', 'axis'],
-  ['allies-m1', 'allies'],
-]
+/** 依目前任務 id 量測；同一任務只跑一次。 */
+const CARDS = ['allies-m1'] as const
 
 const FWD = new Vector3(0, 0, -1)
 const nose = new Vector3()
 const s = (x: number, w: number, dp = 0) =>
   (Number.isFinite(x) ? x.toFixed(dp) : '∞').padStart(w)
 
-/**
- * 把每一架的初速擾動 ±0.5%，擾動量由 `(salt, index)` 決定。
- *
- * 【為什麼要自己造擾動】`createBattle` 的 `seed` **只餵飛行員名字** —— 換種子
- * 跑出來逐位元相同。少了擾動就分不出「這個結果是穩的」還是「這一次剛好」。
- *
- * 【為什麼不用 `Math.random`】專案禁止。整數雜湊，同樣的輸入給同樣的擾動。
- */
-function jitter(b: ReturnType<typeof createBattle>, salt: number): void {
-  if (salt === 0) return
-  for (const c of b.world.combatants) {
-    let h = (salt ^ (c.index * 0x9e3779b1)) >>> 0
-    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0
-    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0
-    c.aircraft.state.velocity.multiplyScalar(1 + ((h >>> 8) / 0xffffff - 0.5) * 0.01)
-  }
-}
-
 /** 五次微擾。0 = 不擾動的那一次 */
 const SALTS = [0, 101, 202, 303, 404]
 const summary: string[] = []
 
-for (const [id] of CARDS) {
+for (const id of CARDS) {
  for (const salt of SALTS) {
   const card = readyCard(id)
   const b = createBattle(new Idle(), missionConfigFrom(card), SEED)
-  jitter(b, salt)
+  jitterInitialVelocity(b.world.combatants, salt)
 
   // 【代飛】main.ts 的 I 鍵就是這三行
   const me = b.player
