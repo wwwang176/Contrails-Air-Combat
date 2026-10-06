@@ -1,5 +1,6 @@
 import { RAD, clamp } from '../../core/math'
-import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
+import type { HudFrame, HudLayout } from '../types'
+import { HUD_COLORS, hudFont } from '../style'
 
 /**
  * 低於此效力轉為危險色。`(1 / 1.2)² = 0.694` —— 速度剛好掉到 1 G 失速

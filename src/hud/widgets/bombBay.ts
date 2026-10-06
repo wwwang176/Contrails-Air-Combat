@@ -1,6 +1,7 @@
 import { t } from '../../i18n'
 import { aglOk, pitchOk, rollOk, type ReleaseEnvelope } from '../../weapons/releaseEnvelope'
-import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
+import type { HudFrame, HudLayout } from '../types'
+import { HUD_COLORS, hudFont } from '../style'
 
 const RAD = 180 / Math.PI
 

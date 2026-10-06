@@ -1,5 +1,6 @@
 import { t, type MessageKey } from '../../i18n'
-import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
+import type { HudFrame, HudLayout } from '../types'
+import { HUD_COLORS, hudFont } from '../style'
 
 /**
  * 這一幀要顯示哪一行按鍵提示（文字表的鍵）。

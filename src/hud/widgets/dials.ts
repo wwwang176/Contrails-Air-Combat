@@ -1,6 +1,7 @@
 import { DEG, clamp } from '../../core/math'
 import type { ReleaseEnvelope } from '../../weapons/releaseEnvelope'
-import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
+import type { HudFrame, HudLayout } from '../types'
+import { HUD_COLORS, hudFont } from '../style'
 import { drawAttitude } from './attitude'
 import { drawCachedLayer, LAYER_ORIGIN, LOW_RATE, LOW_RATE_PHASE, newLayerCache } from './layerCache'
 

@@ -1,4 +1,5 @@
-import { HIT_FLASH_SECONDS, HUD_COLORS, type HudFrame, type HudLayout } from '../types'
+import { HIT_FLASH_SECONDS, type HudFrame, type HudLayout } from '../types'
+import { HUD_COLORS } from '../style'
 
 /**
  * 命中 `X` 的四道短線與十字中心的距離，px（未乘 L.scale）。

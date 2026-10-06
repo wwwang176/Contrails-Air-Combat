@@ -1,4 +1,5 @@
-import { HUD_COLORS, type HudFrame, type HudLayout } from '../types'
+import type { HudFrame, HudLayout } from '../types'
+import { HUD_COLORS } from '../style'
 
 /**
  * 圓的半徑，px（未乘 `L.scale`）。
