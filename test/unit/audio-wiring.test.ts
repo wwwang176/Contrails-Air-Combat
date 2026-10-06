@@ -31,16 +31,6 @@ function lines(needle: string, source = SRC): number[] {
 
 /** 從 `head` 那一行起、到下一個頂層 `}` 為止的函式本體 */
 function body(head: string, source = SRC): string {
-  if (source === SRC && head === 'function updateAudio(') {
-    source = CONTROLLER
-    head = 'function update('
-  } else if (source === SRC && head === 'function resetAudioState(') {
-    source = CONTROLLER
-    head = 'function reset('
-  } else if (source === SRC && head === 'function setPlayer(') {
-    source = CONTROLLER
-    head = 'function setPlayer('
-  }
   const at = source.findIndex(line => line.includes(head))
   expect(at, head).toBeGreaterThanOrEqual(0)
   let end = at! + 1
@@ -52,6 +42,18 @@ describe('音效的生命週期接線', () => {
   /** 【手勢裡解鎖】瀏覽器要使用者手勢才肯出聲；出擊那一下就是 grabPointer */
   it('grabPointer 裡解鎖音訊', () => {
     expect(body('function grabPointer(')).toContain('audio.unlock()')
+  })
+
+  /**
+   * 【主程式的三個入口都要轉給控制器】少了任何一行，那條路徑上的聲音整個不動
+   * （每幀不更新、換場不歸零、換機不重建齊射分組），而且不會報錯。
+   */
+  it('主程式的 updateAudio／resetAudioState／setPlayer 轉給 battleAudio', () => {
+    expect(body('function updateAudio(')).toContain('battleAudio.update(')
+    expect(body('function resetAudioState(')).toContain('battleAudio.reset()')
+    const set = body('function setPlayer(')
+    expect(set).toContain('player = c')
+    expect(set).toContain('battleAudio.setPlayer(c)')
   })
 
   /**
@@ -144,12 +146,12 @@ describe('音效的戰鬥事件接線', () => {
     expect(fn).toContain('hitFeedback(victim.aircraft.state.position.distanceTo(cam), HIT_FB)')
     expect(fn).toContain('hitRate(spec.mass, spec.protection[partOf(lastDealtPart)])')
     expect(fn).toContain('false, rate, HIT_FB.cutoffHz)')
-    const upd = body('function updateAudio(')
+    const upd = body('function update(', CONTROLLER)
     expect(upd).toContain('battleAudioCues.playFrame(world, player, elapsed, flying)')
     const play = body('function playFrame(', CUES)
     expect(play).toContain('if (hitDealtPending && flying) playHitDealt(world, elapsed)')
     expect(play).toContain('hitDealtPending = false')
-    expect(body('function resetAudioState(')).toContain('battleAudioCues.reset()')
+    expect(body('function reset(', CONTROLLER)).toContain('battleAudioCues.reset()')
     expect(body('function reset(', CUES)).toContain('lastDealtVictim = -1')
   })
 
@@ -191,7 +193,7 @@ describe('音效的戰鬥事件接線', () => {
     expect(fn).toContain('const g = gunSound(tier)')
     expect(fn).toContain('lastGunTier.get(tier)')
     expect(fn).toContain('g.gainDb, false, g.rate, g.cutoffHz')
-    expect(body('function resetAudioState(')).toContain('cannonAudio.reset()')
+    expect(body('function reset(', CONTROLLER)).toContain('cannonAudio.reset()')
     expect(body('function reset(', CANNONS)).toContain('lastGunTier.clear()')
   })
 
@@ -251,7 +253,7 @@ describe('音效的戰鬥事件接線', () => {
     expect(q).toContain('pushCue(cues, CUE.SelfVolley, i, 0, 0)')
     const play = body('function playCues(', CUES)
     expect(play).toContain("audio.playPool(g.pool, 'fireSelf', 0, 0, 0, false, g.db)")
-    const upd = body('function updateAudio(')
+    const upd = body('function update(', CONTROLLER)
     expect(upd).toMatch(/aircraftLoopAudio\.update\(\s*world\.combatants, renderPositions, me, elapsed, flying,\s*battleAudioCues\.ownTurretVolley,?\s*\)/)
     expect(body('function update(', LOOPS)).toContain('!(c === me && flying && ownTurretVolley)')
   })
@@ -280,7 +282,7 @@ describe('音效的戰鬥事件接線', () => {
     const call = lines('updateAudio(').filter((i) => !SRC[i]!.includes('function'))
     expect(call).toHaveLength(1)
     expect(call[0]!).toBeGreaterThan(cam)
-    const fn = body('function updateAudio(')
+    const fn = body('function update(', CONTROLLER)
     expect(fn).toContain('battleAudioCues.playFrame(world, player, elapsed, flying)')
     const play = body('function playFrame(', CUES)
     expect(play).toContain('playCues(player)')
@@ -292,7 +294,7 @@ describe('音效的戰鬥事件接線', () => {
    * 拿這一幀的距離去跟播放中聲道上一幀的舊值比，明明比較響也會被擋掉。
    */
   it('beginFrame 排在所有單次音效之前', () => {
-    const fn = body('function updateAudio(')
+    const fn = body('function update(', CONTROLLER)
     expect(fn.indexOf('audio.beginFrame()')).toBeGreaterThan(0)
     for (const call of ['battleAudioCues.playFrame(world, player, elapsed, flying)', 'cannonAudio.playCannons(world, elapsed)']) {
       expect(fn.indexOf('audio.beginFrame()'), call).toBeLessThan(fn.indexOf(call))
@@ -351,12 +353,12 @@ describe('音效的戰鬥事件接線', () => {
     expect(ALL).toContain('const listenerMotion = createListenerMotion()')
     expect(ALL).toContain('const camVel = listenerMotion.velocity')
     expect(lines('listenerMotion.update(', CONTROLLER)).toHaveLength(1)
-    const upd = body('function updateAudio(')
+    const upd = body('function update(', CONTROLLER)
     const call = 'listenerMotion.update(cameraPosition, worldSeconds)'
     expect(upd).toContain(call)
     expect(upd.indexOf(call)).toBeLessThan(upd.indexOf('aircraftLoopAudio.update('))
-    expect(body('function resetAudioState(')).toContain('listenerMotion.reset()')
-    expect(body('function resetAudioState(')).toContain('flightAudio.reset()')
+    expect(body('function reset(', CONTROLLER)).toContain('listenerMotion.reset()')
+    expect(body('function reset(', CONTROLLER)).toContain('flightAudio.reset()')
     expect(ALL).toContain('const flightAudio = createFlightAudio(audio, ctx.camera.position, input, {')
     expect(ALL).toContain('playHeavyHit: battleAudioCues.playHeavyHit, teamSlot,')
   })
@@ -412,7 +414,7 @@ describe('音效的戰鬥事件接線', () => {
   /** 【超速也要警告】原本只有飛出邊界會響；超速是另一種「再這樣下去會出事」 */
   it('飛出邊界或超速時警告蜂鳴', () => {
     const fn = body('function update(', FLIGHT)
-    expect(body('function updateAudio(')).toContain('flightAudio.update(world, me, elapsed, worldSeconds, arenaWarning)')
+    expect(body('function update(', CONTROLLER)).toContain('flightAudio.update(world, me, elapsed, worldSeconds, arenaWarning)')
     expect(fn).toContain('arenaWarning')
     expect(fn).toContain('OVERSPEED_FULL')
   })
@@ -423,7 +425,9 @@ describe('音效的戰鬥事件接線', () => {
    * one-shot；別人的槍與砲塔仍用循環加 `FIRE_HOLD`，不然聲道一直釋放又重播。
    */
   it('自己的槍用齊射 one-shot，別人的才用開火循環', () => {
-    expect(ALL).not.toContain("audio.selfLoop('fire'")
+    for (const src of [ALL, CONTROLLER.join('\n'), FLIGHT.join('\n'), LOOPS.join('\n'), CUES.join('\n')]) {
+      expect(src).not.toContain("audio.selfLoop('fire'")
+    }
     expect(body('function playCues(', CUES)).toContain("audio.playPool(g.pool, 'fireSelf'")
     expect(body('function update(', LOOPS)).toContain("audio.assign('fire'")
   })
@@ -444,7 +448,7 @@ describe('音效的戰鬥事件接線', () => {
    * `player` 的寫入點有三處（開場、換場、接手僚機），漏掉任何一處都不會報錯。
    */
   it('player 只在 setPlayer 裡寫，而它同時重算齊射分組', () => {
-    const fn = body('function setPlayer(')
+    const fn = body('function setPlayer(', CONTROLLER)
     expect(fn).toContain('battleAudioCues.rebuildVolleyGroups(me)')
     expect(ALL.match(/(^|[^.\w])player = /gm) ?? []).toHaveLength(1)
   })
@@ -461,7 +465,7 @@ describe('音效的戰鬥事件接線', () => {
    */
   it('上帝視角時不記、不播自己身上的單次音效', () => {
     expect(body('function queueAudioCues(', CUES)).toContain('godView')
-    const fn = body('function updateAudio(')
+    const fn = body('function update(', CONTROLLER)
     expect(fn).toContain('const flying = me.alive && !godView')
     expect(fn).toContain('battleAudioCues.playFrame(world, player, elapsed, flying)')
     expect(body('function playFrame(', CUES)).toContain('if (hitDealtPending && flying)')
@@ -626,7 +630,7 @@ describe('選單按鈕的聲音', () => {
 
   /** 【離場要把流速收回 1】不然選單的按鈕音用戰場最後的慢動作播 */
   it('離開戰鬥時流速歸 1', () => {
-    expect(body('function resetAudioState(')).toContain('audio.setTimeScale(1)')
+    expect(body('function reset(', CONTROLLER)).toContain('audio.setTimeScale(1)')
   })
 })
 

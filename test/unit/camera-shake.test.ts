@@ -333,7 +333,7 @@ describe('main.ts 的接線', () => {
   it('震動疊在 applyBlend 之後、渲染之前', () => {
     const blend = CAMERA.indexOf('applyBlend(godBlend')
     const apply = CAMERA.indexOf('applyCameraShake(cameraShake')
-    // 從混合那一行往後找：載入畫面裡另有一次暖身的繪製，不是每一幀的那一次
+    // 第一個 render 是戰鬥每一幀那一次；檔案後面的是暫停與機庫畫面的
     const render = MAIN.indexOf('ctx.renderer.render(ctx.scene, ctx.camera)')
     expect(blend).toBeGreaterThan(0)
     expect(apply).toBeGreaterThan(blend)
@@ -615,7 +615,8 @@ describe('HUD 的搖晃', () => {
     expect(step).toBeGreaterThan(0)
     expect(hud).toBeGreaterThan(0)
     const update = main.indexOf('updateBattleFlightHud(')
-    expect(update).toBeGreaterThan(0)
+    expect(update).toBeGreaterThan(main.indexOf('updateBattleCameraFrame('))
+    expect(main.indexOf('updateBattleCameraFrame(')).toBeGreaterThan(0)
     expect(main.indexOf('hud.render(hudFrame')).toBeGreaterThan(update)
     // 【三個量都要接上】只接角度的話位移永遠是 0，而那正是要的主要份量
     expect(flightHud).toContain('hudFrame.shakeX = hudShakeShiftX(cameraShake)')

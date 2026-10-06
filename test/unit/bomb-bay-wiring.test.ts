@@ -153,7 +153,7 @@ describe('火災的接線：起火必須排在事件排空之前', () => {
  * 世界快，慢的電腦上看起來像兩個速度。它們要吃 `worldSeconds`。
  */
 describe('特效、螺旋槳與鏡頭跟世界同一個時鐘', () => {
-  const all = SRC.join('\n') + '\n' + CAMERA.join('\n')
+  const all = SRC.join('\n') + '\n' + CAMERA.join('\n') + '\n' + SCENE.join('\n')
 
   it('特效沒有任何一支還吃 frameSeconds', () => {
     expect(all).not.toMatch(/\.step\(frameSeconds/)
