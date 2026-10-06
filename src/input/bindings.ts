@@ -1,6 +1,7 @@
 import { clamp } from '../core/math'
 import type { InputState } from './InputState'
 import { applyThrottleRate } from './throttle'
+import { clearInputHolds } from './holdState'
 
 const MOUSE_SENSITIVITY = 1.6
 /**
@@ -147,19 +148,7 @@ export function attachInput(
    * 【也匯出給 `main.ts`】重開一場與換場是直接改 `state.godView` 的，
    * 繞過了 `G` 的處理器。
    */
-  const clearHolds = () => {
-    hold.up = false
-    hold.down = false
-    state.braking = false
-    const g = state.godMove
-    g.forward = false
-    g.back = false
-    g.left = false
-    g.right = false
-    g.up = false
-    g.down = false
-    g.boost = false
-  }
+  const clearHolds = () => clearInputHolds(state, hold)
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.code === 'KeyG') {
