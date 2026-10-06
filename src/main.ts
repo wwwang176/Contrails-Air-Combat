@@ -904,7 +904,6 @@ const battleCameraFrameScratch: BattleCameraFrameScratch = {
   bombStart: BOMB_START,
   bombEye: BOMB_EYE,
   bombPoint: BOMB_POINT,
-  attitude: hudAttitude,
   godInput,
 }
 const battleCameraFrameDeps: BattleCameraFrameDependencies = {

@@ -33,13 +33,12 @@ export interface BattleCameraFrameScratch {
   readonly bombStart: BombState
   readonly bombEye: Vector3
   readonly bombPoint: Vector3
-  readonly attitude: { pitch: number; roll: number }
   readonly godInput: GodCameraInput
 }
 
 export interface BattleCameraFrameDependencies {
-  readonly ctx: SceneContext
-  readonly rig: CameraRig
+  readonly ctx: Pick<SceneContext, 'camera'>
+  readonly rig: Pick<CameraRig, 'update'>
   readonly godCam: GodCameraState
   readonly godTarget: Vector3
   readonly godBlend: CameraBlend
@@ -47,7 +46,7 @@ export interface BattleCameraFrameDependencies {
   readonly scratch: BattleCameraFrameScratch
 }
 
-type Terrain = ReturnType<typeof createTerrain>
+type Terrain = Pick<ReturnType<typeof createTerrain>, 'collisionHeightAt'>
 
 /**
  * Advances the camera and bomb sight for one rendered battle frame.
@@ -60,10 +59,10 @@ export function updateBattleCameraFrame(
   frameSeconds: number,
   worldSeconds: number,
   input: InputState,
-  world: World,
+  world: Pick<World, 'bombDrag' | 'groundAt'>,
   terrain: Terrain,
   loopStepSeconds: number,
-  player: Combatant,
+  player: Pick<Combatant, 'aircraft'>,
   playerLoadout: Loadout | null,
   renderPos: Vector3,
   renderQuat: Quaternion,
@@ -72,14 +71,12 @@ export function updateBattleCameraFrame(
 ): void {
   const {
     ctx, rig, godCam, godTarget, godBlend, cameraShake,
-    scratch: { bombImpact, bombStart, bombEye, bombPoint: impactPoint, attitude: att, godInput },
+    scratch: { bombImpact, bombStart, bombEye, bombPoint: impactPoint, godInput },
   } = deps
   const aircraft = player.aircraft
 
+  const att = output.attitude
   attitudeFromOrientation(renderQuat, att)
-  const attitude = output.attitude
-  attitude.pitch = att.pitch
-  attitude.roll = att.roll
 
   // The HUD and the release gate share these values so they cannot drift apart.
   const agl = renderPos.y - terrain.collisionHeightAt(renderPos.x, renderPos.z)
@@ -142,8 +139,6 @@ export function updateBattleCameraFrame(
   output.bombTarget = bombTarget
   output.alphaCrit = aircraft.spec.lift.alphaCrit +
     (aircraft.diag.slatsDeployed ? aircraft.spec.lift.slatAlphaBonus : 0)
-  output.attitude.pitch = att.pitch
-  output.attitude.roll = att.roll
 }
 
 export function createBattleCameraFrameScratch(): BattleCameraFrameScratch {
@@ -152,7 +147,6 @@ export function createBattleCameraFrameScratch(): BattleCameraFrameScratch {
     bombStart: { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 },
     bombEye: new Vector3(),
     bombPoint: new Vector3(),
-    attitude: { pitch: 0, roll: 0 },
     godInput: {
       forward: false, back: false, left: false, right: false,
       up: false, down: false, boost: false, lookX: 0, lookY: 0,
