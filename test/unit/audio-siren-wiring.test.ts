@@ -12,6 +12,7 @@ const CONTROLLER = read('src/app/battleAudioController.ts')
 const FLIGHT = read('src/audio/flightAudio.ts').split('\n').map(line => line.replace(/^  /, '')).join('\n')
 const LOOPS = read('src/audio/aircraftLoopAudio.ts').split('\n').map(line => line.replace(/^  /, '')).join('\n')
 const ENGINE = read('src/audio/engine.ts')
+const SELF = read('src/audio/selfAudio.ts')
 
 /** 從 `head` 那一行起、到下一個頂層 `}` 為止的函式本體 */
 function body(src: string, head: string): string {
@@ -26,13 +27,15 @@ function body(src: string, head: string): string {
 describe('警笛：音訊引擎', () => {
   /** 【三個地方都要登記】`Record` 的型別只強制其中一部分，字面量與陣列不會被檢查 */
   it('定位池有警笛、自己的槽位有警笛', () => {
-    expect(ENGINE).toMatch(/export type SelfSlot = [^\n]*'siren'/)
+    expect(SELF).toMatch(/export type SelfSlot = [^\n]*'siren'/)
+    expect(ENGINE).toContain('const selfAudio = createSelfAudio(listener, buffers, makeup, playback, lowpass)')
+    expect(ENGINE).toContain('selfLoop: selfAudio.selfLoop')
     expect(ENGINE).toMatch(/export type LoopPool = [^\n]*'siren'/)
     expect(ENGINE).toMatch(/LOOP_VOICES: Record<LoopPool, number> = \{[^}]*siren: 4/)
     expect(ENGINE).toMatch(/LOOP_CATEGORY: Record<LoopPool, Category> = \{[^}]*siren: 'siren'/)
-    expect(ENGINE).toMatch(/SELF_CATEGORY: Record<SelfSlot, Category> = \{[^}]*siren: 'sirenSelf'/)
+    expect(SELF).toMatch(/SELF_CATEGORY: Record<SelfSlot, Category> = \{[^}]*siren: 'sirenSelf'/)
     expect(ENGINE).toMatch(/const loops: Record<LoopPool, LoopVoice\[\]> = \{[^}]*siren: \[\]/)
-    expect(ENGINE).toMatch(/for \(const slot of \[[^\]]*'siren'[^\]]*\] as SelfSlot\[\]\)/)
+    expect(SELF).toMatch(/for \(const slot of \[[^\]]*'siren'[^\]]*\] as const\)/)
   })
 
   /**

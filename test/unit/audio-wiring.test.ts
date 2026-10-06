@@ -533,7 +533,9 @@ describe('單次音效的聲道池', () => {
 
   /** 【聲道不夠就先別疊】疊第二層是好聽，發得出聲才是必要 */
   it('空聲道不足時不疊第二層', () => {
-    const fn = ENGINE.slice(ENGINE.indexOf('function playPool('), ENGINE.indexOf('function selfLoop('))
+    const end = ENGINE.indexOf('function framePeak(')
+    expect(end).toBeGreaterThan(ENGINE.indexOf('function playPool('))
+    const fn = ENGINE.slice(ENGINE.indexOf('function playPool('), end)
     expect(fn).toContain('lastFreeVoices < LAYER_MIN_FREE')
   })
 })

@@ -138,7 +138,9 @@ describe('接線', () => {
     expect(update).toMatch(/if \(!v\.audio\.isPlaying && v\.waitingSince < 0\) \{\n\s*v\.audio\.sleep\(\)/)
     const end = ENGINE.slice(ENGINE.indexOf('function endFrame('), ENGINE.indexOf('function meter('))
     expect(end).toMatch(/v\.audio\.stop\(\)\n\s*v\.audio\.sleep\(\)/)
-    const stop = ENGINE.slice(ENGINE.indexOf('function stopAll('), ENGINE.indexOf('for (const slot of Object.keys(selves)'))
+    const stopEnd = ENGINE.indexOf('selfAudio.stopAll()')
+    expect(stopEnd).toBeGreaterThan(ENGINE.indexOf('function stopAll('))
+    const stop = ENGINE.slice(ENGINE.indexOf('function stopAll('), stopEnd)
     expect(stop.match(/v\.audio\.sleep\(\)/g)).toHaveLength(2)
   })
 
