@@ -4,7 +4,8 @@ import type { GroundTarget } from '../world/groundTargets'
 import type { MissionTheater } from '../battle/missions/types'
 import { createParticles } from './particles'
 import { createDust } from './blast'
-import { createTracers, type TracerSource } from './tracers'
+import { createTracers } from './tracers'
+import { createGroundShellPool } from './groundShellPool'
 import { FIRE_SECONDS, type FirePuffFn } from './shipFires'
 import { solveArc, type ArcShot } from './arc'
 import { createArcTrails } from './arcTrails'
@@ -174,30 +175,6 @@ export function nearestEnemy(
   return best
 }
 
-/** 一小池曳光彈：滿足 `TracerSource`，另外記著飛多久到、到了要放什麼 */
-interface ShellPool extends TracerSource {
-  readonly flight: Float32Array
-  /** 到達時的彈著點 */
-  readonly hx: Float32Array
-  readonly hy: Float32Array
-  readonly hz: Float32Array
-  /** 1 = 打中（火花），0 = 打偏（塵土） */
-  readonly hit: Uint8Array
-  cursor: number
-}
-
-function createShellPool(capacity: number): ShellPool {
-  const f = (): Float32Array => new Float32Array(capacity)
-  return {
-    capacity,
-    x: f(), y: f(), z: f(), vx: f(), vy: f(), vz: f(), age: f(),
-    owner: new Int32Array(capacity).fill(-1),
-    flight: f(), hx: f(), hy: f(), hz: f(),
-    hit: new Uint8Array(capacity),
-    cursor: 0,
-  }
-}
-
 export interface GroundBattle {
   /** 加進場景的物件 */
   readonly objects: readonly Object3D[]
@@ -260,8 +237,8 @@ export function createGroundBattle(
   const dust = createDust(1024, 1, smokeTexture)
   const clouds = createGroundDustClouds(theater.dusts ?? [], smokeTexture)
   const stepClouds = clouds.step
-  const shells = createShellPool(SHELL_CAPACITY)
-  const bullets = createShellPool(BULLET_CAPACITY)
+  const shells = createGroundShellPool(SHELL_CAPACITY, false, flash, dust, impact)
+  const bullets = createGroundShellPool(BULLET_CAPACITY, true, flash, dust, impact)
   const shellTracers = createTracers(SHELL_CAPACITY)
   const bulletTracers = createTracers(BULLET_CAPACITY, 0.5)
   const arcTrails = createArcTrails()
@@ -282,8 +259,6 @@ export function createGroundBattle(
   let burnClock = 0
   let artilleryClock = 0
   let lastTime = -1
-  let shots = 0
-  let hitShots = 0
   let arcShots = 0
   let arcLanded = 0
   const arcLastLanding = { x: 0, y: 0, z: 0 }
@@ -354,57 +329,6 @@ export function createGroundBattle(
     fired(me.unit.id, ox, oy, oz)
   }
 
-  function fire(
-    pool: ShellPool, ox: number, oy: number, oz: number,
-    tx: number, ty: number, tz: number, speed: number, hit: boolean,
-  ): void {
-    const dx = tx - ox
-    const dy = ty - oy
-    const dz = tz - oz
-    const d = Math.hypot(dx, dy, dz)
-    if (d < 1) return
-    shots++
-    if (hit) hitShots++
-    const i = pool.cursor
-    pool.cursor = (i + 1) % pool.capacity
-    pool.x[i] = ox
-    pool.y[i] = oy
-    pool.z[i] = oz
-    pool.vx[i] = (dx / d) * speed
-    pool.vy[i] = (dy / d) * speed
-    pool.vz[i] = (dz / d) * speed
-    pool.age[i] = 0
-    pool.owner[i] = 0
-    pool.flight[i] = d / speed
-    pool.hx[i] = tx
-    pool.hy[i] = ty
-    pool.hz[i] = tz
-    pool.hit[i] = hit ? 1 : 0
-  }
-
-  function stepPool(pool: ShellPool, dt: number, small: boolean): void {
-    for (let i = 0; i < pool.capacity; i++) {
-      if (pool.owner[i] === -1) continue
-      const age = pool.age[i]! + dt
-      if (age >= pool.flight[i]!) {
-        pool.owner[i] = -1
-        const x = pool.hx[i]!
-        const y = pool.hy[i]!
-        const z = pool.hz[i]!
-        // 【砲彈擊中是小爆炸】與迫擊砲落地同一份（`impact`）；步兵的槍彈只有一小團火花
-        if (pool.hit[i] === 1) {
-          if (small) flash.emit(x, y, z, 0, 0, 0, 0.4)
-          else impact(x, y, z)
-        } else dust.emit(x, y, z, 0, small ? 1 : 3, 0, small ? 0.3 : 0.7)
-        continue
-      }
-      pool.age[i] = age
-      pool.x[i] = pool.x[i]! + pool.vx[i]! * dt
-      pool.y[i] = pool.y[i]! + pool.vy[i]! * dt
-      pool.z[i] = pool.z[i]! + pool.vz[i]! * dt
-    }
-  }
-
   /**
    * 第 `s` 台開一發。`victim` ≥ 0 時打指定的那一台、而且必中（劇本打掉的那一台的最後一發）；
    * 省略時挑射程內最近的存活敵方，打中的機率 `HIT_CHANCE`
@@ -444,13 +368,13 @@ export function createGroundBattle(
     }
     if (infantry) {
       fired(me.unit.id, ox, oy, oz)
-      fire(bullets, ox, oy, oz, tx, ty, tz, BULLET_SPEED, hit)
+      bullets.fire(ox, oy, oz, tx, ty, tz, BULLET_SPEED, hit)
       return
     }
     flash.emit(ox, oy, oz, 0, 0, 0, 1)
     gunSmoke.emit(ox, oy, oz, ux * 2, 0.5, uz * 2, 1)
     fired(me.unit.id, ox, oy, oz)
-    fire(shells, ox, oy, oz, tx, ty, tz, SHELL_SPEED, hit)
+    shells.fire(ox, oy, oz, tx, ty, tz, SHELL_SPEED, hit)
   }
 
   return {
@@ -458,8 +382,8 @@ export function createGroundBattle(
       flash.object, gunSmoke.object, dust.object, shellTracers.object, bulletTracers.object, arcTrails.object,
       ...(clouds.object === null ? [] : [clouds.object]),
     ],
-    get shots() { return shots },
-    get hitShots() { return hitShots },
+    get shots() { return shells.shots + bullets.shots },
+    get hitShots() { return shells.hitShots + bullets.hitShots },
     get arcShots() { return arcShots },
     get arcLanded() { return arcLanded },
     get arcLastLanding() { return arcLastLanding },
@@ -572,10 +496,10 @@ export function createGroundBattle(
       }
 
       arcTrails.step(frameDt, land)
-      stepPool(shells, frameDt, false)
-      stepPool(bullets, frameDt, true)
-      shellTracers.update(shells)
-      bulletTracers.update(bullets)
+      shells.step(frameDt)
+      bullets.step(frameDt)
+      shellTracers.update(shells.source)
+      bulletTracers.update(bullets.source)
       flash.step(frameDt)
       gunSmoke.step(frameDt)
       dust.step(frameDt)
@@ -583,15 +507,13 @@ export function createGroundBattle(
     },
 
     reset() {
-      shells.owner.fill(-1)
-      bullets.owner.fill(-1)
+      shells.reset()
+      bullets.reset()
       flash.reset()
       gunSmoke.reset()
       dust.reset()
       clouds.reset()
       lastTime = -1
-      shots = 0
-      hitShots = 0
       arcShots = 0
       arcLanded = 0
       arcLastLanding.x = 0
