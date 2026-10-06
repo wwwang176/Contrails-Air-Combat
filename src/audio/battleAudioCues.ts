@@ -6,11 +6,12 @@ import { IMPACT_STRIDE, clearImpacts } from '../world/events'
 import { flakDamage } from '../world/flak'
 import { HIT_PARTS, type HitPart } from '../world/hit'
 import type { AudioEngine } from './engine'
-import { impactSound, ownTurretVolleyPools, volleyPool, type Pool } from './catalog'
+import { impactSound, type Pool } from './catalog'
 import { blastGainDb, blastRate, damageGainDb, hitFeedback, hitRate } from './curves'
 import { queueExplosionCues, type ExplosionTerrain } from './explosionCues'
 import { LAYER_DB } from './pick'
 import { CUE, CUE_STRIDE, clearCues, createCueQueue, pushCue } from './queue'
+import { buildVolleyGroups } from './volleyGroups'
 
 type CueWorld = Pick<World, 'killEvents' | 'groundKillEvents' | 'bombEvents' | 'torpedoEvents'
   | 'groundTargets' | 'burstEvents' | 'materialHits' | 'damageEvents' | 'time'>
@@ -89,28 +90,11 @@ export function createBattleAudioCues(audio: Pick<AudioEngine, 'playPool'>, cam:
 
   /** 自己這架的前射武器依武器種類分組 */
   function rebuildVolleyGroups(player: Combatant): void {
+    const built = buildVolleyGroups(player, prevVolleyFlash.length, TURRET_VOLLEY_DB)
     volleyGroups.length = 0
+    volleyGroups.push(...built.groups)
     prevVolleyFlash.fill(0)
-    const mounts = player.aircraft.spec.battery.mounts
-    const seen = new Map<string, number>()
-    for (let i = 0; i < mounts.length; i++) {
-      const id = mounts[i]!.weapon.id
-      if (seen.has(id)) continue
-      seen.set(id, i)
-      let guns = 0
-      for (const m of mounts) if (m.weapon.id === id) guns++
-      const pool = volleyPool(id, guns)
-      if (pool !== null && volleyGroups.length < prevVolleyFlash.length) {
-        volleyGroups.push({ mount: i, turret: -1, pool, db: 0 })
-      }
-    }
-    // 後座砲塔：每一座都有齊射庫的機種（Ju 87）各自一組，其餘維持砲塔循環
-    const rear = ownTurretVolleyPools(player.aircraft.spec.turrets)
-    state.ownTurretVolley = rear !== null
-    if (rear === null) return
-    for (let i = 0; i < rear.length && volleyGroups.length < prevVolleyFlash.length; i++) {
-      volleyGroups.push({ mount: -1, turret: i, pool: rear[i]!, db: TURRET_VOLLEY_DB })
-    }
+    state.ownTurretVolley = built.ownTurretVolley
   }
 
   /**

@@ -15,6 +15,7 @@ const LOOPS = readFileSync('src/audio/aircraftLoopAudio.ts', 'utf8').replace(/\r
   .split('\n').map(line => line.replace(/^  /, ''))
 const CUES = readFileSync('src/audio/battleAudioCues.ts', 'utf8').replace(/\r\n/g, '\n')
   .split('\n').map(line => line.replace(/^  /, ''))
+const VOLLEY = readFileSync('src/audio/volleyGroups.ts', 'utf8').replace(/\r\n/g, '\n')
 const SCENERY = readFileSync('src/render/battleScenery.ts', 'utf8')
 const CANNONS = readFileSync('src/audio/cannonAudio.ts', 'utf8').replace(/\r\n/g, '\n')
   .split('\n').map(line => line.replace(/^  /, ''))
@@ -228,8 +229,10 @@ describe('音效的戰鬥事件接線', () => {
    */
   it('自己那架的後座砲塔走齊射庫：與前機槍同一組分組、同一個事件，並且不進砲塔循環', () => {
     const rebuild = body('function rebuildVolleyGroups(', CUES)
-    expect(rebuild).toContain('ownTurretVolleyPools(player.aircraft.spec.turrets)')
-    expect(rebuild).toContain('ownTurretVolley = rear !== null')
+    expect(rebuild).toContain('buildVolleyGroups(player, prevVolleyFlash.length, TURRET_VOLLEY_DB)')
+    expect(rebuild).toContain('ownTurretVolley = built.ownTurretVolley')
+    expect(VOLLEY).toContain('ownTurretVolleyPools(player.aircraft.spec.turrets)')
+    expect(VOLLEY).toContain('groups.push({ mount: -1, turret: i, pool: rear[i]!, db: turretDb })')
     const q = body('function queueAudioCues(', CUES)
     expect(q).toContain('player.turretStates[g.turret]')
     expect(q).toContain('pushCue(cues, CUE.SelfVolley, i, 0, 0)')
