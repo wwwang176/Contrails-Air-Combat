@@ -1,7 +1,8 @@
 import type { Outcome } from '../battle/mission'
 import type { Roster } from '../battle/pilots'
 import type { Team } from '../world/team'
-import { scoreRows, sortScoreRows, type AfterAction, type Scoreboard } from '../ui/scoreboard'
+import type { AfterAction, Scoreboard } from '../ui/scoreboard'
+import { scoreRows, sortScoreRows } from '../ui/scoreboardRows'
 
 /** Rebuilding a full table is limited to four times a second while TAB is held. */
 const BOARD_PERIOD = 0.25
