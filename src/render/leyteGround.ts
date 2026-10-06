@@ -5,7 +5,7 @@ import {
 } from 'three'
 import type { HeightFieldData } from '../world/heightfield'
 import { FIELD_HALF, LEYTE_ROADS, ROAD_WIDTH, SAND_TOP, farHeight } from '../world/leyte'
-import { buildGroundRect, DRAW_FLOOR } from './island'
+import { buildGroundRect, DRAW_FLOOR } from './groundGeometry'
 
 /**
  * # 雷伊泰的地面
