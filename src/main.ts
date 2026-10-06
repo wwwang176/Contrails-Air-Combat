@@ -2580,6 +2580,11 @@ Object.assign(window, createSceneryInspection({
         out2.throttle = 0.8
         out2.brake = 0
         out2.firing = false
+        out2.bombing = false
+        out2.upright = false
+        out2.pull = false
+        out2.trackTurn = false
+        out2.releaseFloor = 0
       },
     }
   }

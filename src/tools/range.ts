@@ -76,6 +76,11 @@ class LevelFlight implements Controller {
     out.throttle = 0.75
     out.brake = 0
     out.firing = false
+    out.bombing = false
+    out.upright = false
+    out.pull = false
+    out.trackTurn = false
+    out.releaseFloor = 0
   }
 }
 

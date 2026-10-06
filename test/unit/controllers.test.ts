@@ -80,6 +80,28 @@ describe('PlayerController', () => {
 })
 
 describe('ScriptedController', () => {
+  it.each(MANOEUVRES)('%s 接手既有命令時，不沿用前任控制器的武器與姿態限制', manoeuvre => {
+    const self = new Aircraft(P51D)
+    const controller = new ScriptedController()
+    const reference = new ScriptedController()
+    controller.setManoeuvre(manoeuvre, self)
+    reference.setManoeuvre(manoeuvre, self)
+    const reused = createCommand()
+    const clean = createCommand()
+    const aim = reused.aimWorld
+    for (let step = 0; step < 3; step++) {
+      reused.aimWorld.set(1, 0, 0)
+      Object.assign(reused, {
+        throttle: 1.1, brake: 1, firing: true, bombing: true,
+        upright: true, pull: true, trackTurn: true, releaseFloor: 60,
+      })
+      controller.update(self, DT, reused)
+      reference.update(self, DT, clean)
+      expect(reused).toEqual(clean)
+      expect(reused.aimWorld).toBe(aim)
+    }
+  })
+
   it('四種機動齊全（spec §11）', () => {
     expect([...MANOEUVRES].sort()).toEqual(['climb', 'straight', 'turn', 'weave'])
   })
