@@ -1,11 +1,8 @@
+import { stepFixedGuns } from './fixedGuns'
 import type { Combatant } from './combatant'
 import { teamSlot, type Team } from './team'
-import { FLASH_SECONDS } from '../weapons/muzzleFlash'
 import { Vector3 } from 'three'
 import { createTorpedoContacts } from './torpedoContacts'
-import { makeScratch } from '../core/pool'
-import { mountDirection } from '../weapons/types'
-import { stepCadence } from '../weapons/cadence'
 import {
   boundingRadius, createHitResult,
   partDamage, type HitPart,
@@ -51,7 +48,6 @@ import { obbOverlap } from './obb'
 import { createCommand, type Controller } from '../control/Controller'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { AircraftSpec } from '../specs/types'
-import { PROJECTILE_LIFETIME } from './Projectiles'
 
 export type { Combatant } from './combatant'
 export type { Team } from './team'
@@ -71,9 +67,6 @@ export type CrashPolicy = (c: Combatant) => boolean
 /** 預設政策：平海面。headless 測試與對戰矩陣用這一個。 */
 const SEA_LEVEL: CrashPolicy = (c) => c.aircraft.state.position.y <= 0
 
-/** 固定機槍發射重用的暫存。 */
-const S = makeScratch(3)
-
 /** 投放偏移與推力的暫存。模組級 —— 熱路徑不得配置 */
 const BOMB_PAIR = { u: 0, v: 0 }
 const BOMB_VEL: BombState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
@@ -82,7 +75,7 @@ const RELEASE_ATTITUDE = { pitch: 0, roll: 0 }
 /**
  * 投雷時的機首水平方向。**熱路徑不得配置**，所以是模組層級的一格。
  *
- * 與固定機槍發射的 `S` 分開，避免投放與槍口運算共用中間結果。
+ * 與 `fixedGuns.ts` 的暫存分開，避免投放與槍口運算共用中間結果。
  */
 const NOSE_H = /* @__PURE__ */ new Vector3()
 /** 飛機撞船時，船體命中盒的世界中心。 */
@@ -547,7 +540,7 @@ export class World {
     }
     for (const c of this.combatants) {
       if (!c.alive) continue
-      this.fire(c, dt)
+      stepFixedGuns(c, this.projectiles, dt)
       this.releaseBombs(c, dt)
     }
     // 【砲塔在 fire 之後、彈丸推進之前】兩者都往同一個池子寫，順序固定
@@ -832,38 +825,6 @@ export class World {
     this.bombing = null
   }
 
-  /** 依扳機與射速時鐘發射。熱路徑，不配置。 */
-  private fire(c: Combatant, dt: number): void {
-    // 打爆的飛機不會繼續射擊。step 已經擋過退場的，這一條擋的是「血歸零
-    // 但因為 respawnOnDestroy 而仍然活著」那一格的殘餘狀態。
-    if (c.hp <= 0) return
-
-    const battery = c.aircraft.spec.battery
-    const trigger = c.command.firing
-    const pos = c.aircraft.state.position
-    const vel = c.aircraft.state.velocity
-    const q = c.aircraft.state.orientation
-
-    for (let i = 0; i < battery.mounts.length; i++) {
-      const mount = battery.mounts[i]!
-      const shots = stepCadence(c.cooldowns, i, mount.weapon.roundsPerMinute, trigger, dt)
-      if (shots === 0) continue
-      c.muzzleFlash[i] = FLASH_SECONDS
-
-      // 槍口的世界位置與世界射向
-      const muzzle = S.v[0]!.copy(mount.position).applyQuaternion(q).add(pos)
-      const dir = mountDirection(battery, i, S.v[1]!).applyQuaternion(q)
-      // V_bullet = 槍口方向 × 初速 + 射手速度（spec §5.1）
-      const v = S.v[2]!.copy(dir).multiplyScalar(mount.weapon.muzzleVelocity).add(vel)
-
-      for (let n = 0; n < shots; n++) {
-        this.projectiles.spawn(
-          muzzle.x, muzzle.y, muzzle.z, v.x, v.y, v.z, mount.weapon.damage, c.index,
-          c.team === 'blue' ? 0 : 1, PROJECTILE_LIFETIME, mount.weapon.caliber,
-        )
-      }
-    }
-  }
   /** 結算目前彈丸；保留入口供命中等價測試與物理步共同使用。 */
   resolveHits(): void {
     this.projectileHits.resolve(this)

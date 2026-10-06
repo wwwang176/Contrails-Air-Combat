@@ -56,7 +56,7 @@ describe('彈艙只在物理步推進', () => {
 
   /** 【不分玩家】`World` 認出玩家而跳過的話，玩家的彈艙就沒人推進 */
   it('World 對每一架都推進，沒有玩家或視角的例外', () => {
-    const loop = /for \(const c of this\.combatants\) \{\s*if \(!c\.alive\) continue\s*this\.fire\(c, dt\)\s*this\.releaseBombs\(c, dt\)/
+    const loop = /for \(const c of this\.combatants\) \{\s*if \(!c\.alive\) continue\s*stepFixedGuns\(c, this\.projectiles, dt\)\s*this\.releaseBombs\(c, dt\)/
     expect(WORLD).toMatch(loop)
     expect(WORLD.match(/stepBombBay\(/g)).toHaveLength(1)
   })
