@@ -54,7 +54,7 @@ export function resetAirPass(state: AirPassState): void {
  * 熱路徑：不配置。
  */
 export function stepAirPass(
-  state: AirPassState, band: BandState, self: Aircraft, target: Aircraft,
+  state: AirPassState, band: Pick<BandState, 'perch' | 'regainTime' | 'forced'>, self: Aircraft, target: Aircraft,
   range: number, closing: number, interceptTime: number, aot: number, trackRatio: number,
   allowed: boolean, cfg: AirPassConfig = DEFAULT_STEER,
 ): boolean {

@@ -10,7 +10,7 @@ export const ESCORT_OFFSETS: readonly StationOffset[] = [
 
 /** Selects the nearest living friendly bomber without allocating on the AI path. */
 export function selectEscortIndex(
-  self: Aircraft,
+  self: { readonly state: Pick<Aircraft['state'], 'position'> },
   candidates: TargetBoard['candidates'],
   selfIndex: number,
   current: number,

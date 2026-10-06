@@ -4,10 +4,10 @@ import type { TargetBoard } from './target'
 
 /** Finds the strongest incoming threat and updates the caller's nearest range. */
 export function scanThreat(
-  board: TargetBoard | null,
+  board: Pick<TargetBoard, 'candidates'> | null,
   selfIndex: number,
   self: Aircraft,
-  sit: Situation,
+  sit: Pick<Situation, 'range' | 'nearestRange'>,
 ): Aircraft | null {
   sit.nearestRange = sit.range
   if (board === null) return null
