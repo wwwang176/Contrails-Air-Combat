@@ -100,18 +100,12 @@ describe('接線', () => {
   const ENGINE = new TextDecoder().decode(readFileSync('src/audio/engine.ts')).replace(/\r\n/g, '\n')
   const SPATIAL = new TextDecoder().decode(readFileSync('src/audio/spatial.ts')).replace(/\r\n/g, '\n')
 
-  /** 【不能換回 three 的】換回去的話每一幀又是一整排位置漸變 */
-  it('engine 建的是自己算左右的聲道與不寫位置的 listener', () => {
-    expect(ENGINE).toContain('new SilentListener()')
+  /** 【不能換回 PannerNode】否則每一幀又要重算所有聲道的定位 */
+  it('engine 的聲道自己算左右，不建立 PannerNode', () => {
+    expect(ENGINE).toContain('new AudioListener()')
     expect(ENGINE).toContain('new PannedAudio(listener)')
-    expect(ENGINE).not.toMatch(/new (AudioListener|PositionalAudio)\(/)
+    expect(ENGINE).not.toMatch(/new PositionalAudio\(/)
     expect(SPATIAL).not.toContain('createPanner')
-  })
-
-  /** 【listener 不寫位置】沒有 panner 讀它，three 預設每幀排的九條漸變是白做的 */
-  it('listener 不碰位置參數', () => {
-    const body = SPATIAL.slice(SPATIAL.indexOf('class SilentListener'), SPATIAL.indexOf('const ROUTES'))
-    expect(body).not.toMatch(/positionX|forwardX|upX|setPosition|setOrientation/)
   })
 
   /** 【鏡頭的朝向每幀讀】少了這一步，轉頭之後左右不會跟著變 */

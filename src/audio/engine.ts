@@ -1,5 +1,5 @@
-import { Vector3, type Camera } from 'three'
-import { PannedAudio, SilentListener } from './spatial'
+import { AudioListener, Vector3, type Camera } from 'three'
+import { PannedAudio } from './spatial'
 import { azimuthDeg, equalPowerMatrix, inverseDistanceGain, type ListenerPose } from './pan'
 import { createAudioOutput } from './output'
 import { CATEGORY, POOLS, type Category, type Pool } from './catalog'
@@ -191,8 +191,9 @@ interface LoopVoice {
 }
 
 export function createAudioEngine(camera: Camera): AudioEngine {
-  const listener = new SilentListener()
-  camera.add(listener)
+  // 只用 listener 的 context 與主音量，不掛進場景；方位由 readPose 直接讀相機。
+  // 避免相機更新時觸發 AudioListener 的九條位置漸變，聲道並沒有 PannerNode 需要它們。
+  const listener = new AudioListener()
   const ctx = listener.context
   const output = createAudioOutput(ctx, listener.gain)
   const { fadeIn, resetLimiter } = output
