@@ -1,6 +1,6 @@
 import { Vector3 } from 'three'
 import { DEG } from '../core/math'
-import { bankAttitude, createBankAttitude } from '../control/FlightDirector'
+import { bankAttitude, createBankAttitude } from '../control/bankAttitude'
 import { THROTTLE_FLOOR } from '../input/throttle'
 import { RHO0 } from '../physics/atmosphere'
 import { WEP_THROTTLE } from '../physics/propulsion'
