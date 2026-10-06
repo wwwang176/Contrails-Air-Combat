@@ -99,7 +99,8 @@ import { createHudFrame } from './hud/types'
 import {
   type MarkerObjectives, type MarkerPool, type MarkerProject, type ShipMarkerTop,
 } from './hud/markerFeed'
-import { createScoreboard, scoreRows, sortScoreRows, type AfterAction } from './ui/scoreboard'
+import { createScoreboard, type AfterAction } from './ui/scoreboard'
+import { createBattleScoreboard } from './app/battleScoreboard'
 import { shortName } from './ui/briefing'
 import { resetGEffect } from './hud/widgets/gEffect'
 import { TORPEDO_RUN_SAMPLES } from './world/torpedo'
@@ -479,6 +480,7 @@ const pauseEl = document.getElementById('pause') as HTMLElement
 const pauseToMenu = pauseEl.querySelector('[data-act="toMenu"]') as HTMLElement
 const pauseAbandon = pauseEl.querySelector('[data-act="abandon"]') as HTMLElement
 const scoreboard = createScoreboard(boardEl)
+const battleScoreboard = createBattleScoreboard(scoreboard, afterAction)
 
 const aircraftVisuals = createAircraftVisuals(ctx.scene)
 const visuals = aircraftVisuals.visuals
@@ -1367,9 +1369,7 @@ function startWorld(cfg: BattleConfig): void {
   else ctx.scene.remove(flareLights.object)
   blastLights.reset()
   battleStartedAt = elapsed
-  battleEndedAt = -1
-  aarDrawn = false
-  boardNextDraw = 0
+  battleScoreboard.reset()
   world = battle.world
   /**
    * 撞地判定，套用於**所有**飛機。
@@ -1563,24 +1563,6 @@ let elapsed = 0
 const { fillMissionHud, resetMissionBanner, setMissionHudLanguageTime } = createMissionHud(hudFrame, audio, t)
 /** 這一場從 `elapsed` 的哪一刻開始 —— `elapsed` 是全域幀鐘，跨場不歸零 */
 let battleStartedAt = 0
-/**
- * 分出勝負的那一刻，`-1` = 還在打。
- *
- * 【為什麼要記】主迴圈在結算之後照樣跑，用 `elapsed` 去算用時的話，
- * 戰報上的「幾分幾秒」會在玩家看著它的時候繼續往上跳。
- */
-let battleEndedAt = -1
-/** 結算板畫過了沒 —— 它是靜止的，一場只要畫一次 */
-let aarDrawn = false
-/** 按住 TAB 的即時看板下一次重畫的時刻，s */
-let boardNextDraw = 0
-/**
- * 即時看板的重畫週期，s。
- *
- * 【為什麼不是每幀】40 列的 `innerHTML` 重建、外加瀏覽器重排整張表 ——
- * 一秒六十次是白做的：擊墜數一秒也不會變四次。
- */
-const BOARD_PERIOD = 0.25
 /**
  * 下一次印遙測的時間，s。
  *
@@ -1864,30 +1846,12 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     audioMeter.draw(METER_SAMPLE, frameSeconds)
   }
 
-  // 【只在看得到的時候才重建】40 列的 innerHTML 重建不便宜到可以每幀做
   const finished = battle.outcome !== 'fighting'
   // 【分出勝負就放開指標鎖】結算板的兩顆按鈕要點得到，而指標鎖定期間
   // 游標是被抓住的。解鎖會讓下一幀的 `pointerLockLost` 為真，但那個分支
   // 只在 `outcome === 'fighting'` 時才暫停 —— 所以不會誤觸
   if (finished && document.pointerLockElement === canvas) document.exitPointerLock()
-  if (finished && battleEndedAt < 0) battleEndedAt = elapsed
-  const showBoard = input.scoreboardHeld || finished
-  // 【結算板畫一次，即時看板每 0.25 秒畫一次】兩者都是整表重建；結算板的
-  // 內容在分出勝負的那一刻就定了，每幀重畫還會把玩家手動收起來的名單
-  // 重新攤開、把他選起來的文字弄丟
-  if (showBoard && (finished ? !aarDrawn : elapsed >= boardNextDraw)) {
-    scoreboard.render(
-      sortScoreRows(scoreRows(battle.roster, world.combatants, 'blue')),
-      sortScoreRows(scoreRows(battle.roster, world.combatants, 'red')),
-      finished ? (battle.outcome === 'victory' ? 'victory' : 'defeat') : null,
-      finished ? afterAction() : null,
-    )
-    aarDrawn = finished
-    boardNextDraw = elapsed + BOARD_PERIOD
-  }
-  // 【放開 TAB 就把節流歸零】下次按下去要立刻有東西，不能等剩下的週期
-  if (!showBoard) boardNextDraw = 0
-  scoreboard.setVisible(showBoard)
+  battleScoreboard.update(battle.roster, world.combatants, battle.outcome, input.scoreboardHeld, elapsed)
   // 【結算時才讓那兩顆按鈕出現，而且 #board 這時要能點】按住 TAB 看戰績
   // 的期間它是 pointer-events: none —— 那時它只是看
   boardActions.hidden = !finished
@@ -2253,7 +2217,7 @@ menu.show(screen)
  * 任務都成立，不需要另一份索引。
  * 【轟炸機存活】`convoy.seats` 是 `world.combatants` 的索引，逐一讀 hp。
  */
-function afterAction(): AfterAction {
+function afterAction(endedAt: number): AfterAction {
   const blueUnits = battle.cfg.units.filter((u) => u.team === 'blue')
   const flightAt = blueUnits.findIndex((u) => u.player === true)
   const me = battle.player
@@ -2262,7 +2226,7 @@ function afterAction(): AfterAction {
     mode,
     titleKey: mode === 'mission' && pendingMission !== null ? pendingMission.titleKey : 'result.skirmish',
     objectiveKey: battle.objectiveKey ?? pendingMission?.battle.objectiveKey ?? 'mission.killAll.objective',
-    seconds: (battleEndedAt < 0 ? elapsed : battleEndedAt) - battleStartedAt,
+    seconds: endedAt - battleStartedAt,
     playerSpec: shortName(me.aircraft.spec),
     playerFlight: (flightAt < 0 ? 0 : flightAt) + 1,
     playerHp01: Math.max(0, Math.min(1, me.hp / me.aircraft.spec.hp)),
