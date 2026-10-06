@@ -1,5 +1,6 @@
 import type { WebGLRenderer } from 'three'
 import Stats from 'three/addons/libs/stats.module.js'
+import { createPerfSamples } from './perfSamples'
 
 export interface PerfOverlay {
   /** `now` 是 `requestAnimationFrame` 給的時間戳 —— FPS 由相鄰兩次的差算 */
@@ -10,11 +11,9 @@ export interface PerfOverlay {
   /** 開發資訊的開關。曲線那一排不受影響 —— 它一直都在 */
   toggle(): void
   readonly visible: boolean
-  /** 最近 `SAMPLE_WINDOW` 幀的真實幀率（幀間隔平均的倒數） */
+  /** 最近 60 幀的真實幀率（幀間隔平均的倒數） */
   readonly fps: number
 }
-
-const SAMPLE_WINDOW = 60
 
 /**
  * 三條曲線各自的縱軸上限。
@@ -29,14 +28,6 @@ const SAMPLE_WINDOW = 60
 const FPS_CEILING = 120
 const FRAME_CEILING = 33
 const PHYSICS_CEILING = 8
-
-/**
- * 兩次 rAF 相隔超過這麼久就不算一幀，ms。
- *
- * 分頁切到背景時 rAF 會停；回來的第一幀間隔是好幾秒，算進平均的話 FPS
- * 會在接下來一秒內掉到個位數，看起來像當掉。
- */
-const MAX_INTERVAL_MS = 1000
 
 /**
  * **恆亮的 FPS 那一格**多久推一格，ms。F3 打開的三格不受這個影響 —— 那是開發
@@ -102,31 +93,13 @@ export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
   // 【開發資訊預設關著】draw call 與子步數對玩家沒有意義，而這塊面板在
   // 成品裡也會在
   let visible = false
-  const intervals = new Float64Array(SAMPLE_WINDOW)
-  const frameTimes = new Float64Array(SAMPLE_WINDOW)
-  const physicsTimes = new Float64Array(SAMPLE_WINDOW)
-  let intervalCount = 0
-  let intervalAt = 0
-  let sampleCount = 0
-  let sampleAt = 0
-  let lastNow = -1
+  const samples = createPerfSamples()
   let frameStart = 0
   let physicsStart = 0
   let physicsAccum = 0
   /** FPS 那一格上一次推格的時刻，以及這段期間累積的幀數。`-1` 表示還沒推過 */
   let panelAt = -1
   let panelFrames = 0
-
-  const avg = (arr: Float64Array, n: number): number => {
-    if (n === 0) return 0
-    let sum = 0
-    for (let i = 0; i < n; i++) sum += arr[i]!
-    return sum / n
-  }
-  const fps = (): number => {
-    const ms = avg(intervals, intervalCount)
-    return ms > 0 ? 1000 / ms : 0
-  }
 
   const setVisible = (v: boolean) => {
     visible = v
@@ -149,18 +122,13 @@ export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
       return visible
     },
     get fps() {
-      return fps()
+      return samples.fps()
     },
     toggle: () => setVisible(!visible),
     begin(now) {
       frameStart = performance.now()
       physicsAccum = 0
-      const interval = lastNow < 0 ? 0 : now - lastNow
-      lastNow = now
-      if (interval <= 0 || interval > MAX_INTERVAL_MS) return
-      intervals[intervalAt] = interval
-      intervalAt = (intervalAt + 1) % SAMPLE_WINDOW
-      if (intervalCount < SAMPLE_WINDOW) intervalCount++
+      if (!samples.recordInterval(now)) return
       // 【曲線吃這段期間的平均】幀數除以經過的時間，見 PANEL_INTERVAL_MS
       if (panelAt < 0) { panelAt = now; return }
       panelFrames++
@@ -179,10 +147,7 @@ export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
     endFrame(substeps: number) {
       const end = performance.now()
       const frameMs = end - frameStart
-      frameTimes[sampleAt] = frameMs
-      physicsTimes[sampleAt] = physicsAccum
-      sampleAt = (sampleAt + 1) % SAMPLE_WINDOW
-      if (sampleCount < SAMPLE_WINDOW) sampleCount++
+      samples.recordFrame(frameMs, physicsAccum)
 
       // 【F3 這三格維持逐幀】它們是開發資訊，打開就是要看每一幀長什麼樣；
       // 節流過的曲線讀不出單幀的形狀。要省的是恆亮的那一格，見 PANEL_INTERVAL_MS
@@ -191,12 +156,12 @@ export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
       physicsPanel.update(physicsAccum, PHYSICS_CEILING)
 
       // 【數字吃平均】絕對值要的是穩定讀數，逐幀跳動的數字讀不出來
-      const f = avg(frameTimes, sampleCount)
-      const p = avg(physicsTimes, sampleCount)
+      const f = samples.frameMs()
+      const p = samples.physicsMs()
       const perStepUs = substeps > 0 ? (p / substeps) * 1000 : 0
       const info = renderer.info
       text.textContent =
-        `fps       ${fps().toFixed(1)}  (幀間隔 ${avg(intervals, intervalCount).toFixed(2)} ms)\n` +
+        `fps       ${samples.fps().toFixed(1)}  (幀間隔 ${samples.intervalMs().toFixed(2)} ms)\n` +
         `cpu       ${f.toFixed(2)} ms\n` +
         `physics   ${p.toFixed(3)} ms  (${substeps} 子步)\n` +
         `per step  ${perStepUs.toFixed(1)} us\n` +
