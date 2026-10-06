@@ -14,7 +14,7 @@ import { GROUND_FLAK_SPEC, SHIP_GUN_SPECS } from '../../src/world/shipGuns'
 
 /** 【用 import.meta.glob 而不是 fs】與這個檔案裡「main.ts 的接線」同一個做法 */
 const CONSUMERS = import.meta.glob(
-  ['../../src/render/blastPresentation.ts', '../../src/main.ts', '../../src/render/flakBursts.ts', '../../src/render/blast.ts',
+  ['../../src/render/blastPresentation.ts', '../../src/main.ts', '../../src/app/battleCameraFrame.ts', '../../src/render/flakBursts.ts', '../../src/render/blast.ts',
     '../../src/hud/Hud.ts'],
   { query: '?raw', import: 'default', eager: true },
 ) as Record<string, string>
@@ -272,6 +272,10 @@ describe('main.ts 的接線', () => {
     query: '?raw', import: 'default', eager: true,
   }) as Record<string, string>
   const MAIN = Object.values(SOURCES)[0]!
+  const CAMERA_SOURCES = import.meta.glob('../../src/app/battleCameraFrame.ts', {
+    query: '?raw', import: 'default', eager: true,
+  }) as Record<string, string>
+  const CAMERA = Object.values(CAMERA_SOURCES)[0]!
   const PRESENTATION = srcOf('blastPresentation.ts').replace(/^  /gm, '')
 
   /** 取出某個函數的函數體（到第一個頂層 `\n}` 為止）。 */
@@ -323,17 +327,17 @@ describe('main.ts 的接線', () => {
    * 也一定要在 `renderer.render` 之前。
    */
   it('震動疊在 applyBlend 之後、渲染之前', () => {
-    const blend = MAIN.indexOf('applyBlend(godBlend')
-    const apply = MAIN.indexOf('applyCameraShake(cameraShake')
+    const blend = CAMERA.indexOf('applyBlend(godBlend')
+    const apply = CAMERA.indexOf('applyCameraShake(cameraShake')
     // 從混合那一行往後找：載入畫面裡另有一次暖身的繪製，不是每一幀的那一次
-    const render = MAIN.indexOf('ctx.renderer.render(ctx.scene, ctx.camera)', blend)
+    const render = MAIN.indexOf('ctx.renderer.render(ctx.scene, ctx.camera)')
     expect(blend).toBeGreaterThan(0)
     expect(apply).toBeGreaterThan(blend)
-    expect(render).toBeGreaterThan(apply)
+    expect(render).toBeGreaterThan(MAIN.indexOf('updateBattleCameraFrame('))
   })
 
   it('每幀推進衰減', () => {
-    expect(MAIN).toContain('stepCameraShake(cameraShake,')
+    expect(CAMERA).toContain('stepCameraShake(cameraShake,')
   })
 })
 
@@ -600,10 +604,11 @@ describe('HUD 的搖晃', () => {
    */
   it('main.ts 在推進震動之後才算 HUD 的角度', () => {
     const main = srcOf('main.ts')
-    const step = main.indexOf('stepCameraShake(cameraShake')
+    const camera = srcOf('app/battleCameraFrame.ts')
+    const step = camera.indexOf('stepCameraShake(cameraShake')
     const hud = main.indexOf('hudFrame.shakeAngle = hudShakeAngle(cameraShake)')
     expect(step).toBeGreaterThan(0)
-    expect(hud).toBeGreaterThan(step)
+    expect(main.indexOf('updateBattleCameraFrame(')).toBeLessThan(hud)
     expect(main.indexOf('hud.render(hudFrame')).toBeGreaterThan(hud)
     // 【三個量都要接上】只接角度的話位移永遠是 0，而那正是要的主要份量
     expect(main).toContain('hudFrame.shakeX = hudShakeShiftX(cameraShake)')

@@ -20,7 +20,6 @@ import { FixedStepAccumulator, MAX_FRAME_SECONDS, clampFrameSeconds } from './co
 import { createPerfOverlay } from './core/perf'
 import { createRangeProbe } from './hud/rangeProbe'
 import { indicatedAirspeed } from './core/airspeed'
-import { overspeedShake } from './core/overspeedFeedback'
 import { createScene } from './render/scene'
 import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality } from './render/quality'
 import { readVolume, saveVolume } from './audio/volume'
@@ -103,7 +102,7 @@ import { createHudFrame, nextHitFlash } from './hud/types'
 import {
   fillMarkers, type MarkerObjectives, type MarkerPool, type MarkerProject, type ShipMarkerTop,
 } from './hud/markerFeed'
-import { attitudeFromOrientation, headingFromOrientation } from './core/attitude'
+import { headingFromOrientation } from './core/attitude'
 import { createScoreboard, scoreRows, sortScoreRows, type AfterAction } from './ui/scoreboard'
 import { shortName } from './ui/briefing'
 import { resetGEffect } from './hud/widgets/gEffect'
@@ -112,26 +111,22 @@ import {
   TORPEDO_RUN_SAMPLES, runSampleDistance, torpedoEntersWater, torpedoHeading,
 } from './world/torpedo'
 import { resetDamageMarks, stepDamageMarks } from './hud/damageMarks'
-import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
-import { solveImpact, type BombState, type Impact } from './world/bomb'
+import { CameraRig, thirdPersonFor } from './camera/CameraRig'
+import type { BombState, Impact } from './world/bomb'
 import { resetBombBay, type BombBay } from './weapons/bomb'
-import {
-  canRelease, envelopeFor,
-} from './weapons/releaseEnvelope'
 import type { Loadout } from './weapons/stores'
 import { BOMB_PROFILE } from './ai/bombRun'
 import { TORPEDO_PROFILE } from './ai/torpedoRun'
 import { createWakes } from './render/wake'
 import { createShipWakes, shipFoamTexture } from './render/shipWakes'
 import {
-  createGodCameraState, godCameraTarget, stepGodCamera,
+  createGodCameraState,
   type GodCameraInput,
 } from './camera/godCamera'
-import { applyBlend, createCameraBlend } from './camera/cameraBlend'
+import { createCameraBlend } from './camera/cameraBlend'
 import {
   KILL_SHAKE,
-  applyCameraShake, createCameraShake, hudShakeAngle, hudShakeShiftX,
-  hudShakeShiftY, stepCameraShake,
+  createCameraShake, hudShakeAngle, hudShakeShiftX, hudShakeShiftY,
 } from './camera/cameraShake'
 import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
@@ -178,6 +173,12 @@ import { createMenuReel, type MenuReel, type ReelSiteRequest } from './app/menuR
 import type { ReelTerrainKind } from './app/reelShots'
 import { createShowcase, type Showcase } from './app/showcase'
 import { preloadStartupAssets } from './app/startupAssets'
+import {
+  updateBattleCameraFrame,
+  type BattleCameraFrameDependencies,
+  type BattleCameraFrameOutput,
+  type BattleCameraFrameScratch,
+} from './app/battleCameraFrame'
 import { warmBattleGraphics } from './app/battleWarmup'
 import { assetUrl } from './core/asset'
 import { createBattleAudioController } from './app/battleAudioController'
@@ -894,6 +895,27 @@ const { stepPlayerControl, leaveGodView, resetDeathState } = createPlayerControl
 })
 /** 上帝視角的注視點。重用，理由同上 */
 const godTarget = new Vector3()
+const battleCameraFrameScratch: BattleCameraFrameScratch = {
+  bombImpact: BOMB_IMPACT,
+  bombStart: BOMB_START,
+  bombEye: BOMB_EYE,
+  bombPoint: BOMB_POINT,
+  attitude: hudAttitude,
+  godInput,
+}
+const battleCameraFrameDeps: BattleCameraFrameDependencies = {
+  ctx, rig, godCam, godTarget, godBlend, cameraShake,
+  scratch: battleCameraFrameScratch,
+}
+const battleCameraFrameOutput: BattleCameraFrameOutput = {
+  attitude: hudAttitude,
+  agl: 0,
+  alphaCrit: 0,
+  bombState: 'off',
+  bombTarget: null,
+  releaseOk: false,
+  releaseEnv: null,
+}
 
 /** HUD 投影用的暫存向量；投影距離取 1000 m，遠到視差可以忽略。 */
 const probe = new Vector3()
@@ -1669,93 +1691,30 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   }
 
   const aircraft = player.aircraft
-  // HUD 的迎角條與 STALL 字樣都拿它當分母
-  const alphaCrit = aircraft.spec.lift.alphaCrit +
-    (aircraft.diag.slatsDeployed ? aircraft.spec.lift.slatAlphaBonus : 0)
-
-  // ── 投彈的準星與包絡 ──────────────────────────────────
-  //
-  // 【彈艙不在這裡推進】玩家的彈艙與 AI 一樣只由 `World.releaseBombs` 在物理步
-  // 推進與投放；扣扳機是 `PlayerController` 寫進 `command.bombing`。這裡再推進
-  // 一次的話，玩家的回補與連投間隔會快一倍。
-  //
-  // 【包絡每幀都算】它是準星的顏色，而準星在一般飛行時也畫
-  const att = attitudeFromOrientation(renderQuat, hudAttitude)
-  const agl = renderPos.y - terrain.collisionHeightAt(renderPos.x, renderPos.z)
-  // 【包絡與 agl 只解一次】HUD 的投放閘門與高度弧讀的必須是**這兩個值**，
-  // 不是各自再查一次 —— 分家的症狀是「錶上綠燈而扳機沒有反應」，不拋例外
-  // 也沒有訊息
-  const releaseEnv = playerLoadout !== null ? envelopeFor(playerLoadout.kind) : null
-  const releaseOk = releaseEnv !== null && canRelease(
-    releaseEnv, att.roll, att.pitch, agl, aircraft.diag.aero.tas,
+  const bombPoint = visuals.get(player)!.model.bombPoint
+  updateBattleCameraFrame(
+    battleCameraFrameDeps,
+    frameSeconds,
+    worldSeconds,
+    input,
+    world,
+    terrain,
+    loop.stepSeconds,
+    player,
+    playerLoadout,
+    renderPos,
+    renderQuat,
+    bombPoint,
+    battleCameraFrameOutput,
   )
-
-  const bp = visuals.get(player)!.model.bombPoint
-  if (bp !== null) BOMB_EYE.copy(bp).applyQuaternion(renderQuat).add(renderPos)
-  // 【掛彈的戰鬥機從質心投】沒有瞄具眼點；`World.releaseBombs` 本來就從質心放
-  else if (input.bombRelease) BOMB_EYE.copy(renderPos)
-
-  let bombTarget: Vector3 | null = null
-  let bombState: 'off' | 'solved' | 'none' = 'off'
-  if (input.godView) {
-    godInput.forward = input.godMove.forward
-    godInput.back = input.godMove.back
-    godInput.left = input.godMove.left
-    godInput.right = input.godMove.right
-    godInput.up = input.godMove.up
-    godInput.down = input.godMove.down
-    godInput.boost = input.godMove.boost
-    stepGodCamera(godCam, godInput, frameSeconds)
-    ctx.camera.position.copy(godCam.position)
-    ctx.camera.up.set(0, 1, 0)
-    ctx.camera.lookAt(godCameraTarget(godCam, godTarget))
-    // 【FOV 固定】隨速度變化的那一份吃的是飛機的 TAS，在這裡沒有意義
-    if (Math.abs(ctx.camera.fov - DEFAULT_CAMERA_OPTIONS.fovBase) > 0.01) {
-      ctx.camera.fov = DEFAULT_CAMERA_OPTIONS.fovBase
-      ctx.camera.updateProjectionMatrix()
-    }
-  } else {
-    // 【落點要在 rig.update 之前解】投彈模式下相機的視線就是指向它
-    //
-    // 【不看視角】落點是飛行狀態的函數，算得出來一般飛行也標得出來（HUD 的
-    // `bombsight` 在兩種模式都畫，只差顏色）。上帝視角則整段跳過 —— 那裡連
-    // 落點圈都不畫。
-    if (bp !== null || input.bombRelease) {
-      bombState = 'none'
-      BOMB_START.x = BOMB_EYE.x; BOMB_START.y = BOMB_EYE.y; BOMB_START.z = BOMB_EYE.z
-      const v = player.aircraft.state.velocity
-      BOMB_START.vx = v.x; BOMB_START.vy = v.y; BOMB_START.vz = v.z
-      // 【dt 用 loop.stepSeconds 而不是 frameSeconds】預測必須與空中的
-      // 炸彈同一個步長，那條護欄的整個重點就在這裡
-      if (solveImpact(BOMB_START, world.bombDrag, world.groundAt, loop.stepSeconds, BOMB_IMPACT)) {
-        BOMB_POINT.set(BOMB_IMPACT.x, BOMB_IMPACT.y, BOMB_IMPACT.z)
-        bombState = 'solved'
-        // 【只有投彈模式把落點交給相機】一般飛行時鏡頭跟的是瞄準點
-        if (input.viewMode === 'bomb') bombTarget = BOMB_POINT
-      }
-    }
-    // 相機看的是**瞄準方向**而不是機首方向：準星釘在畫面中央，跟不上的是飛機
-    rig.update(
-      ctx.camera, renderPos, renderQuat, input.aimWorld, aircraft.diag.aero.tas,
-      input.viewMode, input.lookYaw, input.lookPitch, worldSeconds, bombTarget,
-    )
-  }
-  // 【排在兩個分支之後】上面算出來的是這一幀的目的姿態，過渡把它往按 G
-  // 那一刻的姿態拉回一部分；過渡結束後這一行什麼都不做
-  applyBlend(godBlend, ctx.camera, worldSeconds)
-  // 【震動疊在最後】上面每一條分支都是從頭寫相機姿態的，排在它們之前會被
-  // 整個蓋掉 —— 而畫面上只是「沒有震動」。也因為它們每幀重寫，這個偏移
-  // 不會累積回相機
-  // 【超速的持續搖晃】每幀由速度直接算、不衰減，與爆炸取最大值。上帝視角時
-  // 鏡頭不在飛機上，不搖
-  const shakeAero = player.aircraft
-  cameraShake.sustained = input.godView ? 0 : overspeedShake(
-    indicatedAirspeed(shakeAero.diag.aero.tas, shakeAero.diag.air.sigma)
-      / shakeAero.spec.limits.vne,
-  )
-  stepCameraShake(cameraShake, worldSeconds)
-  applyCameraShake(cameraShake, ctx.camera)
-  // 【鏡頭定位之後】距離、音速延遲、低通都量到這一幀的鏡頭
+  const {
+    attitude: att,
+    agl,
+    alphaCrit,
+    bombState,
+    releaseOk,
+    releaseEnv,
+  } = battleCameraFrameOutput
   updateAudio(worldSeconds)
 
   tracers.update(world.projectiles)

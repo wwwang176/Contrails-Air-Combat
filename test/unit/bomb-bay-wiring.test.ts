@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
  * 大括號會誤判，而會誤報的護欄比沒有護欄更糟。
  */
 const SRC = new TextDecoder().decode(readFileSync('src/main.ts')).split('\n')
+const CAMERA = new TextDecoder().decode(readFileSync('src/app/battleCameraFrame.ts')).split('\n')
 const EVENTS = readFileSync('src/app/battleEventPresentation.ts', 'utf8').split('\n')
 const WORLD = new TextDecoder().decode(readFileSync('src/world/World.ts')).replace(/\r\n/g, '\n')
 const PLAYER = new TextDecoder().decode(readFileSync('src/control/PlayerController.ts'))
@@ -125,7 +126,7 @@ describe('火災的接線：起火必須排在事件排空之前', () => {
  * 世界快，慢的電腦上看起來像兩個速度。它們要吃 `worldSeconds`。
  */
 describe('特效、螺旋槳與鏡頭跟世界同一個時鐘', () => {
-  const all = SRC.join('\n')
+  const all = SRC.join('\n') + '\n' + CAMERA.join('\n')
 
   it('特效沒有任何一支還吃 frameSeconds', () => {
     expect(all).not.toMatch(/\.step\(frameSeconds/)

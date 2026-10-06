@@ -28,6 +28,9 @@ const SOURCES = import.meta.glob('../../src/main.ts', {
 }) as Record<string, string>
 
 const MAIN = Object.values(SOURCES)[0]!
+const CAMERA = Object.values(import.meta.glob('../../src/app/battleCameraFrame.ts', {
+  query: '?raw', import: 'default', eager: true,
+}) as Record<string, string>)[0]!
 const EFFECTS = Object.values(import.meta.glob('../../src/render/effectStepper.ts', {
   query: '?raw', import: 'default', eager: true,
 }) as Record<string, string>)[0]!
@@ -159,6 +162,6 @@ describe('換一場的兩個入口都要清粒子池', () => {
     }
     expect(MAIN).toContain('stepShipFires(shipFires,')
     expect(MAIN).toContain('stepGroundFires(groundFires,')
-    expect(MAIN).toContain('stepCameraShake(cameraShake,')
+    expect(CAMERA).toContain('stepCameraShake(cameraShake,')
   })
 })

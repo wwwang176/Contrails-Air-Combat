@@ -276,7 +276,7 @@ describe('音效的戰鬥事件接線', () => {
 
   /** 【鏡頭更新完才播】距離、延遲、低通都量到鏡頭；用上一幀的鏡頭會差一幀 */
   it('每一幀在鏡頭定位之後播放並清空佇列', () => {
-    const cam = lines('applyCameraShake(cameraShake, ctx.camera)')[0]!
+    const cam = lines('updateBattleCameraFrame(')[0]!
     const call = lines('updateAudio(').filter((i) => !SRC[i]!.includes('function'))
     expect(call).toHaveLength(1)
     expect(call[0]!).toBeGreaterThan(cam)
