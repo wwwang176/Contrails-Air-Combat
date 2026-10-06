@@ -2,7 +2,7 @@ import type { Vector3 } from 'three'
 import { G0, smoothstep } from '../core/math'
 import { RHO0 } from './atmosphere'
 import { alphaFrom, betaFrom, bodyToStd, stdToBody, type StdVec } from './axes'
-import { derivedClMax, type AircraftSpec } from '../specs/types'
+import { derivedClMax, type FlightSpec } from '../specs/types'
 import type { AeroState, AirData, Controls, ForceMoment } from './types'
 
 // 模組私有暫存，避免熱路徑配置。禁止跨模組共用。
@@ -10,7 +10,7 @@ const stdVel: StdVec = { x: 0, y: 0, z: 0 }
 const stdOmega: StdVec = { x: 0, y: 0, z: 0 }
 
 /** 誘導阻力因子 1/(π·e·AR)。 */
-export function inducedDragFactor(spec: AircraftSpec): number {
+export function inducedDragFactor(spec: FlightSpec): number {
   const ar = (spec.wing.span * spec.wing.span) / spec.wing.area
   return 1 / (Math.PI * spec.wing.oswald * ar)
 }
@@ -25,7 +25,7 @@ export function inducedDragFactor(spec: AircraftSpec): number {
  * 確保連續、大迎角不發散、且 |α|>90° 時方向正確。
  */
 export function liftCoefficient(
-  spec: AircraftSpec,
+  spec: FlightSpec,
   alpha: number,
   slatsDeployed: boolean,
 ): number {
@@ -75,7 +75,7 @@ export function liftCoefficient(
  * 這是 Bf 109 低速盤旋優勢的物理來源，非憑空加成。
  */
 export function updateSlatState(
-  spec: AircraftSpec,
+  spec: FlightSpec,
   alpha: number,
   wasDeployed: boolean,
 ): boolean {
@@ -110,7 +110,7 @@ export const BRAKE_CD = 0.45
  * 那個問題與減速無關。
  */
 export function dragCoefficient(
-  spec: AircraftSpec,
+  spec: FlightSpec,
   cl: number,
   beta: number,
   mach: number,
@@ -199,7 +199,7 @@ export const LOW_SPEED_KNEE = 1.44
  * `analysis/envelope.ts` 的 `stallSpeed()` **完全一致**。否則 109 的拐點會
  * 對不上它自己的 Vs，「1.2 × Vs」在兩個地方會是不同的意思（spec §4.3）。
  */
-export function stallDynamicPressure(spec: AircraftSpec): number {
+export function stallDynamicPressure(spec: FlightSpec): number {
   return (spec.mass * G0)
     / (spec.wing.area * derivedClMax(spec, spec.lift.slatAlphaBonus > 0))
 }
@@ -215,7 +215,7 @@ export function stallDynamicPressure(spec: AircraftSpec): number {
  * 【為什麼不設下限】速度趨近 0 時力矩本來就趨近 0（力矩 = 動壓 × 面積 ×
  * 係數），乘數再小也不會除出無限大或 NaN（spec §4.5）。
  */
-export function lowSpeedEffectiveness(spec: AircraftSpec, qbar: number): number {
+export function lowSpeedEffectiveness(spec: FlightSpec, qbar: number): number {
   const qLow = LOW_SPEED_KNEE * stallDynamicPressure(spec)
   return qbar >= qLow ? 1 : qbar / qLow
 }
@@ -243,7 +243,7 @@ export function computeAeroState(
  * 力矩的阻尼項以無因次角速度 (p·b/2V) 等形式計入。
  */
 export function aeroForceMoment(
-  spec: AircraftSpec,
+  spec: FlightSpec,
   aero: AeroState,
   omegaBody: Vector3,
   controls: Controls,

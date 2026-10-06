@@ -8,7 +8,7 @@ import {
   type PitchLimit,
 } from './limiters'
 import { controlEffectiveness, redlineEffectiveness } from '../physics/aero'
-import type { AircraftSpec } from '../specs/types'
+import type { FlightSpec } from '../specs/types'
 import type { AeroState, Controls, FlightState } from '../physics/types'
 
 // 模組私有暫存（熱路徑零配置）。只需要 1 個向量（aimBody）與 1 個四元數
@@ -591,7 +591,7 @@ export class FlightDirector {
    * 算進 aero.qbar；若未來需要馬赫相依的舵效，AeroState 已有 aero.mach。
    */
   update(
-    spec: AircraftSpec,
+    spec: FlightSpec,
     state: FlightState,
     aero: AeroState,
     slatsDeployed: boolean,
@@ -856,7 +856,7 @@ export class FlightDirector {
    * @returns 滾轉指令，rad
    */
   private rollOrPush(
-    spec: AircraftSpec, aero: AeroState, aimBody: Vector3, dbg: DirectorDebug, qMin: number,
+    spec: FlightSpec, aero: AeroState, aimBody: Vector3, dbg: DirectorDebug, qMin: number,
     upright: boolean, pull: boolean,
   ): number {
     const rollPull = Math.atan2(aimBody.x, aimBody.y)
@@ -907,7 +907,7 @@ export class FlightDirector {
  * 只用於上方的時間比較，不參與力的計算；估得夠準即可，重點是它會隨速度、
  * 高度與機種自己變化，門檻才不是一個寫死的角度。
  */
-function steadyRollRate(spec: AircraftSpec, aero: AeroState): number {
+function steadyRollRate(spec: FlightSpec, aero: AeroState): number {
   const s = spec.controlStiffening
   // 【紅線因子也乘進去】否則在紅線附近會高估自己轉得動，指令與實際脫節
   const eff = controlEffectiveness(s.aileronK, s.qRef, aero.qbar)
