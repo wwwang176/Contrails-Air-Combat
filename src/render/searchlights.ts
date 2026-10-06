@@ -6,6 +6,9 @@ import type { GroundTarget } from '../world/groundTargets'
 import { GROUND_FLAK_SPEC } from '../world/shipGuns'
 import type { Team } from '../world/team'
 
+/** 探照燈基座只提供種類、存活狀態與位置。 */
+type SearchlightBase = Pick<GroundTarget, 'unit' | 'alive' | 'position'>
+
 /**
  * # 探照燈的光束
  *
@@ -149,7 +152,7 @@ interface Beam {
   readonly mesh: Mesh
   /** 燈座上的眩光，光束掃到鏡頭才亮 */
   readonly glare: Sprite
-  readonly base: GroundTarget
+  readonly base: SearchlightBase
   /** 微晃的相位，每座不同 */
   readonly phase: number
   /** 現在照的是 `targets` 裡第幾架。−1 = 沒有 */
@@ -186,7 +189,7 @@ function slewDir(dir: Vector3, want: Vector3, maxStep: number): void {
  * @param glareTexture 眩光的貼圖，瀏覽器用 `makeGlareTexture()`。**由呼叫端
  *   持有**，這裡不 dispose —— 每一場重建光束時貼圖不必重畫
  */
-export function createSearchlights(targets: readonly GroundTarget[], glareTexture: Texture): Searchlights {
+export function createSearchlights(targets: readonly SearchlightBase[], glareTexture: Texture): Searchlights {
   const object = new Group()
   // 圓柱的軸沿 Y，底在 0、頂在 BEAM_LENGTH —— 姿態用 Euler 轉
   const geometry = new CylinderGeometry(BEAM_TOP, BEAM_BOTTOM, BEAM_LENGTH, SEGMENTS, 1, true)

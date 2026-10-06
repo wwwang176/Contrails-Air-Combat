@@ -8,7 +8,7 @@ import { updateFireCrowd, type FireCrowd } from '../render/fireCrowd'
 import { stepShipFires, type ShipFires } from '../render/shipFires'
 import { stepGroundFires, type GroundFires } from '../render/groundFires'
 import type { createSteamEmission } from '../render/steamEmission'
-import type { Muzzles } from '../render/muzzle'
+import type { Muzzles, MuzzleSource, TurretMuzzleSource } from '../render/muzzle'
 import type { TurretBarrels } from '../render/turretBarrels'
 import type { FlareLights } from '../render/flares'
 import type { BattleScenery } from '../render/battleScenery'
@@ -38,9 +38,9 @@ export interface BattleSceneFrameDependencies {
   readonly groundFires: GroundFires
   readonly shipFires: ShipFires
   readonly steamEmission: SteamEmission
-  readonly muzzles: Muzzles
+  readonly muzzles: Muzzles<MuzzleSource>
   readonly turretBarrels: TurretBarrels
-  readonly turretMuzzles: Muzzles
+  readonly turretMuzzles: Muzzles<TurretMuzzleSource>
   readonly flareLights: FlareLights
   readonly stepEffects: EffectStepper
   readonly battleScenery: BattleScenery

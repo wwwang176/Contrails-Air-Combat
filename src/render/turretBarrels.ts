@@ -2,9 +2,16 @@ import {
   BufferAttribute, BufferGeometry, DynamicDrawUsage, InstancedMesh, Matrix4,
   MeshBasicMaterial, Quaternion, Vector3,
 } from 'three'
-import { BARREL_LENGTH, MAX_TURRETS, turretMuzzle, wobbleBasis } from '../weapons/turret'
+import { BARREL_LENGTH, MAX_TURRETS, turretMuzzle, wobbleBasis, type Turret } from '../weapons/turret'
 import { BARREL_SPACING } from '../world/turrets'
-import type { Combatant } from '../world/combatant'
+
+/** 砲管顯示只讀掛載、存活狀態與目前指向。 */
+export interface TurretBarrelSource {
+  readonly index: number
+  readonly alive: boolean
+  readonly aircraft: { readonly spec: { readonly turrets: readonly Turret[] } }
+  readonly turretStates: readonly { readonly aim: Vector3 }[]
+}
 
 /**
  * 砲塔的槍管 —— 黑色三角柱，**跟著砲塔轉**。
@@ -35,7 +42,7 @@ export const MAX_BARRELS_PER_TURRET = 2
 export interface TurretBarrels {
   object: InstancedMesh
   update(
-    combatants: readonly Combatant[],
+    combatants: readonly TurretBarrelSource[],
     positions: readonly Vector3[],
     quaternions: readonly Quaternion[],
   ): void
@@ -151,7 +158,7 @@ export function createTurretBarrels(aircraftCapacity: number): TurretBarrels {
     object,
 
     update(
-      combatants: readonly Combatant[],
+      combatants: readonly TurretBarrelSource[],
       positions: readonly Vector3[],
       quaternions: readonly Quaternion[],
     ): void {
