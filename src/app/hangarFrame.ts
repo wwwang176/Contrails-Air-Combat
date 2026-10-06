@@ -6,9 +6,9 @@ import type { Terrain } from '../render/terrain'
 export function renderHangarFrame(
   frameSeconds: number,
   elapsed: number,
-  showcase: Showcase,
-  ctx: SceneContext,
-  terrain: Terrain,
+  showcase: Pick<Showcase, 'update'>,
+  ctx: Pick<SceneContext, 'camera' | 'renderer' | 'scene'>,
+  terrain: Pick<Terrain, 'update'>,
 ): void {
   showcase.update(frameSeconds, ctx.camera)
   terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)

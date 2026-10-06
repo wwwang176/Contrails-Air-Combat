@@ -9,7 +9,7 @@ import { fileFraction, type LoadingScreen } from '../ui/loading'
  * 啟動時備妥同步建模需要的樣板。載入畫面在 HTML 裡已蓋著，全部完成才收。
  * 任務專用的廠區與機場佈景在進關卡時載入，不阻擋選單啟動。
  */
-export async function preloadStartupAssets(loading: LoadingScreen): Promise<void> {
+export async function preloadStartupAssets(loading: Pick<LoadingScreen, 'set' | 'step' | 'hold' | 'finish'>): Promise<void> {
   const shipIds = ['essex', 'wichita', 'fletcher', 'lst'] as const
   const fileTotal = AIRCRAFT_MODEL_COUNT + shipIds.length + groundModelUrls().length + BALLOON_MODEL_COUNT
   let filesDone = 0

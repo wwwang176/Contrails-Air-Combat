@@ -18,13 +18,13 @@ import { aliveCount } from '../battle/objectiveQueries'
 import { playerFlight } from '../battle/battleRuntime'
 
 export interface BattleFlightHudDependencies {
-  readonly ctx: SceneContext
+  readonly ctx: Pick<SceneContext, 'camera'>
   readonly probe: Vector3
   readonly cameraShake: CameraShake
-  readonly godCam: GodCameraState
-  readonly playerAi: AiController
-  readonly touch: TouchControls
-  readonly arena: ArenaState
+  readonly godCam: Pick<GodCameraState, 'yaw' | 'position'>
+  readonly playerAi: Pick<AiController, 'intent' | 'mode' | 'hudPhase' | 'hudOverride' | 'rules'>
+  readonly touch: Pick<TouchControls, 'visible'>
+  readonly arena: Pick<ArenaState, 'outside' | 'remaining'>
   readonly projectDistance: number
 }
 
@@ -34,7 +34,7 @@ type Aircraft = Combatant['aircraft']
 export function updateBattleFlightHud(
   deps: BattleFlightHudDependencies,
   hudFrame: HudFrame,
-  input: InputState,
+  input: Pick<InputState, 'aimWorld' | 'godView' | 'playerAi'>,
   battle: Battle,
   player: Combatant,
   aircraft: Aircraft,

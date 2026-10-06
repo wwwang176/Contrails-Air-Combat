@@ -25,30 +25,35 @@ export interface BombSightHudScratch {
 }
 
 export interface BombSightHudDependencies {
-  readonly ctx: SceneContext
+  readonly ctx: Pick<SceneContext, 'camera'>
   readonly scratch: BombSightHudScratch
   readonly noseHorizontal: (quaternion: Quaternion, out: Vector3) => Vector3
   readonly projectDistance: number
 }
 
 type BombState = 'off' | 'solved' | 'none'
-type Terrain = ReturnType<typeof createTerrain>
+type Terrain = Pick<ReturnType<typeof createTerrain>, 'collisionHeightAt' | 'waterAt'>
+interface BombSightPlayer {
+  readonly aircraft: {
+    readonly state: Pick<Combatant['aircraft']['state'], 'velocity'>
+  }
+}
 
 /** Projects the bomb sight and torpedo run into the reusable HUD frame buffers. */
 export function updateBombSightHud(
   deps: BombSightHudDependencies,
   hudFrame: HudFrame,
-  input: InputState,
+  input: Pick<InputState, 'viewMode' | 'bombCapable' | 'bombRelease'>,
   renderPos: Vector3,
   renderQuat: Quaternion,
-  player: Combatant,
+  player: BombSightPlayer,
   terrain: Terrain,
-  playerLoadout: Loadout | null,
+  playerLoadout: Pick<Loadout, 'kind'> | null,
   bombState: BombState,
   releaseOk: boolean,
   releaseEnv: ReleaseEnvelope | null,
   agl: number,
-  bay: BombBay,
+  bay: Pick<BombBay, 'capacity' | 'load' | 'reloading' | 'timer'>,
 ): void {
   const { ctx, scratch, noseHorizontal } = deps
   const { probe, bombNdc, noseH, torpedoDirection, runWorld, runNdc, runZ, bombPoint } = scratch
