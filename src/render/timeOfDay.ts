@@ -4,7 +4,6 @@ import { SEA_COLOR, SEA_HORIZON_COLOR } from './oceanStyle'
 import { FOG_DENSITY } from './fog'
 import type { TimeOfDay } from '../world/timeOfDay'
 // 【只匯入型別】這兩支都要用這裡的值，值匯入會成環
-import type { SceneContext } from './scene'
 
 /**
  * # 時段
@@ -307,7 +306,7 @@ export function paletteSunDir(p: DayPalette, out: Vector3): Vector3 {
  * —— 看得出來但不會有任何東西報錯。
  */
 export function applyTimeOfDay(
-  ctx: SceneContext,
+  ctx: PaletteTarget,
   world: PaletteTarget | null,
   tod: TimeOfDay,
 ): void {

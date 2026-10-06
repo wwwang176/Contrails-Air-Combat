@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { Color, type ShaderMaterial } from 'three'
 import {
-  FLASH_SECONDS, STRIKE_DISTANCE, STRIKE_INTERVAL, THUNDER_CUTOFF_HZ, THUNDER_DB, THUNDER_RATE,
-  applyFlash, createStorm, flashEnvelope, rollThunder, stepStorm,
+  FLASH_SECONDS, STRIKE_DISTANCE, STRIKE_INTERVAL,
+  applyFlash, createStorm, flashEnvelope, stepStorm,
 } from '../../src/render/storm'
+import { THUNDER_CUTOFF_HZ, THUNDER_DB, THUNDER_RATE, rollThunder } from '../../src/audio/thunderVoice'
 import { DAY_PALETTES } from '../../src/render/timeOfDay'
 import { createLights } from '../../src/render/lighting'
 import { createSky } from '../../src/render/sky'
