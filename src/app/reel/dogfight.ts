@@ -5,6 +5,7 @@ import { scatterClouds, type CloudSpec } from '../../render/clouds'
 import {
   body, bodyUp, edit, timeline, type Cut, type Path, type ReelCamera, type ReelEvent, type Shot,
 } from './kit'
+import { aimBetween } from './reelCameraMath'
 
 // ── 纏鬥 ───────────────────────────────────────────────────
 //
@@ -400,8 +401,6 @@ const rescuer = track(TABLES[M2]!)
 
 const S1 = new Vector3()
 const S2 = new Vector3()
-const AIM_A = new Vector3()
-const AIM_B = new Vector3()
 
 const SH_F = new Vector3()
 const SH_R = new Vector3()
@@ -441,11 +440,6 @@ function shake(t: number, deg: number, seed: number, out: ReelCamera, kickAt = -
  * 從 `from` 看出去、介於 `a` 與 `b` 兩個方向之間的注視點（`w` = 偏向 `b` 的比例）。
  * 混的是方向不是位置 —— 一個在 20 m、一個在 300 m 的話，位置的內插幾乎就是遠的那一點
  */
-function aimBetween(from: Vector3, a: Vector3, b: Vector3, w: number, out: Vector3): Vector3 {
-  AIM_A.subVectors(a, from).normalize().multiplyScalar(100 * (1 - w))
-  AIM_B.subVectors(b, from).normalize().multiplyScalar(100 * w)
-  return out.copy(from).add(AIM_A).add(AIM_B)
-}
 
 const CUTS: readonly Cut[] = [
   {
