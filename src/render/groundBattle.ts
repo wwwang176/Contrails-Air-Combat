@@ -6,10 +6,12 @@ import { createParticles } from './particles'
 import { createDust } from './blast'
 import { BATTLE_FOG } from './heightFog'
 import { createTracers, type TracerSource } from './tracers'
-import { hash01 } from '../core/hash'
 import { FIRE_SECONDS, type FirePuffFn } from './shipFires'
 import { solveArc, type ArcShot } from './arc'
 import { createArcTrails } from './arcTrails'
+import { hash01 } from '../core/hash'
+import { burstTimesBetween, shotTimesBetween } from './groundBattleSchedule'
+export { burstTimesBetween, shotTimesBetween, SHOT_JITTER } from './groundBattleSchedule'
 
 /**
  * # 地面戰的戲
@@ -38,8 +40,6 @@ import { createArcTrails } from './arcTrails'
  * 射擊時刻在格點附近的抖動幅度，週期的比例。相鄰兩發的間隔落在
  * (1 ± 2 × 這個值) 倍的週期，0.15 → 0.7～1.3 倍。< 0.5 才保證遞增
  */
-export const SHOT_JITTER = 0.15
-
 /** 步兵的射程上限，m。步槍與機槍打不到一公里半外的坦克 */
 const INFANTRY_RANGE = 600
 
@@ -175,21 +175,6 @@ const TWO_PI = Math.PI * 2
  * @param kMin 最小的發序，預設 0（開場之後才有）。傳負數或 −Infinity 可以取開場之前的發
  *   （迫擊砲開場時天上已經在飛的那幾發）
  */
-export function shotTimesBetween(
-  i: number, period: number, t0: number, t1: number, out: Float64Array, kMin = 0,
-): number {
-  const phase = hash01(i * 7919 + 13) * period
-  const reach = SHOT_JITTER * period
-  const k0 = Math.max(kMin, Math.floor((t0 - phase - reach) / period))
-  const k1 = Math.floor((t1 - phase + reach) / period)
-  let n = 0
-  for (let k = k0; k <= k1 && n < out.length; k++) {
-    const t = phase + k * period + (2 * hash01(i * 104729 + k) - 1) * reach
-    if (t > t0 && t <= t1) out[n++] = t
-  }
-  return n
-}
-
 /**
  * 連發的射擊時刻：第 `i` 個射手每 `period` 秒打一串，一串 `burstSeconds` 秒、每秒 `roundsPerSecond` 發，
  * 回傳 (`t0`, `t1`] 內的發數並寫進 `out`（滿了就停）。
@@ -197,27 +182,6 @@ export function shotTimesBetween(
  * 【與 `shotTimesBetween` 同一個道理】串的起點是 `phase(i) + k × period` 加抖動，時間的純函數 ——
  * 不吃幀率，切成幾幀算都一樣。串內的每一發是固定間距。
  */
-export function burstTimesBetween(
-  i: number, period: number, burstSeconds: number, roundsPerSecond: number,
-  t0: number, t1: number, out: Float64Array,
-): number {
-  const phase = hash01(i * 7919 + 13) * period
-  const reach = SHOT_JITTER * period
-  const rounds = Math.max(1, Math.round(burstSeconds * roundsPerSecond))
-  const step = 1 / roundsPerSecond
-  const k0 = Math.max(0, Math.floor((t0 - phase - reach - (rounds - 1) * step) / period))
-  const k1 = Math.floor((t1 - phase + reach) / period)
-  let n = 0
-  for (let k = k0; k <= k1; k++) {
-    const start = phase + k * period + (2 * hash01(i * 104729 + k) - 1) * reach
-    for (let j = 0; j < rounds && n < out.length; j++) {
-      const t = start + j * step
-      if (t > t0 && t <= t1) out[n++] = t
-    }
-  }
-  return n
-}
-
 /** 能開火、能被瞄的：存活、已經出現 */
 function inPlay(t: GroundTarget): boolean {
   return t.alive && !t.dormant
