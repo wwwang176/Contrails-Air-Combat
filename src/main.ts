@@ -115,7 +115,8 @@ import { resetBombBay, type BombBay } from './weapons/bomb'
 import type { Loadout } from './weapons/stores'
 import { wireBattleAi } from './app/wireBattleAi'
 import { createWakes } from './render/wake'
-import { createShipWakes, shipFoamTexture } from './render/shipWakes'
+import { createShipWakes } from './render/shipWakes'
+import { shipFoamTexture } from './render/shipFoamTexture'
 import {
   createGodCameraState,
   type GodCameraInput,
