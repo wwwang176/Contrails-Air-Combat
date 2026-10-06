@@ -68,6 +68,7 @@ import { losBlocked } from '../world/occlusion'
 import { NO_INTERCEPT } from '../world/lead'
 import { bestSustainedTurnRadiusCached } from '../analysis/envelope'
 import { scanThreat } from './threatScan'
+import { ESCORT_OFFSETS, selectEscortIndex } from './escortStation'
 
 /**
  * 高度鎖的緩衝，m：鎖畫在參考高度（轟炸機／目標）下方這麼多。
@@ -106,11 +107,6 @@ const FWD = new Vector3(0, 0, -1)
  *
  * 【上方 450 m】在轟炸機上方才看得出是護航；也在輕型防空的射程（2,640 m）之內，所以不再高。
  */
-const ESCORT_OFFSETS: readonly StationOffset[] = [
-  { along: -150, across: 350, up: 450 },
-  { along: -150, across: -350, up: 450 },
-]
-
 /**
  * 敵機 AI。實作 `control/Controller`，所以 `World` 一個字都不用改。
  *
@@ -271,20 +267,7 @@ export class AiController implements Controller {
     const candidates = this.board?.candidates
     const me = candidates?.[this.selfIndex]
     if (candidates === undefined || me === undefined) return false
-    if (decide || this.escortIndex < 0 || !candidates[this.escortIndex]!.alive) {
-      let best = -1
-      let bestD = Infinity
-      for (let i = 0; i < candidates.length; i++) {
-        const c = candidates[i]!
-        if (!c.alive || c.team !== me.team || c.aircraft.spec.role !== 'bomber') continue
-        const d = self.state.position.distanceToSquared(c.aircraft.state.position)
-        if (d < bestD) {
-          bestD = d
-          best = i
-        }
-      }
-      this.escortIndex = best
-    }
+    this.escortIndex = selectEscortIndex(self, candidates, this.selfIndex, this.escortIndex, decide)
     if (this.escortIndex < 0) return false
     stationCommand(
       self, candidates[this.escortIndex]!.aircraft, ESCORT_OFFSETS[this.selfIndex % 2]!,
