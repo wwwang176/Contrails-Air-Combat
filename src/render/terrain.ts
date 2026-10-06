@@ -9,7 +9,7 @@ import { CULL } from './cullRuns'
 import { createFieldClipmap, type ClipLevelSpec } from './fieldClipmap'
 import { floraSplats } from './buildingBake'
 import { farmLaneVillages, farmSettlements } from './farmSettlements'
-import { buildBlasts, buildGardens, buildStreets } from './steppeVillage'
+import { buildBlasts, buildGardens, buildStreets } from './steppeGeometry'
 import { createFarmGround } from './farmGround'
 import { createFarHorizon } from './farHorizon'
 import {
