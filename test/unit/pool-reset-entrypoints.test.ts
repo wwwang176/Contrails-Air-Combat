@@ -31,6 +31,9 @@ const MAIN = Object.values(SOURCES)[0]!
 const EFFECTS = Object.values(import.meta.glob('../../src/render/effectStepper.ts', {
   query: '?raw', import: 'default', eager: true,
 }) as Record<string, string>)[0]!
+const MENU_FRAME = Object.values(import.meta.glob('../../src/app/menuBackgroundFrame.ts', {
+  query: '?raw', import: 'default', eager: true,
+}) as Record<string, string>)[0]!
 
 const POOLS_RE = /const POOLS[^=]*=\s*\[([^\]]*)\]/
 
@@ -148,11 +151,11 @@ describe('換一場的兩個入口都要清粒子池', () => {
   it('POOLS 裡的每一個粒子池每幀都被推', () => {
     expect(MAIN).toContain('const stepEffects = createEffectStepper({')
     expect(MAIN).toContain('stepEffects(worldSeconds, world.time, terrain, elapsed)')
-    expect(MAIN).toContain('stepEffects(fx, elapsed, terrain, elapsed)')
+    expect(MENU_FRAME).toContain('stepEffects(fx, elapsed, terrain, elapsed)')
     expect(MAIN).toContain('stepEffects(dt, elapsed, terrain, elapsed)')
     for (const pool of poolNames()) {
       if (NOT_PARTICLE.includes(pool)) continue
-      expect(MAIN + EFFECTS, `${pool} 沒有人每幀推它`).toContain(`${pool}.step(`)
+      expect(MAIN + EFFECTS + MENU_FRAME, `${pool} 沒有人每幀推它`).toContain(`${pool}.step(`)
     }
     expect(MAIN).toContain('stepShipFires(shipFires,')
     expect(MAIN).toContain('stepGroundFires(groundFires,')

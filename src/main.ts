@@ -168,6 +168,7 @@ import { missionConfigFrom, type ReadyMissionCard } from './battle/missions'
 import { createMenu } from './ui/menu'
 import { uiSound } from './ui/menuSound'
 import { renderHangarFrame } from './app/hangarFrame'
+import { createMenuBackgroundFrame } from './app/menuBackgroundFrame'
 import { createLoadingScreen, fileFraction } from './ui/loading'
 import {
   readSeenTutorials, tutorialsFor, unseenTutorials, type Tutorial,
@@ -2232,30 +2233,11 @@ function setMenuTimeOfDay(tod: TimeOfDay): void {
 window.addEventListener('resize', () => menuReel.relayout())
 
 /** 選單期間的一幀：放短片、推進特效池 */
-function drawMenuBackground(frameSeconds: number): void {
-  menuReel.update(frameSeconds, elapsed)
-  // 【定格時特效也停】只停短片的話，殘骸與煙照樣往下掉、往外散，截到的不是那一秒
-  // 【慢動作時特效也慢】短片變速時，煙、火、曳光照畫面秒數散開的話，只有飛機在慢
-  const fx = menuReel.hold ? 0 : frameSeconds * menuReel.rate
-  stepEffects(fx, elapsed, terrain, elapsed)
-  spray.step(fx)
-  vortex.step(fx)
-  reelTrackDust.step(fx)
-  // 短片地上的煙囪與冷卻塔冒白煙（炸毀的就停）
-  steamEmission.emitPlantSteam(fx, menuReel.props, terrainKind)
-  // 短片投下的炸彈點的地面火、魚雷的航跡。【擠在一起的火少冒煙】短片的地面火也要
-  // 照密度節流，不然一串炸彈的火全速冒煙；戰鬥的船火池在選單裡是空的
-  updateFireCrowd(fireCrowd, groundFires, shipFires, NO_SHIPS, fx)
-  stepGroundFires(groundFires, fx, emitFirePuff, fireCrowd.ground)
-  wakes.bindOcean(terrain.oceanHeight)
-  wakes.step(fx, elapsed, terrain.heightAt)
-  terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
-  if (sceneWeather.storm !== null) {
-    applyFlash(ctx.lights, ctx.sky, DAY_PALETTES.storm, stepStorm(sceneWeather.storm, fx, playThunder))
-  }
-  if (sceneWeather.rain !== null) sceneWeather.rain.update(ctx.camera.position, fx, frameSeconds, false, rainGroundAt)
-  ctx.renderer.render(ctx.scene, ctx.camera)
-}
+const drawMenuBackground = createMenuBackgroundFrame({
+  ctx, menuReel, terrain, terrainKind, sceneWeather, stepEffects, spray, vortex, reelTrackDust,
+  steamEmission, fireCrowd, groundFires, shipFires, wakes, noShips: NO_SHIPS, emitFirePuff,
+  rainGroundAt, updateFireCrowd, stepGroundFires, playThunder,
+})
 
 /**
  * 演練場設定。**非 null 時 `enterBattle` 用它取代正常的關卡設定。**
@@ -2545,7 +2527,7 @@ function frame(now: number) {
       if (showcase !== null) renderHangarFrame(frameSeconds, elapsed, showcase, ctx, terrain)
       else ctx.renderer.render(ctx.scene, ctx.camera)
     } else {
-      drawMenuBackground(frameSeconds)
+      drawMenuBackground(frameSeconds, elapsed)
     }
   }
 
