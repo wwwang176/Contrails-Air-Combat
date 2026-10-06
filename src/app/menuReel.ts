@@ -1,12 +1,11 @@
+import { createReelDecor } from './reel/reelDecor'
 import { readSeenShots, saveSeenShots } from './reel/shotHistory'
 import { markShotSeen, pickNextShot } from './reel/shotSelection'
 export { markShotSeen, pickNextShot, shotWeight } from './reel/shotSelection'
 import {
-  type BufferAttribute, type BufferGeometry, Color, Group, Matrix4, Mesh, MeshStandardMaterial,
+  Group,
   type PerspectiveCamera, Quaternion, type Scene, Vector3,
 } from 'three'
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { buildDecor, DECOR_DEFAULT } from '../render/geometry/ground/plantDecor'
 import { buildAircraft, buildAircraftLod, useAircraftLod, type AircraftModel } from '../render/geometry/buildAircraft'
 import { createTracers, type Tracers } from '../render/tracers'
 import { createMuzzles, type MuzzleSource, type Muzzles } from '../render/muzzle'
@@ -26,7 +25,7 @@ import { createFlight, flightPose, openSeaOrigin, type Flight } from './reelFlig
 import {
   BOMB_RELEASE_Y, bombAt, createReelCamera, jumpAt, pickIsland, propSpeedAt, propTravel, reelShots, speedAt,
   torpedoAt, torpedoEntry,
-  type ReelDecor, type ReelEvent, type ReelGround, type ReelPoint, type ReelTerrainKind, type Shot,
+  type ReelEvent, type ReelGround, type ReelPoint, type ReelTerrainKind, type Shot,
 } from './reelShots'
 import type { SiteLayout } from '../render/siteSurface'
 import type { CloudSpec } from '../render/clouds'
@@ -256,19 +255,6 @@ const SHIP_FIRE_INTERVAL = 0.3
 /** 一艘船最多幾處火點 —— 再多煙柱糊成一片，也多花粒子 */
 const SHIP_FIRES_PER_SHIP = 6
 
-/** 一件佈景建築：在合併幾何裡的頂點範圍、世界位置、炸彈多近算炸到 */
-interface DecorItem {
-  readonly x: number
-  readonly y: number
-  readonly z: number
-  readonly reach: number
-  readonly start: number
-  readonly count: number
-  burnt: boolean
-}
-const DECOR_M = new Matrix4()
-/** 燒黑的佈景建築。與地面目標殘骸同一個焦黑（`render/groundTargets.ts`） */
-const DECOR_BURNT = new Color(0x2a2421)
 
 /** 廠區道路與鐵路的預設寬，m（與洛伊納同一組） */
 const SITE_ROAD_WIDTH = 12
@@ -367,12 +353,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   /** 每一台開動的車距下一團車尾揚塵還有幾秒（與 `props` 同索引）。換段時重建 */
   let trackClock = new Float32Array(0)
   let groundModels: GroundModels | null = null
-  /** 佈景建築：整批一顆網格；`decor` 是每一件在合併幾何裡的頂點範圍與世界位置 */
-  let decorMesh: Mesh | null = null
-  let decor: DecorItem[] = []
-  const decorMaterial = new MeshStandardMaterial({
-    vertexColors: true, flatShading: true, roughness: 0.85, metalness: 0.06,
-  })
+  const reelDecor = createReelDecor(group, fx, PROP_BLAST_REACH)
   let shipFires: ShipFire[] = []
   let streams: AaStream[] = []
   const sources: MuzzleSource[] = []
@@ -417,12 +398,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       groundModels = null
     }
     props = []
-    if (decorMesh !== null) {
-      group.remove(decorMesh)
-      decorMesh.geometry.dispose()
-      decorMesh = null
-    }
-    decor = []
+    reelDecor.clear()
     shipFires = []
     streams = []
     pendingBombs = []
@@ -546,7 +522,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       groundModels = createGroundModels(props)
       group.add(groundModels.object)
     }
-    if (next.decor !== undefined && next.decor.length > 0) buildDecorMesh(next.decor, terrain)
+    if (next.decor !== undefined && next.decor.length > 0) reelDecor.build(next.decor, terrain, toWorld, yaw)
 
     subjectX = stage.subjectX()
     // 【從停下的狀態回來】暗場是藏著的；先以全黑出現、逼瀏覽器算一次版面，
@@ -713,54 +689,6 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     if (burns) fx.blast(g.position.x, (g.position.y + g.impactY) / 2, g.position.z, SECONDARY_SIZE)
   }
 
-  /** 佈景建築合併成一顆網格，落在地形上。換段的暗場裡建一次 */
-  function buildDecorMesh(list: readonly ReelDecor[], terrain: ReelTerrain): void {
-    const parts: BufferGeometry[] = []
-    let start = 0
-    for (const d of list) {
-      const g = buildDecor(d.kind, d.w, d.d, d.h)
-      V1.set(d.x, 0, d.z)
-      toWorld(V1)
-      const y = terrain.collisionHeightAt(V1.x, V1.z)
-      DECOR_M.makeRotationY(d.heading + yaw).setPosition(V1.x, y, V1.z)
-      g.applyMatrix4(DECOR_M)
-      const count = g.getAttribute('position').count
-      const def = DECOR_DEFAULT[d.kind]
-      decor.push({
-        x: V1.x, y, z: V1.z, reach: Math.hypot(d.w ?? def.w, d.d ?? def.d) / 2,
-        start, count, burnt: false,
-      })
-      start += count
-      parts.push(g)
-    }
-    const merged = mergeGeometries(parts)
-    for (const p of parts) p.dispose()
-    if (merged === null) throw new Error('佈景建築合併失敗 —— 屬性不一致')
-    merged.computeBoundingSphere()
-    decorMesh = new Mesh(merged, decorMaterial)
-    group.add(decorMesh)
-  }
-
-  /**
-   * 炸彈落在 (x, z)：附近的佈景建築燒黑、起火。頂點色就地改寫 —— 一件一次，
-   * 只在炸彈落地那一幀跑
-   */
-  function burnDecor(x: number, z: number): void {
-    if (decorMesh === null) return
-    const color = decorMesh.geometry.getAttribute('color') as BufferAttribute
-    for (const d of decor) {
-      if (d.burnt) continue
-      const reach = d.reach + PROP_BLAST_REACH
-      if ((d.x - x) ** 2 + (d.z - z) ** 2 >= reach * reach) continue
-      d.burnt = true
-      for (let i = d.start; i < d.start + d.count; i++) {
-        color.setXYZ(i, DECOR_BURNT.r, DECOR_BURNT.g, DECOR_BURNT.b)
-      }
-      color.needsUpdate = true
-      fx.groundKill(d.x, d.y, d.z, 2)
-    }
-  }
-
   const RELEASE = createFlight()
   /** 這一架在 `time` 那一刻機腹投放點與速度（世界座標），寫進 `outP`、`outV` */
   function releasePose(a: Actor, time: number, outP: Vector3, outV: Vector3): void {
@@ -816,7 +744,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
           const reach = g.radius + PROP_BLAST_REACH
           if ((g.position.x - V1.x) ** 2 + (g.position.z - V1.z) ** 2 < reach * reach) destroyProp(g)
         }
-        burnDecor(V1.x, V1.z)
+        reelDecor.burn(V1.x, V1.z)
         continue
       }
       bombAt(bombs.p0[i]!, bombs.v0[i]!, tau + 0.02, V2)
