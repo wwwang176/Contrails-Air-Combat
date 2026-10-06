@@ -26,8 +26,8 @@ const EXEMPT: readonly string[] = [
   'src/ai/rules.ts',
   'src/ai/commandOutput.ts#emitAiCommand',
   'src/hud/widgets/hints.ts#aiStateLine',
-  'src/main.ts#orderLabel',
-  'src/main.ts#leaderLabel',
+  'src/app/orderTelemetry.ts#label',
+  'src/app/orderTelemetry.ts#leaderLabel',
   'src/main.ts#logTelemetry',
   // 河道的內部名稱（接頭比對用，不顯示）
   'src/world/river.ts',
