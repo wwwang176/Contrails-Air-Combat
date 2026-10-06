@@ -58,10 +58,13 @@ export function flareFlicker(index: number, seconds: number): number {
   return 1 - FLICKER * (0.5 + 0.5 * s)
 }
 
+/** 光照與光暈只讀位置、存活與年齡，不依賴照明彈的模擬操作。 */
+type FlareLightState = Pick<Flares, 'capacity' | 'live' | 'age' | 'x' | 'y' | 'z'>
+
 export interface FlareLights {
   readonly object: Group
   /** 每一渲染幀呼叫；`seconds` 是畫面時間，只拿來閃爍 */
-  update(f: Flares, seconds: number): void
+  update(f: FlareLightState, seconds: number): void
   dispose(): void
 }
 
