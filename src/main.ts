@@ -108,7 +108,7 @@ import { buildAfterAction } from './app/afterAction'
 import { resetGEffect } from './hud/widgets/gEffect'
 import { TORPEDO_RUN_SAMPLES } from './world/torpedo'
 import { resetDamageMarks } from './hud/damageMarks'
-import { CameraRig, thirdPersonFor } from './camera/CameraRig'
+import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
 import type { BombState, Impact } from './world/bomb'
 import { resetBombBay, type BombBay } from './weapons/bomb'
 import type { Loadout } from './weapons/stores'
@@ -2184,11 +2184,12 @@ if (initialRecoveryFailure !== null) {
  * 比對**，而逐像素比對需要一個兩次執行會產生一模一樣像素的場景。實際戰鬥
  * 不是 —— 飛機在哪、浪走到哪、參照物撒在哪，每一次都不同。
  *
- * 這個出口把三個變因全部釘死：
+ * 這個出口固定以下變因：
  *
  * ```
  *   鏡頭   直接寫 position 與 quaternion。暫停時主迴圈只呼叫 render，
  *          不會有人把它改回去（見 `frame` 裡 `paused` 那一支）
+ *   視野   預設為基準視野角，也可用第七個參數指定；不沿用進場時隨速度變動的值
  *   時間   `elapsed` 只在 `!paused` 時前進，所以設一次就凍住 —— 海浪的
  *          相位、碎光的漂移全部固定
  *   海面   `terrain.update` 在暫停時不跑，網格會停在暫停前的位置上。
@@ -2204,10 +2205,13 @@ if (initialRecoveryFailure !== null) {
  */
 ;(window as unknown as Record<string, unknown>)['__still'] = (
   yawDeg = 0, pitchDeg = 0, altitude = 3000, time = 0, x = 0, z = 0,
+  fov = DEFAULT_CAMERA_OPTIONS.fovBase,
 ) => {
   setPausedState(true)
   elapsed = time
   ctx.camera.position.set(x, altitude, z)
+  ctx.camera.fov = fov
+  ctx.camera.updateProjectionMatrix()
   // YXZ：先繞 Y 偏航、再繞 X 俯仰，與飛行姿態同一個慣例
   ctx.camera.quaternion.setFromEuler(
     new Euler((pitchDeg * Math.PI) / 180, (yawDeg * Math.PI) / 180, 0, 'YXZ'))
@@ -2216,7 +2220,7 @@ if (initialRecoveryFailure !== null) {
   // 【一定要排乾】少了它，定格拍到的是還在補格的植被 —— 而且每次拍到的
   // 進度都不一樣，`pixel-identical` 會變成隨機紅
   terrain.settle?.()
-  return { yawDeg, pitchDeg, altitude, time, x, z }
+  return { yawDeg, pitchDeg, altitude, time, x, z, fov }
 }
 
 /**
