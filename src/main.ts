@@ -104,10 +104,7 @@ import { headingFromOrientation } from './core/attitude'
 import { createScoreboard, scoreRows, sortScoreRows, type AfterAction } from './ui/scoreboard'
 import { shortName } from './ui/briefing'
 import { resetGEffect } from './hud/widgets/gEffect'
-import { runFrontCount } from './hud/widgets/torpedoLine'
-import {
-  TORPEDO_RUN_SAMPLES, runSampleDistance, torpedoEntersWater, torpedoHeading,
-} from './world/torpedo'
+import { TORPEDO_RUN_SAMPLES } from './world/torpedo'
 import { resetDamageMarks, stepDamageMarks } from './hud/damageMarks'
 import { CameraRig, thirdPersonFor } from './camera/CameraRig'
 import type { BombState, Impact } from './world/bomb'
@@ -180,6 +177,11 @@ import {
   updateBattleSceneFrame,
   type BattleSceneFrameDependencies,
 } from './app/battleSceneFrame'
+import {
+  updateBombSightHud,
+  type BombSightHudDependencies,
+  type BombSightHudScratch,
+} from './app/bombSightHud'
 import { warmBattleGraphics } from './app/battleWarmup'
 import { assetUrl } from './core/asset'
 import { createBattleAudioController } from './app/battleAudioController'
@@ -949,6 +951,22 @@ const HUD_PROJECT_DISTANCE = 1000
 const fillContacts = createContactFeed({
   hudFrame, camera: ctx.camera, visuals, projectDistance: HUD_PROJECT_DISTANCE,
 })
+const bombSightHudScratch: BombSightHudScratch = {
+  probe,
+  bombNdc: BOMB_NDC,
+  noseH: NOSE_H,
+  torpedoDirection: TORP_DIR,
+  runWorld: RUN_WORLD,
+  runNdc: RUN_NDC,
+  runZ: RUN_Z,
+  bombPoint: BOMB_POINT,
+}
+const bombSightHudDeps: BombSightHudDependencies = {
+  ctx,
+  scratch: bombSightHudScratch,
+  noseHorizontal,
+  projectDistance: HUD_PROJECT_DISTANCE,
+}
 
 /**
  * `fillMarkers` 的投影回呼。**綁在模組層建一次** —— 幀迴圈裡宣告一個閉包
@@ -1765,69 +1783,23 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
 
   // 兩個準星都從**內插後的機身位置**往外投影 1000 m，所以它們的分離距離
   // 就是指揮儀正在追的角度誤差，而不是被相機視差污染過的東西。
-  probe.set(0, 0, -1).applyQuaternion(renderQuat)
-    .multiplyScalar(HUD_PROJECT_DISTANCE).add(renderPos).project(ctx.camera)
-  hudFrame.noseX = probe.x
-  hudFrame.noseY = probe.y
-  hudFrame.noseVisible = probe.z < 1
-
-  // 投彈落點。**照 noseX/noseY 同一條路**：世界點 → NDC。
-  //
-  // 【為什麼要投影而不是寫死在畫面中央】相機自動盯落點，所以解穩定時圓圈
-  // 確實在中心；但視線的 LERP 會在機動時把它拖開，而那個分離量正是要看的
-  // 東西 —— 「投彈解還沒收斂」。
-  hudFrame.bombState = bombState
-  hudFrame.bombing = input.viewMode === 'bomb'
-  // 【掛彈的戰鬥機也畫彈艙格子】它沒有投彈視角，但一樣有彈、一樣要看補回
-  hudFrame.bombCapable = input.bombCapable || input.bombRelease
-  hudFrame.ordnance = playerLoadout?.kind ?? null
-  hudFrame.releaseOk = releaseOk
-  // 【就是餵給 `canRelease` 的那一組】不是各自再查一次 —— 見上面 releaseEnv
-  hudFrame.releaseEnv = releaseEnv
-  hudFrame.releaseAgl = agl
   const bay = playerBay()
-  hudFrame.bombBayCapacity = bay.capacity
-  hudFrame.bombLoad = bay.load
-  hudFrame.bombReloading = bay.reloading
-  hudFrame.bombReloadLeft = bay.reloading ? bay.timer : 0
-  hudFrame.bombVisible = false
-  hudFrame.runCount = 0
-  if (bombState === 'solved') {
-    BOMB_NDC.copy(BOMB_POINT).project(ctx.camera)
-    hudFrame.bombX = BOMB_NDC.x
-    hudFrame.bombY = BOMB_NDC.y
-    hudFrame.bombVisible = BOMB_NDC.z < 1 &&
-      Math.abs(BOMB_NDC.x) <= 1 && Math.abs(BOMB_NDC.y) <= 1
-    // 【落點是水才有水中段】`solveImpact` 撞到**任何**地面都回成功，而真雷
-    // 遇到陸地或無水是立刻結束（`world/torpedo.ts` 的 `stepAir`）—— 判準逐字
-    // 沿用它，不得改用含浪的高度、也不得寫成 `> 雷體高度`。少了這一條，
-    // 飛過島嶼或內陸農地時會畫出一條不存在的 2 km 水中航跡
-    const onWater = playerLoadout?.kind === 'torpedo' && torpedoEntersWater(
-      terrain.collisionHeightAt(BOMB_POINT.x, BOMB_POINT.z),
-      terrain.waterAt(BOMB_POINT.x, BOMB_POINT.z),
-    )
-    if (onWater) {
-      const v = player.aircraft.state.velocity
-      noseHorizontal(renderQuat, NOSE_H)
-      torpedoHeading(v.x, v.z, NOSE_H.x, NOSE_H.z, TORP_DIR)
-      for (let k = 0; k < TORPEDO_RUN_SAMPLES; k++) {
-        const d = runSampleDistance(k)
-        RUN_WORLD.set(
-          BOMB_POINT.x + TORP_DIR[0]! * d,
-          BOMB_POINT.y,
-          BOMB_POINT.z + TORP_DIR[1]! * d,
-        )
-        RUN_NDC.copy(RUN_WORLD).project(ctx.camera)
-        hudFrame.runX[k] = RUN_NDC.x
-        hudFrame.runY[k] = RUN_NDC.y
-        RUN_Z[k] = RUN_NDC.z
-      }
-      hudFrame.runCount = runFrontCount(RUN_Z, TORPEDO_RUN_SAMPLES)
-    }
-  }
+  updateBombSightHud(
+    bombSightHudDeps,
+    hudFrame,
+    input,
+    renderPos,
+    renderQuat,
+    player,
+    terrain,
+    playerLoadout,
+    bombState,
+    releaseOk,
+    releaseEnv,
+    agl,
+    bay,
+  )
 
-  // 瞄準點是世界方向（Task 19），螢幕位置得自己投影。NDC 的 x 乘上長寬比
-  // 才會換成「螢幕半高」。相機追著它，所以這一組值正常情況下都貼近 0。
   probe.copy(input.aimWorld)
     .multiplyScalar(HUD_PROJECT_DISTANCE).add(renderPos).project(ctx.camera)
   hudFrame.aimX = probe.x * ctx.camera.aspect
