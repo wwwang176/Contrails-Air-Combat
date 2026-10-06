@@ -2,7 +2,7 @@ import {
   BufferAttribute, BufferGeometry, DoubleSide, DynamicDrawUsage, Mesh, MeshBasicMaterial,
   type Texture,
 } from 'three'
-import { injectVertexAlpha } from './vortex'
+import { injectVertexAlpha } from './trailMaterial'
 import { OCEAN_HEIGHT_GLSL } from './oceanShaders'
 import { TORPEDOES_CAPACITY } from '../world/torpedo'
 
