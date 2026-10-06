@@ -2,9 +2,8 @@ import {
   BufferAttribute, BufferGeometry, Group, Mesh, MeshStandardMaterial,
 } from 'three'
 import { FloraKind, pushFlora, type FloraSource } from '../core/floraBuffer'
-import {
-  CHANNEL_HALF, RiverIndex, type WaterLine,
-} from '../world/river'
+import { CHANNEL_HALF, type WaterLine } from '../world/riverTypes'
+import { RiverIndex } from '../world/riverIndex'
 
 /**
  * # 河的算繪：水面、河廊排除、河岸林

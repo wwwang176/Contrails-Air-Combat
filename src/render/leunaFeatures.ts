@@ -12,7 +12,8 @@ import { buildGreens, buildSettlementGround, buildStreets } from './settlementGr
 import { buildMines, mineTest, mineZone } from './mines'
 import { buildMotorway, motorwayProfiles } from './motorway'
 import { FLAK_SITES } from '../world/leuna'
-import { CHANNEL_HALF, RiverIndex, type HeightSampler } from '../world/river'
+import { CHANNEL_HALF, type HeightSampler } from '../world/riverTypes'
+import { RiverIndex } from '../world/riverIndex'
 import type { FeatureFile } from '../world/landFeatures'
 
 /**
