@@ -1,3 +1,4 @@
+import { PLANT_LAT, PLANT_LON, PLANT_Z, M_PER_DEG_LAT, M_PER_DEG_LON, toGame as toGameExact } from './leuna-coordinates.mjs'
 /**
  * 抓洛伊納一帶的 A9 高速公路、聚落與蓋澤爾谷的礦坑，存成
  * `public/data/leuna-features.json`。
@@ -24,22 +25,13 @@
  */
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-
-const PLANT_LAT = 51.3085
-const PLANT_LON = 12.0048
-const PLANT_Z = -7000
-const M_PER_DEG_LAT = 111320
-const M_PER_DEG_LON = 111320 * Math.cos((PLANT_LAT * Math.PI) / 180)
 /** 抓的範圍：遊戲原點 (0, 0) 往四邊各幾公尺 */
 const REACH = 22000
-
-/** 真實經緯度 → 遊戲座標，四捨五入到公尺 */
+/** 聚落與道路以整公尺輸出；河道保留換算精度。 */
 function toGame(lat, lon) {
-  return [
-    Math.round((lon - PLANT_LON) * M_PER_DEG_LON),
-    Math.round(PLANT_Z - (lat - PLANT_LAT) * M_PER_DEG_LAT),
-  ]
+  return toGameExact(lat, lon).map(Math.round)
 }
+
 
 // 遊戲的 z = PLANT_Z − (lat − PLANT_LAT) × M：z = +REACH 是南界、z = −REACH 是北界
 const south = PLANT_LAT - (REACH - PLANT_Z) / M_PER_DEG_LAT

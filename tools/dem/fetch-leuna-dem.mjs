@@ -1,3 +1,4 @@
+import { PLANT_LAT, PLANT_LON, PLANT_Z, HALF_M, toLatLon } from './leuna-coordinates.mjs'
 /**
  * 抓洛伊納一帶的真實高程，存成 `public/data/leuna-dem.json`。
  *
@@ -24,25 +25,8 @@
  */
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-
-/** 廠區中心的真實座標 */
-const PLANT_LAT = 51.3085
-const PLANT_LON = 12.0048
-/** 廠區中心在遊戲世界的座標（`world/leuna.ts` 的 `PLANT_CENTER`） */
-const PLANT_Z = -7000
-/** 高度場的範圍：376 格 × 80 m，中心在世界原點 */
-const HALF_M = ((376 - 1) / 2) * 80
 /** 取樣間距，m */
 const STEP = 320
-
-const M_PER_DEG_LAT = 111320
-const M_PER_DEG_LON = 111320 * Math.cos((PLANT_LAT * Math.PI) / 180)
-
-/** 遊戲座標 → 真實經緯度。北 = −Z、東 = +X */
-function toLatLon(x, z) {
-  const north = -(z - PLANT_Z)
-  return [PLANT_LAT + north / M_PER_DEG_LAT, PLANT_LON + x / M_PER_DEG_LON]
-}
 
 const n = Math.round((HALF_M * 2) / STEP) + 1
 const pts = []
