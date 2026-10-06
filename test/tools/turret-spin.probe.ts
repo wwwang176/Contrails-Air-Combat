@@ -10,7 +10,7 @@
  * 判準兩條，缺一不可：轉盤**真的在動**（機身角度有變，否則這支探針自己
  * 壞了、量什麼都會過），而且槍管的角度與機身**相同**。
  */
-import { chromium } from 'playwright'
+import { withProbeBrowser } from './probe-browser'
 
 const URL = 'http://localhost:5178/tools/hangar.html'
 
@@ -20,21 +20,22 @@ interface Angles {
 }
 
 void (async (): Promise<void> => {
-  const browser = await chromium.launch()
-  const page = await browser.newPage({ viewport: { width: 900, height: 600 } })
-  page.on('pageerror', (e) => console.log('  [pageerror] ' + String(e)))
-  await page.goto(URL)
-  await page.evaluate((x) => (window as unknown as {
-    __hangarSpec: (s: string) => boolean }).__hangarSpec(x), 'b17g')
-  await page.waitForTimeout(1500)
+  const rows = await withProbeBrowser(async (browser) => {
+    const page = await browser.newPage({ viewport: { width: 900, height: 600 } })
+    page.on('pageerror', (e) => console.log('  [pageerror] ' + String(e)))
+    await page.goto(URL)
+    await page.evaluate((x) => (window as unknown as {
+      __hangarSpec: (s: string) => boolean }).__hangarSpec(x), 'b17g')
+    await page.waitForTimeout(1500)
 
-  const rows: Angles[] = []
-  for (let k = 0; k < 5; k++) {
-    await page.waitForTimeout(700)
-    rows.push(await page.evaluate(() => (window as unknown as {
-      __hangarSpin: () => Angles }).__hangarSpin()))
-  }
-  await browser.close()
+    const rows: Angles[] = []
+    for (let k = 0; k < 5; k++) {
+      await page.waitForTimeout(700)
+      rows.push(await page.evaluate(() => (window as unknown as {
+        __hangarSpin: () => Angles }).__hangarSpin()))
+    }
+    return rows
+  })
 
   console.log('     機身 rad   槍管 rad   射界 rad     最大差   槍管/射界')
   let worst = 0
