@@ -14,7 +14,7 @@ import type { Vortex } from '../../src/render/vortex'
 function model(): AircraftModel {
   return {
     group: new Group(),
-    metrics: { realLength: 10, noseZ: -4, noseY: 0, tipY: 0 },
+    metrics: { realLength: 10, noseZ: -4 },
     eyePoint: new Vector3(0, 1, 0),
     wingTip: new Vector3(5, 1, 2),
     bombPoint: null,

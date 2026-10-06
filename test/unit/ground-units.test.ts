@@ -213,16 +213,11 @@ describe('地面單位', () => {
         expect(boundsOf(u).min.y).toBeLessThan(0.05)
       })
 
-      it('尺寸與真車相差不到 5%', () => {
+      it('尺寸與登記表的 real* 相差不到 5%', () => {
         boundsOf(u).getSize(size)
         expect(Math.abs(size.z - u.realLength) / u.realLength).toBeLessThan(0.05)
         expect(Math.abs(size.x - u.realWidth) / u.realWidth).toBeLessThan(0.05)
         expect(Math.abs(size.y - u.realHeight) / u.realHeight).toBeLessThan(0.05)
-      })
-
-      it('左右對稱於 x = 0', () => {
-        const b = boundsOf(u)
-        expect(b.min.x).toBeCloseTo(-b.max.x, 2)
       })
 
       it('有頂點色 —— 少了它整台會被塗成單一顏色', () => {

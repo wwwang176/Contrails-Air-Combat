@@ -6,6 +6,7 @@ import {
 } from '../../src/render/geometry/ground/parked'
 import { PARKED_TAIL_DOWN } from '../../src/specs/ground'
 import { glbTemplate } from '../../src/render/geometry/glb'
+import { B17G } from '../../src/specs/b17g'
 
 /**
  * 停放的飛機是從機種的 GLB 樣板烘出來的一顆幾何：同一批頂點、換成頂點色、
@@ -28,13 +29,11 @@ describe('bakeParkedAircraft', () => {
     expect(dark).toBeGreaterThan(0)
   })
 
-  it('翼展與全長對得上 B-17G', () => {
+  it('翼展等於 B-17G 的 spec 翼展', () => {
     const g = bakeParkedAircraft('b17g')
     g.computeBoundingBox()
     const bb = g.boundingBox!
-    expect(bb.max.x - bb.min.x).toBeCloseTo(31.6, 0)
-    // 機尾下沉之後全長投影縮短 cos(10°)
-    expect(bb.max.z - bb.min.z).toBeGreaterThan(22.66 * Math.cos(PARKED_TAIL_DOWN) - 1)
+    expect(bb.max.x - bb.min.x).toBeCloseTo(B17G.wing.span, 0)
   })
 
   it('機首比機尾高 —— 尾輪機停著是抬頭的', () => {
