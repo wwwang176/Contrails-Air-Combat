@@ -1,22 +1,11 @@
-import { Vector3 } from 'three'
+import { LoadController } from './load-controller'
 import { createBattle, stepBattle, type Battle } from '../src/battle/setup'
 import { TORPEDOES_CAPACITY } from '../src/world/torpedo'
 import { MISSIONS } from '../src/battle/missions'
 import type { ReadyMissionCard } from '../src/battle/missions'
 import { missionConfigFrom } from '../src/battle/missions'
-import type { Aircraft } from '../src/aircraft/Aircraft'
-import type { Command, Controller } from '../src/control/Controller'
 
 export const LOAD_DT = 1 / 240
-
-class Idle implements Controller {
-  private readonly aim = new Vector3(0, 0, -1)
-  update(_a: Aircraft, _dt: number, out: Command): void {
-    out.aimWorld.copy(this.aim)
-    out.throttle = 0.7
-    out.firing = false
-  }
-}
 
 export interface TorpedoLoadState {
   battle: Battle
@@ -35,7 +24,7 @@ export interface TorpedoLoadState {
 export function createTorpedoLoad(): TorpedoLoadState {
   const card = MISSIONS.japan.find((c) => c.id === 'japan-m4') as ReadyMissionCard
   const cfg = missionConfigFrom(card)
-  const battle = createBattle(new Idle(), cfg)
+  const battle = createBattle(new LoadController(), cfg)
   // 【地形照關卡設定給平海】benchmark 不建 render 層，而 `World` 的預設
   // 就是「海是平的、到處都是水」—— 與倫內爾島的實際情形相同
   const state: TorpedoLoadState = { battle }

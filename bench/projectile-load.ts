@@ -1,7 +1,7 @@
+import { LoadController } from './load-controller'
 import { Vector3 } from 'three'
 import { World } from '../src/world/World'
 import { Aircraft } from '../src/aircraft/Aircraft'
-import type { Command, Controller } from '../src/control/Controller'
 import { PROJECTILE_CAPACITY, PROJECTILE_LIFETIME } from '../src/world/Projectiles'
 import { P51D } from '../src/specs/p51d'
 import { BF109K4 } from '../src/specs/bf109k4'
@@ -9,16 +9,6 @@ import { BF109K4 } from '../src/specs/bf109k4'
 export const LOAD_DT = 1 / 240
 export const LOAD_ALTITUDE = 4000
 export const LOAD_TAS = 160
-
-/** 恆扣扳機、恆朝機首的控制器。 */
-class Blazing implements Controller {
-  private readonly aim = new Vector3(0, 0, -1)
-  update(_a: Aircraft, _dt: number, out: Command): void {
-    out.aimWorld.copy(this.aim)
-    out.throttle = 0.7
-    out.firing = true
-  }
-}
 
 export interface ProjectileLoadState {
   world: World
@@ -42,7 +32,7 @@ export function createProjectileLoad(): ProjectileLoadState {
   for (const [spec, team, z] of
     [[P51D, 'blue', 0], [BF109K4, 'red', -800]] as const) {
     const c = world.add(
-      new Aircraft(spec, LOAD_ALTITUDE, LOAD_TAS), new Blazing(), team,
+      new Aircraft(spec, LOAD_ALTITUDE, LOAD_TAS), new LoadController(true), team,
       new Vector3(0, LOAD_ALTITUDE, z), LOAD_ALTITUDE, LOAD_TAS,
     )
     c.respawnOnDestroy = true

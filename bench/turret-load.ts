@@ -1,3 +1,4 @@
+import { LoadController } from './load-controller'
 import { Vector3 } from 'three'
 import { GOLDEN_ANGLE } from '../src/weapons/turret'
 import { createBattle, stepBattle, DEFAULT_BATTLE, type Battle } from '../src/battle/setup'
@@ -6,21 +7,9 @@ import { HEAD_ON, PURSUIT, type EntryPlan } from '../src/battle/entry'
 import { P51D } from '../src/specs/p51d'
 import { B17G } from '../src/specs/b17g'
 import { PROJECTILE_CAPACITY, PROJECTILE_LIFETIME } from '../src/world/Projectiles'
-import type { Aircraft } from '../src/aircraft/Aircraft'
-import type { Command, Controller } from '../src/control/Controller'
 import type { FlightState } from '../src/physics/types'
 
 export const LOAD_DT = 1 / 240
-
-/** 玩家位置上放一個恆平飛的假控制器 —— 與 `bench/multi-load.ts` 同一個。 */
-class Idle implements Controller {
-  private readonly aim = new Vector3(0, 0, -1)
-  update(_a: Aircraft, _dt: number, out: Command): void {
-    out.aimWorld.copy(this.aim)
-    out.throttle = 0.7
-    out.firing = false
-  }
-}
 
 export interface TurretLoadState {
   battle: Battle
@@ -60,7 +49,7 @@ export interface TurretLoadState {
  * 只量其中一種會漏掉另一種。
  */
 function build(entry: EntryPlan): TurretLoadState {
-  const battle = createBattle(new Idle(), {
+  const battle = createBattle(new LoadController(), {
     ...DEFAULT_BATTLE, units: lineAbreast(entry, P51D, 20, B17G, 20),
   })
   const poses = battle.world.combatants.map(({ aircraft: { state } }) => ({
