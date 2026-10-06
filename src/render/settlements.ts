@@ -1,11 +1,12 @@
+import { Footprints, StreetIndex, type Rect } from './townCollision'
 import { TOWN_STYLE, GARDEN_CITY_STYLE, type ZoneStyle } from './settlementStyle'
 import { FloraKind, pushFlora, SHAPE_ONE, type FloraSource } from '../core/floraBuffer'
 import { BUILDING_DEPTH, BUILDING_WALL, BUILDING_WIDTH } from './floraShapes'
 import { TILE_SIZE } from './vegetationPolicy'
 import { bucketKey } from './settlementSpatial'
 import {
-  cellAt, cellRing, cellSize, edgeInward, edgeLine, Footprints, planTown, roadAngles, StreetIndex,
-  type Cell, type Rect, type Street, type TownPlan,
+  cellAt, cellRing, cellSize, edgeInward, edgeLine, planTown, roadAngles,
+  type Cell, type Street, type TownPlan,
 } from './townPlan'
 import {
   insideRing, nameHash, outlineScale, settlementRadius, type Place,
