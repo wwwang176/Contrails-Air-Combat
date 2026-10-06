@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest'
+import { Vector3 } from 'three'
+import {
+  updateBattleHudMarkers, type BattleHudMarkersDependencies,
+} from '../../src/app/battleHudMarkers'
+import { DAMAGE_MARK_SECONDS } from '../../src/hud/damageMarks'
 import {
   fillMarkers, type MarkerObjectives, type MarkerPool, type MarkerProject,
 } from '../../src/hud/markerFeed'
-import { createHudFrame, HUD_MAX_MARKERS } from '../../src/hud/types'
+import { createHudFrame, HIT_FLASH_SECONDS, HUD_MAX_MARKERS } from '../../src/hud/types'
 import { SHIP_CLASSES, createShip, type Ship } from '../../src/world/ships'
 import { createGroundTarget } from '../../src/world/groundTargets'
 
@@ -64,6 +69,92 @@ const topOf = (): number => TOP
 
 /** 沒有主要目標 */
 const NONE: MarkerObjectives = { ship: () => false, ground: () => false, ref: { x: 0, y: 0, z: 0 } }
+
+describe('battle HUD marker frame', () => {
+  function dependencies(): BattleHudMarkersDependencies {
+    return {
+      markerPools: [],
+      markerObjectives: { ...NONE, ref: new Vector3() },
+      projectMarker: FLAT,
+      shipMarkerTop: topOf,
+    }
+  }
+
+  it('switches ordnance pools between battles while reusing presentation buffers', () => {
+    const deps = dependencies()
+    const f = createHudFrame()
+    const pools = deps.markerPools
+    const markers = f.markers
+    const firstMarker = f.markers[0]
+    const ref = deps.markerObjectives.ref
+    const world = {
+      ships: [], groundTargets: [],
+      bombs: pool([{ x: 1, y: 2, z: 3, team: 0 }]),
+      torpedoes: pool([{ x: 4, y: 5, z: 6, team: 1 }]),
+    }
+    updateBattleHudMarkers(deps, f, world, { team: 'blue' }, new Vector3(), 0, 0)
+    expect(f.markerCount).toBe(2)
+    expect(f.markers[0]!.hostile).toBe(false)
+    expect(f.markers[1]!.hostile).toBe(true)
+
+    const nextWorld = {
+      ships: [], groundTargets: [],
+      bombs: pool([{ x: 10, y: 20, z: 30, team: 0 }]),
+      torpedoes: pool([{ x: 40, y: 50, z: 60, team: 1 }]),
+    }
+    const position = new Vector3(7, 8, 9)
+    updateBattleHudMarkers(deps, f, nextWorld, { team: 'red' }, position, 0, 0)
+    expect(f.markerCount).toBe(2)
+    expect(f.markers[0]!.x).toBe(10)
+    expect(f.markers[1]!.x).toBe(40)
+    expect(f.markers[0]!.hostile).toBe(true)
+    expect(f.markers[1]!.hostile).toBe(false)
+    expect(deps.markerPools).toBe(pools)
+    expect(pools[0]).toBe(nextWorld.bombs)
+    expect(pools[1]).toBe(nextWorld.torpedoes)
+    expect(f.markers).toBe(markers)
+    expect(f.markers[0]).toBe(firstMarker)
+    expect(deps.markerObjectives.ref).toBe(ref)
+    expect(ref).toEqual(position)
+    expect(ref).not.toBe(position)
+  })
+
+  it('includes ship and ground objectives and uses the current reference position', () => {
+    const deps = dependencies()
+    deps.markerObjectives.ship = () => true
+    deps.markerObjectives.ground = () => true
+    const f = createHudFrame()
+    const world = {
+      ships: [ship(0, 'red', 0, 1000)],
+      groundTargets: [createGroundTarget(0, 'oilTank', 'red', 0, 0, 0)],
+      bombs: pool([]), torpedoes: pool([]),
+    }
+    updateBattleHudMarkers(deps, f, world, { team: 'blue' }, new Vector3(0, TOP, 900), 0, 0)
+    expect(f.markerCount).toBe(2)
+    expect(f.markers[0]!.objective).toBe(true)
+    expect(f.markers[0]!.range).toBeCloseTo(100)
+    expect(f.markers[1]!.objective).toBe(true)
+  })
+
+  it('advances hit feedback once by frame time, including zero-time frames', () => {
+    const deps = dependencies()
+    const f = createHudFrame()
+    const damageMarks = f.damageMarks
+    const world = { ships: [], groundTargets: [], bombs: pool([]), torpedoes: pool([]) }
+    const position = new Vector3()
+    f.damageMarks[0]!.intensity = 1
+    updateBattleHudMarkers(deps, f, world, { team: 'blue' }, position, 1, 0)
+    expect(f.hitFlash).toBe(HIT_FLASH_SECONDS)
+    expect(f.damageMarks[0]!.intensity).toBe(1)
+    updateBattleHudMarkers(deps, f, world, { team: 'blue' }, position, 0, 0.05)
+    expect(f.hitFlash).toBeCloseTo(HIT_FLASH_SECONDS - 0.05)
+    expect(f.damageMarks[0]!.intensity).toBeCloseTo(1 - 0.05 / DAMAGE_MARK_SECONDS)
+    updateBattleHudMarkers(deps, f, world, { team: 'blue' }, position, 0, 1)
+    expect(f.hitFlash).toBe(0)
+    expect(f.damageMarks[0]!.intensity).toBe(0)
+    expect(f.damageMarks).toBe(damageMarks)
+  })
+})
 
 describe('fillMarkers', () => {
   /**
