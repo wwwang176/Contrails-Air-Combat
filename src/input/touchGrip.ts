@@ -1,5 +1,6 @@
 import type { InputState } from './InputState'
-import { endLook, type TouchHold } from './bindings'
+import { endLook } from './actions'
+import type { TouchHold } from './holdState'
 
 export type GripKind = 'aim' | 'look' | 'fire' | 'up' | 'down' | 'score' | 'bomb' | 'view' | 'pause'
 

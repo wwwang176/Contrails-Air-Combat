@@ -1,5 +1,6 @@
 import type { InputState } from './InputState'
-import { pressBomb, pressView, slewLook, type TouchHold } from './bindings'
+import { pressBomb, pressView, slewLook } from './actions'
+import type { TouchHold } from './holdState'
 import { onLangChange, t, type MessageKey } from '../i18n'
 import { releaseTouchGrip, type Grip, type GripKind } from './touchGrip'
 
