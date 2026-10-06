@@ -18,7 +18,7 @@ import { t } from '../../src/i18n'
 import { AiController } from '../../src/ai/AiController'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
-import { readyCard, INTERCEPT_CARD } from '../fixtures/mission'
+import { readyCard, cardWith, INTERCEPT_CARD } from '../fixtures/mission'
 
 const DT = 1 / 240
 const SEED = 20260821
@@ -147,6 +147,26 @@ table('── 表一：玩家不動（Idle）───────────�
 /** 表二：玩家席位交給 AI 代飛 —— 量的是「這一關打不打得贏」 */
 table('── 表二：玩家席位由 AI 代飛 ──────────────────', true)
 
+/** 三張消融表共用模擬終止條件與轟炸機存活／血量統計。 */
+function runAblation(cfg: ReturnType<typeof missionConfigFrom>) {
+  const b = createBattle(new AiController(), cfg, SEED)
+  const cv = b.convoy
+  if (cv === null) throw new Error('消融情境沒有被護送者')
+  let seconds = 0
+  for (let i = 0; i < Math.round(400 / DT); i++) {
+    stepBattle(b, DT)
+    seconds += DT
+    if (b.outcome !== 'fighting') break
+  }
+  const hp = cv.seats.map((s) => {
+    const c = b.world.combatants[s]!
+    return c.alive ? `${Math.round((c.hp / c.aircraft.spec.hp) * 100)}` : '死'
+  })
+  let left = 0
+  for (const s of cv.seats) if (b.world.combatants[s]!.alive) left++
+  return { outcome: b.outcome, seconds, hp, left }
+}
+
 /**
  * 表三：攔截打不贏的消融。
  *
@@ -162,27 +182,13 @@ console.log('── 表三：攔截的消融（玩家由 AI 代飛）───�
 console.log('護航機  終點距離   結局      秒數   轟炸機剩  轟炸機血量（各架 %）')
 for (const escorts of [0, 2, 4]) {
   for (const dist of [12000, 20000]) {
-    const base = readyCard(INTERCEPT_CARD)
-    const card = { ...base, redCount: escorts, targetDistance: dist }
+    const card = cardWith(INTERCEPT_CARD, { redCount: escorts, targetDistance: dist })
     const cfg = missionConfigFrom(card)
-    const b = createBattle(new AiController(), cfg, SEED)
-    const cv = b.convoy!
-    let t = 0
-    for (let i = 0; i < Math.round(400 / DT); i++) {
-      stepBattle(b, DT)
-      t += DT
-      if (b.outcome !== 'fighting') break
-    }
-    const hp = cv.seats.map((s) => {
-      const c = b.world.combatants[s]!
-      return c.alive ? `${Math.round((c.hp / c.aircraft.spec.hp) * 100)}` : '死'
-    })
-    let left = 0
-    for (const s of cv.seats) if (b.world.combatants[s]!.alive) left++
+    const r = runAblation(cfg)
     console.log(
       `${String(escorts).padStart(6)} ${String(dist).padStart(9)}`
-      + `   ${b.outcome.padEnd(9)} ${t.toFixed(1).padStart(6)} ${String(left).padStart(9)}`
-      + `  ${hp.join(' / ')}`,
+      + `   ${r.outcome.padEnd(9)} ${r.seconds.toFixed(1).padStart(6)} ${String(r.left).padStart(9)}`
+      + `  ${r.hp.join(' / ')}`,
     )
   }
 }
@@ -199,27 +205,13 @@ console.log('── 表四：火力夠不夠（0 護航機、12 km、AI 代飛�
 console.log('攔截機  轟炸機   結局      秒數   轟炸機剩   血量（各架 %）')
 for (const fighters of [4, 8, 12]) {
   for (const bombers of [1, 2, 4]) {
-    const base = readyCard(INTERCEPT_CARD)
-    const card = { ...base, blueCount: fighters, redCount: 0, convoyCount: bombers }
+    const card = cardWith(INTERCEPT_CARD, { blueCount: fighters, redCount: 0, convoyCount: bombers })
     const cfg = missionConfigFrom(card)
-    const b = createBattle(new AiController(), cfg, SEED)
-    const cv = b.convoy!
-    let t = 0
-    for (let i = 0; i < Math.round(400 / DT); i++) {
-      stepBattle(b, DT)
-      t += DT
-      if (b.outcome !== 'fighting') break
-    }
-    const hp = cv.seats.map((s) => {
-      const c = b.world.combatants[s]!
-      return c.alive ? `${Math.round((c.hp / c.aircraft.spec.hp) * 100)}` : '死'
-    })
-    let left = 0
-    for (const s of cv.seats) if (b.world.combatants[s]!.alive) left++
+    const r = runAblation(cfg)
     console.log(
       `${String(fighters).padStart(6)} ${String(bombers).padStart(7)}`
-      + `   ${b.outcome.padEnd(9)} ${t.toFixed(1).padStart(6)} ${String(left).padStart(9)}`
-      + `   ${hp.join(' / ')}`,
+      + `   ${r.outcome.padEnd(9)} ${r.seconds.toFixed(1).padStart(6)} ${String(r.left).padStart(9)}`
+      + `   ${r.hp.join(' / ')}`,
     )
   }
 }
@@ -242,27 +234,12 @@ for (const bias of [1, 2, 3, 5]) {
     ['攔截', INTERCEPT_CARD],
     ['護送', 'allies-m1'],
   ] as const) {
-    const base = readyCard(id)
-    const cfg = missionConfigFrom(
-      { ...base, battle: { ...base.battle, convoyPriority: bias } })
-    const b = createBattle(new AiController(), cfg, SEED)
-    const cv = b.convoy!
-    let t = 0
-    for (let i = 0; i < Math.round(400 / DT); i++) {
-      stepBattle(b, DT)
-      t += DT
-      if (b.outcome !== 'fighting') break
-    }
-    const hp = cv.seats.map((s) => {
-      const c = b.world.combatants[s]!
-      return c.alive ? `${Math.round((c.hp / c.aircraft.spec.hp) * 100)}` : '死'
-    })
-    let left = 0
-    for (const s of cv.seats) if (b.world.combatants[s]!.alive) left++
+    const cfg = missionConfigFrom(cardWith(id, { convoyPriority: bias }))
+    const r = runAblation(cfg)
     console.log(
-      `${String(bias).padStart(4)}   ${label.padEnd(16)} ${b.outcome.padEnd(9)}`
-      + ` ${t.toFixed(1).padStart(6)} ${String(left).padStart(9)}`
-      + `   ${hp.join(' / ')}`,
+      `${String(bias).padStart(4)}   ${label.padEnd(16)} ${r.outcome.padEnd(9)}`
+      + ` ${r.seconds.toFixed(1).padStart(6)} ${String(r.left).padStart(9)}`
+      + `   ${r.hp.join(' / ')}`,
     )
   }
 }
