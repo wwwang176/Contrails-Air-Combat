@@ -355,8 +355,7 @@ function main(): void {
  * 【PowerShell 注意】`$env:TP` 會留在整個工作階段，下一次跑會沉默地沿用。
  * 用 bash 的 `TP=... npx ...`，或每次跑完 `Remove-Item Env:TP`。
  */
-// 【就地宣告而不裝 @types/node】與 `b17-ref.measure.ts` 同一個做法 ——
-// 不為一支探針多一條開發相依
+// 【就地宣告而不裝 @types/node】不為一支探針多一條開發相依
 declare const process: { env: Record<string, string | undefined> }
 
 const override = process.env.TP

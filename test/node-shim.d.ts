@@ -7,7 +7,7 @@
  *
  * 【為什麼需要這一支】`test/fixtures/glb.ts` 要自己讀 `public/*.glb` 餵給
  * node 環境的 vitest。它是被 `.test.ts` import 的，所以非得通過
- * `npx tsc --noEmit` 不可 —— 探針可以像 `b17-ref.measure.ts` 那樣就地
+ * `npx tsc --noEmit` 不可 —— 探針可以像 `escort-trace.probe.ts` 那樣就地
  * `declare const process`，被測試 import 的模組不行。
  *
  * 【範圍刻意開到最小】只有 `readFileSync`，而且只有「路徑進、位元組出」
