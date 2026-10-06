@@ -27,14 +27,13 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { AiController } from '../../src/ai/AiController'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
-// 【`RAD` 不是 `DEG`】專案的慣例是 `DEG = π/180`（度→弧度）、
-// `RAD = 180/π`（弧度→度）。這裡要的是後者。而 `escort-trace.probe.ts` 自己
-// 定義了一個叫 `DEG` 的 `180/π` —— 別跟著抄。
-import { RAD } from '../../src/core/math'
+// 初始航向用 DEG（度→弧度），報表用 RAD（弧度→度）。
+import { DEG, RAD } from '../../src/core/math'
 import { instantaneousTurnRate } from '../../src/analysis/envelope'
 import { DEFAULT_STEER } from '../../src/ai/steerConfig'
 import { engageKnobs, type Knobs } from '../../src/ai/steer'
 import type { AircraftSpec } from '../../src/specs/types'
+import { withProbeConfig } from './probe-config'
 
 const DT = 1 / 240
 const SECONDS = 200
@@ -84,10 +83,6 @@ const HIGH_ENERGY = CARDS[CARD] ?? CARDS.high!
  *   TP='{"trackHold":5}'   —— 掃描單一參數
  */
 const override = process.env.TP
-if (override !== undefined && override !== '') {
-  Object.assign(DEFAULT_STEER, JSON.parse(override) as Partial<typeof DEFAULT_STEER>)
-  console.error('TP override: ' + override)
-}
 
 interface Sample {
   t: number
@@ -134,7 +129,7 @@ interface Sample {
 function make(side: Side) {
   const a = new Aircraft(side.spec, side.altitude, side.tas)
   const pos = new Vector3(side.offset[0], side.altitude, side.offset[2])
-  const h = side.headingDeg * RAD
+  const h = side.headingDeg * DEG
   const dir = new Vector3(-Math.sin(h), 0, -Math.cos(h))
   a.state.position.copy(pos)
   a.state.velocity.copy(dir).multiplyScalar(side.tas)
@@ -258,4 +253,7 @@ function main(): void {
   console.log(JSON.stringify({ card: CARD, step: STEP, samples: out }))
 }
 
-main()
+withProbeConfig(DEFAULT_STEER, override, 'TP', () => {
+  if (override) console.error('TP override: ' + override)
+  main()
+})
