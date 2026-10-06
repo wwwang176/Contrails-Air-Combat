@@ -1,9 +1,8 @@
 import { Quaternion, Vector3 } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createScene } from '../render/scene'
-import { createLeunaTerrainWithField, createTerrain, type Terrain } from '../render/terrain'
+import { createLeunaTerrainWithField, createTerrain, preloadTerrainScenery, type Terrain } from '../render/terrain'
 import { loadLeunaDem } from './leunaDem'
-import { preloadTerrainScenery } from '../render/terrain'
 import { createShipModels } from '../render/ships'
 import { preloadShipModels } from '../render/shipAssets'
 import { buildAircraft, preloadAircraftModels } from '../render/geometry/buildAircraft'
@@ -38,11 +37,11 @@ const ctx = createScene(canvas)
  * 目前的地形。**換地形走與 `main.ts` 的 `enterBattle` 完全相同的三步**：
  * 移除、`dispose`、重建 —— 那條路徑每一場都在走，工具照走才測得到它。
  */
-// 【廠區的佈景與河道】切到洛伊納要先載完，`createTerrain` 是同步的
-await preloadTerrainScenery('leuna')
+// 地形按鈕同步建立場景，先備妥洛伊納與波爾塔瓦需要的外部模型。
+await Promise.all([preloadTerrainScenery('leuna'), preloadTerrainScenery('poltava')])
 
 /**
- * 展示區自己的地形清單：遊戲的四種，加一種只有這裡有的。
+ * 展示區的地形選項另含只有這裡使用的實測高程。
  *
  * 【`leuna-real` 不是 `TerrainKind`】把它加進那個聯集會讓遭遇戰、關卡卡片、
  * 存檔全部看得到一個遊戲裡不存在的地形。展示區的分頁是展示區的事。
