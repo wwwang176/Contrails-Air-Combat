@@ -1,7 +1,7 @@
 import type { MessageKey } from '../i18n'
 import { AIRCRAFT_MODEL_COUNT, preloadAircraftModels } from '../render/geometry/buildAircraft'
 import { groundModelUrls, preloadGroundModels } from '../render/geometry/ground'
-import { preloadShipModels } from '../render/ships'
+import { preloadShipModels } from '../render/shipAssets'
 import { BALLOON_MODEL_COUNT, preloadBalloonModel } from '../render/balloons'
 import { fileFraction, type LoadingScreen } from '../ui/loading'
 

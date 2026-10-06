@@ -4,7 +4,8 @@ import { createScene } from '../render/scene'
 import { createLeunaTerrainWithField, createTerrain, type Terrain } from '../render/terrain'
 import { loadLeunaDem } from './leunaDem'
 import { preloadTerrainScenery } from '../render/terrain'
-import { createShipModels, preloadShipModels } from '../render/ships'
+import { createShipModels } from '../render/ships'
+import { preloadShipModels } from '../render/shipAssets'
 import { buildAircraft, preloadAircraftModels } from '../render/geometry/buildAircraft'
 import {
   DAY_PALETTES, TIME_OF_DAY_IDS, applyTimeOfDay, type DayPalette, type TimeOfDay,

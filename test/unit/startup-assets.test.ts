@@ -6,7 +6,7 @@ const loaders = vi.hoisted(() => ({ aircraft: vi.fn(), ships: vi.fn(), ground: v
 vi.mock('../../src/render/geometry/buildAircraft', () => ({
   AIRCRAFT_MODEL_COUNT: 2, preloadAircraftModels: loaders.aircraft,
 }))
-vi.mock('../../src/render/ships', () => ({ preloadShipModels: loaders.ships }))
+vi.mock('../../src/render/shipAssets', () => ({ preloadShipModels: loaders.ships }))
 vi.mock('../../src/render/geometry/ground', () => ({
   groundModelUrls: () => ['ground.glb'], preloadGroundModels: loaders.ground,
 }))
