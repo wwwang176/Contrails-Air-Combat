@@ -2,7 +2,7 @@ import type { MessageKey } from '../i18n'
 import type { AircraftSpec } from '../specs/types'
 import type { Team } from '../world/team'
 import type { AfterAction } from '../ui/scoreboard'
-import { shortName } from '../ui/briefing'
+import { shortName } from '../i18n/names'
 
 /** The report reads presentation data, without requiring a running battle world. */
 export interface AfterActionBattle {

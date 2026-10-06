@@ -1,6 +1,6 @@
 import type { AircraftSpec } from '../specs/types'
 import { dossierOf, SIDE_OF } from './dossier'
-import { shortName } from './briefing'
+import { shortName } from '../i18n/names'
 import { escapeHtml } from './menuOptions'
 import { campaignLabel, fullName, HANGAR_SPECS, roleWord, silBadge } from './menuAircraft'
 

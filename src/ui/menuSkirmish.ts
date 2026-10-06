@@ -7,7 +7,7 @@ import type { AircraftSpec } from '../specs/types'
 import type { TerrainKind } from '../world/terrainKind'
 import type { TimeOfDay } from '../world/timeOfDay'
 import { strengthOf, SIDE_OF } from './dossier'
-import { shortName } from './briefing'
+import { shortName } from '../i18n/names'
 import { optRow, escapeHtml, type OptItem } from './menuOptions'
 import { campaignLabel, fullName, HANGAR_SPECS, roleWord, silBadge } from './menuAircraft'
 

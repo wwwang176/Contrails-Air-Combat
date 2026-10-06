@@ -110,3 +110,16 @@ export function groundUnitNameKey(id: GroundUnitId): MessageKey {
 export function groundUnitName(id: GroundUnitId): string {
   return t(GROUND[id])
 }
+
+/**
+ * 機種在畫面上的短名。**找不到就用 `spec.name`。**
+ *
+ * 【為什麼不直接用 `spec.name`】「B-17G Flying Fortress」在一列裡是 22 個字。
+ * 漏填的代價只是那一列比別人長，看得見、修得快。
+ */
+export const SHORT_NAME: Record<string, string> = {
+  p51d: 'P-51D', bf109k4: 'Bf 109 K-4', f6f5: 'F6F-5', f4f4: 'F4F-4', ki84: 'Ki-84', a6m5: 'A6M5',
+  b17g: 'B-17G', he111: 'He 111', ju87: 'Ju 87', g4m: 'G4M',
+}
+
+export const shortName = (spec: { readonly id: string; readonly name: string }): string => SHORT_NAME[spec.id] ?? spec.name
