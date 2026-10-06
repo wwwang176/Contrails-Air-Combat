@@ -20,12 +20,6 @@ const t = await parseGlbTemplate(bytes, B17G_MODEL)
 const built = buildFromTemplate(t)
 built.group.updateMatrixWorld(true)
 
-/** 會轉的槳葉節點 —— `buildFromTemplate` 把它們收在 `props` 裡 */
-const spinning = new Set<Object3D>()
-for (const p of (built as unknown as { props?: readonly Object3D[] }).props ?? []) {
-  p.traverse((o) => spinning.add(o))
-}
-
 interface Part {
   readonly tris: number
   readonly mat: string
@@ -47,7 +41,8 @@ built.group.traverse((o: Object3D) => {
     tris: (idx === null ? p.count : idx.count) / 3,
     mat: mat.name === '' ? '(無名)' : mat.name,
     colour: '#' + mat.color.getHexString(),
-    spins: spinning.has(o),
+    // 與模型動畫共用標記；props 是建構函式的內部資料，不是 AircraftModel 介面。
+    spins: m.userData['spinning'] === true,
     visible: o.visible,
     transparent: mat.transparent === true,
   })
@@ -82,6 +77,7 @@ for (const [k, g] of [...groups.entries()].sort((a, b) => b[1].tris - a[1].tris)
   kept += g.n
 }
 const rest = parts.length - kept
-console.log(`\n  現在 ${parts.length} 個 draw call`
+console.log('\n  網格數估算包含隱藏槳盤；實際 draw call 取決於可見性與渲染 pass。')
+console.log(`  現在 ${parts.length} 個網格`
   + ` → 併完剩 ${merged + rest} 個（${merged} 組 ＋ ${rest} 個會轉或半透明的）`)
 console.log(`  十二架：${parts.length * 12} → ${(merged + rest) * 12}`)
