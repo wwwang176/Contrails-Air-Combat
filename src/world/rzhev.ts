@@ -636,7 +636,7 @@ export const BELT_RAMP = 900
 
 /**
  * 林帶的方框與漸增距離，換成地面著色器吃的形狀（世界座標的原點與兩個單位向量）：遠處的帶子
- * （`render/fields.ts` 的 `SiteBelts`）與近處種出來的樹用同一組數。
+ * （`render/siteSurface.ts` 的 `SiteBelts`）與近處種出來的樹用同一組數。
  */
 export const BELT_FRAME = {
   ox: ORIGIN.x, oz: ORIGIN.z, rx: RIGHT.x, rz: RIGHT.z, fx: FWD.x, fz: FWD.z,

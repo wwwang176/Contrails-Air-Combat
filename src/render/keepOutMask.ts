@@ -1,6 +1,7 @@
-import type { FloraSource } from './flora'
+import type { FloraSource } from '../core/floraBuffer'
 import { excludingWhere, type BoxTest } from './floraExclude'
-import { RiverIndex, type WaterLine } from '../world/river'
+import type { WaterLine } from '../world/riverTypes'
+import { RiverIndex } from '../world/riverIndex'
 
 /**
  * # 不長樹的範圍：載入時先分好格

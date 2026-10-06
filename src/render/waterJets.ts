@@ -2,7 +2,7 @@ import {
   DynamicDrawUsage, InstancedBufferAttribute, InstancedMesh, Matrix4,
   MeshBasicMaterial, Quaternion, Vector3,
 } from 'three'
-import { SPLASH_SHOULDER, SPLASH_TOP_RATIO, bulletProfile } from './splash'
+import { SPLASH_SHOULDER, SPLASH_TOP_RATIO, bulletProfile } from './splashGeometry'
 
 /**
  * 爆炸的水冠 —— **粗水柱**，逐根指定高度與粗細。

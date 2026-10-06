@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { farmPlaces, farmSettlementFlora } from '../../src/render/farmSettlements'
-import { createFloraBuffer, FLORA_STRIDE, FloraKind, villageSite } from '../../src/render/flora'
+import { createFloraBuffer, FLORA_STRIDE, FloraKind } from '../../src/core/floraBuffer'
+import { villageSite } from '../../src/render/flora'
 import {
   fieldAt, isOpenParcel, regionAt, trackGap, trackWidthAt, villageDistance, type FieldSample, type RegionSample,
 } from '../../src/render/fields'

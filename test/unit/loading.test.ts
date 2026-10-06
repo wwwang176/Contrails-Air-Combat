@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { LOADING_HOLD_SECONDS, fileFraction, loadingPercent } from '../../src/ui/loading'
 
 /** 【用 import.meta.glob 而不是 fs】與 `camera-shake.test.ts` 讀接線同一個做法 */
-const SOURCES = import.meta.glob(['../../index.html', '../../src/main.ts'], {
+const SOURCES = import.meta.glob(['../../index.html', '../../src/main.ts', '../../src/app/startupAssets.ts'], {
   query: '?raw', import: 'default', eager: true,
 }) as Record<string, string>
 // 【換行統一成 LF】工作區在 Windows 上是 CRLF，照 `\n` 切段會找不到結尾而切到檔尾
@@ -101,13 +101,16 @@ describe('載入畫面的接線', () => {
   /** 【頭尾各停一下】太快的載入一閃而過，看不出是載入 */
   it('開場預載先停在 0%、逐項回報、載完停在 100% 才收', () => {
     const main = srcOf('main.ts')
-    const start = main.slice(main.indexOf('const initialRecoveryFailure'))
+    const entry = main.slice(main.indexOf('const initialRecoveryFailure'))
+    expect(entry).toContain('await preloadStartupAssets(loading)')
+    expect(entry.indexOf('await preloadStartupAssets(loading)')).toBeLessThan(entry.indexOf('requestAnimationFrame(frame)'))
+    const start = srcOf('startupAssets.ts').slice(srcOf('startupAssets.ts').indexOf('export async function'))
     for (const fn of ['preloadAircraftModels', 'preloadShipModels', 'preloadGroundModels']) {
       expect(start, fn).toContain(fn)
     }
     expect(start).toContain('loading.step(')
     expect(start.indexOf('loading.hold()')).toBeLessThan(start.indexOf('preloadAircraftModels'))
-    expect(start.indexOf('loading.finish(')).toBeGreaterThan(start.indexOf('preloadGroundModels()'))
+    expect(start.indexOf('loading.finish(')).toBeGreaterThan(start.indexOf('preloadBalloonModel(fileLoaded)'))
   })
 
   /**
@@ -116,13 +119,12 @@ describe('載入畫面的接線', () => {
    * 等剩下的檔）。
    */
   it('開場三類預載都接上逐檔回報，總數三類都算', () => {
-    const main = srcOf('main.ts')
-    const start = main.slice(main.indexOf('const initialRecoveryFailure'))
+    const start = srcOf('startupAssets.ts')
     expect(start).toContain('preloadAircraftModels(fileLoaded)')
     expect(start).toContain('preloadShipModels(shipIds, fileLoaded)')
     expect(start).toContain('preloadGroundModels(undefined, fileLoaded)')
     const total = start.slice(start.indexOf('const fileTotal'), start.indexOf('\n', start.indexOf('const fileTotal')))
-    for (const part of ['AIRCRAFT_MODEL_COUNT', 'shipIds.length', 'groundModelUrls().length']) {
+    for (const part of ['AIRCRAFT_MODEL_COUNT', 'shipIds.length', 'groundModelUrls().length', 'BALLOON_MODEL_COUNT']) {
       expect(total, part).toContain(part)
     }
   })
@@ -137,6 +139,7 @@ describe('載入畫面的接線', () => {
     const startCode = start.slice(0, start.indexOf('requestAnimationFrame(frame)'))
     for (const fn of ['preloadPlantScenery(', 'preloadAirfieldScenery(', 'preloadTerrainScenery(']) {
       expect(startCode, fn).not.toContain(fn)
+      expect(srcOf('startupAssets.ts'), fn).not.toContain(fn)
     }
     const head = 'async function loadBattle(): Promise<void> {'
     const from = main.indexOf(head)
@@ -153,6 +156,23 @@ describe('載入畫面的接線', () => {
     expect(body.indexOf('loading.hold()')).toBeGreaterThan(body.indexOf('loading.show('))
     expect(body.indexOf('loading.hold()')).toBeLessThan(body.indexOf('resetPools()'))
     expect(body).toContain('loading.finish(')
+  })
+
+  it('戰場與植被備妥後等待 GPU 暖機，完成前不收載入畫面', () => {
+    const main = srcOf('main.ts')
+    const from = main.indexOf('async function loadBattle(): Promise<void> {')
+    const body = main.slice(from, main.indexOf('\n}', from))
+    const stages = [
+      'startWorld(cfg)', 'terrain.settle?.()',
+      'await warmBattleGraphics(ctx, battle.cfg, spawn, player.aircraft.state.orientation)',
+      "await loading.finish('brief.go')", 'loadingBattle = false', 'audio.fadeIn(BATTLE_FADE_IN)',
+    ]
+    let previous = -1
+    for (const stage of stages) {
+      const at = body.indexOf(stage)
+      expect(at, stage).toBeGreaterThan(previous)
+      previous = at
+    }
   })
 
   it('停留時間是 0.1 秒', () => {

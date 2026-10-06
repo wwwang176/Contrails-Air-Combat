@@ -17,7 +17,7 @@ import { NO_INTERCEPT, solveLead } from '../../src/world/lead'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 import type { LandField } from '../../src/world/occlusion'
 import { manoeuvreSpeed } from '../../src/ai/doctrine'
-import { DEFAULT_STEER } from '../../src/ai/steer'
+import { DEFAULT_STEER } from '../../src/ai/steerConfig'
 import {
   createGroundStrafeState, groundAttackCommand, groundStrafeReattackRange,
 } from '../../src/ai/shipAttack'
@@ -53,6 +53,34 @@ function toward(self: Aircraft, x: number, z: number): Vector3 {
 }
 
 describe('戰鬥機掃射地面目標', () => {
+  it('換場清除舊掃射航次，下一拍改用新場地面目標', () => {
+    const self = craft(BF109K4, 0, 100, -500)
+    self.state.velocity.set(0, 0, -100)
+    const ai = new AiController()
+    ai.board = createTargetBoard([{ index: 0, aircraft: self, team: 'blue', alive: true }])
+    ai.selfIndex = 0
+    const previous = createGroundTarget(0, 'parkedP51', 'red', 0, -1500, 0)
+    ai.groundTargets = [previous]
+    const out = createCommand()
+    ai.update(self, DT, out)
+    expect(ai.groundTarget).toBe(previous)
+    self.state.position.z = -1650
+    ai.update(self, DT, out)
+    expect(ai.groundStrafePhase).toBe('egress')
+    expect(ai.groundStrafeReattackRange).toBeGreaterThan(0)
+
+    ai.clearTerrainState()
+    expect(ai.groundTarget).toBeNull()
+    expect(ai.groundStrafePhase).toBe('approach')
+    expect(ai.groundStrafeReattackRange).toBe(0)
+    const next = createGroundTarget(0, 'parkedP51', 'red', 300, -3000, 0)
+    ai.groundTargets = [next]
+    ai.setDecisionPhase(0)
+    ai.update(self, DT, out)
+    expect(ai.groundTarget).toBe(next)
+    expect(ai.groundStrafePhase).toBe('approach')
+  })
+
   it('回頭距離會隨當下持續轉彎半徑增加，不是所有飛機共用寫死常數', () => {
     const self = craft(BF109K4, 0, 100, 0)
     self.state.velocity.set(0, 0, -100)

@@ -4,9 +4,10 @@ import {
   type Object3D, type WebGLProgramParametersWithUniforms,
 } from 'three'
 import {
-  buildRegionCandidates, fieldGlslWithSite, REGION_CANDIDATE_SUB, REGION_SPACING,
-  type RegionCandidates, type SiteLayout,
+  buildRegionCandidates, REGION_CANDIDATE_SUB, REGION_SPACING, type RegionCandidates,
 } from './fields'
+import { fieldGlslWithSite } from './fieldShaders'
+import { type SiteLayout } from './siteSurface'
 import type { Season } from './season'
 import type { HeightFieldData } from '../world/heightfield'
 import { SCAR_ATLAS } from './battleScars'

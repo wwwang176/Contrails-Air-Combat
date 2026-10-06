@@ -67,8 +67,11 @@ describe('設定頁的音量一列', () => {
   /** 【按確定才套用】與畫質同一套：挑了沒按確定不算數 */
   it('按確定才送出音量', () => {
     const menu = readFileSync('src/ui/menu.ts', 'utf8').replace(/\r\n/g, '\n')
-    const at = menu.indexOf('function applySettings(): void {')
-    const body = menu.slice(at, menu.indexOf('\n  }\n', at))
+    expect(menu).toContain('createMenuSettings(el, settings, reloadAsk, hooks, openOverlay, closeOverlay)')
+    expect(menu).toContain("if (act === 'settingsApply') { applySettings(); return }")
+    const settings = readFileSync('src/ui/menuSettings.ts', 'utf8').replace(/\r\n/g, '\n')
+    const at = settings.indexOf('function applySettings(): void {')
+    const body = settings.slice(at, settings.indexOf('\n  }\n', at))
     expect(body).toContain('hooks.onVolume(draftVolume)')
   })
 })
@@ -93,6 +96,6 @@ describe('混音餘裕', () => {
   it('engine 的 setVolume 把餘裕加進去', () => {
     const src = new TextDecoder().decode(readFileSync('src/audio/engine.ts')).replace(/\r\n/g, '\n')
     expect(src).toContain('listener.setMasterVolume(dbToGain(db + MIX_HEADROOM_DB))')
-    expect(src).toContain('uiGain.gain.value = db === null ? 0 : dbToGain(db + MIX_HEADROOM_DB)')
+    expect(src).toContain('uiAudio.setVolume(db)')
   })
 })

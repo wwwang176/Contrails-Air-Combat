@@ -21,7 +21,7 @@ import { JU87 } from '../../src/specs/ju87'
 import { P51D } from '../../src/specs/p51d'
 import type { AircraftSpec } from '../../src/specs/types'
 import { createGroundTarget, type GroundTarget } from '../../src/world/groundTargets'
-import type { GroundUnitId } from '../../src/render/geometry/ground'
+import type { GroundUnitId } from '../../src/specs/ground'
 
 /**
  * # 俯衝投彈：挑目標、相位機

@@ -1,11 +1,12 @@
 import { afterEach, describe, it, expect } from 'vitest'
 import {
-  REPORT_FADE, REPORT_LINE_SECONDS, REPORT_MAX_LINES, REPORT_QUEUE_CAPACITY,
+  REPORT_LINE_SECONDS, REPORT_MAX_LINES, REPORT_QUEUE_CAPACITY,
   REPORT_RELEASE_INTERVAL, REPORT_SLIDE,
-  createBattleReport, queueReport, reportAlpha, reportSlide, reportText,
+  createBattleReport, queueReport,
   resetBattleReport, stepBattleReport, type BattleReport, type ReportKind,
-} from '../../src/hud/battleReport'
-import { GROUND_UNITS } from '../../src/render/geometry/ground'
+} from '../../src/battle/report'
+import { REPORT_FADE, reportAlpha, reportSlide, reportText } from '../../src/hud/battleReport'
+import { GROUND_UNITS } from '../../src/specs/ground'
 import { aircraftNameKey, groundUnitNameKey, shipNameKey } from '../../src/i18n/names'
 import { setLang, t, type MessageKey } from '../../src/i18n'
 

@@ -1,3 +1,5 @@
+import { createCommandOutputState, emitAiCommand, resetCommandOutputTerrain } from './commandOutput'
+import { attackShip, createSurfaceAttackState, resetSurfaceAttack, strafeGround, type StrikeRef } from './surfaceAttack'
 import { Vector3 } from 'three'
 import {
   alarmFactor, alarmRamp, considerThreatFrom, createSituation, evaluateEnergy,
@@ -6,12 +8,23 @@ import {
 import {
   createRuleState, stepRules, DEFAULT_RULES, type Intent, type RuleConfig,
 } from './rules'
+import { clearBandPerch, createBandState, stepBand } from './bandState'
+import { createAirPassState, resetAirPass, stepAirPass } from './airPass'
 import {
-  buildEngageBasis, clearBandPerch, createAirPassState, createBandState, resetAirPass, stepAirPass, createDefendState, createEngageBasis, createTrackState,
-  engageKnobs, redlineDiveIas, stepBand,
-  geometryGate, holdTurnLevel, shrinkTowardNose, stepDefend, stepExtendSide, steerCommand, stepTrack,
-  DEFAULT_STEER, TRACK_TURN_CONE, type Knobs, type SteerMode,
+  engageKnobs,
+  redlineDiveIas,
+  geometryGate,
+  holdTurnLevel,
+  shrinkTowardNose,
+  steerCommand,
+  TRACK_TURN_CONE,
+  type Knobs,
+  type SteerMode,
 } from './steer'
+import { createDefendState, stepDefend, stepExtendSide } from './defendState'
+import { createTrackState, stepTrack } from './trackState'
+import { DEFAULT_STEER } from './steerConfig'
+import { buildEngageBasis, createEngageBasis } from './engageGeometry'
 import { DEFAULT_DOCTRINE, energyPull, manoeuvreSpeed } from './doctrine'
 import {
   BURST_LENGTH_MAX, BURST_LENGTH_MIN, DEFAULT_AI_BURST, DEFAULT_FIRE, burstDuty, shouldFire,
@@ -22,15 +35,8 @@ import {
   createTargetState, selectTarget, DEFAULT_TARGET,
   type TargetBoard, type TargetConfig,
 } from './target'
-import { applySafety, type SafetyAction } from './safety'
-import {
-  createRecoveryAssist, resetRecoveryAssist, updateRecoveryAssist, updateRecoveryTrialAssist,
-  type RecoveryTrialStatus,
-} from './recoveryWorkerClient'
-import {
-  createSense, resetSense, senseTerrain, SENSE_INTERVAL,
-  type TerrainSense, type TerrainSource,
-} from './terrainSense'
+import type { SafetyAction } from './safety'
+import type { TerrainSource } from './terrainSense'
 import {
   DEFAULT_STATION, STATION_OFFSETS, stationCommand, stationPoint,
   type StationConfig, type StationOffset,
@@ -40,58 +46,26 @@ import {
   type WingmanConfig,
 } from './wingman'
 import { rallyCommand } from './rally'
+import { createShipAim, resetGroundStrafe } from './shipAttack'
 import {
-  createGroundStrafeState, createShipAim, groundAttackCommand,
-  pickGroundTarget, pickShipTarget, resetGroundStrafe, shipAttackCommand, SHIP_ATTACK_RANGE,
-} from './shipAttack'
-import {
-  BOMB_PROFILE, createBombAim, GROUND_BOMB_AIM_RANGE, resetBombAim, setBombBallistics, stepBombAim,
+  BOMB_PROFILE, createBombAim,
 } from './bombRun'
 import type { StrikeProfile } from './strikeRun'
-import { createStrikeState, resetStrike, stepStrike } from './strikeRun'
+import { createStrikeState } from './strikeRun'
 import {
-  createDiveBombState, DIVE_RANK_COUNT, pickDiveTarget, resetDiveBomb, stepDiveBomb, type DivePhase,
+  createDiveBombState, type DivePhase,
 } from './diveBomb'
-import { setTorpedoBallistics } from './torpedoRun'
-import { BOMB_BLAST_RADIUS, type BombBay } from '../weapons/bomb'
-
-/**
- * 投彈解算的步長。**必須與空中的炸彈相同** —— `World.step` 跑 240 Hz，
- * 兩邊不同的話 AI 算的落點與真正飛出去的那一顆會分家。
- */
-const DT_SOLVE = 1 / 240
-/**
- * 戰鬥機對地投彈時，離目標至少要這麼高才放，m。
- *
- * 【為什麼】爆風炸得到投彈的自己（`World.applyBombBlast`）。低空俯衝放手之後
- * 飛機差不多是從落點正上方掠過，炸彈落地那一刻離爆心大約就是這個高度 ——
- * 要大過殺傷半徑（基準彈 30 m）一截。**起始值，由試飛裁定。**
- */
-const AI_BOMB_MIN_HEIGHT = 80
+import type { BombBay } from '../weapons/bomb'
 import type { Ship } from '../world/ships'
 import type { GroundTarget } from '../world/groundTargets'
-import type { StrikeTarget } from '../world/strikeTarget'
-import type { Team } from '../world/World'
-import type { GroundUnitId } from '../render/geometry/ground'
-
-/**
- * 轟炸機鎖定的打擊目標：在哪一份清單、第幾個。`index` 為 −1 = 沒有。
- *
- * 【為什麼是 kind + index 而不是物件參考】兩份清單都是由 `wireTerrain`
- * 每幀重接的，存參考的話換場之後會指著上一場的船。與 `ShipAim.ship`
- * 同一個理由。
- */
-export interface StrikeRef {
-  kind: 'ship' | 'ground'
-  index: number
-}
+import type { GroundUnitId } from '../specs/ground'
 import { ACE, type DifficultyProfile } from './profile'
-import type { FlightOrder } from './command'
+import type { FlightOrder } from './commandTypes'
 import { losBlocked } from '../world/occlusion'
-import { CommandDelay } from './delay'
-import { THROTTLE_RATE } from '../input/throttle'
 import { NO_INTERCEPT } from '../world/lead'
 import { bestSustainedTurnRadiusCached } from '../analysis/envelope'
+import { scanThreat } from './threatScan'
+import { ESCORT_OFFSETS, selectEscortIndex } from './escortStation'
 
 /**
  * 高度鎖的緩衝，m：鎖畫在參考高度（轟炸機／目標）下方這麼多。
@@ -130,113 +104,6 @@ const FWD = new Vector3(0, 0, -1)
  *
  * 【上方 450 m】在轟炸機上方才看得出是護航；也在輕型防空的射程（2,640 m）之內，所以不再高。
  */
-const ESCORT_OFFSETS: readonly StationOffset[] = [
-  { along: -150, across: 350, up: 450 },
-  { along: -150, across: -350, up: 450 },
-]
-
-/**
- * 保留戰鬥 AI 要去的水平方位，只把俯仰收回水平。這是硬改出後的
- * 「止跌」，不是固定爬升角；因此不會把一次小拉起擴大成高幅豚跳。
- */
-function captureLevel(self: Aircraft, out: Command): void {
-  let x = out.aimWorld.x
-  let z = out.aimWorld.z
-  let h = Math.hypot(x, z)
-  if (h <= 1e-6) {
-    x = self.state.velocity.x
-    z = self.state.velocity.z
-    h = Math.hypot(x, z)
-  }
-  if (h <= 1e-6) {
-    out.aimWorld.copy(FWD).applyQuaternion(self.state.orientation)
-    x = out.aimWorld.x
-    z = out.aimWorld.z
-    h = Math.hypot(x, z)
-  }
-  if (h > 1e-6) out.aimWorld.set(x / h, 0, z / h)
-  else out.aimWorld.set(0, 0, -1)
-  out.firing = false
-  out.bombing = false
-}
-
-/**
- * Worker 尚未證明低頭命令安全時，先用很淺的爬升累積下一次進場的改出空間。
- * 這只延續已觸發的硬改出，不是平時對地瞄準的最低高度偏好。
- */
-function captureGroundBuffer(self: Aircraft, out: Command): void {
-  captureLevel(self, out)
-  const climb = Math.PI / 30
-  const horizontal = Math.cos(climb)
-  out.aimWorld.x *= horizontal
-  out.aimWorld.y = Math.sin(climb)
-  out.aimWorld.z *= horizontal
-}
-
-export interface GroundCaptureState {
-  active: boolean
-  armed: boolean
-}
-
-export const GROUND_RELEASE_TRIAL_SECONDS = 0.5
-export const GROUND_RELEASE_SAFE_SECONDS = 0.5
-
-export interface GroundReleaseGate {
-  safeSince: number
-  sequence: number
-}
-
-/**
- * 對地低頭命令解除水平捕獲的閘門。Worker 必須連續證明「先照候選命令飛
- * 0.5 秒仍能改出」達 0.5 秒，而且實際下降已收住，才准交還。
- */
-export function stepGroundReleaseCapture(
-  capture: GroundCaptureState,
-  gate: GroundReleaseGate,
-  hardGround: boolean,
-  downwardAim: boolean,
-  velocityY: number,
-  trialSequence: number,
-  trialSentAt: number,
-  trialStatus: RecoveryTrialStatus,
-): boolean {
-  if (hardGround) {
-    capture.active = true
-    capture.armed = false
-    gate.safeSince = -1
-    gate.sequence = trialSequence
-    return false
-  }
-  if (!capture.active) return false
-  if (!downwardAim) {
-    capture.active = false
-    capture.armed = false
-    gate.safeSince = -1
-    gate.sequence = trialSequence
-    return false
-  }
-  if (trialSequence >= 0 && trialSequence !== gate.sequence) {
-    gate.sequence = trialSequence
-    if (trialStatus === 'safe') {
-      if (gate.safeSince < 0) gate.safeSince = trialSentAt
-    } else if (trialStatus === 'unsafe') {
-      gate.safeSince = -1
-    }
-  }
-  if (
-    trialStatus === 'safe'
-    && gate.safeSince >= 0
-    && trialSentAt - gate.safeSince >= GROUND_RELEASE_SAFE_SECONDS
-    && velocityY >= -2
-  ) {
-    capture.active = false
-    capture.armed = false
-    gate.safeSince = -1
-    return false
-  }
-  return true
-}
-
 /**
  * 敵機 AI。實作 `control/Controller`，所以 `World` 一個字都不用改。
  *
@@ -244,25 +111,19 @@ export function stepGroundReleaseCapture(
  * 都是純函數（spec §4.3）——這是 L4 的對戰矩陣能在 node 裡跑幾百場的前提。
  */
 export class AiController implements Controller {
-  /** 完整物理防墜預演的固定快照與非同步狀態；每架 AI 只配置一次。 */
-  private readonly recoveryAssist = createRecoveryAssist()
-  /** 水平捕獲期間，讓同一個 Worker 驗證尚未送出的對地低頭命令。 */
-  private readonly recoveryTrialAssist = createRecoveryAssist()
-  private recoveryTrialActive = false
-  private readonly groundReleaseGate: GroundReleaseGate = { safeSince: -1, sequence: -1 }
-  private recoveryClock = 0
+  private readonly output = createCommandOutputState()
   /** 最近一筆有效 Worker 預演的連續改出風險；只供 HUD／探針觀測。 */
-  get recoveryUrgency(): number { return this.recoveryAssist.urgency }
+  get recoveryUrgency(): number { return this.output.recoveryAssist.urgency }
   /** 硬改出後正在水平捕獲；只供探針與測試觀測。 */
-  get recoveryCapture(): boolean { return this.groundCapture.active }
+  get recoveryCapture(): boolean { return this.output.groundCapture.active }
   /** HUD 顯示的當前戰術階段；`off` 代表沒有比意圖更細的行為要補充。 */
-  get hudPhase(): string { return this.tacticalPhase }
+  get hudPhase(): string { return this.output.tacticalPhase }
   /** HUD 顯示的安全接管；`off` 代表原本意圖仍掌握控制權。 */
-  get hudOverride(): string { return this.controlOverride }
+  get hudOverride(): string { return this.output.controlOverride }
   /** 這一格實際正在掃射的地面目標；只供探針與測試觀測。 */
   get groundTarget(): GroundTarget | null {
-    if (!this.groundAttackActive || this.groundAim < 0) return null
-    return this.groundTargets[this.groundAim] ?? null
+    if (!this.surface.groundAttackActive || this.surface.groundAim < 0) return null
+    return this.groundTargets[this.surface.groundAim] ?? null
   }
   /**
    * 交戰對象。`board` 為 null 時由 `main.ts` 或測試設定；否則由
@@ -375,21 +236,8 @@ export class AiController implements Controller {
    * 轟炸機走的是 `strike` 那一套。
    */
   readonly bombAim = createBombAim()
-
-  /**
-   * 戰鬥機掃射的地面目標，`groundTargets` 的索引；−1 = 沒有。只在決策拍重選。
-   * 轟炸機不讀它（走 `strikeRef`）。
-   */
-  private groundAim = -1
-  /** `groundAim` 是跨決策拍記憶；這一格是否真的採用它要另外記。 */
-  private groundAttackActive = false
-  /** 這一格是否走地面物件掃射；滑行飛機與 GroundTarget 都算。 */
-  private groundStrafeActive = false
-  /** 不參與決策，只把這一格真正採用的安全／掃射行為交給 HUD。 */
-  private tacticalPhase = 'off'
-  private controlOverride = 'off'
-  /** 飛越地面目標後，先完成離場再准許回頭的跨格狀態。 */
-  private readonly groundStrafe = createGroundStrafeState()
+  /** 對地航次的私有狀態，只在建立控制器時配置一次。 */
+  private readonly surface = createSurfaceAttackState()
   /**
    * 俯衝投彈的狀態（`ai/diveBomb.ts`）。**只有 `spec.diveBomber` 的機種會動它**；其他機種這一份
    * 永遠是初始值。
@@ -398,68 +246,9 @@ export class AiController implements Controller {
   /** 俯衝投彈現在在哪一個相位。探針與測試讀 */
   get diveBombPhase(): DivePhase { return this.diveBomb.phase }
   /** 只供 HUD／探針／測試辨認目前是進場還是離場。 */
-  get groundStrafePhase() { return this.groundStrafe.phase }
+  get groundStrafePhase() { return this.surface.groundStrafe.phase }
   /** 本次離場動態算出的回頭門檻，m；非離場時為 0。 */
-  get groundStrafeReattackRange() { return this.groundStrafe.reattackRange }
-  /**
-   * 沒有空中目標時，戰鬥機掃射敵方的地面目標。回傳 true 代表 `out` 已經寫滿。
-   *
-   * 【長機與僚機都打】排在站位之前 —— 地面目標就是那一關的目標，僚機飛回站位
-   * 的話整隊只有長機在打。
-   *
-   * 【只給戰鬥機】轟炸機走 `attackShip` 的攻擊航路。沒有地面目標的關卡是一次
-   * 早退，對艦與空戰的路徑一個位元都不動。
-   *
-   * 【撞地不靠不去打來避】`emit` 裡的 `applySafety` 與地形感知照樣最後接手。
-   */
-  private strafeGround(
-    self: Aircraft, decide: boolean, out: Command, onlyUnit: GroundUnitId | null = null,
-  ): boolean {
-    const dives = self.spec.diveBomber === true
-    if (this.groundTargets.length === 0 || (self.spec.role !== 'fighter' && !dives)) {
-      this.groundAim = -1
-      resetGroundStrafe(this.groundStrafe)
-      return false
-    }
-    const me = this.board?.candidates[this.selfIndex]
-    if (me === undefined) {
-      this.groundAim = -1
-      resetGroundStrafe(this.groundStrafe)
-      return false
-    }
-    // 【俯衝轟炸機走自己的行為】任務指定了優先地面單位、以及沒有空中目標時排在站位之前，都從這裡進
-    if (dives) return this.diveBombGround(self, decide, out, onlyUnit)
-    // 【只打飛機】排在俯衝轟炸機的分支之後：它們不受這個旋鈕管
-    if (this.airOnly) {
-      this.groundAim = -1
-      resetGroundStrafe(this.groundStrafe)
-      return false
-    }
-    // 【離場途中也挑】挑到的是下一趟要打的那一台；離場拉開到它的回頭門檻才轉回來
-    // （`groundStrafeCommand` 換目標時不打斷離場）。
-    //
-    // 【每一步都要複查】上一個決策拍之後它可能已經被打掉或起飛離場 —— 當場補挑，
-    // 不等下一拍：少了這一格，掃射狀態會被清掉，離場做到一半就變成回頭進場
-    const held = this.groundAim >= 0 ? this.groundTargets[this.groundAim] : undefined
-    if (decide || (held !== undefined && !held.alive)) {
-      this.groundAim = pickGroundTarget(
-        self.state.position, me.team, this.groundTargets, SHIP_ATTACK_RANGE, onlyUnit,
-      )
-    }
-    const t = this.groundAim >= 0 ? this.groundTargets[this.groundAim] : undefined
-    if (t === undefined || !t.alive) {
-      this.groundAim = -1
-      resetGroundStrafe(this.groundStrafe)
-      return false
-    }
-    groundAttackCommand(this.groundStrafe, self, t, decide, out, this.aim, this.terrain?.land ?? null)
-    // 【掃射也吃點放】瞄得準就咬住，瞄得爛只點兩下 —— 與打飛機同一條規則
-    out.firing = out.firing && this.burstOpen
-    this.bombGround(self, t, decide, out)
-    this.groundAttackActive = true
-    this.groundStrafeActive = true
-    return true
-  }
+  get groundStrafeReattackRange() { return this.surface.groundStrafe.reattackRange }
 
   /**
    * 護航：飛站位守在最近的友軍轟炸機（`role === 'bomber'`）旁，偏置見 `ESCORT_OFFSETS`。回傳 true
@@ -475,20 +264,7 @@ export class AiController implements Controller {
     const candidates = this.board?.candidates
     const me = candidates?.[this.selfIndex]
     if (candidates === undefined || me === undefined) return false
-    if (decide || this.escortIndex < 0 || !candidates[this.escortIndex]!.alive) {
-      let best = -1
-      let bestD = Infinity
-      for (let i = 0; i < candidates.length; i++) {
-        const c = candidates[i]!
-        if (!c.alive || c.team !== me.team || c.aircraft.spec.role !== 'bomber') continue
-        const d = self.state.position.distanceToSquared(c.aircraft.state.position)
-        if (d < bestD) {
-          bestD = d
-          best = i
-        }
-      }
-      this.escortIndex = best
-    }
+    this.escortIndex = selectEscortIndex(self, candidates, this.selfIndex, this.escortIndex, decide)
     if (this.escortIndex < 0) return false
     stationCommand(
       self, candidates[this.escortIndex]!.aircraft, ESCORT_OFFSETS[this.selfIndex % 2]!,
@@ -498,262 +274,17 @@ export class AiController implements Controller {
   }
 
   /**
-   * 俯衝投彈（`ai/diveBomb.ts`）：平飛到目標上方、壓機鼻俯衝、離目標 500 m 投彈、拉起。回傳 true
-   * 代表 `out` 已經寫滿。**只給 `spec.diveBomber` 的機種。**
-   *
-   * 【各架挑不同的目標】名次是 `selfIndex` 對 `DIVE_RANK_COUNT` 取餘數，距離從長機的位置量（長機自己
-   * 量自己的）：各架各量各的位置，排序會不同，不同名次不保證挑到不同的目標。
-   *
-   * 【一趟之內不換目標】名次靠後的目標，排序隨長機的位置每個決策拍都可能換；一直換目標就一直轉向、
-   * 掉速、對不準，永遠壓不下機鼻。只在脫離時重挑，脫離結束前最後一次挑的就是下一趟的目標；目標死了
-   * 或還沒有也補挑。翻轉、俯衝與拉起鎖著瞄準點，目標中途被炸掉也要把這一趟飛完，所以那三個相位沒有
-   * 目標時照樣呼叫。
-   *
-   * 【不走掃射的解除閘門】那一套（`groundStrafeActive`）會在對地俯衝時驗證改出、必要時把機首拉平，
-   * 為低空掃射設計；俯衝投彈自己決定幾時拉起，安全層（`applySafety`）仍是最後一道。
-   */
-  private diveBombGround(
-    self: Aircraft, decide: boolean, out: Command, onlyUnit: GroundUnitId | null = null,
-  ): boolean {
-    const me = this.board?.candidates[this.selfIndex]
-    if (me === undefined) return false
-    const state = this.diveBomb
-    const flying = state.phase === 'flip' || state.phase === 'dive' || state.phase === 'pullout'
-    let target = this.groundAim >= 0 ? this.groundTargets[this.groundAim] : undefined
-    if (!flying) {
-      if ((decide && state.phase === 'egress') || target === undefined || !target.alive) {
-        const ref = this.stationReference !== null ? this.stationReference.state.position : self.state.position
-        const rank = this.selfIndex >= 0 ? this.selfIndex % DIVE_RANK_COUNT : 0
-        this.groundAim = pickDiveTarget(ref, me.team, this.groundTargets, SHIP_ATTACK_RANGE, rank, onlyUnit)
-        target = this.groundAim >= 0 ? this.groundTargets[this.groundAim] : undefined
-      }
-      if (target === undefined || !target.alive) {
-        this.groundAim = -1
-        return false
-      }
-    }
-    const bay = this.bombBay
-    const loaded = bay !== null && bay.capacity > 0 && (bay.load > 0 || bay.queue > 0)
-    stepDiveBomb(state, self, target !== undefined && target.alive ? target : null, loaded, out)
-    this.groundAttackActive = true
-    return true
-  }
-
-  /**
-   * 掛彈的戰鬥機對地面目標投彈：與對船同一套落彈點瞄準（`stepBombAim`）——
-   * 近了就把瞄準點換成落彈解，機首自己壓下去把落點推到車上，放得中就放。
-   * 投完（或沒掛彈）就什麼都不做，瞄準點留給機槍。**排在掃射之後**，它要
-   * 覆寫的正是掃射寫好的那一格。
-   *
-   * 【脫離段不接手】那一段要飛開、繞回來再打一趟；這裡若還在寫瞄準點，會把
-   * 飛機拉回車隊上方打轉。
-   *
-   * 【離目標太低不放】炸彈的爆風不分敵我、也炸得到投彈的自己（`World` 的
-   * `applyBombBlast`）。投彈的包絡沒有高度下限（`BOMB_ENVELOPE`），投太低是
-   * 玩家自己的代價；AI 不該為了投一顆彈把自己炸下來。
-   */
-  private bombGround(self: Aircraft, t: GroundTarget, decide: boolean, out: Command): void {
-    const bay = this.bombBay
-    const loaded = bay !== null && bay.capacity > 0 && (bay.load > 0 || bay.queue > 0)
-    if (!loaded || this.groundStrafe.phase === 'egress') {
-      resetBombAim(this.bombAim)
-      return
-    }
-    setBombBallistics(this.bombDrag, DT_SOLVE)
-    // 【掛著彈的整段都保持正飛】理由同對船：倒飛進瞄準帶就投不出去
-    out.upright = true
-    // 【落點在殺傷半徑兩倍之內就放】車身的窗太窄，見 `stepBombAim` 的 nearEnough。
-    // 兩倍比殺傷半徑寬：會有落空的，但不會整趟一枚都不放
-    stepBombAim(this.bombAim, self, t, true, decide, null, GROUND_BOMB_AIM_RANGE, BOMB_BLAST_RADIUS * 2)
-    if (this.bombAim.active) {
-      out.aimWorld.copy(this.bombAim.aim)
-      // 瞄準換成落彈解，已經不是掃射那一個要跟住的轉彎
-      out.trackTurn = false
-    }
-    out.bombing = this.bombAim.release && self.state.position.y - t.position.y >= AI_BOMB_MIN_HEIGHT
-  }
-
-  /**
-   * 沒有空中目標時，試著找一艘船打。回傳 true 代表 `out` 已經寫滿。
-   *
-   * 【為什麼是一支私有方法而不是寫在分支裡】那一段本來就有三個 `return`
-   * 與一堆鎖存維護，再塞五十行進去沒有人讀得完。而且這樣「沒有船就是
-   * 一次早退」看得出來。
-   *
-   * 【重選只在決策拍】與空戰的目標選擇同一個節奏（10 Hz）。每個物理步
-   * 重選的話，兩艘距離相近的船會讓機首在 240 Hz 下抖。
-   */
-  private attackShip(self: Aircraft, decide: boolean, dt: number, out: Command): boolean {
-    // 【不看自己有沒有武器】索敵只回答「那裡有什麼值得去的東西」，
-    // 開不開得了火是開火層的事。一式陸攻沒有固定槍，但它低空掠過去時
-    // 側方與機腹的銃手會打砲位。
-    // 【兩份都空才早退】只看船的話，純建築的關卡轟炸機永遠選不到目標
-    if (this.ships.length === 0 && this.groundTargets.length === 0) {
-      this.shipAim.ship = -1
-      this.strikeRef.index = -1
-      return false
-    }
-    // 【陣營從板子讀】`AiController` 自己沒有這一格 —— 它只知道自己在
-    // `candidates` 裡的位置。拿不到板子就不打船（那是試驗場與探針的情形，
-    // 那些場景本來就沒有船）。
-    const me = this.board?.candidates[this.selfIndex]
-    if (me === undefined) {
-      this.shipAim.ship = -1
-      this.strikeRef.index = -1
-      return false
-    }
-    // 【俯衝轟炸機有地面目標就俯衝】沒有可打的地面目標（回傳 false）才往下走船的水平轟炸
-    if (self.spec.diveBomber === true && this.groundTargets.length > 0
-      && this.diveBombGround(self, decide, out)) {
-      return true
-    }
-    if (decide) {
-      pickShipTarget(self.state.position, me.team, this.ships, this.shipAim, self.state.velocity)
-    }
-    const bay = this.bombBay
-    const loaded = bay !== null && (bay.load > 0 || bay.queue > 0)
-    if (bay !== null && bay.capacity > 0) {
-      // 【兩份都設】剖面由 `strikeProfile` 決定，而這裡不知道是哪一份 ——
-      // 兩支的參數是同一組值（阻力與步長），設漏一支的症狀只是「投不準」
-      setBombBallistics(this.bombDrag, DT_SOLVE)
-      setTorpedoBallistics(this.bombDrag, DT_SOLVE)
-      // 【轟炸機走攻擊航路，戰鬥機走掃射】攻擊航路是「進場→鎖航向直飛→
-      // 脫離」的循環，它要求平飛穩定通過船的正上方，換來的是一整艙彈能撒
-      // 成一串。戰鬥機掛的是兩顆 60 kg —— 為兩顆彈飛完整條循環，換到的是
-      // 一台在艦隊上空平飛的戰鬥機。
-      if (self.spec.role !== 'fighter') {
-        const target = this.pickStrike(self, me.team, decide)
-        if (target === null) return false
-        stepStrike(
-          this.strike, self, target, this.strikeRef.index, this.strikeProfile,
-          loaded, decide, dt, out,
-        )
-        return true
-      }
-    }
-    const ship = this.shipAim.ship >= 0 ? this.ships[this.shipAim.ship] : undefined
-    // 【每一步都要複查】上一個決策拍之後它可能已經沉了，而下一次重選要
-    // 到 100 ms 後 —— 那一段時間對著一艘沉船掃射看起來就是壞掉。
-    if (ship === undefined || !ship.alive) {
-      this.shipAim.ship = -1
-      return false
-    }
-    // 【砲位也要複查】它可能在這 100 ms 之內被打掉了。掉回瞄船體，
-    // 而不是繼續瞄一個已經不存在的東西。
-    if (this.shipAim.gun >= 0 && !(ship.guns[this.shipAim.gun]?.alive ?? false)) {
-      this.shipAim.gun = -1
-    }
-    shipAttackCommand(self, ship, this.shipAim.gun, out, this.shipAim.point, this.aim)
-    // 【掃射也吃點放】理由見 `strafeGround`
-    out.firing = out.firing && this.burstOpen
-    // 【掛著彈的整段對艦攻擊都保持正飛】進場段就翻轉的話，進落彈瞄準帶時
-    // 已經倒飛，帶內來不及翻回來 —— 投放包絡擋掉，整條命一枚都不投
-    out.upright = loaded
-    // 【掛彈的戰鬥機：近了就把瞄準點換成落彈解】投完（或還沒進到那個距離）
-    // 就什麼都不做，瞄準點留給機槍。**排在掃射之後** —— 它要覆寫的正是
-    // 掃射寫好的那一格
-    if (loaded) {
-      stepBombAim(
-        this.bombAim, self, ship, loaded, decide, ship.cls.aimPoints[this.shipAim.point] ?? null,
-      )
-      if (this.bombAim.active) out.aimWorld.copy(this.bombAim.aim)
-      out.bombing = this.bombAim.release
-    } else {
-      resetBombAim(this.bombAim)
-    }
-    return true
-  }
-
-  /**
-   * 轟炸機的打擊目標：船與建築裡價值最高的那一個。
-   *
-   * 【先船後建築，只有建築更值錢才換】沒有地面目標時與只掃船的版本逐位元
-   * 相同（`strike-replay-baseline.test.ts`）—— `pickShipTarget` 照舊跑，
-   * 建築那一圈是零長度。
-   *
-   * 【每一步都要複查】上一個決策拍之後它可能已經沉了或炸毀了。死了就放掉，
-   * 下一個決策拍重選。
-   *
-   * @returns 目標的視圖，沒有就 null（並把 `strikeRef.index` 設成 −1）
-   */
-  private pickStrike(self: Aircraft, team: Team, decide: boolean): StrikeTarget | null {
-    const ref = this.strikeRef
-    if (decide) {
-      const g = pickGroundTarget(self.state.position, team, this.groundTargets, SHIP_ATTACK_RANGE)
-      const ship = this.shipAim.ship >= 0 ? this.ships[this.shipAim.ship] : undefined
-      const ground = g >= 0 ? this.groundTargets[g] : undefined
-      const shipValue = ship === undefined ? -1 : ship.value
-      const groundValue = ground === undefined ? -1 : ground.value
-      // 【同價值比距離，與各自清單內的規則相同】船的距離量到船心 —— 砲位
-      // 那一層的距離只有船自己那一支在比，跨清單只需要一個粗略的量
-      const p = self.state.position
-      const takeGround = ground !== undefined && (
-        groundValue > shipValue
-        || (groundValue === shipValue && ship !== undefined
-          && p.distanceToSquared(ground.position) < p.distanceToSquared(ship.position))
-      )
-      // 【一趟只打一個目標】同價值的候選隨距離輪流變成最近的那個，照單全收的
-      // 話進場到一半瞄點跳走，飛機帶著坡度鎖航向、整趟放不出來。所以只在
-      // 這幾種時候換：手上沒有或死了、脫離結束回頭進場（`StrikeState.repick`）、
-      // 進場段而候選**更值錢**（開場時廠區還在索敵半徑外，先選到的是高砲陣地）
-      const held = ref.index < 0 ? undefined
-        : ref.kind === 'ship' ? this.ships[ref.index] : this.groundTargets[ref.index]
-      const candidateValue = takeGround ? groundValue : shipValue
-      if (held === undefined || !held.alive || this.strike.repick
-        || (this.strike.phase === 'approach' && candidateValue > held.value)) {
-        this.strike.repick = false
-        if (takeGround) {
-          ref.kind = 'ground'
-          ref.index = g
-        } else {
-          ref.kind = 'ship'
-          ref.index = this.shipAim.ship
-        }
-      }
-    }
-    if (ref.index < 0) return null
-    const target = ref.kind === 'ship' ? this.ships[ref.index] : this.groundTargets[ref.index]
-    if (target === undefined || !target.alive) {
-      ref.index = -1
-      return null
-    }
-    return target
-  }
-
-  /**
    * 清掉地形的鎖存。**換場、換座位、重生之後都要呼叫。**
    *
    * playerAi 跨場重用，resetBattle 在玩家接手過座位之後也會建新的控制器 ——
    * 上一場「我正在繞第 17 座島」的承諾不得帶進新的一場。
    */
   clearTerrainState(): void {
-    resetSense(this.sense)
+    resetCommandOutputTerrain(this.output, this.selfIndex)
     // 【攻擊狀態機也要清】上一場「我正在對第 3 艘做直飛」的鎖定不得帶進
     // 新的一場 —— 與地形的承諾同一個理由，也同一個呼叫點。
-    resetStrike(this.strike)
-    resetBombAim(this.bombAim)
-    resetDiveBomb(this.diveBomb)
-    this.shipAim.ship = -1
-    this.strikeRef.index = -1
+    resetSurfaceAttack(this.surface, this)
     this.escortIndex = -1
-    this.groundAim = -1
-    this.groundAttackActive = false
-    this.groundStrafeActive = false
-    this.tacticalPhase = 'off'
-    this.controlOverride = 'off'
-    resetGroundStrafe(this.groundStrafe)
-    // 【連採樣節拍一起重設】只清 sense 的話，新場最多要等 11 個物理步才會
-    // 第一次感知，那段時間 AI 是用 floor = 0 在飛。負的起點讓
-    // (senseTick + sensePhase) 在下一次 emit 就命中 0
-    this.senseTick = -this.sensePhase
-    this.recoveryClock = 0
-    this.groundCapture.active = false
-    this.groundCapture.armed = false
-    resetRecoveryAssist(this.recoveryAssist)
-    resetRecoveryAssist(this.recoveryTrialAssist)
-    this.recoveryTrialActive = false
-    this.groundReleaseGate.safeSince = -1
-    this.groundReleaseGate.sequence = -1
     this.resetAirTactics()
   }
 
@@ -771,22 +302,6 @@ export class AiController implements Controller {
     this.bandTarget = null
     resetAirPass(this.airPass)
   }
-
-  /** 地形感知的結果與鎖存狀態 */
-  private readonly sense: TerrainSense = createSense()
-  /** 物理步的計數，用來每 SENSE_INTERVAL 步重算一次 */
-  private senseTick = 0
-  /**
-   * 這一架的感知相位 —— **由座位決定，不是由建立順序**。
-   *
-   * 沒有錯開的話 40 架會在同一個物理步一起算，做出週期性的尖峰，而那會直接
-   * 打在 frame-time 量的 1% low 上。
-   *
-   * 【為什麼不是一個全域遞增的計數器】那樣相位會取決於這個 process 先前
-   * 建過幾架 AI —— 重開、接手次數不同就會改變之後每一架的相位。仍然是
-   * 決定性的，但同一個座位在不同場次會拿到不同的相位，難以重現。
-   */
-  private get sensePhase(): number { return this.selfIndex % SENSE_INTERVAL }
   profile: DifficultyProfile = ACE
 
   /**
@@ -901,12 +416,6 @@ export class AiController implements Controller {
    */
   mode: SteerMode = 'normal'
   safetyActive = false
-  /** 硬防墜解除後先捕獲水平，避免下一格又把低空目標交回俯衝。 */
-  private readonly groundCapture: GroundCaptureState = { active: false, armed: false }
-  /** 上一格送出的油門。NaN = 還沒送過，第一格直接用命令值。見 `emit` */
-  private lastThrottle = NaN
-  /** 守線介入過、油門還在以速率追命令值。見 `emit` */
-  private throttleRamp = false
   /**
    * 安全層這一格接管了哪一種：`'none'` / `'ground'`（撞地）/ `'stall'`（失速）。
    *
@@ -1000,7 +509,6 @@ export class AiController implements Controller {
    * 反應延遲流進呼叫端的 `out`。
    */
   private readonly raw = createCommand()
-  private readonly delay = new CommandDelay()
   /** 距離下一次意圖仲裁還有多久，s */
   private decisionTimer = 0
 
@@ -1059,8 +567,8 @@ export class AiController implements Controller {
     const period = 1 / AI_DECISION_HZ
     const reference = this.stationReference
     const raw = this.raw
-    this.groundAttackActive = false
-    this.groundStrafeActive = false
+    this.surface.groundAttackActive = false
+    this.surface.groundStrafeActive = false
     // 【投彈每步先歸零】`raw` 是長存物件，別的航路不寫這一格。不清的話
     // 一次釋放之後它會殘留 true，整艙會在下一次進入任何航路時倒光。
     raw.bombing = false
@@ -1206,8 +714,8 @@ export class AiController implements Controller {
     // 地面目標打光之後，下面「沒有目標」那一支的對艦仍然接得住
     if (this.bombBay !== null && this.bombBay.capacity > 0
       && this.priorityGroundUnit === null && !this.evacuating
-      && this.attackShip(self, decide, dt, raw)) {
-      resetGroundStrafe(this.groundStrafe)
+      && attackShip(this.surface, this, self, decide, dt, raw, this.aim, this.burstOpen)) {
+      resetGroundStrafe(this.surface.groundStrafe)
       // 與地面路徑同一個理由：空層鎖不沿用到對艦航路之後
       this.resetAirTactics()
       this.emit(self, dt, out)
@@ -1223,7 +731,7 @@ export class AiController implements Controller {
     const directThreat = this.threatSource !== null
       && threatFactor(this.threatSource, self) > 0
     if (priorityGround !== null && !directThreat
-      && this.strafeGround(self, decide, raw, priorityGround)) {
+      && strafeGround(this.surface, this, self, decide, raw, this.aim, this.burstOpen, priorityGround)) {
       // 地面航次不沿用上一個空中目標的跟蹤／空層狀態；但 `target` 與指派板仍
       // 照常維護，直接威脅出現時下一格便有空戰目標可接手。
       stepTrack(this.track, 0, 0, false, dt)
@@ -1246,7 +754,7 @@ export class AiController implements Controller {
       // 取得同一架時不會觸發換目標的重置，一回來就誤判成飛過頭
       this.resetAirTactics()
 
-      if (!this.evacuating && this.strafeGround(self, decide, raw)) {
+      if (!this.evacuating && strafeGround(this.surface, this, self, decide, raw, this.aim, this.burstOpen)) {
         // 【地面目標排在站位之前】理由見 `strafeGround`。`raw` 已經寫滿
       } else if (reference && !this.evacuating) {
         // 【撤離時不回站位】長機可能是玩家，玩家留下來打的話僚機也會被綁在
@@ -1264,7 +772,7 @@ export class AiController implements Controller {
         )
       } else if (this.airOnly && !this.evacuating && this.escortStation(self, decide, raw)) {
         // 【護航的長機守在友軍轟炸機旁】`raw` 已經寫滿。沒有友軍轟炸機時落到下面的平飛
-      } else if (!this.evacuating && this.attackShip(self, decide, dt, raw)) {
+      } else if (!this.evacuating && attackShip(this.surface, this, self, decide, dt, raw, this.aim, this.burstOpen)) {
         // 【對艦掃射排在站位之後、集合點之前】
         //
         // 站位在前：僚機沒有空中目標時該回編隊，不是各自跑去打船 ——
@@ -1317,7 +825,7 @@ export class AiController implements Controller {
     }
 
     // 空戰（包含直接威脅插隊）中止對地航次；之後重新取得地面目標會從進場開始。
-    resetGroundStrafe(this.groundStrafe)
+    resetGroundStrafe(this.surface.groundStrafe)
 
     // ── 240 Hz：便宜的運動學 ──────────────────────────────
     // 【意圖是 10 Hz，但它引用的幾何不能是 10 Hz 的舊值】高速近距離時
@@ -1542,140 +1050,9 @@ export class AiController implements Controller {
     this.emit(self, dt, out)
   }
 
-  /**
-   * 把 `raw` 送出去：先過反應延遲，再過安全層。
-   *
-   * 【安全層為什麼排在延遲之後】延遲模擬的是**判讀與決策**的耗時；「快撞地
-   * 了」是反射，不是判讀。把安全層一起延遲會讓 AI 撞地率上升，而那是一個
-   * 與難度無關的退步 —— 玩家不會覺得「敵人比較弱」，只會覺得「敵人會自殺」。
-   * 安全層讀的是飛機**當下**的狀態，所以它必須拿當下的狀態算（spec §4.2）。
-   *
-   * 【為什麼只有一個呼叫點】`update` 有三條輸出路徑（站位、平飛、交戰），
-   * 以前各自呼叫 `applySafety`。收斂成一個之後，「延遲在安全層之前」這件事
-   * 不可能被新增的分支繞過。
-   *
-   * `profile.reactionDelay = 0`（`ACE`）時 `CommandDelay` 走位元等價的捷徑，
-   * 所以這一層對既有的全部測試是無作用的。
-   *
-   * 【延遲會讓 AI 飛得更低，但那不是這個順序的錯】五個低空受控場景、120 秒、
-   * 取全場最低高度：
-   *
-   * ```
-   * 延遲     對頭@600  對頭@400  追擊@500  側舷@700  俯衝@2000   最低  觸海
-   * 0.00        387      400      121      115       228      115   無
-   * 0.30        600      170      499       63       568       63   無
-   * 0.50        386      348      257       −0       547       −0   有
-   * 0.80        549      389      488      275       524      275   無
-   * ```
-   *
-   * 0.5 s 那一場的軌跡查到根因，**在 `applySafety` 不在這裡**：它的閉式解
-   * 假設俯衝角不再變陡。t=113.0 時高度 367 m、γ=−40°，需要 279 m，通過；
-   * 0.75 秒後 γ 已經 −60°，需要 459 m，而高度只剩 292 m —— 需求的成長比
-   * 飛機拉得起來的還快。零延遲的同一場也只剩 115 m，是同一個病，延遲只是
-   * 讓 AI 更常撞上它。修它要動 `DEFAULT_SAFETY.factor`，那會移動全部既有
-   * 基準，另案處理。
-   */
+  /** 所有戰術分支都經過同一條延遲與安全輸出流程。 */
   private emit(self: Aircraft, dt: number, out: Command): void {
-    this.tacticalPhase = 'off'
-    this.controlOverride = 'off'
-    this.delay.push(this.raw, this.profile.reactionDelay, dt, out,
-      this.profile.trimTau ?? 0, this.profile.fireDelay ?? this.profile.reactionDelay)
-    // 【地板是局部值，不寫回 this.seaHeight】見那個欄位的說明
-    let floor = this.seaHeight
-    let sense: TerrainSense | undefined
-    if (this.terrain !== null) {
-      if ((this.senseTick++ + this.sensePhase) % SENSE_INTERVAL === 0) {
-        senseTerrain(self, this.terrain, this.sense)
-      }
-      if (this.sense.floor > floor) floor = this.sense.floor
-      sense = this.sense
-    }
-    this.recoveryClock += dt
-    const rolloutNeeded = updateRecoveryAssist(
-      this.recoveryAssist, self, floor, sense?.turn ?? 0, this.recoveryClock,
-    )
-    const desiredDownward = out.aimWorld.y < 0
-    let trialStatus: RecoveryTrialStatus = 'pending'
-    if (this.groundStrafeActive && this.groundCapture.active && desiredDownward) {
-      this.recoveryTrialActive = true
-      trialStatus = updateRecoveryTrialAssist(
-        this.recoveryTrialAssist, self, floor, sense?.turn ?? 0, this.recoveryClock,
-        out, GROUND_RELEASE_TRIAL_SECONDS,
-      )
-    } else if (this.recoveryTrialActive) {
-      resetRecoveryAssist(this.recoveryTrialAssist)
-      this.recoveryTrialActive = false
-      this.groundReleaseGate.safeSince = -1
-      this.groundReleaseGate.sequence = -1
-    }
-    this.safetyAction = applySafety(self, floor, out, undefined, sense, rolloutNeeded)
-    const hardGround = this.safetyAction === 'ground'
-    // 解除閘門只屬於對地掃射。空戰、對艦與轟炸航路若繼承這個狀態，會在
-    // 沒有地面射擊解的情況下被水平捕獲，污染既有任務的飛行軌跡。
-    if (!this.groundStrafeActive && this.groundCapture.active) {
-      this.groundCapture.active = false
-      this.groundCapture.armed = false
-      this.groundReleaseGate.safeSince = -1
-      this.groundReleaseGate.sequence = -1
-    }
-    const capture = this.groundStrafeActive
-      && stepGroundReleaseCapture(
-        this.groundCapture, this.groundReleaseGate, hardGround,
-        desiredDownward, self.state.velocity.y, this.recoveryTrialAssist.resultSequence,
-        this.recoveryTrialAssist.resultSentAt, trialStatus,
-      )
-    if (!this.groundCapture.active && this.recoveryTrialActive) {
-      resetRecoveryAssist(this.recoveryTrialAssist)
-      this.recoveryTrialActive = false
-      this.groundReleaseGate.safeSince = -1
-      this.groundReleaseGate.sequence = -1
-    }
-    if (this.safetyAction === 'none' && capture) {
-      // Worker 判定目前還不能安全交還低頭命令時，以 6° 把改出所需的空間補足；
-      // 等候新結果或已安全時維持水平，避免把一次接管擴成大幅豚跳。
-      if (this.groundStrafeActive && trialStatus === 'unsafe') {
-        captureGroundBuffer(self, out)
-      } else {
-        captureLevel(self, out)
-      }
-      this.safetyAction = 'ground'
-    }
-    if (this.band.kind === 'regain') this.tacticalPhase = '回升'
-    if (this.groundStrafeActive) {
-      if (this.groundStrafe.phase === 'egress') this.tacticalPhase = '對地離場'
-      else if (out.firing) this.tacticalPhase = '對地射擊'
-      else this.tacticalPhase = '對地進場'
-    }
-    if (hardGround) {
-      this.controlOverride = '防墜拉起'
-    } else if (capture) {
-      if (trialStatus === 'unsafe') this.controlOverride = '防墜補高'
-      else if (trialStatus === 'safe') this.controlOverride = '防墜確認'
-      else this.controlOverride = '防墜驗證'
-    } else if (this.safetyAction === 'terrain') {
-      this.controlOverride = '地形迴避'
-    } else if (this.safetyAction === 'overspeed') {
-      this.controlOverride = '超速保護'
-    }
-    this.safetyActive = this.safetyAction !== 'none'
-    // 【守線的油門走與玩家同一個速率】玩家的油門是按住鍵以 THROTTLE_RATE
-    // 推的，AI 直接寫值等於瞬間收滿 —— 守線那一格看起來像引擎被關掉。
-    // 守線介入時開始以那個速率走，放開後也以同樣速率推回，追上命令值就
-    // 回到直接寫值。
-    //
-    // 【為什麼不是所有 AI 全程都走速率】那會改掉每一架的時機：實測 P-51 對
-    // Bf109 的側翼品質由「比對照低 0.05」掉到 0.04，紅掉一條門檻定死的
-    // 護欄。守線之外的 AI 一個字不變。
-    if (this.safetyAction === 'overspeed') this.throttleRamp = true
-    if (this.throttleRamp) {
-      if (Number.isNaN(this.lastThrottle)) this.lastThrottle = out.throttle
-      const step = THROTTLE_RATE * dt
-      const d = out.throttle - this.lastThrottle
-      if (d > step) out.throttle = this.lastThrottle + step
-      else if (d < -step) out.throttle = this.lastThrottle - step
-      else if (this.safetyAction !== 'overspeed') this.throttleRamp = false
-    }
-    this.lastThrottle = out.throttle
+    emitAiCommand(this.output, this, self, dt, out, this.raw, this.surface)
   }
 
   /**
@@ -1691,38 +1068,7 @@ export class AiController implements Controller {
    * 熱路徑之外（10 Hz），不配置。
    */
   private scanThreat(self: Aircraft): Aircraft | null {
-    const board = this.board
-    // 【沒有板就退回目標距離】單機對單機沒有「別的敵機」，最近的就是他
-    this.sit.nearestRange = this.sit.range
-    if (board === null) return null
-    const me = board.candidates[this.selfIndex]
-    if (me === undefined) return null
-
-    let best: Aircraft | null = null
-    let bestValue = 0
-    let nearest = Infinity
-    const cs = board.candidates
-    for (let i = 0; i < cs.length; i++) {
-      const c = cs[i]!
-      if (!c.alive || c.team === me.team) continue
-      // 【順便量最近敵機】同一個迴圈、不配置。見 `Situation.nearestRange`
-      const d = c.aircraft.state.position.distanceTo(self.state.position)
-      if (d < nearest) nearest = d
-      // 【用警戒而不是威脅排序】`threatFactor` 在 900 m 外恆為 0，所以
-      // 用它掃描的話，一架咬在我 950 m 正後方的敵機得分與「不存在」相同 ——
-      // 選不出來，`defend` 的破防軸也就繞不到他身上。`alarmFactor` 的支撐集
-      // **包含** `threatFactor` 的（同樣的錐、同樣的解，只是少乘距離因子），
-      // 所以換過來只會多找到人，不會少。
-      const t = alarmFactor(c.aircraft, self)
-      if (t > bestValue) {
-        bestValue = t
-        best = c.aircraft
-      }
-    }
-    // 【敵機全滅時保持 `range`】`Infinity` 會讓規則 3 的距離出場立刻成立，
-    // 而那時候根本沒有人可以脫離
-    if (nearest !== Infinity) this.sit.nearestRange = nearest
-    return best
+    return scanThreat(this.board, this.selfIndex, self, this.sit)
   }
 
   /**

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Color } from 'three'
-import { FIELD_GLSL, fieldSurfaceColor } from '../../src/render/fields'
+import { FIELD_GLSL } from '../../src/render/fieldShaders'
+import { fieldSurfaceColor } from '../../src/render/fields'
 import { createFloraGeometries, disposeFloraGeometries } from '../../src/render/floraShapes'
 
 /**

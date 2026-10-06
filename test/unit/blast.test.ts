@@ -24,7 +24,7 @@ function fakePool(): { shots: Shot[] } & BlastPools['fireball'] {
       x: number, y: number, z: number,
       vx: number, vy: number, vz: number, size = 1,
     ): void { shots.push({ x, y, z, vx, vy, vz, size }) },
-  } as never
+  }
 }
 
 function pools(): BlastPools & { shots: Record<string, Shot[]> } {
@@ -39,7 +39,7 @@ function pools(): BlastPools & { shots: Record<string, Shot[]> } {
       fireball: fireball.shots, smoke: smoke.shots,
       dust: dust.shots, spray: spray.shots,
     },
-  } as never
+  }
 }
 
 const speedOf = (s: Shot): number => Math.hypot(s.vx, s.vy, s.vz)
@@ -529,9 +529,9 @@ describe('高砲爆點的小爆炸（FLAK_BLAST／emitFlakBlasts）', () => {
  * 或是把鏡頭搖到準星離開目標 —— 那不是「爆炸大一點」。
  */
 describe('投下的炸彈另外放大表現尺度', () => {
-  const MAIN = import.meta.glob('../../src/main.ts', { query: '?raw', import: 'default', eager: true })
+  const MAIN = import.meta.glob('../../src/render/blastPresentation.ts', { query: '?raw', import: 'default', eager: true })
   const src = Object.values(MAIN)[0] as string
-  const body = src.slice(src.indexOf('function emitBombBlasts'), src.indexOf('const emitFirePuff'))
+  const body = src.slice(src.indexOf('function emitBombBlasts'), src.indexOf('function emitBalloonPops'))
 
   it('只有 scaleBlast 吃放大過的尺度', () => {
     expect(body).toContain('const vis = scale * BOMB_BLAST_SIZE')
@@ -540,7 +540,7 @@ describe('投下的炸彈另外放大表現尺度', () => {
 
   /** 碎片不在這裡：它跟著火球半徑走，見 `blast-sparks.test.ts` 的接線護欄 */
   it('光與震動用原尺度', () => {
-    expect(body).toContain('blastLights.flash(d[o]!, d[o + 1]!, d[o + 2]!, scale, ctx.camera.position)')
+    expect(body).toContain('blastLights.flash(d[o]!, d[o + 1]!, d[o + 2]!, scale, cameraPosition)')
     expect(body).toContain('ordnanceShakeScale(scale)')
   })
 

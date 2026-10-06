@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { createFloraBuffer, FLORA_STRIDE, type FloraSource } from '../../src/core/floraBuffer'
 import {
-  createFloraBuffer, farmHedgeFlora, farmWoodFlora, FLORA_FAST_PATHS, FLORA_STRIDE, openHedgeFlora, openWoodFlora,
-  type FloraSource,
+  farmHedgeFlora, farmWoodFlora, FLORA_FAST_PATHS, openHedgeFlora, openWoodFlora,
 } from '../../src/render/flora'
-import { TILE_SIZE } from '../../src/render/vegetation'
+import { TILE_SIZE } from '../../src/render/vegetationPolicy'
 import { villageDistance } from '../../src/render/fields'
 
 /**

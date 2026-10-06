@@ -2,8 +2,9 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { loadGlbTemplatesForNode } from '../fixtures/glb'
 import { Matrix4 } from 'three'
 import {
-  bakeParkedAircraft, PARKED_OFFSET_KEY, PARKED_PROP_KEY, PARKED_TAIL_DOWN, type ParkedProp,
+  bakeParkedAircraft, PARKED_OFFSET_KEY, PARKED_PROP_KEY, type ParkedProp,
 } from '../../src/render/geometry/ground/parked'
+import { PARKED_TAIL_DOWN } from '../../src/specs/ground'
 import { glbTemplate } from '../../src/render/geometry/glb'
 
 /**

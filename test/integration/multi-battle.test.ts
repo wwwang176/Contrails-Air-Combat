@@ -9,10 +9,8 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest'
 import { Vector3 } from 'three'
-import {
-  aliveCount, createBattle, stepBattle, DEFAULT_BATTLE, type Battle,
-  type BattleConfig,
-} from '../../src/battle/setup'
+import { createBattle, stepBattle, DEFAULT_BATTLE, type Battle, type BattleConfig } from '../../src/battle/setup'
+import { aliveCount } from '../../src/battle/objectiveQueries'
 import { HEAD_ON } from '../../src/battle/entry'
 import { BF109K4 } from '../../src/specs/bf109k4'
 import { lineAbreast } from '../../src/battle/order'

@@ -1,6 +1,6 @@
 import { Quaternion, Vector3 } from 'three'
 import { DEG } from '../core/math'
-import { hash01 } from '../render/scatter'
+import { hash01 } from '../core/hash'
 import { resetBurst, stepGunnerBurst, BURST_ON } from '../weapons/burst'
 import { stepCadence } from '../weapons/cadence'
 import { applyWobble, GOLDEN, inArc, slew, wobblePhase } from '../weapons/turret'
@@ -13,9 +13,10 @@ import { SHIP_AA_ARC_DEFAULTS, type ShipAATier, type ShipAAZone } from './shipAA
 import { FIRE_THRESHOLD, SEARCH_INTERVAL, TURRET_FLASH_SECONDS } from './turrets'
 import type { Ship, ShipClass, ShipGun } from './ships'
 import type { FlakShells } from './flak'
-import type { Projectiles } from './Projectiles'
+import { shipOwner, type Projectiles } from './Projectiles'
+export { SHIP_OWNER_BASE, shipOwner, ownerShipIndex } from './Projectiles'
 import type { TurretCombatant } from './turrets'
-import type { Team } from './World'
+import type { Team } from './team'
 
 /**
  * # 防空砲位的瞄準與開火
@@ -300,27 +301,6 @@ export const GROUND_FLAK_SPEC: ShipGunSpec = {
    * 正在挨打。0.55 是 1.13 度，而震動範圍也從 125 m 拉到 275 m。
    */
   burstSmoke: FLAK_SMOKE, burstBlast: FLAK_BLAST_SCALE, burstShake: 0.55,
-}
-
-/**
- * 船在彈丸池 `owner` 欄位裡的編碼基準。
- *
- * 【為什麼不能用 −1 也不能用 0..3】−1 是 `Projectiles` 的**空槽**標記
- * （`Projectiles.ts`），用它會讓 `liveCount` 加上去卻永遠不推進，池子慢慢
- * 漏光。而 0..3 會被 `resolveHits` 當成同索引的**飛機** —— 錯誤排除那一架，
- * 還把命中數與助攻記到它頭上。
- *
- * 負數區間離 −1 很遠，而且一眼看得出不是飛機。
- */
-export const SHIP_OWNER_BASE = -1000
-
-export function shipOwner(shipIndex: number): number {
-  return SHIP_OWNER_BASE - shipIndex
-}
-
-/** 解回船編號；不是船就回 −1。 */
-export function ownerShipIndex(owner: number): number {
-  return owner <= SHIP_OWNER_BASE ? SHIP_OWNER_BASE - owner : -1
 }
 
 /** 直射砲位（船上的機槍與機砲、地面輕型防空）的搖晃振幅，rad。**由試飛裁定。** */

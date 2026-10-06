@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { createBattle, stepBattle, reinforce, DEFAULT_BATTLE } from '../../src/battle/setup'
+import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
+import { reinforce } from '../../src/battle/reinforcements'
 import { lineAbreast } from '../../src/battle/order'
 import { HEAD_ON } from '../../src/battle/entry'
 import { AiController } from '../../src/ai/AiController'

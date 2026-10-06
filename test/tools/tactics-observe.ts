@@ -19,7 +19,8 @@
 import { Vector3 } from 'three'
 import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
-import { DEFAULT_COMMAND, FLANK_RANGE, type FlightOrder } from '../../src/ai/command'
+import { DEFAULT_COMMAND, FLANK_RANGE } from '../../src/ai/commandConfig'
+import { type FlightOrder } from '../../src/ai/commandTypes'
 import { recoveryClearance } from '../../src/ai/safety'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
@@ -46,9 +47,6 @@ const COOLDOWN = 10
  * 同一場仗不管拿哪個分隊當受命者都逐位元相同。
  */
 export type ControlIndex = Map<number, { sum: Float64Array, cnt: Float64Array }>
-
-/** 建索引時由 `observe` 寫入。只在對照那一場不是 null */
-let CONTROL_INDEX: ControlIndex | null = null
 
 /** 玩家座位放一個什麼都不做的控制器：平飛，不參戰 */
 class Idle implements Controller {
@@ -218,6 +216,13 @@ export interface Observed {
 export function observe(
   kind: 'flank' | 'focus' | null, vf: number, ctrl?: ControlIndex,
 ): Observed {
+  return runObservation(kind, vf, ctrl)
+}
+
+/** record 只由 runControl 傳入，索引的寫入範圍限於該場模擬。 */
+function runObservation(
+  kind: 'flank' | 'focus' | null, vf: number, ctrl?: ControlIndex, record?: ControlIndex,
+): Observed {
   const b: Battle = createBattle(new Idle())
   const o: Observed = {
     injected: 0, cleared: 0, firingUnderOrder: 0,
@@ -322,8 +327,8 @@ export function observe(
             }
             // 【建對照索引】對照那一場把每一步、每一個分隊的開火存起來，
             // 之後任何窗口組合都查得到。戰局是決定性的，所以跑一次就夠
-            if (kind === null && CONTROL_INDEX !== null) {
-              const arr = CONTROL_INDEX.get(b.flights.flightOf[c.index]!)
+            if (kind === null && record !== undefined) {
+              const arr = record.get(b.flights.flightOf[c.index]!)
               if (arr !== undefined) { arr.sum[s] = arr.sum[s]! + a; arr.cnt[s] = arr.cnt[s]! + 1 }
             }
             // 【時間對齊的實驗組】只算自由窗口
@@ -480,10 +485,8 @@ export function wingmanRate(o: Observed): number {
 /**
  * 跑對照那一場，順便把逐步方位角索引建起來。
  *
- * 【為什麼包成一支而不是讓呼叫端自己來】`CONTROL_INDEX` 是模組層的旗標，
- * **設了不關的話下一場會繼續往索引裡寫**，而那一場是有注入命令的 ——
- * 對照組於是被汙染成「對照 + 側翼」的混合，不會有任何錯誤，只會讓時間
- * 對齊的比較悄悄失去意義。順序與收尾包在這裡，呼叫端就不可能寫錯。
+ * 記錄容器只傳給這一場的 runObservation；一般 observe 只讀取對照索引。
+ * 即使模擬中途拋出例外，也沒有需要重設的模組狀態，不會污染下一場量測。
  *
  * 【對照只要一場】它不注入任何東西，所以不管拿哪個分隊當受命者都逐位元
  * 相同 —— 索引仍然逐分隊建，因為查的時候要按分隊查。
@@ -494,9 +497,7 @@ export function runControl(victims: readonly number[]): {
   const ctrl: ControlIndex = new Map(victims.map((v) => [v, {
     sum: new Float64Array(SECONDS * 240), cnt: new Float64Array(SECONDS * 240),
   }]))
-  CONTROL_INDEX = ctrl
-  const run = observe(null, victims[0]!)
-  CONTROL_INDEX = null
+  const run = runObservation(null, victims[0]!, undefined, ctrl)
   return { ctrl, run }
 }
 

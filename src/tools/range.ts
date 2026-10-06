@@ -26,7 +26,8 @@ import {
   WRECK_FIRE_SMOKE_SCALE,
 } from '../render/wrecks'
 import { buildAircraft, bodyColorOf, preloadAircraftModels, type AircraftModel } from '../render/geometry/buildAircraft'
-import { World, type Combatant } from '../world/World'
+import { World } from '../world/World'
+import type { Combatant } from '../world/combatant'
 import { clearImpacts, createImpacts, IMPACT_STRIDE } from '../world/events'
 import { clearKills, KILL_STRIDE } from '../world/kills'
 import { Aircraft } from '../aircraft/Aircraft'
@@ -75,6 +76,11 @@ class LevelFlight implements Controller {
     out.throttle = 0.75
     out.brake = 0
     out.firing = false
+    out.bombing = false
+    out.upright = false
+    out.pull = false
+    out.trackTurn = false
+    out.releaseFloor = 0
   }
 }
 

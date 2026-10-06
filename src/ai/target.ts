@@ -2,7 +2,7 @@ import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
 import { threatFactor, trackAngle, turnTime } from './assess'
 import type { Aircraft } from '../aircraft/Aircraft'
-import type { Team } from '../world/World'
+import type { Team } from '../world/team'
 import type { TakeoffRoll } from '../control/takeoffRoll'
 
 export interface TargetConfig {
@@ -576,7 +576,7 @@ export const PRESSURE_RANGE = 2000
  * 隊別對應到 `pressure` 的格子。**定義在 `world/World.ts`** —— 彈丸、
  * 炸彈、魚雷三個池用的是同一個編碼，而 `world/` 不能往上依賴這裡。
  */
-export { teamSlot } from '../world/World'
+export { teamSlot } from '../world/team'
 
 /**
  * 建立指派板。

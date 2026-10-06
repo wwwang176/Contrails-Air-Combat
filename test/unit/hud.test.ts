@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
+import { indicatedAirspeed } from '../../src/core/airspeed'
 import {
-  createHudContact, createHudFrame, indicatedAirspeed,
+  createHudContact, createHudFrame,
   contactColor, nextHitFlash, HIT_FLASH_SECONDS, HUD_COLORS, HUD_MAX_CONTACTS,
   contactBoxRadius, type HudLayout,
 } from '../../src/hud/types'
@@ -9,7 +10,7 @@ import {
   godMarkerVisible, flightStrengthLabel, godMarkerColor, drawGodMarkers,
 } from '../../src/hud/widgets/godMarkers'
 import { MAX_COMBATANTS } from '../../src/battle/skirmish'
-import { attitudeFromOrientation, headingFromOrientation } from '../../src/hud/attitude-math'
+import { attitudeFromOrientation, headingFromOrientation } from '../../src/core/attitude'
 import { advanceGEffect, resetGEffect } from '../../src/hud/widgets/gEffect'
 import { PILOT_G_NEGATIVE } from '../../src/control/limiters'
 import { TORPEDO_RUN_SAMPLES } from '../../src/world/torpedo'

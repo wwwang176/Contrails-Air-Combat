@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { BELT_CHANCE, fieldGlslWithSite } from '../../src/render/fields'
+import { BELT_CHANCE } from '../../src/render/fields'
+import { fieldGlslWithSite } from '../../src/render/fieldShaders'
 import { RZHEV_SITE } from '../../src/render/terrain'
 import { BELT_FRAME } from '../../src/world/rzhev'
 

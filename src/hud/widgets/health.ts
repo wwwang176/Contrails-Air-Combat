@@ -1,4 +1,5 @@
-import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
+import type { HudFrame, HudLayout } from '../types'
+import { HUD_COLORS, hudFont } from '../style'
 
 /** 血條低於此比例轉為警示色。 */
 const WARN_FRACTION = 0.5

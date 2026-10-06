@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PLANT_SIZE, type PlantKind } from '../../src/render/geometry/ground/plant'
-import { GROUND_UNITS } from '../../src/render/geometry/ground'
+import { GROUND_UNITS, PLANT_SIZE, type PlantKind } from '../../src/specs/ground'
 
 /**
  * 油廠構件的尺寸，**獨立寫死**。`ground-units.test.ts` 拿登記表的

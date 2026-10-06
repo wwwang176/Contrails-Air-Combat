@@ -1,20 +1,23 @@
-import { Audio, Vector3, type Camera } from 'three'
-import { PannedAudio, SilentListener } from './spatial'
+import { AudioListener, Vector3, type Camera } from 'three'
+import { PannedAudio } from './spatial'
 import { azimuthDeg, equalPowerMatrix, inverseDistanceGain, type ListenerPose } from './pan'
-import { assetUrl } from '../core/asset'
-import { CATEGORY, FIRST_FILES, POOLS, type Category, type Pool } from './catalog'
-import { absorptionDb, dbToGain, distanceCutoffHz, fadeInCurve, soundArrived, voiceLoudnessDb } from './curves'
+import { createAudioOutput } from './output'
+import { CATEGORY, POOLS, type Category, type Pool } from './catalog'
+import { createAudioAssets } from './assets'
+import { createUiAudio } from './uiAudio'
+import { createSelfAudio, type SelfSlot } from './selfAudio'
+import { absorptionDb, dbToGain, distanceCutoffHz, soundArrived, voiceLoudnessDb } from './curves'
 import {
   HDR_ABS_FLOOR_DB, HDR_EXEMPT, envelopeAt, hdrDuckDb, hdrFloorDb, stepLoudest,
 } from './dynamics'
-import { audioLag, toDb, type MeterSample } from './meter'
+import { audioLag, type MeterSample } from './meter'
 import { MIX_HEADROOM_DB } from './volume'
 import {
   DECORRELATE_WINDOW, LAYER_DB, decorrelateDelay, layerDelay, pickNoRepeat, randomRate,
 } from './pick'
 
 /**
- * # 音訊引擎 —— 遊戲裡唯一碰 Web Audio 的地方
+ * # 音訊播放引擎
  *
  * - **單次音效**：一個聲道池，全部是 `PannedAudio`（左右自己算，見 `spatial.ts`）。
  *   要定位的放在世界座標；不定位的（自己身上的聲音）永遠在正中間。池滿丟最不響的。
@@ -30,12 +33,12 @@ import {
  * 已經有過手勢，才 resume。只看一個的話，暫停中切音量會把聲音叫醒。
  */
 
-export type SelfSlot = 'engine' | 'wind' | 'warn' | 'siren'
+export type { SelfSlot } from './selfAudio'
 export type LoopPool = 'engine' | 'fire' | 'turret' | 'siren'
 
 export interface AudioEngine {
   /**
-   * 下載並解碼全部音效。重複呼叫回同一個 Promise；失敗的檔案略過。
+   * 下載並解碼全部音效。重複呼叫共用同一批載入工作；失敗的檔案略過。
    *
    * `onProgress` 每載完一支回報一次。**中途接上也會先收到當下的進度** ——
    * 開場就在背景下載了，進戰鬥時才掛上載入畫面。清單還沒到（總數未知）
@@ -73,7 +76,7 @@ export interface AudioEngine {
    * 選單按鈕。**不吃暫停，也不吃結算的慢動作** —— 暫停選單上那幾顆按鈕
    * 本來就是暫停時唯一還能按的東西，跟著一起靜音等於它們沒有聲音。
    *
-   * 走自己的 AudioContext（見 `uiCtx`），所以不受主 context 的 suspend 影響。
+   * 走自己的 AudioContext（見 `uiAudio.ts`），所以不受主 context 的 suspend 影響。
    */
   playUi(file: string, extraDb?: number): void
   /** 自己身上的循環。file 為 null 表示停。每一幀都呼叫 */
@@ -125,9 +128,6 @@ const VOICE_QUOTA: Partial<Record<Category, number>> = {
 }
 const LOOP_VOICES: Record<LoopPool, number> = { engine: 8, fire: 6, turret: 6, siren: 4 }
 const LOOP_CATEGORY: Record<LoopPool, Category> = { engine: 'engine', fire: 'fire', turret: 'turret', siren: 'siren' }
-const SELF_CATEGORY: Record<SelfSlot, Category> = { engine: 'engineSelf', wind: 'wind', warn: 'warn', siren: 'sirenSelf' }
-/** 換檔、停止時的淡出，s */
-const SELF_FADE = 0.1
 const LOOP_FADE = 0.3
 const FULL_BAND = 22000
 /** 左右矩陣逐幀平滑的時間常數，s。約一幀：快速掠過的飛機不會一格一格跳 */
@@ -140,8 +140,6 @@ const CUTOFF_STEP = 0.03
 const RESUME_FADE_IN = 0.8
 /** 讀錶間隔超過這個秒數就重新對齊兩個時鐘 —— 分頁在背景時畫面不跑 */
 const LAG_REANCHOR = 0.5
-/** 淡入曲線的點數。曲線點之間是線性內插，32 點已經聽不出折角 */
-const FADE_POINTS = 32
 
 interface Voice {
   audio: PannedAudio
@@ -192,55 +190,13 @@ interface LoopVoice {
   extraDb: number
 }
 
-interface SelfVoice {
-  audio: Audio
-  /** 只有風切有：截止頻率隨空速變 */
-  filter: BiquadFilterNode | null
-  file: string | null
-  /** 換檔或停止的淡出期間，要換成的檔（null = 停）。undefined = 沒在切換 */
-  next: string | null | undefined
-  switchAt: number
-  gain: number
-}
-
 export function createAudioEngine(camera: Camera): AudioEngine {
-  const listener = new SilentListener()
-  camera.add(listener)
+  // 只用 listener 的 context 與主音量，不掛進場景；方位由 readPose 直接讀相機。
+  // 避免相機更新時觸發 AudioListener 的九條位置漸變，聲道並沒有 PannerNode 需要它們。
+  const listener = new AudioListener()
   const ctx = listener.context
-  /**
-   * 世界聲音的最後一段：`listener.gain`（主音量）→ `fade` → 喇叭。
-   * 每一個世界聲道都經過 `listener.gain`，所以淡入插在這裡就管得到全部。
-   */
-  const fade = ctx.createGain()
-  listener.gain.disconnect()
-  listener.gain.connect(fade)
-  fade.connect(ctx.destination)
-  /**
-   * 限幅器。**接上之前先直通** —— `addModule` 是非同步的，而且可能失敗。
-   *
-   * 【兩種失敗都要旁路】載入失敗不插節點；載好之後 `process()` 拋例外會觸發
-   * `processorerror`，那個節點從此永遠輸出靜音，而它在最後一道 —— 症狀是
-   * 整場突然全部沒聲音。
-   */
-  let limiter: AudioWorkletNode | null = null
-  void ctx.audioWorklet?.addModule(assetUrl('/audio/limiter.js')).then(() => {
-    const node = new AudioWorkletNode(ctx, 'limiter')
-    node.port.onmessage = (e: MessageEvent) => {
-      const d = e.data as { gain?: number; peak?: number }
-      if (typeof d.gain === 'number') limGain = d.gain
-      if (typeof d.peak === 'number') limPeak = d.peak
-    }
-    node.onprocessorerror = () => {
-      limiter = null
-      fade.disconnect()
-      node.disconnect()
-      fade.connect(ctx.destination)
-    }
-    fade.disconnect()
-    fade.connect(node)
-    node.connect(ctx.destination)
-    limiter = node
-  }).catch(() => { limiter = null })
+  const output = createAudioOutput(ctx, listener.gain)
+  const { fadeIn, resetLimiter } = output
   /**
    * 試聽用的開關：在主控台打 `__audioMix({ limiter: false })` 可以當場拆掉
    * 限幅器、`{ hdr: false }` 關掉動態窗口，比對某個怪聲是哪一層造成的。
@@ -251,35 +207,23 @@ export function createAudioEngine(camera: Camera): AudioEngine {
   ;(globalThis as unknown as Record<string, unknown>)['__audioMix'] = (
     opt?: { limiter?: boolean; hdr?: boolean },
   ) => {
-    if (opt?.limiter === false && limiter !== null) {
-      fade.disconnect()
-      limiter.disconnect()
-      fade.connect(ctx.destination)
-      limiter = null
-    }
+    if (opt?.limiter === false) output.bypassLimiter()
     if (opt?.hdr !== undefined) hdrOn = opt.hdr
-    return { limiter: limiter !== null, hdr: hdrOn }
+    return { limiter: output.limiterEnabled, hdr: hdrOn }
   }
 
-  /** 清掉預看緩衝裡那幾毫秒 —— 它們是乘過舊淡入增益的樣本 */
-  function resetLimiter(): void {
-    limiter?.port.postMessage('reset')
-  }
-  const fadeCurve = fadeInCurve(FADE_POINTS)
   /** 這一刻的聽者：鏡頭的位置與朝向。定位聲道的左右由它算 */
   const pose: ListenerPose = { px: 0, py: 0, pz: 0, fx: 0, fy: 0, fz: -1, ux: 0, uy: 1, uz: 0 }
   /** 左右矩陣的暫存，逐幀重用 */
   const panOut = new Float32Array(4)
 
-  const buffers = new Map<string, AudioBuffer>()
+  const { buffers, makeup, envelopes, load } = createAudioAssets(ctx)
+  const uiAudio = createUiAudio(buffers, makeup)
   /**
    * 每個檔上一次發聲的時刻。**同檔去相關用** —— 同時播兩份是完全同相、
    * 直接 +6 dB，所以窗內的第二份錯開幾毫秒再出來（`decorrelateDelay`）。
    */
   const lastPlayed = new Map<string, number>()
-  const makeup = new Map<string, number>()
-  /** 每個檔的素材包絡，每 `ENVELOPE_STEP` 秒一格、相對自己最響的那一格 */
-  const envelopes = new Map<string, readonly number[]>()
   /**
    * HDR 的當下最響值，dB。**立即跟上新的峰值、慢慢釋放** —— 見 `dynamics.ts`。
    * 暫停與切分頁保留（場面沒變），`stopAll` 歸零（上一場的窗口不帶進新的一場）。
@@ -287,9 +231,6 @@ export function createAudioEngine(camera: Camera): AudioEngine {
   let loudest = HDR_ABS_FLOOR_DB
   /** 動態窗口開著沒有。試聽用，見 `__audioMix` */
   let hdrOn = true
-  /** 限幅器回報的最近一批：增益（線性）與輸入峰值。見 `public/audio/limiter.js` */
-  let limGain = 1
-  let limPeak = 0
   /** 累計把還在響的聲音直接切掉幾次。給錶用 */
   let cuts = 0
   /** 音訊時鐘落後量的起算點（牆上時鐘、音訊時鐘，秒）與上一次讀錶的牆上時間 */
@@ -297,27 +238,9 @@ export function createAudioEngine(camera: Camera): AudioEngine {
   let lagCtx = 0
   let lagReadAt = -Infinity
   const lastPick: Partial<Record<Pool, number>> = {}
-  let loading: Promise<void> | null = null
-  /** 載入進度：已載完的檔數與總數。總數在清單到手之前是 0 */
-  let filesDone = 0
-  let fileTotal = 0
-  let onProgress: ((done: number, total: number) => void) | null = null
   let unlocked = false
-  let muted = false
+  const playback = { muted: false, timeScale: 1 }
   let paused = false
-  let timeScale = 1
-  /**
-   * 選單按鈕專用的 context。**不能與世界共用** —— 暫停時主 context 整個
-   * suspend（連排程中的聲音一起凍住，那是刻意的），而暫停選單上那幾顆按鈕
-   * 是當下唯一按得到的東西。
-   *
-   * 【第一次要用才建】一載入就建的話，瀏覽器會記一個沒有手勢就開的 context
-   * 並在主控台留警告。解碼好的 AudioBuffer 不綁 context，可以直接拿來用。
-   */
-  let uiCtx: AudioContext | null = null
-  let uiGain: GainNode | null = null
-  /** 主音量，dB；null = 關閉。UI 那一條自己乘，它不走 `AudioListener` */
-  let masterDb: number | null = 0
   /** 上一次挑聲道時有幾個是空的。疊第二層之前看它 */
   let lastFreeVoices = ONE_SHOT_VOICES
 
@@ -407,14 +330,7 @@ export function createAudioEngine(camera: Camera): AudioEngine {
     }
   }
 
-  const selves = {} as Record<SelfSlot, SelfVoice>
-  for (const slot of ['engine', 'wind', 'warn', 'siren'] as SelfSlot[]) {
-    const audio = new Audio(listener)
-    audio.setLoop(true)
-    const filter = slot === 'wind' ? lowpass() : null
-    if (filter !== null) audio.setFilter(filter)
-    selves[slot] = { audio, filter, file: null, next: undefined, switchAt: 0, gain: 0 }
-  }
+  const selfAudio = createSelfAudio(listener, buffers, makeup, playback, lowpass)
 
   /**
    * 【排隊依序做】`resume()` 回來之前 `ctx.state` 還是 suspended —— 那時切走分頁，
@@ -427,7 +343,7 @@ export function createAudioEngine(camera: Camera): AudioEngine {
   function applyRunState(): void {
     // 【從停到播才淡入】已經在播時再叫一次 setPaused(false)，聲音不能被拉回 0。
     // suspend 中 `currentTime` 不走，排下去的曲線等 resume 之後才開始
-    const run = unlocked && !muted && !paused
+    const run = unlocked && !playback.muted && !paused
     // 【恢復前先清限幅器】它的預看緩衝在 `fade` 下游，裡面那幾毫秒是乘過舊
     // 淡入增益的樣本；不清的話恢復的一瞬間會先漏出去，聽起來是一個爆點
     if (run && !running) {
@@ -436,52 +352,13 @@ export function createAudioEngine(camera: Camera): AudioEngine {
     }
     running = run
     runChain = runChain.then(() => {
-      const run = unlocked && !muted && !paused
+      const run = unlocked && !playback.muted && !paused
       return run ? ctx.resume() : ctx.suspend()
     }).catch(() => {})
   }
 
-  function fadeIn(seconds: number): void {
-    const g = fade.gain
-    const now = ctx.currentTime
-    // 【先清掉還沒走完的那一段】曲線與曲線重疊時 setValueCurveAtTime 會丟例外
-    g.cancelScheduledValues(now)
-    try {
-      g.setValueCurveAtTime(fadeCurve, now, seconds)
-    } catch {
-      // 排不進去就直接全開 —— 停在 0 的話整場都沒有聲音，而且不會報錯
-      g.value = 1
-    }
-  }
-
   function gainOf(file: string, cat: Category, extraDb: number): number {
     return dbToGain(CATEGORY[cat].gainDb + (makeup.get(file) ?? 0) + extraDb)
-  }
-
-  /**
-   * 選單按鈕：自己的 context、一條固定的增益、播完就丟。
-   *
-   * 【為什麼不共用聲道池】那個池的挑選會搶佔、會依距離算響度，而這一條既不
-   * 定位也不該被戰場的聲音擠掉。按鈕一次只響一下，直接開一個來源最簡單。
-   */
-  function playUi(file: string, extraDb = 0): void {
-    const buf = buffers.get(file)
-    if (buf === undefined) return
-    if (uiCtx === null) {
-      uiCtx = new AudioContext()
-      uiGain = uiCtx.createGain()
-      // 【與世界吃同一份餘裕】少加的話按鈕會比戰場大一截
-      uiGain.gain.value = masterDb === null ? 0 : dbToGain(masterDb + MIX_HEADROOM_DB)
-      uiGain.connect(uiCtx.destination)
-    }
-    // 【每次都叫 resume】分頁切回來時瀏覽器會把它擱在 suspended
-    void uiCtx.resume().catch(() => {})
-    const src = uiCtx.createBufferSource()
-    src.buffer = buf
-    const g = uiCtx.createGain()
-    g.gain.value = gainOf(file, 'ui', extraDb)
-    src.connect(g).connect(uiGain!)
-    src.start()
   }
 
   function camDistance(x: number, y: number, z: number): number {
@@ -492,7 +369,7 @@ export function createAudioEngine(camera: Camera): AudioEngine {
   function playFile(file: string, cat: Category, x: number, y: number, z: number, positioned: boolean,
     extraDb = 0, extraDelay = 0, rateScale = 1, cutoffHz = FULL_BAND): void {
     const buffer = buffers.get(file)
-    if (buffer === undefined || muted || ctx.state !== 'running') return
+    if (buffer === undefined || playback.muted || ctx.state !== 'running') return
     const spec = CATEGORY[cat]
     const loc = positioned && spec.ref > 0
     const d = loc ? camDistance(x, y, z) : 0
@@ -560,7 +437,7 @@ export function createAudioEngine(camera: Camera): AudioEngine {
     const delay = extraDelay + (since < DECORRELATE_WINDOW ? decorrelateDelay(Math.random) : 0)
     lastPlayed.set(file, ctx.currentTime)
     const rate = randomRate(Math.random) * rateScale
-    a.setPlaybackRate(rate * timeScale)
+    a.setPlaybackRate(rate * playback.timeScale)
     // 【定位的先等音波】`start()` 排下去就改不了了，等待期間要能依鏡頭移動提前或延後
     if (loc && d > 0) {
       pick.waitingSince = ctx.currentTime
@@ -582,49 +459,6 @@ export function createAudioEngine(camera: Camera): AudioEngine {
     if (!layered || members.length < 2 || lastFreeVoices < LAYER_MIN_FREE) return
     const k2 = pickNoRepeat(members.length, k, Math.random)
     playFile(members[k2]!, cat, x, y, z, positioned, extraDb + LAYER_DB, layerDelay(Math.random), rate, cutoffHz)
-  }
-
-  function selfLoop(slot: SelfSlot, file: string | null, rate: number, gainDb: number, cutoffHz?: number): void {
-    const s = selves[slot]
-    const now = ctx.currentTime
-    const target = file !== null && buffers.has(file) && !muted ? file : null
-    s.gain = target === null ? 0 : gainOf(target, SELF_CATEGORY[slot], gainDb)
-
-    // 【換檔中目標又變了】回到原本那個就取消換檔；換成別的就改目標 ——
-    // 不改的話會先播一下已經過時的那一個，再淡出換一次
-    if (s.next !== undefined && target !== s.next) {
-      if (target === s.file) s.next = undefined
-      else s.next = target
-    }
-    // 【換檔：淡出 → 換 buffer → 淡入】一個 Audio 同時只能播一個來源，做不了交叉淡化
-    if (target !== s.file && s.next === undefined) {
-      if (s.audio.isPlaying) {
-        s.next = target
-        s.switchAt = now + SELF_FADE
-        s.audio.gain.gain.setTargetAtTime(0, now, SELF_FADE / 3)
-      } else {
-        s.file = target
-        if (target !== null) {
-          s.audio.setBuffer(buffers.get(target)!)
-          s.audio.gain.gain.setValueAtTime(0, now)
-          s.audio.play()
-        }
-      }
-    }
-    if (s.next !== undefined && now >= s.switchAt) {
-      s.audio.stop()
-      s.file = s.next
-      s.next = undefined
-      if (s.file !== null) {
-        s.audio.setBuffer(buffers.get(s.file)!)
-        s.audio.play()
-      }
-    }
-    if (s.audio.isPlaying) {
-      if (s.next === undefined) s.audio.gain.gain.setTargetAtTime(s.gain, now, 0.05)
-      s.audio.setPlaybackRate(rate * timeScale)
-      s.filter?.frequency.setTargetAtTime(cutoffHz ?? FULL_BAND, now, 0.05)
-    }
   }
 
   /**
@@ -689,7 +523,7 @@ export function createAudioEngine(camera: Camera): AudioEngine {
       if (d > v.waitMax) { v.waitingSince = -1; continue }
       if (!soundArrived(now - v.waitingSince, d)) continue
       v.waitingSince = -1
-      v.audio.setPlaybackRate(v.waitRate * timeScale)
+      v.audio.setPlaybackRate(v.waitRate * playback.timeScale)
       panVoice(v, now, 0)
       v.audio.play(v.waitDelay)
     }
@@ -710,7 +544,7 @@ export function createAudioEngine(camera: Camera): AudioEngine {
   function assign(pool: LoopPool, key: number, file: string, x: number, y: number, z: number, rate: number,
     gainDb = 0): void {
     const buffer = buffers.get(file)
-    if (buffer === undefined || muted) return
+    if (buffer === undefined || playback.muted) return
     const cat = LOOP_CATEGORY[pool]
     const d = camDistance(x, y, z)
     // 【超過上限就不指派】這一幀沒被指派的，`endFrame` 會淡出放掉
@@ -747,7 +581,7 @@ export function createAudioEngine(camera: Camera): AudioEngine {
       CATEGORY[cat].gainDb + (makeup.get(file) ?? 0) + gainDb, CATEGORY[cat].ref, d, CATEGORY[cat].rolloff ?? 1)
     const duck = !hdrOn || HDR_EXEMPT.has(cat) ? 0 : hdrDuckDb(live, loudest)
     v.audio.gain.gain.setTargetAtTime(gainOf(file, cat, absorptionDb(d) + duck + gainDb), now, 0.1)
-    v.audio.setPlaybackRate(rate * timeScale)
+    v.audio.setPlaybackRate(rate * playback.timeScale)
     pan(v.audio, true, d, CATEGORY[cat].ref, CATEGORY[cat].rolloff ?? 1, now, fresh ? 0 : PAN_SMOOTH)
   }
 
@@ -775,8 +609,7 @@ export function createAudioEngine(camera: Camera): AudioEngine {
    * 那就是真的送到喇叭的東西。
    */
   function meter(out: MeterSample): void {
-    out.peakDb = toDb(limPeak * limGain)
-    out.reductionDb = limiter === null ? 0 : toDb(limGain)
+    output.readMeter(out)
     out.loudestDb = loudest
     let n = 0
     for (const v of voices) if (v.audio.isPlaying) n++
@@ -808,12 +641,7 @@ export function createAudioEngine(camera: Camera): AudioEngine {
         v.releaseAt = -1
       }
     }
-    for (const slot of Object.keys(selves) as SelfSlot[]) {
-      const s = selves[slot]
-      if (s.audio.isPlaying) s.audio.stop()
-      s.file = null
-      s.next = undefined
-    }
+    selfAudio.stopAll()
     // 【換場也要清】停掉來源不等於清掉限幅器裡那幾毫秒
     resetLimiter()
     // 【HDR 的窗口不帶進下一場】上一場最後那顆炸彈的窗口會讓新場的開頭被壓掉
@@ -821,55 +649,8 @@ export function createAudioEngine(camera: Camera): AudioEngine {
     lastFrameAt = -1
   }
 
-  async function loadAll(): Promise<void> {
-    const res = await fetch(assetUrl('/audio/manifest.json'))
-    const manifest = await res.json() as
-      Record<string, { loop: boolean; makeupDb: number; envelopeDb?: number[] }>
-    // 【選單的按鈕音插隊】見 `FIRST_FILES`。sort 是穩定的，其餘的順序不變
-    const first = new Set<string>(FIRST_FILES)
-    const ids = Object.keys(manifest)
-      .sort((a, b) => Number(first.has(b)) - Number(first.has(a)))
-    for (const id of ids) {
-      makeup.set(id, manifest[id]!.makeupDb)
-      const e = manifest[id]!.envelopeDb
-      if (e !== undefined) envelopes.set(id, e)
-    }
-    fileTotal = ids.length
-    onProgress?.(filesDone, fileTotal)
-    let next = 0
-    // 【最多 6 個並行】全部同時開會把瀏覽器的連線數吃滿，模型那邊的下載就卡住
-    async function worker(): Promise<void> {
-      while (next < ids.length) {
-        const id = ids[next++]!
-        try {
-          const r = await fetch(assetUrl(`/audio/${id}.mp3`))
-          buffers.set(id, await ctx.decodeAudioData(await r.arrayBuffer()))
-        } catch (e) {
-          console.warn(`音效載入失敗：${id}`, e)
-        }
-        // 【失敗的也要推一格】否則少一支檔，進度條就永遠停在 99%
-        filesDone++
-        onProgress?.(filesDone, fileTotal)
-      }
-    }
-    await Promise.all(Array.from({ length: 6 }, worker))
-  }
-
   return {
-    async load(cb) {
-      // 【中途接上也要先報一次】開場已經在背景下載，進戰鬥才掛上載入畫面 ——
-      // 不先報的話，進度條要等下一支檔載完才動，已經載完時則永遠不動
-      if (cb !== undefined) {
-        onProgress = cb
-        if (fileTotal > 0) cb(filesDone, fileTotal)
-      }
-      loading ??= loadAll().catch((e) => { console.warn('音效清單載入失敗', e) })
-      try {
-        await loading
-      } finally {
-        if (onProgress === cb) onProgress = null
-      }
-    },
+    load,
     unlock() {
       unlocked = true
       applyRunState()
@@ -877,13 +658,12 @@ export function createAudioEngine(camera: Camera): AudioEngine {
     setVolume(db) {
       // 【關閉就停掉所有聲音】只 suspend 的話，延遲中的遠方爆炸會凍在那裡，
       // 一分鐘後再打開音量才冒出來。循環聲下一幀由呼叫端依當下狀態重建
-      if (db === null && !muted) stopAll()
-      muted = db === null
-      masterDb = db
+      if (db === null && !playback.muted) stopAll()
+      playback.muted = db === null
       // 【加上混音餘裕】設定頁的「高」是 0，但那是**使用者看到的滿音量**，
       // 不是 0 dBFS。見 `MIX_HEADROOM_DB`
       if (db !== null) listener.setMasterVolume(dbToGain(db + MIX_HEADROOM_DB))
-      if (uiGain !== null) uiGain.gain.value = db === null ? 0 : dbToGain(db + MIX_HEADROOM_DB)
+      uiAudio.setVolume(db)
       applyRunState()
     },
     setPaused(p) {
@@ -891,13 +671,13 @@ export function createAudioEngine(camera: Camera): AudioEngine {
       applyRunState()
     },
     setTimeScale(s) {
-      timeScale = s
+      playback.timeScale = s
     },
     fadeIn,
     playPool,
     playFile,
-    playUi,
-    selfLoop,
+    playUi: uiAudio.play,
+    selfLoop: selfAudio.selfLoop,
     beginFrame,
     assign,
     endFrame,

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { extendPitchAngle, DEFAULT_STEER } from '../../src/ai/steer'
+import { extendPitchAngle } from '../../src/ai/steer'
+import { DEFAULT_STEER } from '../../src/ai/steerConfig'
 
 /**
  * `extend` 的俯仰**方向**。

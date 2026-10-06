@@ -1,4 +1,4 @@
-import { hash01 } from './scatter'
+import { hash01 } from '../core/hash'
 
 /**
  * # 煙的風

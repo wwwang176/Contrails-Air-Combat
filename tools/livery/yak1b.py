@@ -71,4 +71,5 @@ def main(faces, winter=False):
     L.save()
 
 
-main([a for a in sys.argv[1:] if not a.startswith('--')][0], '--winter' in sys.argv)
+if __name__ == '__main__':
+    main([a for a in sys.argv[1:] if not a.startswith('--')][0], '--winter' in sys.argv)

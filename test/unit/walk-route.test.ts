@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
-import { walkRoute, headingToward, type PoseState, type RouteMotion } from '../../src/control/takeoffRoll'
+import { walkRoute, headingToward, type PoseState, type RouteMotion } from '../../src/core/routeMotion'
 
 /**
  * # 沿折線走（車輛用的參數）

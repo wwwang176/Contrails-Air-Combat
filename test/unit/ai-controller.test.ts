@@ -2,17 +2,17 @@ import { describe, it, expect } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createCommand } from '../../src/control/Controller'
+import { AiController, AI_DECISION_HZ } from '../../src/ai/AiController'
 import {
-  AiController, AI_DECISION_HZ, stepGroundReleaseCapture,
-  type GroundCaptureState, type GroundReleaseGate,
-} from '../../src/ai/AiController'
+  stepGroundReleaseCapture, type GroundCaptureState, type GroundReleaseGate,
+} from '../../src/ai/recoveryCapture'
 import { createTargetBoard, type TargetCandidate } from '../../src/ai/target'
 import { STATION_OFFSETS, stationPoint } from '../../src/ai/station'
 import { ACE, VETERAN } from '../../src/ai/profile'
 import { MAX_REACTION_DELAY } from '../../src/ai/delay'
 import { INTENTS } from '../../src/ai/rules'
 import { rallyAim } from '../../src/ai/rally'
-import type { FlightOrder } from '../../src/ai/command'
+import type { FlightOrder } from '../../src/ai/commandTypes'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
 

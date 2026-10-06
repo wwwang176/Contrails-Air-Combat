@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { PerspectiveCamera, Scene, ShaderMaterial, Vector3, WebGLRenderer } from 'three'
 import { createSky, SKY_RADIUS, SKY_RENDER_ORDER } from '../../src/render/sky'
 import { CAMERA_FAR, CAMERA_NEAR } from '../../src/render/scene'
-import { FAR_SEA_RENDER_ORDER } from '../../src/render/ocean'
+import { FAR_SEA_RENDER_ORDER } from '../../src/render/oceanGeometry'
 import { PROP_DISC_RENDER_ORDER } from '../../src/render/geometry/assembly'
 
 /**

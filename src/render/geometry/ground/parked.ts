@@ -3,7 +3,7 @@ import {
   type Mesh, type MeshStandardMaterial, type Object3D,
 } from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { DEG } from '../../../core/math'
+import { PARKED_TAIL_DOWN } from '../../../specs/ground'
 import { glbTemplate } from '../glb'
 
 /**
@@ -23,7 +23,6 @@ import { glbTemplate } from '../glb'
  * `createGroundModels` 會 dispose 程序化那幾台的幾何 —— 回共用的那一份的話
  * 第一台被 dispose 之後其餘 23 台就空了。快取烘好的、回 `clone()`。
  */
-export const PARKED_TAIL_DOWN = 10 * DEG
 
 /**
  * 烘好的幾何在 `userData` 的這一格記著烘焙的平移（`{ x, y, z }`，套在下沉之後）。

@@ -1,18 +1,20 @@
-import { beforeAll, describe, it, expect } from 'vitest'
+import { beforeAll, describe, it, expect, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import {
   Box3, Matrix4, Vector3, type BufferAttribute, type BufferGeometry, type Mesh, type Object3D,
 } from 'three'
 import {
-  PARKED_PROP_KEY, PARKED_TAIL_DOWN, type ParkedProp,
+  PARKED_PROP_KEY, type ParkedProp,
 } from '../../src/render/geometry/ground/parked'
 import { createGltfLoader } from '../../src/render/geometry/gltfLoader'
 import {
-  GROUND_UNITS, TRAIN_CONSIST, groundGeometry, groundModelUrls, preloadGroundModels,
-  type GroundUnit,
+  GROUND_MODELS, groundGeometry, groundModelUrls, preloadGroundModels,
 } from '../../src/render/geometry/ground'
+import { GROUND_UNITS, TRAIN_CONSIST, PARKED_TAIL_DOWN, type GroundUnit } from '../../src/specs/ground'
 import { GLB_MATERIALS } from '../../src/render/geometry/ground/glb'
 import { loadGlbTemplatesForNode } from '../fixtures/glb'
+import { createGroundTarget } from '../../src/world/groundTargets'
+import { createGroundModels } from '../../src/render/groundTargets'
 
 /**
  * 地面單位的外形與命中盒護欄。
@@ -77,10 +79,11 @@ function boundsOf(u: GroundUnit): Box3 {
  * 程序化的火車只有一顆合併後的幾何，當一個節點。
  */
 async function meshesOf(u: GroundUnit): Promise<{ node: string; pos: BufferAttribute }[]> {
-  if (!('glb' in u.model)) {
+  const { model } = GROUND_MODELS[u.id]
+  if (!('glb' in model)) {
     return [{ node: u.id, pos: geometryOf(u).getAttribute('position') as BufferAttribute }]
   }
-  const { glb, barrelNodes } = u.model
+  const { glb, barrelNodes } = model
   const scene = await new Promise<Object3D>((res, rej) => {
     readPublic(glb).then((buf) => createGltfLoader().parse(buf, '', (g) => res(g.scene), rej), rej)
   })
@@ -139,6 +142,32 @@ function inside(x: number, y: number, z: number, u: GroundUnit): boolean {
 const size = new Vector3()
 
 describe('地面單位', () => {
+  it('同種模型共用幾何，釋放高低模各一次但保留 GLB 快取', () => {
+    const targets = (['tank', 'mortar', 'mortar', 'parkedB17', 'parkedB17'] as const)
+      .map((id, i) => createGroundTarget(i, id, 'red', 0, 0, 0))
+    const models = createGroundModels(targets)
+    const meshes = models.object.children as Mesh[]
+    const tank = meshes[0]!.geometry
+    const mortar = meshes[1]!.geometry
+    const high = meshes[3]!.geometry
+    expect(meshes[2]!.geometry).toBe(mortar)
+    expect(meshes[4]!.geometry).toBe(high)
+    expect(tank).toBe(groundGeometry(targets[0]!.unit))
+    models.update(targets, new Vector3(100_000, 0, 0))
+    const low = meshes[3]!.geometry
+    expect(low).not.toBe(high)
+    expect(meshes[4]!.geometry).toBe(low)
+    expect(models.lodState()).toEqual({ withLod: 2, far: 2 })
+    const spies = [tank, mortar, high, low].map((g) => vi.spyOn(g, 'dispose'))
+    try {
+      models.dispose()
+      expect(spies[0]).not.toHaveBeenCalled()
+      for (const spy of spies.slice(1)) expect(spy).toHaveBeenCalledTimes(1)
+    } finally {
+      for (const spy of spies) spy.mockRestore()
+    }
+  })
+
   it('登記表沒有重複的 id', () => {
     const ids = GROUND_UNITS.map((u) => u.id)
     expect(new Set(ids).size).toBe(ids.length)
@@ -152,7 +181,7 @@ describe('地面單位', () => {
   it('GLB 用到的材質名全在對照表裡，對照表也沒有沒人用的名字', () => {
     const used = new Set<string>()
     for (const u of GROUND_UNITS) {
-      if (!('glb' in u.model)) continue
+      if (!('glb' in GROUND_MODELS[u.id].model)) continue
       for (const m of geometryOf(u).userData['materials'] as string[]) used.add(m)
     }
     for (const name of Object.keys(GLB_MATERIALS)) expect(used.has(name)).toBe(true)
@@ -160,8 +189,17 @@ describe('地面單位', () => {
 
   for (const u of GROUND_UNITS) {
     describe(u.id, () => {
-      if ('glb' in u.model) {
-        const glb = u.model.glb
+      const { model } = GROUND_MODELS[u.id]
+      if (['infantry', 'mortar', 'locomotive', 'tender', 'boxcar', 'flatcar', 'fuelDump', 'bombDump', 'searchlight'].includes(u.id)) {
+        it('實測命中盒與程序化模型的精確邊界一致', () => {
+          const bounds = boundsOf(u)
+          expect(u.hull).toHaveLength(1)
+          expect(u.hull[0]!.center.toArray()).toEqual(bounds.getCenter(new Vector3()).toArray())
+          expect(u.hull[0]!.half.toArray()).toEqual(bounds.getSize(new Vector3()).multiplyScalar(0.5).toArray())
+        })
+      }
+      if ('glb' in model) {
+        const glb = model.glb
         it('每一個零件的面都朝外（有號體積為正）', async () => {
           const parts = await partVolumes(glb)
           expect(parts.length).toBeGreaterThan(0)

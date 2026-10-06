@@ -1,5 +1,5 @@
 import { BufferAttribute, BufferGeometry, Color } from 'three'
-import { hash01 } from '../../scatter'
+import { hash01 } from '../../../core/hash'
 import { toLocal, type ObstacleKind, type ObstacleLine } from '../../../world/rzhev'
 
 /**

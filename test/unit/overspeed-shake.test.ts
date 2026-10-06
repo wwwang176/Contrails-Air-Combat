@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { PerspectiveCamera } from 'three'
 import {
-  OVERSPEED_FULL, OVERSPEED_ONSET, OVERSPEED_SHAKE, SHAKE_SECONDS,
-  applyCameraShake, createCameraShake, overspeedShake, stepCameraShake,
+  SHAKE_SECONDS, applyCameraShake, createCameraShake, stepCameraShake,
 } from '../../src/camera/cameraShake'
+import { OVERSPEED_FULL, OVERSPEED_ONSET, OVERSPEED_SHAKE, overspeedShake } from '../../src/core/overspeedFeedback'
 
 /**
  * # 超速的持續搖晃
@@ -97,17 +97,17 @@ describe('sustained 與 trauma', () => {
 })
 
 describe('main.ts 的接線', () => {
-  const SOURCES = import.meta.glob('../../src/main.ts', {
+  const CAMERA_SOURCES = import.meta.glob('../../src/app/battleCameraFrame.ts', {
     query: '?raw', import: 'default', eager: true,
   }) as Record<string, string>
-  const MAIN = Object.values(SOURCES)[0]!
+  const CAMERA = Object.values(CAMERA_SOURCES)[0]!
 
   /** 排在套用之後的話，這一幀用的是上一幀的速度 —— 更糟的是換場那一幀 */
   it('每幀由速度寫入 sustained，排在套用震動之前', () => {
-    const write = MAIN.indexOf('cameraShake.sustained =')
-    const apply = MAIN.indexOf('applyCameraShake(cameraShake')
+    const write = CAMERA.indexOf('cameraShake.sustained =')
+    const apply = CAMERA.indexOf('applyCameraShake(cameraShake')
     expect(write).toBeGreaterThan(0)
-    expect(MAIN.slice(write, apply)).toContain('overspeedShake(')
+    expect(CAMERA.slice(write, apply)).toContain('overspeedShake(')
     expect(apply).toBeGreaterThan(write)
   })
 })

@@ -1,5 +1,6 @@
 import { CRASH_CLEARANCE } from '../aircraft/crash'
-import type { Combatant, CrashPolicy } from './World'
+import type { Combatant } from './combatant'
+import type { CrashPolicy } from './World'
 
 /**
  * 撞地判定的政策工廠：**海面是平的，陸地讀高度場。**

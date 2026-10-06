@@ -1,14 +1,14 @@
 import { Vector3 } from 'three'
 import { DEG } from '../core/math'
-import { bankAttitude, createBankAttitude } from '../control/FlightDirector'
+import { bankAttitude, createBankAttitude } from '../control/bankAttitude'
 import { THROTTLE_FLOOR } from '../input/throttle'
 import { RHO0 } from '../physics/atmosphere'
 import { WEP_THROTTLE } from '../physics/propulsion'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Command } from '../control/Controller'
-import type { GroundUnitId } from '../render/geometry/ground'
+import type { GroundUnitId } from '../specs/ground'
 import type { GroundTarget } from '../world/groundTargets'
-import type { Team } from '../world/World'
+import type { Team } from '../world/team'
 
 /**
  * # AI 的俯衝投彈

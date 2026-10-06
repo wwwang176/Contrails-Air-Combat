@@ -1,11 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import {
-  planFlightOrder, planFlankOrder, planFocusTarget, createCommandState, stepCommand, rankFlights,
-  DEFAULT_COMMAND,
-  type CommandUnit, type CommandFlight, type FlightOrder,
-} from '../../src/ai/command'
-import { DEFAULT_STEER } from '../../src/ai/steer'
+import { planFlightOrder, planFlankOrder, planFocusTarget, rankFlights } from '../../src/ai/commandPlanning'
+import { createCommandState, stepCommand } from '../../src/ai/command'
+import { DEFAULT_COMMAND } from '../../src/ai/commandConfig'
+import { type CommandUnit, type CommandFlight, type FlightOrder } from '../../src/ai/commandTypes'
+import { DEFAULT_STEER } from '../../src/ai/steerConfig'
 import { THREAT_RANGE } from '../../src/ai/assess'
 
 /** 造一架快照。預設健康、在原點、朝 −Z、升限 12000 */

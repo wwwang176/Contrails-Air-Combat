@@ -1,6 +1,7 @@
 import { BufferAttribute, BufferGeometry, Color } from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { GROUND_UNITS, groundGeometry } from './geometry/ground'
+import { GROUND_UNITS } from '../specs/ground'
+import { groundGeometry } from './geometry/ground'
 import type { CrateField, ParkedVehicle } from '../world/depot'
 
 /**

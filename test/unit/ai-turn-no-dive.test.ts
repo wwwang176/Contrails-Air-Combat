@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { DEFAULT_STEER, holdTurnLevel } from '../../src/ai/steer'
+import { DEFAULT_STEER } from '../../src/ai/steerConfig'
+import { holdTurnLevel } from '../../src/ai/steer'
 import { DEG } from '../../src/core/math'
 
 /**

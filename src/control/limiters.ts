@@ -2,7 +2,7 @@ import type { Quaternion } from 'three'
 import { G0 } from '../core/math'
 import { makeScratch } from '../core/pool'
 import { liftCoefficient } from '../physics/aero'
-import type { AircraftSpec } from '../specs/types'
+import type { FlightSpec } from '../specs/types'
 import type { AeroState } from '../physics/types'
 
 const S = makeScratch(1, 1)
@@ -115,7 +115,7 @@ export function gLoadFromOrientation(orientation: Quaternion): number {
  * 而非在此函式內部假設飛行姿態。
  */
 export function pitchRateLimit(
-  spec: AircraftSpec,
+  spec: FlightSpec,
   aero: AeroState,
   slatsDeployed: boolean,
   gLoad: number,

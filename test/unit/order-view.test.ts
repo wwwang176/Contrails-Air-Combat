@@ -4,7 +4,7 @@ import { createBattle } from '../../src/battle/setup'
 import { battleConfigFrom, DEFAULT_SKIRMISH } from '../../src/battle/skirmish'
 import { AiController } from '../../src/ai/AiController'
 import { fillOrderView, type OrderSink } from '../../src/battle/orderView'
-import type { FlightOrder } from '../../src/ai/command'
+import type { FlightOrder } from '../../src/ai/commandTypes'
 import type { Team } from '../../src/world/World'
 
 interface Drawn {

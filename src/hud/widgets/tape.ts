@@ -1,5 +1,6 @@
 import { RAD } from '../../core/math'
-import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
+import type { HudFrame, HudLayout } from '../types'
+import { HUD_COLORS, hudFont } from '../style'
 
 /**
  * 上方的航向帶。

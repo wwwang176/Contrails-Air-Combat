@@ -29,7 +29,8 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { AiController } from '../../src/ai/AiController'
 import { createTargetBoard } from '../../src/ai/target'
 import { ACE, VETERAN } from '../../src/ai/profile'
-import { DEFAULT_STEER } from '../../src/ai/steer'
+import { DEFAULT_STEER } from '../../src/ai/steerConfig'
+import { withProbeConfig } from './probe-config'
 import { BF109K4 } from '../../src/specs/bf109k4'
 import { P51D } from '../../src/specs/p51d'
 import type { Command, Controller } from '../../src/control/Controller'
@@ -474,17 +475,16 @@ function run(key: string): void {
 
 // 【設定覆寫由環境變數進】掃描與消融不必改原始碼重跑，與其他探針同一個手法
 const tp = process.env['TP']
-if (tp) {
-  Object.assign(DEFAULT_STEER, JSON.parse(tp) as Record<string, number>)
-  console.log(`覆寫：${tp}`)
-}
-console.log(
-  `Bf 109 G-6（AI、VETERAN）對打不死的直飛 P-51D 靶機。`
-  + `開局 ${ALT} m / ${TAS} m/s。bandMaxPitch = `
-  + `${(DEFAULT_STEER.bandMaxPitch / RAD).toFixed(0)}°`,
-)
-const only = process.env['OPENING']
-for (const k of Object.keys(OPENINGS)) {
-  if (only && k !== only) continue
-  run(k)
-}
+withProbeConfig(DEFAULT_STEER, tp, 'TP', () => {
+  if (tp) console.log(`覆寫：${tp}`)
+  console.log(
+    `Bf 109 G-6（AI、VETERAN）對打不死的直飛 P-51D 靶機。`
+    + `開局 ${ALT} m / ${TAS} m/s。bandMaxPitch = `
+    + `${(DEFAULT_STEER.bandMaxPitch / RAD).toFixed(0)}°`,
+  )
+  const only = process.env['OPENING']
+  for (const k of Object.keys(OPENINGS)) {
+    if (only && k !== only) continue
+    run(k)
+  }
+})

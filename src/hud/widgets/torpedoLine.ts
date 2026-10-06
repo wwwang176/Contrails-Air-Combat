@@ -1,5 +1,6 @@
 import { TORPEDO_RANGE, TORPEDO_RUN_SAMPLES } from '../../world/torpedo'
-import { hudFont, type HudFrame, type HudLayout } from '../types'
+import type { HudFrame, HudLayout } from '../types'
+import { hudFont } from '../style'
 import { bombsightColor } from './bombsight'
 
 /** 中間那幾個刻度的半長，px（未乘 `L.scale`） */

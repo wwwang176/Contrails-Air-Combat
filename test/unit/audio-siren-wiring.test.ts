@@ -8,7 +8,11 @@ import { readFileSync } from 'node:fs'
  */
 const read = (p: string): string => new TextDecoder().decode(readFileSync(p)).replace(/\r\n/g, '\n')
 const MAIN = read('src/main.ts')
+const CONTROLLER = read('src/app/battleAudioController.ts')
+const FLIGHT = read('src/audio/flightAudio.ts').split('\n').map(line => line.replace(/^  /, '')).join('\n')
+const LOOPS = read('src/audio/aircraftLoopAudio.ts').split('\n').map(line => line.replace(/^  /, '')).join('\n')
 const ENGINE = read('src/audio/engine.ts')
+const SELF = read('src/audio/selfAudio.ts')
 
 /** 從 `head` 那一行起、到下一個頂層 `}` 為止的函式本體 */
 function body(src: string, head: string): string {
@@ -23,13 +27,15 @@ function body(src: string, head: string): string {
 describe('警笛：音訊引擎', () => {
   /** 【三個地方都要登記】`Record` 的型別只強制其中一部分，字面量與陣列不會被檢查 */
   it('定位池有警笛、自己的槽位有警笛', () => {
-    expect(ENGINE).toMatch(/export type SelfSlot = [^\n]*'siren'/)
+    expect(SELF).toMatch(/export type SelfSlot = [^\n]*'siren'/)
+    expect(ENGINE).toContain('const selfAudio = createSelfAudio(listener, buffers, makeup, playback, lowpass)')
+    expect(ENGINE).toContain('selfLoop: selfAudio.selfLoop')
     expect(ENGINE).toMatch(/export type LoopPool = [^\n]*'siren'/)
     expect(ENGINE).toMatch(/LOOP_VOICES: Record<LoopPool, number> = \{[^}]*siren: 4/)
     expect(ENGINE).toMatch(/LOOP_CATEGORY: Record<LoopPool, Category> = \{[^}]*siren: 'siren'/)
-    expect(ENGINE).toMatch(/SELF_CATEGORY: Record<SelfSlot, Category> = \{[^}]*siren: 'sirenSelf'/)
+    expect(SELF).toMatch(/SELF_CATEGORY: Record<SelfSlot, Category> = \{[^}]*siren: 'sirenSelf'/)
     expect(ENGINE).toMatch(/const loops: Record<LoopPool, LoopVoice\[\]> = \{[^}]*siren: \[\]/)
-    expect(ENGINE).toMatch(/for \(const slot of \[[^\]]*'siren'[^\]]*\] as SelfSlot\[\]\)/)
+    expect(SELF).toMatch(/for \(const slot of \[[^\]]*'siren'[^\]]*\] as const\)/)
   })
 
   /**
@@ -47,13 +53,15 @@ describe('警笛：音訊引擎', () => {
 })
 
 describe('警笛：主程式', () => {
-  const fn = body(MAIN, 'function updateAudio(')
+  const main = body(CONTROLLER, 'function update(')
+  const self = body(FLIGHT, 'function update(')
+  const fn = body(LOOPS, 'function update(')
 
   /** 【自己的不定位、坐在座艙裡才有】上帝視角時鏡頭在世界裡，不定位的聲音會變成「在耳邊」 */
   it('自己的警笛：只有坐在座艙裡且這型有檔才播，音量與音高來自 sirenParams', () => {
-    expect(fn).toMatch(/sirenParams\(vneRatio, noseDownRad\(me\.aircraft\.state\.orientation\), SIREN\)/)
-    expect(fn).toMatch(/audio\.selfLoop\('siren', flying && sirenSelf !== null \? sirenSelf : null, SIREN\.rate, SIREN\.gainDb\)/)
-    expect(fn).toMatch(/const sirenSelf = sirenFile\(spec\.id\)/)
+    expect(self).toMatch(/sirenParams\(vneRatio, noseDownRad\(me\.aircraft\.state\.orientation\), SIREN\)/)
+    expect(self).toMatch(/audio\.selfLoop\('siren', flying && sirenSelf !== null \? sirenSelf : null, SIREN\.rate, SIREN\.gainDb\)/)
+    expect(self).toMatch(/const sirenSelf = sirenFile\(spec\.id\)/)
   })
 
   /**
@@ -76,8 +84,8 @@ describe('警笛：主程式', () => {
   })
 
   it('最近的四架進池，播放速度乘上多普勒、增益帶進去', () => {
-    expect(MAIN).toMatch(/const SIREN_KEYS = new Int32Array\(4\)/)
-    expect(fn).toMatch(/nearestN\(AUDIO_POS, AUDIO_VALID, n, cam\.x, cam\.y, cam\.z, SIREN_KEYS\)/)
+    expect(LOOPS).toMatch(/const SIREN_KEYS = new Int32Array\(4\)/)
+    expect(fn).toMatch(/nearestN\(positions, AUDIO_VALID, n, cam\.x, cam\.y, cam\.z, SIREN_KEYS\)/)
     expect(fn).toMatch(/audio\.assign\('siren', c\.index, sirenFile\(c\.aircraft\.spec\.id\)!, p\.x, p\.y, p\.z,\s*SIREN_RATE\[c\.index\]! \* dopplerRate\(p, c\.aircraft\.state\.velocity, cam, camVel\), SIREN_GAIN\[c\.index\]!\)/)
   })
 
@@ -86,9 +94,13 @@ describe('警笛：主程式', () => {
     expect(fn).toMatch(/sirenParams\(\s*indicatedAirspeed\(c\.aircraft\.diag\.aero\.tas, c\.aircraft\.diag\.air\.sigma\) \/ c\.aircraft\.spec\.limits\.vne,\s*noseDownRad\(c\.aircraft\.state\.orientation\), SIREN\)/)
   })
 
-  it('警笛的暫存是模組層級的，熱路徑不配置', () => {
-    expect(MAIN).toMatch(/^const SIREN = \{ rate: 0, gainDb: 0 \}$/m)
-    expect(MAIN).toMatch(/^const SIREN_RATE = new Float32Array\(64\)$/m)
-    expect(MAIN).toMatch(/^const SIREN_GAIN = new Float32Array\(64\)$/m)
+  it('警笛暫存在建立時配置，主程式每幀使用同一個管理器', () => {
+    expect(LOOPS).toMatch(/^const SIREN = \{ rate: 0, gainDb: 0 \}$/m)
+    expect(LOOPS).toMatch(/^const SIREN_RATE = new Float32Array\(64\)$/m)
+    expect(LOOPS).toMatch(/^const SIREN_GAIN = new Float32Array\(64\)$/m)
+    expect(MAIN).toContain('const aircraftLoopAudio = createAircraftLoopAudio(audio, ctx.camera.position, camVel)')
+    expect(main).toMatch(/aircraftLoopAudio\.update\(\s*world\.combatants, renderPositions, me, elapsed, flying,\s*battleAudioCues\.ownTurretVolley,?\s*\)/)
+    expect(body(CONTROLLER, 'function reset(')).toContain('aircraftLoopAudio.reset()')
+    expect(main).toContain('flightAudio.update(world, me, elapsed, worldSeconds, arenaWarning)')
   })
 })

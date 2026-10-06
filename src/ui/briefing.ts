@@ -2,6 +2,9 @@ import { missionConfigFrom } from '../battle/missions'
 import type { MissionCard, MissionType, ReadyMissionCard } from '../battle/missions'
 import type { AircraftSpec } from '../specs/types'
 import { formatMonth, t, type MessageKey } from '../i18n'
+import { shortName } from '../i18n/names'
+
+export { SHORT_NAME, shortName } from '../i18n/names'
 
 /** 任務類型的顯示名稱。少一種類型是編譯錯誤 */
 const TYPE_KEY: Readonly<Record<MissionType, MessageKey>> = {
@@ -62,20 +65,6 @@ export interface Briefing {
    */
   readonly facts?: readonly BriefingFact[]
 }
-
-/**
- * 機種在畫面上的短名。**找不到就用 `spec.name`。**
- *
- * 【為什麼不直接用 `spec.name`】「B-17G Flying Fortress」在一列裡是 22 個字。
- * 漏填的代價只是那一列比別人長，看得見、修得快。
- */
-export const SHORT_NAME: Record<string, string> = {
-  p51d: 'P-51D', bf109k4: 'Bf 109 K-4', f6f5: 'F6F-5', f4f4: 'F4F-4', ki84: 'Ki-84', a6m5: 'A6M5',
-  b17g: 'B-17G', he111: 'He 111', ju87: 'Ju 87', g4m: 'G4M',
-}
-
-export const shortName = (spec: AircraftSpec): string => SHORT_NAME[spec.id] ?? spec.name
-
 
 /** 加一架機種進這一欄；已經有同機種就併進那一列 */
 function addUnit(rows: BriefingUnit[], spec: AircraftSpec, count: number): void {

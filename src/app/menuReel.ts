@@ -1,38 +1,40 @@
+import { createReelGunnery, type ReelGunActor } from './reel/reelGunnery'
+import { createReelDecor } from './reel/reelDecor'
+import { readSeenShots, saveSeenShots } from './reel/shotHistory'
+import { markShotSeen, pickNextShot } from './reel/shotSelection'
+export { markShotSeen, pickNextShot, shotWeight } from './reel/shotSelection'
 import {
-  type BufferAttribute, type BufferGeometry, Color, Group, Matrix4, Mesh, MeshStandardMaterial,
+  Group,
   type PerspectiveCamera, Quaternion, type Scene, Vector3,
 } from 'three'
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { buildDecor, DECOR_DEFAULT } from '../render/geometry/ground/plantDecor'
 import { buildAircraft, buildAircraftLod, useAircraftLod, type AircraftModel } from '../render/geometry/buildAircraft'
 import { createTracers, type Tracers } from '../render/tracers'
 import { createMuzzles, type MuzzleSource, type Muzzles } from '../render/muzzle'
 import { createShipModels, type ShipModels } from '../render/ships'
-import { createShipWakes, shipFoamTexture, type ShipWakes } from '../render/shipWakes'
+import { createShipWakes, type ShipWakes } from '../render/shipWakes'
+import { shipFoamTexture } from '../render/shipFoamTexture'
 import { paletteOf, paletteSunDir } from '../render/timeOfDay'
 import type { OceanHeightUniforms } from '../render/wake'
-import { hash01 } from '../render/scatter'
-import { Projectiles, PROJECTILE_LIFETIME } from '../world/Projectiles'
-import { FLASH_SECONDS } from '../world/World'
+import { hash01 } from '../core/hash'
+import { Projectiles } from '../world/Projectiles'
 import { createShip, SHIP_CLASSES, type Ship } from '../world/ships'
 import type { IslandDesc } from '../world/archipelago'
 import type { TimeOfDay } from '../world/timeOfDay'
-import { mountDirection } from '../weapons/types'
 import type { AircraftSpec } from '../specs/types'
 import { createFlight, flightPose, openSeaOrigin, type Flight } from './reelFlight'
 import {
-  BOMB_RELEASE_Y, bombAt, createReelCamera, jumpAt, pickIsland, propSpeedAt, propTravel, reelShots, speedAt,
-  torpedoAt, torpedoEntry,
-  type ReelDecor, type ReelEvent, type ReelGround, type ReelPoint, type ReelTerrainKind, type Shot,
-} from './reelShots'
-import type { SiteLayout } from '../render/fields'
+  BOMB_RELEASE_Y, createReelCamera, jumpAt, pickIsland, propSpeedAt, propTravel, speedAt,
+} from './reel/kit'
+import { reelShots } from './reelShots'
+import type { ReelEvent, ReelGround, ReelPoint, ReelTerrainKind, Shot } from './reel/reelTypes'
+import type { SiteLayout } from '../render/siteSurface'
 import type { CloudSpec } from '../render/clouds'
-import { createBombs, createTorpedoes, type BombVisuals, type OrdnancePool } from '../render/bombs'
+import { createBombs, createTorpedoes, type BombVisuals } from '../render/bombs'
 import { createGroundModels, type GroundModels } from '../render/groundTargets'
 import { TRACK_DUST_EVERY } from '../render/groundBattle'
 import { createGroundTarget, type GroundTarget } from '../world/groundTargets'
-import { createHitResult, hitAircraft, segmentPointDistanceSq } from '../world/hit'
-import { clearImpacts, createImpacts, pushImpact, type ImpactEvents } from '../world/events'
+import type { ImpactEvents } from '../world/events'
+import { createReelBombardment, PROP_BLAST_REACH, type ReelBombardmentFx, type ReelReleaseActor } from './reel/reelBombardment'
 
 /**
  * 主選單背景的短片放映機。分鏡在 `reelShots.ts`；這裡負責建／拆演員、推進時間、
@@ -43,7 +45,7 @@ import { clearImpacts, createImpacts, pushImpact, type ImpactEvents } from '../w
  * 展示場同一個做法），換景時整批清掉。
  */
 
-export interface ReelFx {
+export interface ReelFx extends ReelBombardmentFx {
   /**
    * 這一架被擊落：模型交給殘骸池，之後翻滾、燒、落海都是殘骸池的事。
    * **呼叫之後模型歸殘骸池所有**，這裡不再碰它。`blast` = 空中炸一團火。
@@ -64,25 +66,6 @@ export interface ReelFx {
   smoke(x: number, y: number, z: number, vx: number, vy: number, vz: number): void
   /** 發動機起火的一朵火 */
   fire(x: number, y: number, z: number): void
-  /** 一枚炸彈落地（`water` = 落在海上）。`y` 是地面或海面高度 */
-  bomb(x: number, y: number, z: number, water: boolean): void
-  /** 魚雷入水那一下的水花 */
-  torpedoSplash(x: number, z: number): void
-  /** 魚雷在水中跑：落一個航跡節點。`slot` 是第幾條航跡，`serial` 換一條魚雷就換 */
-  torpedoWake(slot: number, x: number, z: number, serial: number): void
-  /** 魚雷打中船：水柱 */
-  torpedoHit(x: number, z: number): void
-  /** 地面物件炸毀：一團落地的火、留下燃燒的火點。`fires` 是幾處火點（油桶堆、油槽多一點） */
-  groundKill(x: number, y: number, z: number, fires: number): void
-  /**
-   * 比一枚炸彈大的爆炸：二次爆炸、油槽殉爆。`size` 是相對一枚炸彈的線性倍率，
-   * 地面火點也照它的數目點
-   */
-  blast(x: number, y: number, z: number, size: number): void
-  /** 炸彈落在船上：甲板高度的一團火（不掀水冠） */
-  shipHit(x: number, y: number, z: number): void
-  /** 船上的火點冒一朵火與黑煙（船火那一套煙柱） */
-  shipFire(x: number, y: number, z: number): void
   /** 開動的車在車尾貼地揚起一團塵（與地面戰的行進揚塵同一個配方） */
   trackDust(x: number, y: number, z: number): void
   /** 清掉所有共用特效與殘骸池 */
@@ -174,16 +157,12 @@ const PROP_SPIN = 55
 const TRACK_DUST_MIN_SPEED = 1
 /** 跳接時被跳過那段裡的高砲黑雲，只補放跳點前這麼多秒內的，s */
 const JUMP_FLAK_KEEP = 0.5
-/** 防空曳光的射速（每艘），發/秒；初速 m/s */
-const AA_RATE = 14
-const AA_SPEED = 850
 /** 曳光池容量。幾架戰鬥機連射、轟炸機的機槍手加兩艘船的防空 */
 const REEL_PROJECTILES = 1024
 /** 一段最多幾架飛機。槍焰池照它建；`reel-shots.test.ts` 守這一條 */
 export const REEL_MAX_PLANES = 16
 
-interface Actor {
-  readonly spec: AircraftSpec
+interface Actor extends ReelGunActor {
   readonly path: Shot['planes'][number]['path']
   model: AircraftModel | null
   lod: AircraftModel | null
@@ -197,161 +176,14 @@ interface Actor {
   fireTimer: number
   /** 上一幀拖煙的那一點（世界座標） */
   readonly smokeFrom: Vector3
-  /** 這一架還在連射幾秒 */
-  burstLeft: number
-  readonly cooldowns: Float32Array
-  readonly muzzleFlash: Float32Array
   readonly flight: Flight
-  /** 世界座標的姿態（局部姿態轉過去之後） */
-  readonly position: Vector3
-  readonly quaternion: Quaternion
-  readonly velocity: Vector3
-}
-
-/**
- * 一道持續的曳光：從一艘船（`ship`）、一架飛機的機槍手（`shooter`）或一台地面物件
- * （`prop`）打向 `actor`。三個來源只有一個不是 −1
- */
-interface AaStream {
-  ship: number
-  shooter: number
-  prop: number
-  actor: number
-  until: number
-  miss: number
-  timer: number
-  seed: number
 }
 
 /** 短片裡的船沒有砲位可以被打掉。模組層建一次 —— 每幀傳一個新的箭頭函式就是每幀配置 */
 const NO_GUN_LOST = (): void => {}
 
-/** 防空與機槍手曳光的射手編號：負數不做命中判定（−1 是彈丸池的空槽，不能用） */
-const STREAM_OWNER = -2
-const S0 = new Vector3()
-const S1 = new Vector3()
-const HIT = createHitResult()
-
-/**
- * 短片自己的炸彈或魚雷。**位置每幀由 `bombAt`／`torpedoAt` 從投下那一刻算出來**，
- * 填進外觀池讀的那幾格（`OrdnancePool`）。起點都是世界座標 —— 重力只往下，
- * 局部座標的旋轉不影響彈道
- */
-interface Ordnance extends OrdnancePool {
-  readonly t0: Float64Array
-  readonly p0: Vector3[]
-  readonly v0: Vector3[]
-  /** 魚雷：入水的秒數（投下後）、瞄點、打不打中、上一幀的階段、航跡的序號 */
-  readonly entry: Float64Array
-  readonly aimX: Float64Array
-  readonly aimZ: Float64Array
-  readonly hit: Uint8Array
-  readonly phase: Int8Array
-  readonly serial: Int32Array
-  next: number
-}
-
-function createOrdnance(capacity: number): Ordnance {
-  const f = (): Float64Array => new Float64Array(capacity)
-  return {
-    active: new Uint8Array(capacity), x: f(), y: f(), z: f(), vx: f(), vy: f(), vz: f(),
-    t0: f(), p0: Array.from({ length: capacity }, () => new Vector3()),
-    v0: Array.from({ length: capacity }, () => new Vector3()),
-    entry: f(), aimX: f(), aimZ: f(), hit: new Uint8Array(capacity),
-    phase: new Int8Array(capacity), serial: new Int32Array(capacity), next: 0,
-  }
-}
-
-/** 炸彈槽數（外觀池 `BOMBS_CAPACITY` 之內）；魚雷同時在水中的上限 —— 航跡池的槽數 */
-const REEL_BOMBS = 96
-const REEL_TORPEDOES = 8
 /** 發動機起火：一朵火的間隔，秒 */
 const FIRE_INTERVAL = 0.09
-const AIM = { x: 0, z: 0 }
-/** 炸彈落在地面物件命中盒外多少公尺內就算炸到 */
-const PROP_BLAST_REACH = 15
-/** 炸彈落在船體碰撞盒外多少公尺內算打中船（甲板上爆、留火點），m */
-const SHIP_HIT_REACH = 2
-/** 船上火點冒一朵的間隔，秒（與戰鬥的 `FIRE_PUFF` 同一個節奏） */
-const SHIP_FIRE_INTERVAL = 0.3
-/** 一艘船最多幾處火點 —— 再多煙柱糊成一片，也多花粒子 */
-const SHIP_FIRES_PER_SHIP = 6
-
-/** 一件佈景建築：在合併幾何裡的頂點範圍、世界位置、炸彈多近算炸到 */
-interface DecorItem {
-  readonly x: number
-  readonly y: number
-  readonly z: number
-  readonly reach: number
-  readonly start: number
-  readonly count: number
-  burnt: boolean
-}
-const DECOR_M = new Matrix4()
-/** 燒黑的佈景建築。與地面目標殘骸同一個焦黑（`render/groundTargets.ts`） */
-const DECOR_BURNT = new Color(0x2a2421)
-
-/** 播過的段落由舊到新（`localStorage` 的鍵，JSON 字串陣列）。見 `markShotSeen` */
-const SEEN_SHOTS_KEY = 'reel.seenShots'
-
-/** 讀寫都包 try —— 無痕視窗與封鎖站台資料會讓 localStorage 直接拋，那時只是不記得 */
-function readSeenShots(): string[] {
-  try {
-    const v: unknown = JSON.parse(localStorage.getItem(SEEN_SHOTS_KEY) ?? '[]')
-    return Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []
-  } catch {
-    return []
-  }
-}
-
-function saveSeenShots(seen: readonly string[]): void {
-  try {
-    localStorage.setItem(SEEN_SHOTS_KEY, JSON.stringify(seen))
-  } catch { /* 存不了就算了 */ }
-}
-
-/**
- * 這一段被挑中的權重。`ago` = 它是幾段之前播的（1 = 上一段），沒播過給 `ids.length`。
- * 權重 (ago − 1)²：上一段是 0、一定不挑；越久沒播越高，平方讓剛播過的幾段機率壓得很低
- * —— 六段時，兩段前播的是 1、三段前是 4、沒播過是 25
- */
-export function shotWeight(ago: number, count: number): number {
-  const k = Math.min(ago, count) - 1
-  return k * k
-}
-
-/**
- * 下一段播哪一段：照 `shotWeight` 加權隨機。`seen` 是播過的段落由舊到新（`markShotSeen`），
- * `r` ∈ [0, 1) 是亂數。開場與一段播完換段都用它。全部權重都是 0（只有一段）就挑第 0 段
- */
-export function pickNextShot(ids: readonly string[], seen: readonly string[], r: number): number {
-  let total = 0
-  for (const id of ids) total += shotWeight(agoOf(seen, id, ids.length), ids.length)
-  if (total === 0) return 0
-  let x = r * total
-  for (let i = 0; i < ids.length; i++) {
-    x -= shotWeight(agoOf(seen, ids[i]!, ids.length), ids.length)
-    if (x < 0) return i
-  }
-  return ids.length - 1
-}
-
-/** `id` 是幾段之前播的（1 = 最後播的那一段）；沒播過回 `never` */
-function agoOf(seen: readonly string[], id: string, never: number): number {
-  const k = seen.lastIndexOf(id)
-  return k < 0 ? never : seen.length - k
-}
-
-/**
- * 這一段開播了：移到 `seen` 的最後（`seen` 由舊到新、不重複）。清單裡已經沒有的段落
- * 順手丟掉，所以長度不會超過段數
- */
-export function markShotSeen(ids: readonly string[], seen: readonly string[], id: string): string[] {
-  const next = seen.filter((s) => s !== id && ids.includes(s))
-  next.push(id)
-  return next
-}
-
 /** 廠區道路與鐵路的預設寬，m（與洛伊納同一組） */
 const SITE_ROAD_WIDTH = 12
 const SITE_RAIL_WIDTH = 26
@@ -379,27 +211,6 @@ export function reelSiteLayout(g: ReelGround, ox: number, oz: number, yaw: numbe
   }
 }
 
-/** 魚雷的瞄點離船體多近算打中那一艘（測試要求瞄點在碰撞盒外擴 4 m 內） */
-const TORPEDO_SHIP_REACH = 6
-const LOCAL = new Vector3()
-const INV_Q = new Quaternion()
-/**
- * `shipUnder` 找到的那一點正下方最高的盒頂，m。**不是 `Ship.impactY`** —— 那是主甲板；
- * 落在 LST 艉樓、Essex 艦島上的炸彈要在它們的頂上爆，不是穿進去到甲板才爆
- */
-let underTop = 0
-
-/** 船上的一處火：位置記在艦體座標，跟著船走 */
-interface ShipFire {
-  readonly ship: number
-  readonly local: Vector3
-  timer: number
-}
-/** 殉爆的火球相對一枚炸彈的線性倍率 */
-const SECONDARY_SIZE = 2.5
-/** 炸毀後整片燒的：油桶堆、彈藥堆、油槽、儲氣槽 */
-const BURNS_LONG: ReadonlySet<string> = new Set(['fuelDump', 'bombDump', 'oilTank', 'gasHolder'])
-
 const UP = new Vector3(0, 1, 0)
 const V1 = new Vector3()
 const V2 = new Vector3()
@@ -410,17 +221,12 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   const group = new Group()
   group.name = 'menuReel'
   const projectiles = new Projectiles(REEL_PROJECTILES)
-  const impacts = createImpacts()
+  const gunnery = createReelGunnery(projectiles, stage)
   const tracers: Tracers = createTracers(REEL_PROJECTILES)
   const muzzles: Muzzles<MuzzleSource> = createMuzzles(REEL_MAX_PLANES)
   const bombVisuals: BombVisuals = createBombs()
   const torpedoVisuals: BombVisuals = createTorpedoes()
   group.add(tracers.object, muzzles.object, bombVisuals.object, torpedoVisuals.object)
-  const bombs = createOrdnance(REEL_BOMBS)
-  const torpedoes = createOrdnance(REEL_TORPEDOES)
-  let torpedoSerial = 0
-  /** 排著還沒投的炸彈：一串炸彈的每一枚在自己的秒數才掉出去 */
-  let pendingBombs: { at: number, actor: number }[] = []
   const restFov = camera.fov
 
   const shots = reelShots()
@@ -431,7 +237,6 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   let t = 0
   let cursor = 0
   let fadingOut = false
-  let hitCount = 0
   /** 主角落在畫面寬度的第幾成（`stage.subjectX`）。換段與 `relayout` 時重量 */
   let subjectX = 0.5
 
@@ -449,14 +254,9 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   /** 每一台開動的車距下一團車尾揚塵還有幾秒（與 `props` 同索引）。換段時重建 */
   let trackClock = new Float32Array(0)
   let groundModels: GroundModels | null = null
-  /** 佈景建築：整批一顆網格；`decor` 是每一件在合併幾何裡的頂點範圍與世界位置 */
-  let decorMesh: Mesh | null = null
-  let decor: DecorItem[] = []
-  const decorMaterial = new MeshStandardMaterial({
-    vertexColors: true, flatShading: true, roughness: 0.85, metalness: 0.06,
-  })
-  let shipFires: ShipFire[] = []
-  let streams: AaStream[] = []
+  const reelDecor = createReelDecor(group, fx, PROP_BLAST_REACH)
+  const bombardment = createReelBombardment(stage, releasePose, toWorld, reelDecor.burn)
+  const { bombs, torpedoes } = bombardment
   const sources: MuzzleSource[] = []
   const positions: Vector3[] = []
   const quaternions: Quaternion[] = []
@@ -499,17 +299,9 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       groundModels = null
     }
     props = []
-    if (decorMesh !== null) {
-      group.remove(decorMesh)
-      decorMesh.geometry.dispose()
-      decorMesh = null
-    }
-    decor = []
-    shipFires = []
-    streams = []
-    pendingBombs = []
-    bombs.active.fill(0)
-    torpedoes.active.fill(0)
+    reelDecor.clear()
+    gunnery.clearStreams()
+    bombardment.clear()
     bombVisuals.update(bombs)
     torpedoVisuals.update(torpedoes)
     sources.length = 0
@@ -545,7 +337,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     t = 0
     cursor = 0
     fadingOut = false
-    hitCount = 0
+    gunnery.resetHits()
     if (group.parent === null) scene.add(group)
     // 【yaw 要在換地形之前定】廠區畫在地形上，轉到世界要用它
     if (next.faceSun) {
@@ -628,7 +420,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       groundModels = createGroundModels(props)
       group.add(groundModels.object)
     }
-    if (next.decor !== undefined && next.decor.length > 0) buildDecorMesh(next.decor, terrain)
+    if (next.decor !== undefined && next.decor.length > 0) reelDecor.build(next.decor, terrain, toWorld, yaw)
 
     subjectX = stage.subjectX()
     // 【從停下的狀態回來】暗場是藏著的；先以全黑出現、逼瀏覽器算一次版面，
@@ -658,11 +450,11 @@ export function createMenuReel(stage: ReelStage): MenuReel {
         break
       }
       case 'bomb':
-        for (let k = 0; k < e.count; k++) pendingBombs.push({ at: e.at + k * e.interval, actor: e.actor })
+        bombardment.queueBomb(e)
         break
       case 'destroy': {
         const g = props[e.prop]
-        if (g !== undefined) destroyProp(g)
+        if (g !== undefined) bombardment.destroyProp(g)
         break
       }
       case 'blast': {
@@ -672,26 +464,9 @@ export function createMenuReel(stage: ReelStage): MenuReel {
         fx.blast(V1.x, ground + e.y, V1.z, e.size)
         break
       }
-      case 'torpedo': {
-        const a = actors[e.actor]
-        if (a === undefined || a.model === null) break
-        const i = torpedoes.next
-        torpedoes.next = (i + 1) % REEL_TORPEDOES
-        // 【姿態取事件那一刻的】事件在擺位之前觸發，演員身上還是上一幀的位置；
-        // 導演的鏡頭照 `at` 那一刻算魚雷，差一幀就是一兩公尺
-        releasePose(a, e.at, torpedoes.p0[i]!, torpedoes.v0[i]!)
-        torpedoes.t0[i] = e.at
-        torpedoes.entry[i] = torpedoEntry(torpedoes.p0[i]!, torpedoes.v0[i]!)
-        V1.set(e.aim.x, 0, e.aim.z)
-        toWorld(V1)
-        torpedoes.aimX[i] = V1.x
-        torpedoes.aimZ[i] = V1.z
-        torpedoes.hit[i] = e.hit ? 1 : 0
-        torpedoes.phase[i] = 0
-        torpedoes.serial[i] = ++torpedoSerial
-        torpedoes.active[i] = 1
+      case 'torpedo':
+        bombardment.releaseTorpedo(e, actors)
         break
-      }
       case 'kill': {
         const a = actors[e.actor]
         if (a === undefined || a.model === null) break
@@ -721,229 +496,20 @@ export function createMenuReel(stage: ReelStage): MenuReel {
         break
       }
       case 'aa':
-        streams.push({
-          ship: e.ship, shooter: -1, prop: -1, actor: e.actor, until: e.at + e.seconds, miss: e.miss,
-          timer: 0, seed: e.ship * 1000 + e.actor * 97,
-        })
-        break
       case 'gunner':
-        streams.push({
-          ship: -1, shooter: e.actor, prop: -1, actor: e.target, until: e.at + e.seconds, miss: e.miss,
-          timer: 0, seed: 50000 + e.actor * 1000 + e.target * 97,
-        })
-        break
       case 'groundFire':
-        streams.push({
-          ship: -1, shooter: -1, prop: e.prop, actor: e.actor, until: e.at + e.seconds, miss: e.miss,
-          timer: 0, seed: 90000 + e.prop * 1000 + e.actor * 97,
-        })
+        gunnery.startStream(e)
         break
-    }
-  }
-
-  /**
-   * 這一點在哪一艘船的船體上（俯視：碰撞盒外擴 `reach` m）。沒有回 −1。
-   * 只看水平 —— 呼叫端拿 `underTop` 判斷高度
-   */
-  function shipUnder(p: Vector3, reach = SHIP_HIT_REACH): number {
-    for (let k = 0; k < ships.length; k++) {
-      const s = ships[k]!
-      LOCAL.copy(p).sub(s.position).applyQuaternion(INV_Q.copy(s.orientation).invert())
-      let top = -Infinity
-      for (const b of s.cls.hull) {
-        if (Math.abs(LOCAL.x - b.center.x) < b.half.x + reach
-          && Math.abs(LOCAL.z - b.center.z) < b.half.z + reach) top = Math.max(top, b.center.y + b.half.y)
-      }
-      if (top > -Infinity) {
-        underTop = top
-        return k
-      }
-    }
-    return -1
-  }
-
-  /** 第 `k` 艘船在世界座標 `p` 那裡起火：記成艦體座標，之後跟著船走 */
-  function igniteShip(k: number, p: Vector3): void {
-    let n = 0
-    for (const f of shipFires) if (f.ship === k) n++
-    if (n >= SHIP_FIRES_PER_SHIP) return
-    const s = ships[k]!
-    const local = p.clone().sub(s.position).applyQuaternion(INV_Q.copy(s.orientation).invert())
-    shipFires.push({ ship: k, local, timer: 0 })
-  }
-
-  /** 船上的火點：每 `SHIP_FIRE_INTERVAL` 秒在它現在的位置冒一朵 */
-  function stepShipFires(dt: number): void {
-    for (const f of shipFires) {
-      f.timer -= dt
-      if (f.timer > 0) continue
-      f.timer += SHIP_FIRE_INTERVAL
-      const s = ships[f.ship]!
-      V1.copy(f.local).applyQuaternion(s.orientation).add(s.position)
-      fx.shipFire(V1.x, V1.y, V1.z)
-    }
-  }
-
-  /** 地面物件炸毀：換殘骸（`alive` false 由外觀池換材質）、爆一團、起火 */
-  function destroyProp(g: GroundTarget): void {
-    if (!g.alive) return
-    g.alive = false
-    g.hp = 0
-    const burns = BURNS_LONG.has(g.unit.id)
-    fx.groundKill(g.position.x, g.position.y, g.position.z, burns ? 5 : 1)
-    // 油槽、儲氣槽、油料與彈藥堆殉爆：在半高處多一團比炸彈大得多的火球
-    if (burns) fx.blast(g.position.x, (g.position.y + g.impactY) / 2, g.position.z, SECONDARY_SIZE)
-  }
-
-  /** 佈景建築合併成一顆網格，落在地形上。換段的暗場裡建一次 */
-  function buildDecorMesh(list: readonly ReelDecor[], terrain: ReelTerrain): void {
-    const parts: BufferGeometry[] = []
-    let start = 0
-    for (const d of list) {
-      const g = buildDecor(d.kind, d.w, d.d, d.h)
-      V1.set(d.x, 0, d.z)
-      toWorld(V1)
-      const y = terrain.collisionHeightAt(V1.x, V1.z)
-      DECOR_M.makeRotationY(d.heading + yaw).setPosition(V1.x, y, V1.z)
-      g.applyMatrix4(DECOR_M)
-      const count = g.getAttribute('position').count
-      const def = DECOR_DEFAULT[d.kind]
-      decor.push({
-        x: V1.x, y, z: V1.z, reach: Math.hypot(d.w ?? def.w, d.d ?? def.d) / 2,
-        start, count, burnt: false,
-      })
-      start += count
-      parts.push(g)
-    }
-    const merged = mergeGeometries(parts)
-    for (const p of parts) p.dispose()
-    if (merged === null) throw new Error('佈景建築合併失敗 —— 屬性不一致')
-    merged.computeBoundingSphere()
-    decorMesh = new Mesh(merged, decorMaterial)
-    group.add(decorMesh)
-  }
-
-  /**
-   * 炸彈落在 (x, z)：附近的佈景建築燒黑、起火。頂點色就地改寫 —— 一件一次，
-   * 只在炸彈落地那一幀跑
-   */
-  function burnDecor(x: number, z: number): void {
-    if (decorMesh === null) return
-    const color = decorMesh.geometry.getAttribute('color') as BufferAttribute
-    for (const d of decor) {
-      if (d.burnt) continue
-      const reach = d.reach + PROP_BLAST_REACH
-      if ((d.x - x) ** 2 + (d.z - z) ** 2 >= reach * reach) continue
-      d.burnt = true
-      for (let i = d.start; i < d.start + d.count; i++) {
-        color.setXYZ(i, DECOR_BURNT.r, DECOR_BURNT.g, DECOR_BURNT.b)
-      }
-      color.needsUpdate = true
-      fx.groundKill(d.x, d.y, d.z, 2)
     }
   }
 
   const RELEASE = createFlight()
   /** 這一架在 `time` 那一刻機腹投放點與速度（世界座標），寫進 `outP`、`outV` */
-  function releasePose(a: Actor, time: number, outP: Vector3, outV: Vector3): void {
+  function releasePose(a: ReelReleaseActor, time: number, outP: Vector3, outV: Vector3): void {
     flightPose(a.path, time, RELEASE)
     outP.set(0, BOMB_RELEASE_Y, 0).applyQuaternion(RELEASE.quaternion).add(RELEASE.position)
     toWorld(outP)
     outV.copy(RELEASE.velocity).applyQuaternion(frameQ)
-  }
-
-  /**
-   * 炸彈與魚雷的一幀：照投下那一刻算出現在的位置，填進外觀池。炸彈碰到地面或海面
-   * 就爆；魚雷入水掀水花、在水中落航跡、跑到瞄點時（打中的話）炸水柱
-   */
-  function stepOrdnance(): void {
-    // 排著的炸彈到了秒數就投
-    for (let k = pendingBombs.length - 1; k >= 0; k--) {
-      const p = pendingBombs[k]!
-      if (p.at > t) continue
-      // 【換到最後再彈出】`splice` 每次回傳一個新陣列；佇列不需要保持順序，而且往回掃，
-      // 換過來的那一格已經看過了
-      pendingBombs[k] = pendingBombs[pendingBombs.length - 1]!
-      pendingBombs.pop()
-      const a = actors[p.actor]
-      if (a === undefined || a.model === null) continue
-      const i = bombs.next
-      bombs.next = (i + 1) % REEL_BOMBS
-      releasePose(a, p.at, bombs.p0[i]!, bombs.v0[i]!)
-      bombs.t0[i] = p.at
-      bombs.active[i] = 1
-    }
-    const terrain = stage.terrain()
-    for (let i = 0; i < REEL_BOMBS; i++) {
-      if (bombs.active[i] === 0) continue
-      const tau = t - bombs.t0[i]!
-      bombAt(bombs.p0[i]!, bombs.v0[i]!, tau, V1)
-      // 【先看有沒有打中船】船不是地形：落在船上要在甲板高度爆，不是掉到海面掀水柱
-      const k = shipUnder(V1)
-      if (k >= 0 && V1.y <= underTop) {
-        V1.y = underTop
-        fx.shipHit(V1.x, V1.y, V1.z)
-        igniteShip(k, V1)
-        bombs.active[i] = 0
-        continue
-      }
-      const ground = terrain.collisionHeightAt(V1.x, V1.z)
-      if (V1.y <= ground) {
-        const water = terrain.waterAt(V1.x, V1.z) > -Infinity
-        fx.bomb(V1.x, water ? 0 : ground, V1.z, water)
-        bombs.active[i] = 0
-        // 落在地面物件旁邊就炸毀它
-        for (const g of props) {
-          if (!g.alive) continue
-          const reach = g.radius + PROP_BLAST_REACH
-          if ((g.position.x - V1.x) ** 2 + (g.position.z - V1.z) ** 2 < reach * reach) destroyProp(g)
-        }
-        burnDecor(V1.x, V1.z)
-        continue
-      }
-      bombAt(bombs.p0[i]!, bombs.v0[i]!, tau + 0.02, V2)
-      writeOrdnance(bombs, i, V1, V2)
-    }
-    for (let i = 0; i < REEL_TORPEDOES; i++) {
-      if (torpedoes.active[i] === 0) continue
-      const tau = t - torpedoes.t0[i]!
-      AIM.x = torpedoes.aimX[i]!
-      AIM.z = torpedoes.aimZ[i]!
-      const phase = torpedoAt(torpedoes.p0[i]!, torpedoes.v0[i]!, torpedoes.entry[i]!, AIM, tau, V1)
-      if (phase >= 1 && torpedoes.phase[i] === 0) fx.torpedoSplash(V1.x, V1.z)
-      torpedoes.phase[i] = phase
-      if (phase === 2) {
-        if (torpedoes.hit[i] === 1) {
-          fx.torpedoHit(AIM.x, AIM.z)
-          // 打中的那艘：命中那一側的船舷水線上方留一處火、甲板上再一處
-          V1.set(AIM.x, 0, AIM.z)
-          const k = shipUnder(V1, TORPEDO_SHIP_REACH)
-          if (k >= 0) {
-            V1.y = 4
-            igniteShip(k, V1)
-            V1.y = underTop
-            igniteShip(k, V1)
-          }
-        }
-        torpedoes.active[i] = 0
-        continue
-      }
-      if (phase === 1) fx.torpedoWake(i, V1.x, V1.z, torpedoes.serial[i]!)
-      torpedoAt(torpedoes.p0[i]!, torpedoes.v0[i]!, torpedoes.entry[i]!, AIM, tau + 0.02, V2)
-      writeOrdnance(torpedoes, i, V1, V2)
-    }
-    bombVisuals.update(bombs)
-    torpedoVisuals.update(torpedoes)
-  }
-
-  /** 外觀池讀的那幾格：位置與（由下一刻差出來的）速度 —— 彈體順著速度轉正 */
-  function writeOrdnance(o: Ordnance, i: number, now: Vector3, next: Vector3): void {
-    o.x[i] = now.x
-    o.y[i] = now.y
-    o.z[i] = now.z
-    o.vx[i] = (next.x - now.x) / 0.02
-    o.vy[i] = (next.y - now.y) / 0.02
-    o.vz[i] = (next.z - now.z) / 0.02
   }
 
   /** 演員擺位：局部路徑 → 姿態 → 世界 */
@@ -996,115 +562,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       V1.set(-tip.x, tip.y, tip.z).applyQuaternion(a.quaternion).add(a.position)
       V2.set(tip.x, tip.y, tip.z).applyQuaternion(a.quaternion).add(a.position)
       fx.vortex(i, a.flight.loadFactor, V1.x, V1.y, V1.z, V2.x, V2.y, V2.z)
-      stepGuns(a, i, dt)
-    }
-  }
-
-  /** 連射：與機庫展示場同一個做法，各掛架照自己的射速輪流吐 */
-  function stepGuns(a: Actor, owner: number, dt: number): void {
-    const mounts = a.spec.battery.mounts
-    const firing = a.burstLeft > 0
-    if (firing) a.burstLeft -= dt
-    for (let i = 0; i < mounts.length; i++) {
-      const flash = a.muzzleFlash[i]! - dt
-      a.muzzleFlash[i] = flash > 0 ? flash : 0
-      const left = a.cooldowns[i]! - dt
-      if (!firing || left > 0) {
-        a.cooldowns[i] = left > 0 ? left : 0
-        continue
-      }
-      const weapon = mounts[i]!.weapon
-      a.cooldowns[i] = 60 / weapon.roundsPerMinute
-      a.muzzleFlash[i] = FLASH_SECONDS
-      V1.copy(mounts[i]!.position).applyQuaternion(a.quaternion).add(a.position)
-      // 【曳光沿機槍的實際方向，不修正】要打中是導演的事：把飛機飛到機首對著目標的位置
-      mountDirection(a.spec.battery, i, V2).applyQuaternion(a.quaternion)
-      V2.multiplyScalar(weapon.muzzleVelocity).add(a.velocity)
-      projectiles.spawn(V1.x, V1.y, V1.z, V2.x, V2.y, V2.z, 0, owner, 0, PROJECTILE_LIFETIME, weapon.caliber)
-    }
-  }
-
-  /**
-   * 固定機槍的彈打中飛機：用遊戲的命中盒判定，噴遊戲那一套火花、彈丸停在機身上。
-   * 射手自己不算。船的防空與機槍手的曳光（`STREAM_OWNER`）不判定 —— 它們照設計是擦身而過
-   */
-  function stepHits(): void {
-    const p = projectiles
-    for (let i = 0; i < p.capacity; i++) {
-      const owner = p.owner[i]!
-      if (owner < 0) continue
-      S0.set(p.sx[i]!, p.sy[i]!, p.sz[i]!)
-      S1.set(p.x[i]!, p.y[i]!, p.z[i]!)
-      for (let j = 0; j < actors.length; j++) {
-        const a = actors[j]!
-        if (j === owner || a.model === null) continue
-        const r = a.spec.wing.span
-        if (segmentPointDistanceSq(S0.x, S0.y, S0.z, S1.x, S1.y, S1.z,
-          a.position.x, a.position.y, a.position.z) > r * r) continue
-        if (!hitAircraft(a.spec.hitBoxes, a.position, a.quaternion, S0, S1, HIT)) continue
-        V3.lerpVectors(S0, S1, HIT.t)
-        // 法線是機體座標；彈從盒內出發（沒有入射面）就朝來向噴
-        if (HIT.nx === 0 && HIT.ny === 0 && HIT.nz === 0) V2.subVectors(S0, S1).normalize()
-        else V2.set(HIT.nx, HIT.ny, HIT.nz).applyQuaternion(a.quaternion)
-        pushImpact(impacts, V3.x, V3.y, V3.z, V2.x, V2.y, V2.z)
-        hitCount++
-        p.kill(i)
-        break
-      }
-    }
-    if (impacts.count > 0) {
-      fx.hits(impacts)
-      clearImpacts(impacts)
-    }
-  }
-
-  /**
-   * 持續的曳光：船上的防空從甲板上隨機一點、機槍手從機身上隨機一點、地面物件從車頂
-   * 上方隨機一點，朝目標的前置點打，瞄點偏開 `miss` 公尺
-   */
-  function stepStreams(dt: number): void {
-    const rate = stage.light ? AA_RATE / 2 : AA_RATE
-    for (const s of streams) {
-      if (t > s.until) continue
-      const ship = s.ship >= 0 ? ships[s.ship] : undefined
-      const shooter = s.shooter >= 0 ? actors[s.shooter] : undefined
-      const prop = s.prop >= 0 ? props[s.prop] : undefined
-      const a = actors[s.actor]
-      if (a === undefined || a.model === null) continue
-      if (prop !== undefined) {
-        if (!prop.alive) continue
-      } else if (ship === undefined && (shooter === undefined || shooter.model === null)) continue
-      s.timer -= dt
-      while (s.timer <= 0) {
-        s.timer += 1 / rate
-        const k = s.seed++
-        if (prop !== undefined) {
-          // 車頂上方隨機一點
-          V1.set(
-            prop.position.x + (hash01(k * 3) * 2 - 1) * 1.5,
-            prop.impactY + 0.5,
-            prop.position.z + (hash01(k * 3 + 1) * 2 - 1) * 1.5,
-          )
-        } else if (ship !== undefined) {
-          // 甲板上隨機一點
-          const half = SHIP_CLASSES[ship.cls.id].hull[0]!.half.z
-          V1.set((hash01(k * 3) * 2 - 1) * 6, ship.impactY + 4, (hash01(k * 3 + 1) * 2 - 1) * half * 0.7)
-            .applyQuaternion(ship.orientation).add(ship.position)
-        } else {
-          // 機身上隨機一個砲塔位置：沿機身前後、略高略低
-          const len = shooter!.spec.wing.span * 0.3
-          V1.set((hash01(k * 3) * 2 - 1) * 1.2, (hash01(k * 3 + 1) * 2 - 1) * 1.2, (hash01(k * 11 + 5) * 2 - 1) * len)
-            .applyQuaternion(shooter!.quaternion).add(shooter!.position)
-        }
-        const range = V1.distanceTo(a.position)
-        V2.copy(a.position).addScaledVector(a.velocity, range / AA_SPEED)
-        V3.set(hash01(k * 3 + 2) * 2 - 1, hash01(k * 5 + 7) * 2 - 1, hash01(k * 7 + 3) * 2 - 1)
-        V2.addScaledVector(V3, s.miss)
-        V2.sub(V1).normalize().multiplyScalar(AA_SPEED)
-        // 機槍手的彈要加上自己的機速
-        if (shooter !== undefined) V2.add(shooter.velocity)
-        projectiles.spawn(V1.x, V1.y, V1.z, V2.x, V2.y, V2.z, 0, STREAM_OWNER, 0, PROJECTILE_LIFETIME, ship !== undefined ? 40 : 13)
-      }
+      gunnery.stepGuns(a, i, dt)
     }
   }
 
@@ -1197,12 +655,14 @@ export function createMenuReel(stage: ReelStage): MenuReel {
     poseActors()
     placeCamera()
     stepActors(dt, propRotation)
-    stepStreams(dt)
+    gunnery.stepStreams(actors, ships, props, t, dt)
     stepShips(dt, time)
-    stepOrdnance()
-    stepShipFires(dt)
+    bombardment.step(t, actors, ships, props)
+    bombVisuals.update(bombs)
+    torpedoVisuals.update(torpedoes)
+    bombardment.stepShipFires(ships, dt)
     projectiles.step(dt)
-    stepHits()
+    gunnery.stepHits(actors)
     tracers.update(projectiles)
     muzzles.update(sources, positions, quaternions)
   }
@@ -1210,7 +670,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   return {
     get status() {
       return {
-        shot: shot?.id ?? null, t, hits: hitCount,
+        shot: shot?.id ?? null, t, hits: gunnery.hitCount,
         camera: camera.position.toArray().map(Math.round),
         target: cam.target.toArray().map(Math.round),
         up: camera.up.toArray().map((v) => Math.round(v * 100) / 100),

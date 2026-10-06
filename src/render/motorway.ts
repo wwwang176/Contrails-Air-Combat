@@ -2,7 +2,8 @@ import {
   BufferAttribute, BufferGeometry, Color, DoubleSide, Group, Mesh, MeshStandardMaterial,
 } from 'three'
 import { extendStraight, roadProfile, type RoadProfile } from '../world/landFeatures'
-import type { HeightSampler, RiverIndex } from '../world/river'
+import type { HeightSampler } from '../world/riverTypes'
+import type { RiverIndex } from '../world/riverIndex'
 
 /**
  * # 高速公路（A9，當年的 Reichsautobahn）

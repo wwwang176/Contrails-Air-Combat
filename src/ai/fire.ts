@@ -4,7 +4,7 @@ import { NO_INTERCEPT } from '../world/lead'
 import { PROJECTILE_LIFETIME } from '../world/Projectiles'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Situation } from './assess'
-import type { EngageBasis } from './steer'
+import type { EngageBasis } from './engageGeometry'
 import { losBlocked, type LandField } from '../world/occlusion'
 
 const FWD = new Vector3(0, 0, -1)

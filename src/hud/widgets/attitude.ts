@@ -1,5 +1,6 @@
 import { RAD } from '../../core/math'
-import { HUD_COLORS, type HudFrame, type HudLayout } from '../types'
+import type { HudFrame, HudLayout } from '../types'
+import { HUD_COLORS } from '../style'
 
 /**
  * 圓形姿態儀（人工地平線）的**盤面內容**。外框與版位由 widgets/dials.ts 負責，

@@ -1,15 +1,19 @@
 import { describe, it, expect } from 'vitest'
 import { LessDepth, type DataTexture, type Mesh, type MeshStandardMaterial } from 'three'
+import { createOcean, type Ocean } from '../../src/render/ocean'
 import {
-  createOcean, FACE_FRAGMENT, FACE_FRAGMENT_TABLE, FACE_TABLE_FRAGMENT,
-  FACE_TABLE_HEIGHT, FACE_TABLE_WIDTH, FAR_SEA_SIZE, FAR_SEA_Y, gerstnerHeight,
-  OCEAN_BASE_CELL, OCEAN_LEVELS, OCEAN_MORPH_START, OCEAN_RING_SEGMENTS, OCEAN_SIZE,
-  OCEAN_SNAP, OCEAN_VERT_FADE_HI, OCEAN_VERT_FADE_LO,
-  SHORE_DENSITY, SPARKLE_CREST_BIAS, SPARKLE_CREST_REF, SPARKLE_DENSITY,
-  SPARKLE_FADE_END, SPARKLE_FADE_START, SPARKLE_P_MAX,
+  FACE_FRAGMENT, FACE_FRAGMENT_TABLE, FACE_TABLE_FRAGMENT, FACE_TABLE_HEIGHT, FACE_TABLE_WIDTH,
   sparkleFragment,
-  WAVES, type Ocean,
-} from '../../src/render/ocean'
+} from '../../src/render/oceanShaders'
+import {
+  FAR_SEA_SIZE, FAR_SEA_Y, OCEAN_BASE_CELL, OCEAN_LEVELS, OCEAN_MORPH_START,
+  OCEAN_RING_SEGMENTS, OCEAN_SIZE, OCEAN_SNAP, OCEAN_VERT_FADE_HI, OCEAN_VERT_FADE_LO,
+} from '../../src/render/oceanGeometry'
+import { gerstnerHeight, WAVES } from '../../src/core/oceanWaves'
+import {
+  SHORE_DENSITY, SPARKLE_CREST_BIAS, SPARKLE_CREST_REF, SPARKLE_DENSITY, SPARKLE_FADE_END,
+  SPARKLE_FADE_START, SPARKLE_P_MAX,
+} from '../../src/render/oceanStyle'
 import {
   bakeShore, createArchipelago, FIELD_CELL, SHORE_BAND,
 } from '../../src/world/archipelago'

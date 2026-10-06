@@ -67,7 +67,7 @@ export interface GodCameraState {
   /** 世界座標。**參考固定**，每步寫進去而不是換掉 */
   readonly position: Vector3
   /**
-   * 方位角，rad。**與 `hud/attitude-math.ts` 的 `headingFromOrientation`
+   * 方位角，rad。**與 `core/attitude.ts` 的 `headingFromOrientation`
    * 同一個約定**：0 = −Z 方向，順時針（往 +X）為正。`enterGodCamera`
    * 因此可以直接吃那個函式的輸出，不需要換算。
    *

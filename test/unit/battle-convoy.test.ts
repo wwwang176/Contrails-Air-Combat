@@ -9,7 +9,8 @@ import {
   createMissionState, resetMissionState, stepMission,
   type MissionInputs, type MissionRules,
 } from '../../src/battle/mission'
-import { DEFAULT_BATTLE, arrivedAt } from '../../src/battle/setup'
+import { DEFAULT_BATTLE } from '../../src/battle/setup'
+import { arrivedAt } from '../../src/battle/objectiveQueries'
 import { pickTakeover } from '../../src/battle/takeover'
 import { createFlights } from '../../src/battle/flights'
 import { HEAD_ON } from '../../src/battle/entry'

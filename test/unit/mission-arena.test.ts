@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { MISSIONS, CAMPAIGNS, missionConfigFrom, missionRules } from '../../src/battle/missions'
 import type { ReadyMissionCard } from '../../src/battle/missions'
-import { createBattle, reinforce } from '../../src/battle/setup'
+import { createBattle } from '../../src/battle/setup'
+import { reinforce } from '../../src/battle/reinforcements'
 import { ARENA_MIN_RADIUS } from '../../src/world/arena'
 
 /** 關鍵點離界至少要留這麼多，m：開場就貼著界的話，第一個迴旋就出界 */

@@ -5,7 +5,7 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { AiController } from '../../src/ai/AiController'
 import { createTargetBoard } from '../../src/ai/target'
 import { VETERAN } from '../../src/ai/profile'
-import { DEFAULT_STEER } from '../../src/ai/steer'
+import { DEFAULT_STEER } from '../../src/ai/steerConfig'
 import { P51D } from '../../src/specs/p51d'
 import type { Command, Controller } from '../../src/control/Controller'
 

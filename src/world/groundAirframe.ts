@@ -1,5 +1,5 @@
 import { Quaternion, Vector3 } from 'three'
-import { PARKED_TAIL_DOWN } from '../render/geometry/ground/parked'
+import { PARKED_TAIL_DOWN } from '../specs/ground'
 import { GEAR_CLEARANCE } from '../control/takeoffRoll'
 import type { AircraftSpec } from '../specs/types'
 import type { GroundTarget } from './groundTargets'

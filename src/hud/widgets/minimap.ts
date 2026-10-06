@@ -1,4 +1,5 @@
-import { contactColor, HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
+import type { HudFrame, HudLayout } from '../types'
+import { contactColor, HUD_COLORS, hudFont } from '../style'
 import { drawCachedLayer, LOW_RATE, LOW_RATE_PHASE, newLayerCache } from './layerCache'
 
 /** 方框內那一塊，低頻重畫 */

@@ -80,6 +80,12 @@ export class ScriptedController implements Controller {
     out.throttle = this.throttle
     out.brake = 0
     out.firing = false
+    // 命令由座位重用；接手 AI 後也必須維持不投彈、不施加額外姿態限制。
+    out.bombing = false
+    out.upright = false
+    out.pull = false
+    out.trackTurn = false
+    out.releaseFloor = 0
   }
 
   /** 機首方向的水平航向，rad。0 = −Z，順時針為正（與 HUD 同一套約定）。 */

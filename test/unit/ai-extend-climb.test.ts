@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { DEFAULT_STEER, extendPitchAngle } from '../../src/ai/steer'
+import { DEFAULT_STEER } from '../../src/ai/steerConfig'
+import { extendPitchAngle } from '../../src/ai/steer'
 
 /**
  * `extend` 的高度項從 `extendClimbFrom` 起放行。

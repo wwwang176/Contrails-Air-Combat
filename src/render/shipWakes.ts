@@ -1,11 +1,15 @@
 import {
-  CanvasTexture, Group, RepeatWrapping, Vector3, type Texture,
+  Group, Vector3, type Texture,
 } from 'three'
 import {
   createSinkBoxes, createWakes, type OceanHeightUniforms, type SinkBoxes, type WakeStyle,
   type Wakes,
 } from './wake'
 import type { Ship } from '../world/ships'
+export { shipFoamTexture } from './shipFoamTexture'
+
+/** 航跡只讀船體尺寸與運動快照。 */
+type WakeShip = Pick<Ship, 'cls' | 'position' | 'orientation' | 'speed' | 'alive' | 'index'>
 
 /**
  * # 船的航跡
@@ -44,65 +48,23 @@ export const SHIP_BOW_WAKE: WakeStyle = {
   foamTile: 80, columns: 4,
 }
 
-/**
- * 泡沫紋理：白色，alpha 是泡沫的濃淡。正方形、**四邊都接得起來**，橫向與縱向同一個
- * 比例（`WakeStyle.foamTile` 公尺一張）。兩邊的軟邊不在圖上，由著色器照離中線多遠
- * 算。**只在瀏覽器裡跑。**
- *
- * 【為什麼要紋理】沒有紋理的帶子是一條濃淡均勻、邊緣很硬的平帶，看起來像一條路。
- */
-export function shipFoamTexture(): CanvasTexture {
-  // 【一張蓋 40 m、不是 20 m】近看時一眼認得出每 20 m 重複一次；泡沫團的公尺大小不變，
-  // 圖放大、泡沫團數量照面積加倍
-  const W = 256, H = 256
-  const c = document.createElement('canvas')
-  c.width = W
-  c.height = H
-  const g = c.getContext('2d')!
-  // 一團團軟邊的泡沫：大小、濃淡隨機，沿航向略拉長；上下左右各畫一份，四邊接得起來
-  const blob = (x: number, y: number, r: number, a: number) => {
-    const grad = g.createRadialGradient(x, y, 0, x, y, r)
-    grad.addColorStop(0, `rgba(255,255,255,${a.toFixed(3)})`)
-    grad.addColorStop(1, 'rgba(255,255,255,0)')
-    g.fillStyle = grad
-    g.beginPath()
-    g.ellipse(x, y, r * 0.8, r * 1.4, 0, 0, Math.PI * 2)
-    g.fill()
-  }
-  for (let i = 0; i < 2080; i++) {
-    const x = Math.random() * W
-    const y = Math.random() * H
-    const r = 2 + Math.random() * Math.random() * 10
-    const a = 0.2 + Math.random() * 0.55
-    // 只有碰到邊的才補畫另一邊那一份（橢圓長軸 1.4 r）
-    const e = r * 1.4
-    const oxs = x < e ? [0, W] : x > W - e ? [0, -W] : [0]
-    const oys = y < e ? [0, H] : y > H - e ? [0, -H] : [0]
-    for (const ox of oxs) for (const oy of oys) blob(x + ox, y + oy, r, a)
-  }
-  const t = new CanvasTexture(c)
-  t.wrapS = RepeatWrapping
-  t.wrapT = RepeatWrapping
-  return t
-}
-
 /** 航速低於它就不落節點，m/s。灘頭擱淺的 LST 是 0 */
 export const SHIP_WAKE_MIN_SPEED = 0.5
 
 /** 船的半長，m：取第一個碰撞盒（船體），艦首在 −Z。每幀呼叫，不配置 */
-export function shipHalfLength(ship: Ship): number {
+export function shipHalfLength(ship: WakeShip): number {
   const hull = ship.cls.hull[0]!
   return Math.abs(hull.center.z) + hull.half.z
 }
 
 /** 船的半寬，m：取第一個碰撞盒（船體）。每幀呼叫，不配置 */
-export function shipHalfBeam(ship: Ship): number {
+export function shipHalfBeam(ship: WakeShip): number {
   const hull = ship.cls.hull[0]!
   return Math.abs(hull.center.x) + hull.half.x
 }
 
 /** 船的半長與半寬。**會配置**，只給建構期與測試用 —— 每幀的路徑用上面兩支 */
-export function shipHalfSize(ship: Ship): { halfLength: number, halfBeam: number } {
+export function shipHalfSize(ship: WakeShip): { halfLength: number, halfBeam: number } {
   return { halfLength: shipHalfLength(ship), halfBeam: shipHalfBeam(ship) }
 }
 
@@ -121,7 +83,7 @@ export const STERN_WAKE_START = 0.4
  * 位置，省略 = 現在的位置（開場往回推的時候給過去的位置）。
  */
 export function shipWakePoint(
-  ship: Ship, end: -1 | 1, out: Vector3, at: Vector3 = ship.position,
+  ship: WakeShip, end: -1 | 1, out: Vector3, at: Vector3 = ship.position,
 ): Vector3 {
   const halfLength = shipHalfLength(ship)
   const z = end < 0 ? -halfLength : STERN_WAKE_START * halfLength
@@ -129,12 +91,12 @@ export function shipWakePoint(
 }
 
 /** 這艘船現在會不會拖出航跡：只看航速，沉了但還在滑行的也算 */
-export function shipMakesWake(ship: Ship): boolean {
+export function shipMakesWake(ship: WakeShip): boolean {
   return ship.speed >= SHIP_WAKE_MIN_SPEED
 }
 
 /** 把活著或還在滑行的船的船身（俯視，照船體盒的半長半寬）寫進 `out` */
-export function shipSinkBoxes(ships: readonly Ship[], out: SinkBoxes): void {
+export function shipSinkBoxes(ships: readonly WakeShip[], out: SinkBoxes): void {
   let n = 0
   for (let k = 0; k < ships.length && n < out.x.length; k++) {
     const s = ships[k]!
@@ -155,7 +117,7 @@ export function shipSinkBoxes(ships: readonly Ship[], out: SinkBoxes): void {
 export interface ShipWakes {
   readonly object: Group
   /** 渲染幀率呼叫。`heightAt` 是浪高場，沒接海面時帶子照它起伏 */
-  step(ships: readonly Ship[], dt: number, time: number,
+  step(ships: readonly WakeShip[], dt: number, time: number,
     heightAt: (x: number, z: number, t: number) => number): void
   /** 接上海面的浪高 uniform（`Terrain.oceanHeight`），浪高改在著色器裡算 */
   bindOcean(ocean: OceanHeightUniforms | null): void
@@ -165,7 +127,7 @@ export interface ShipWakes {
 /**
  * @param foam 泡沫紋理（`shipFoamTexture`）。node 測試傳 null
  */
-export function createShipWakes(ships: readonly Ship[], foam: Texture | null = null): ShipWakes {
+export function createShipWakes(ships: readonly WakeShip[], foam: Texture | null = null): ShipWakes {
   const slots = Math.max(1, ships.length)
   // 【船身底下的帶子壓在水線】艦尾那一條從船身底下開始落；浪峰高的時候照浪抬起來
   // 會比艦尾甲板還高，泡沫從甲板上冒出來。那一段本來就被船身蓋住，出了船身才跟著浪

@@ -1,3 +1,4 @@
+export { HUE } from './palette'
 import {
   BoxGeometry, BufferAttribute, BufferGeometry, Color, CylinderGeometry, Matrix4,
 } from 'three'
@@ -101,29 +102,3 @@ export function assemble(parts: BufferGeometry[]): BufferGeometry {
   geo.computeBoundingSphere()
   return geo
 }
-
-/**
- * 配色。**同一族用同一個色鍵**，改一次全部跟著改。GLB 那幾台照材質名對到
- * 這裡（`glb.ts` 的 `GLB_MATERIALS`），火車直接用。
- */
-export const HUE = {
-  /** 蘇軍 4BO 保護綠（T-34、卡車）。 */
-  armyGreen: 0x4d5a37,
-  /** 德軍 Dunkelgelb（Flak 砲位）。 */
-  sandYellow: 0x8f7d51,
-  /** 鋼鐵：砲管、軌道、車架。 */
-  steel: 0x4a4f55,
-  steelDark: 0x33383d,
-  /** 蒸汽機車的黑。純黑在暗場景裡是一團看不見的洞，所以是很深的藍灰。 */
-  locoBlack: 0x24282c,
-  /** 橡膠：輪胎、履帶。 */
-  rubber: 0x1f2226,
-  /** 帆布篷、遮蔽物。 */
-  canvas: 0x7d7357,
-  /** 木材：貨車地板、枕木。 */
-  wood: 0x6b5537,
-  /** 玻璃：駕駛室窗。單一顏色，不做透明 —— 一個 draw call 的代價。 */
-  glass: 0x2c3a44,
-  /** 標記紅：軌道車輛的底架、緩衝器。 */
-  markRed: 0x7a2f26,
-} as const

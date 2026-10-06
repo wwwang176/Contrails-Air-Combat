@@ -83,20 +83,20 @@ describe('lightGroundFires', () => {
   })
 })
 
-describe('main.ts 的接線', () => {
+describe('戰鬥事件呈現的接線', () => {
   // 【用 import.meta.glob 而不是 fs】專案沒有 `@types/node`
-  const SOURCES = import.meta.glob('../../src/main.ts', {
+  const SOURCES = import.meta.glob('../../src/app/battleEventPresentation.ts', {
     query: '?raw', import: 'default', eager: true,
   }) as Record<string, string>
-  const MAIN = Object.values(SOURCES)[0]!
+  const EVENTS = Object.values(SOURCES)[0]!
 
   /**
    * 【要排在排空之前】`bombEvents` 在同一個物理子步裡被清掉；接在清空之後
    * 讀到的永遠是 0 筆，火點永遠不點而且不報錯。
    */
   it('炸彈事件在排空之前餵給 lightGroundFires', () => {
-    const light = MAIN.indexOf('lightGroundFires(groundFires, world.bombEvents)')
-    const clear = MAIN.indexOf('clearImpacts(world.bombEvents)')
+    const light = EVENTS.indexOf('lightGroundFires(groundFires, world.bombEvents)')
+    const clear = EVENTS.indexOf('clearImpacts(world.bombEvents)')
     expect(light).toBeGreaterThan(0)
     expect(clear).toBeGreaterThan(light)
   })

@@ -14,7 +14,7 @@ import { GROUND_FLAK_SPEC, SHIP_GUN_SPECS } from '../../src/world/shipGuns'
 
 /** 【用 import.meta.glob 而不是 fs】與這個檔案裡「main.ts 的接線」同一個做法 */
 const CONSUMERS = import.meta.glob(
-  ['../../src/main.ts', '../../src/render/flakBursts.ts', '../../src/render/blast.ts',
+  ['../../src/render/blastPresentation.ts', '../../src/main.ts', '../../src/app/battleCameraFrame.ts', '../../src/app/battleSceneFrame.ts', '../../src/app/battleFlightHud.ts', '../../src/render/flakBursts.ts', '../../src/render/blast.ts',
     '../../src/hud/Hud.ts'],
   { query: '?raw', import: 'default', eager: true },
 ) as Record<string, string>
@@ -272,14 +272,23 @@ describe('main.ts 的接線', () => {
     query: '?raw', import: 'default', eager: true,
   }) as Record<string, string>
   const MAIN = Object.values(SOURCES)[0]!
+  const CAMERA_SOURCES = import.meta.glob('../../src/app/battleCameraFrame.ts', {
+    query: '?raw', import: 'default', eager: true,
+  }) as Record<string, string>
+  const CAMERA = Object.values(CAMERA_SOURCES)[0]!
+  const SCENE_SOURCES = import.meta.glob('../../src/app/battleSceneFrame.ts', {
+    query: '?raw', import: 'default', eager: true,
+  }) as Record<string, string>
+  const SCENE = Object.values(SCENE_SOURCES)[0]!
+  const PRESENTATION = srcOf('blastPresentation.ts').replace(/^  /gm, '')
 
   /** 取出某個函數的函數體（到第一個頂層 `\n}` 為止）。 */
   function bodyOf(name: string): string {
-    const from = MAIN.indexOf(`function ${name}(`)
-    if (from < 0) throw new Error(`main.ts 裡找不到 ${name}() —— 這條測試的錨點過期了`)
-    const to = MAIN.indexOf('\n}', from)
+    const from = PRESENTATION.indexOf(`function ${name}(`)
+    if (from < 0) throw new Error(`blastPresentation.ts 裡找不到 ${name}() —— 這條測試的錨點過期了`)
+    const to = PRESENTATION.indexOf('\n}', from)
     if (to < 0) throw new Error(`${name}() 的結尾找不到`)
-    return MAIN.slice(from, to)
+    return PRESENTATION.slice(from, to)
   }
 
   for (const fn of ['emitKillBlasts', 'emitGroundKills', 'emitBombBlasts', 'emitTorpedoBlasts']) {
@@ -298,10 +307,8 @@ describe('main.ts 的接線', () => {
    * 的回呼，所以上面那一圈函數名的列舉抓不到它。
    */
   it('艦上砲位被打掉會搖鏡頭', () => {
-    const from = MAIN.indexOf('shipModels?.update(world.ships,')
-    expect(from).toBeGreaterThan(0)
-    const to = MAIN.indexOf('\n  })', from)
-    expect(MAIN.slice(from, to)).toContain('addShake(')
+    expect(SCENE).toContain('shipModels?.update(world.ships, blastPresentation.emitGunLostBlast)')
+    expect(bodyOf('emitGunLostBlast')).toContain('addShake(')
   })
 
   /**
@@ -324,17 +331,17 @@ describe('main.ts 的接線', () => {
    * 也一定要在 `renderer.render` 之前。
    */
   it('震動疊在 applyBlend 之後、渲染之前', () => {
-    const blend = MAIN.indexOf('applyBlend(godBlend')
-    const apply = MAIN.indexOf('applyCameraShake(cameraShake')
+    const blend = CAMERA.indexOf('applyBlend(godBlend')
+    const apply = CAMERA.indexOf('applyCameraShake(cameraShake')
     // 從混合那一行往後找：載入畫面裡另有一次暖身的繪製，不是每一幀的那一次
-    const render = MAIN.indexOf('ctx.renderer.render(ctx.scene, ctx.camera)', blend)
+    const render = MAIN.indexOf('ctx.renderer.render(ctx.scene, ctx.camera)')
     expect(blend).toBeGreaterThan(0)
     expect(apply).toBeGreaterThan(blend)
-    expect(render).toBeGreaterThan(apply)
+    expect(render).toBeGreaterThan(MAIN.indexOf('updateBattleCameraFrame('))
   })
 
   it('每幀推進衰減', () => {
-    expect(MAIN).toContain('stepCameraShake(cameraShake,')
+    expect(CAMERA).toContain('stepCameraShake(cameraShake,')
   })
 })
 
@@ -412,7 +419,7 @@ describe('高砲雲的表現尺度', () => {
 
   /** 【三個消費端都要讀逐發的那一格】寫死常數的話這一條會紅 */
   it('震動、黑煙、閃光都讀那一發自己帶的尺度', () => {
-    expect(srcOf('main.ts'), '震動').toContain('events.shake[e]!')
+    expect(srcOf('blastPresentation.ts'), '震動').toContain('events.shake[e]!')
     expect(srcOf('flakBursts.ts'), '黑煙').toContain('events.smoke[e]!')
     expect(srcOf('blast.ts'), '閃光').toContain('events.blast[e]!')
   })
@@ -446,9 +453,9 @@ describe('ordnanceShakeScale：炸彈與魚雷的震動尺度', () => {
 
   /** 【炸彈與魚雷兩個消費端都要經過它】只接一個的話另一種照舊搖不動 */
   it('main.ts 的炸彈與魚雷爆炸都經過它，高砲不經過', () => {
-    const main = srcOf('main.ts')
+    const main = srcOf('blastPresentation.ts').replace(/^  /gm, '')
     expect(main).toContain('ordnanceShakeScale(')
-    const bombs = main.slice(main.indexOf('function emitBombBlasts'), main.indexOf('const emitFirePuff'))
+    const bombs = main.slice(main.indexOf('function emitBombBlasts'), main.indexOf('function emitBalloonPops'))
     expect(bombs).toContain('ordnanceShakeScale(')
     const torpedoes = main.slice(main.indexOf('function emitTorpedoBlasts'), main.indexOf('function shakeFlakBursts'))
     expect(torpedoes).toContain('ordnanceShakeScale(')
@@ -588,7 +595,7 @@ describe('HUD 的搖晃', () => {
    * 以外都在轉」。所以走的是元素的 CSS transform。
    */
   it('Hud.ts 用 CSS transform 轉與移，不用 ctx 的變換', () => {
-    const hud = srcOf('Hud.ts')
+    const hud = srcOf('src/hud/Hud.ts')
     expect(hud).toContain('this.canvas.style.transform')
     expect(hud).toContain('translate(${(x * 100).toFixed(2)}%, ${(y * 100).toFixed(2)}%) rotate(${a}rad)')
     expect(hud).not.toContain('ctx.rotate(')
@@ -601,14 +608,18 @@ describe('HUD 的搖晃', () => {
    */
   it('main.ts 在推進震動之後才算 HUD 的角度', () => {
     const main = srcOf('main.ts')
-    const step = main.indexOf('stepCameraShake(cameraShake')
-    const hud = main.indexOf('hudFrame.shakeAngle = hudShakeAngle(cameraShake)')
+    const camera = srcOf('app/battleCameraFrame.ts')
+    const flightHud = srcOf('battleFlightHud.ts')
+    const step = camera.indexOf('stepCameraShake(cameraShake')
+    const hud = flightHud.indexOf('hudFrame.shakeAngle = hudShakeAngle(cameraShake)')
     expect(step).toBeGreaterThan(0)
-    expect(hud).toBeGreaterThan(step)
-    expect(main.indexOf('hud.render(hudFrame')).toBeGreaterThan(hud)
+    expect(hud).toBeGreaterThan(0)
+    const update = main.indexOf('updateBattleFlightHud(')
+    expect(update).toBeGreaterThan(0)
+    expect(main.indexOf('hud.render(hudFrame')).toBeGreaterThan(update)
     // 【三個量都要接上】只接角度的話位移永遠是 0，而那正是要的主要份量
-    expect(main).toContain('hudFrame.shakeX = hudShakeShiftX(cameraShake)')
-    expect(main).toContain('hudFrame.shakeY = hudShakeShiftY(cameraShake)')
+    expect(flightHud).toContain('hudFrame.shakeX = hudShakeShiftX(cameraShake)')
+    expect(flightHud).toContain('hudFrame.shakeY = hudShakeShiftY(cameraShake)')
   })
 })
 
@@ -625,7 +636,7 @@ describe('HUD 的搖晃', () => {
  * 驗不到，而且只在震動的那零點幾秒出現 —— 試玩很容易錯過。
  */
 describe('滿版的遮罩與敵我標示不跟著震', () => {
-  const hud = srcOf('Hud.ts')
+  const hud = srcOf('src/hud/Hud.ts')
   const unshaken = ['gEffect', 'bombVignette', 'markers', 'contacts', 'godMarkers']
 
   it('不震的清單是暗角、黑視與三種標示，而且走另一個 context', () => {

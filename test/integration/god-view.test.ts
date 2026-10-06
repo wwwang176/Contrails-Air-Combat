@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  commandExemptFlight, createBattle, stepBattle,
+  createBattle, stepBattle,
   DEFAULT_BATTLE, type Battle,
 } from '../../src/battle/setup'
 import { lineAbreast } from '../../src/battle/order'
@@ -8,6 +8,7 @@ import { HEAD_ON } from '../../src/battle/entry'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
 import { AiController } from '../../src/ai/AiController'
+import { commandExemptFlight } from '../../src/battle/commandLayer'
 import {
   createGodCameraState, stepGodCamera, type GodCameraInput,
 } from '../../src/camera/godCamera'

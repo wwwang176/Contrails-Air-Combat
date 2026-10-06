@@ -1,7 +1,5 @@
-import {
-  contactBoxRadius, contactColor, HUD_COLORS, hudFont,
-  type HudFrame, type HudLayout,
-} from '../types'
+import type { HudFrame, HudLayout } from '../types'
+import { contactBoxRadius, contactColor, HUD_COLORS, hudFont } from '../style'
 
 /**
  * 畫面外指示的箭頭離邊緣的內縮量，螢幕半高單位。

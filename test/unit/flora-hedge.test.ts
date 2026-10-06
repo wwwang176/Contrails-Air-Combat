@@ -1,9 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
-  createFloraBuffer, farmHedgeFlora, pushFlora, FloraKind,
-  FLORA_STRIDE, HEDGE_TREE_SPACING, HEDGE_BUSH_SPACING,
-  type FloraBuffer,
-} from '../../src/render/flora'
+  createFloraBuffer, pushFlora, FloraKind, FLORA_STRIDE, type FloraBuffer,
+} from '../../src/core/floraBuffer'
+import { farmHedgeFlora, HEDGE_TREE_SPACING, HEDGE_BUSH_SPACING } from '../../src/render/flora'
 import {
   edgeAt, fieldAt, onTrack, regionAt, HEDGE_WIDTH,
   type FieldSample, type RegionSample,

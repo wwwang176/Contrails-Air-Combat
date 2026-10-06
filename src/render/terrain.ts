@@ -1,60 +1,41 @@
+import { LEUNA_SITE, POLTAVA_SITE, ASCH_SITE, RZHEV_SITE } from './terrainSites'
+export { LEUNA_SITE, POLTAVA_SITE, ASCH_SITE, RZHEV_SITE } from './terrainSites'
+import { createArchipelagoTerrain, createLeyteTerrain, createSeaTerrain } from './maritimeTerrain'
+import type { Terrain, TerrainGfx } from './terrainTypes'
+export type { Terrain, TerrainGfx } from './terrainTypes'
 import {
-  Group, Mesh, MeshStandardMaterial, type BufferGeometry, type Camera, type Object3D,
-  type WebGLRenderer,
+  Group, Mesh, MeshStandardMaterial, type BufferGeometry,
 } from 'three'
-import { createOcean } from './ocean'
 import { SCENERY_CHUNK, SCENERY_MIN_TRIS, splitByGrid } from './sceneryChunks'
 import { CULL } from './cullRuns'
-import { createFieldClipmap, type ClipLevelSpec, type FieldClipmap } from './fieldClipmap'
+import { createFieldClipmap, type ClipLevelSpec } from './fieldClipmap'
 import { floraSplats } from './buildingBake'
 import { farmLaneVillages, farmSettlements } from './farmSettlements'
-import { buildBlasts, buildGardens, buildStreets } from './steppeVillage'
-import type { DayPalette } from './timeOfDay'
-import { createIslands } from './island'
+import { buildBlasts, buildGardens, buildStreets } from './steppeGeometry'
 import { createFarmGround } from './farmGround'
 import { createFarHorizon } from './farHorizon'
 import {
-  BUSH_RANGE, createVegetation, FLORA_RADIUS, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS,
-  ISLAND_TILES_PER_FRAME, LEYTE_CAPACITY, LOD_NEAR, lodFor, OUTER_JITTER, outerFor, POINT_NEAR, TILE_SIZE,
-} from './vegetation'
+  BUSH_RANGE, FLORA_RADIUS, LOD_NEAR, lodFor, OUTER_JITTER, outerFor, POINT_NEAR,
+  TILE_SIZE,
+} from './vegetationPolicy'
+import { createVegetation } from './vegetation'
 import {
-  createIslandFlora, createLeyteFlora, farmHedgeFlora, farmWoodFlora,
-  islandCanopyCover, leyteCanopyCoarse, leyteFarCover, openHedgeFloraFor, openWoodFloraFor, steppeBeltFloraFor,
-  type FloraSource,
+  farmHedgeFlora, farmWoodFlora, openHedgeFloraFor, openWoodFloraFor, steppeBeltFloraFor,
 } from './flora'
-import { requestLeyteCanopy } from './canopyBake'
-import { createLeyteGround } from './leyteGround'
-import { buildLeyteBeach } from './leyteBeach'
-import { createLeyte, LEYTE_PEAK_MAX } from '../world/leyte'
-import { bakeShore, createArchipelago, PEAK_MAX, type IslandDesc } from '../world/archipelago'
+import { type FloraSource } from '../core/floraBuffer'
+import type { IslandDesc } from '../world/archipelago'
 import { createFarmland, outsideZero, HILL_PEAK_MAX } from '../world/farmland'
-import {
-  createLeuna, PLANT_BLOCKS, PLANT_CENTER, PLANT_HEADING, PLANT_PAD, PLANT_SATELLITES,
-  PLANT_TREE_CLEAR, RAIL_WIDTH, RAILS, ROAD_WIDTH, ROADS,
-} from '../world/leuna'
-import {
-  createPoltava, FIELD_CENTER, FIELD_LOBES, FIELD_PAD, FIELD_TREE_CLEAR, PAD_GRASS, PAVED,
-  RAIL_WIDTH as POLTAVA_RAIL_WIDTH, RAILS as POLTAVA_RAILS,
-  ROAD_WIDTH as POLTAVA_ROAD_WIDTH, ROADS as POLTAVA_ROADS, RUNWAY_CONCRETE,
-} from '../world/poltava'
-import {
-  createAsch, FIELD_BUILDING_CLEAR as ASCH_BUILDING_CLEAR, FIELD_CENTER as ASCH_CENTER,
-  FIELD_LOBES as ASCH_LOBES, FIELD_PAD as ASCH_PAD,
-  FIELD_TREE_CLEAR as ASCH_TREE_CLEAR, PAD_GRASS as ASCH_GRASS, PAVED as ASCH_PAVED, PSP_STEEL,
-  ROAD_WIDTH as ASCH_ROAD_WIDTH, ROADS as ASCH_ROADS,
-} from '../world/asch'
-import {
-  BELT_FRAME, battleKeepOut, burnRateOf, CRATER_PATCHES, isLargeVillage, MINEFIELDS, OBSTACLES, SCAR_ZONE,
-  SCORCH, shelterbeltFade,
-  TRACKS, TRENCHES,
-} from '../world/rzhev'
+import { createLeuna } from '../world/leuna'
+import { createPoltava } from '../world/poltava'
+import { createAsch } from '../world/asch'
+import { battleKeepOut, burnRateOf, isLargeVillage, OBSTACLES, shelterbeltFade } from '../world/rzhev'
 import { createRzhev, type HillAvoid } from '../world/rzhevHills'
 import { buildObstacles } from './geometry/ground/obstacles'
 import { preloadScarAtlas } from './battleScars'
-import { aschClumpFlora, buildAschScenery } from './aschScenery'
+import { buildAschScenery } from './aschScenery'
 import type { HeightFieldData } from '../world/heightfield'
-import { canopyColor, FIELD_COLORS, FLORA_COLORS, type Season } from './season'
-import type { SiteLayout } from './fields'
+import { FIELD_COLORS, type Season } from './season'
+import type { SiteLayout } from './siteSurface'
 import {
   buildRavineFords, buildRavineStripes, ravineKeepOutFor, steppeRavineFloraFor,
 } from './steppeRavines'
@@ -68,22 +49,11 @@ import { buildLeunaRivers, preloadLeunaRivers } from './leunaRiver'
 import { buildLeunaDressing, preloadLeunaFeatures, type LandDressing } from './leunaFeatures'
 import { buildPlantScenery, preloadPlantScenery } from './geometry/ground/plantScenery'
 import { buildAirfieldScenery, preloadAirfieldScenery } from './geometry/ground/airfieldScenery'
-import type { LandField } from '../world/occlusion'
 import type { TerrainKind } from '../world/terrainKind'
 
 // 【聯集本身住在 world/】見 `world/terrainKind.ts`。這裡再匯出，
 // 既有的 import 站點不用動
 export type { TerrainKind }
-
-/**
- * 有 GPU 可用時給 `createTerrain` 的東西。**省略就是純算式的地面**，headless
- * 的測試與不畫圖的工具走那一條。
- */
-export interface TerrainGfx {
-  readonly renderer: WebGLRenderer
-  /** 鏡頭周圍多少公尺內的田色仍逐像素算，m。見 `render/quality.ts` 的 `fieldInner` */
-  readonly fieldInner: number
-}
 
 /**
  * 田色 clipmap 的近圖與遠圖。近圖 2 m 一格蓋 4 km，遠圖 7.3 m 一格蓋 30 km。
@@ -110,102 +80,6 @@ export const FIELD_CLIP_HORIZON: ClipLevelSpec = { size: 2048, metersPerTexel: 6
  * 地面 117 m 一格已經小於一個像素
  */
 export const FIELD_CLIP_BACKDROP: ClipLevelSpec = { size: 2048, metersPerTexel: 240000 / 2048 }
-
-export interface Terrain {
-  /** 加進場景的那個節點。換地形時整個移除 */
-  readonly object: Object3D
-  /**
-   * 地形高度場，m。撞地判定、水柱、殘骸與零件入水都讀它。
-   *
-   * 【必須與畫面上那一份是同一份】海面的頂點位移在 shader 裡算，這裡是
-   * CPU 的那一份。陸地則是**同一個 `Float32Array`** 同時餵給 mesh 與這裡。
-   * 兩者分家的話，飛機會撞到一片看不見的海。
-   */
-  heightAt(x: number, z: number, time: number): number
-  /**
-   * **判定用**的高度，m。海面是平的（回 0），陸地讀高度場。**不吃時間。**
-   *
-   * 【為什麼與 `heightAt` 分家】海面碰撞體是平面，浪只是視覺高低。但水柱、
-   * 殘骸、碎片入水仍然要貼著看得見的水面 —— 那一條走 `heightAt`。
-   * 兩個問題，兩支函式。
-   *
-   * 【誰讀它】`main.ts` 的 `world.crashPolicy`（經 `flatSeaCrashPolicy`）。
-   */
-  collisionHeightAt(x: number, z: number): number
-  /**
-   * **水面**的高度，m。**沒有水的地方回 `-Infinity`。**
-   *
-   * 【為什麼與 `heightAt` 分家】`heightAt` 回的是「陸地與海面取 max」，
-   * 而水柱、殘骸與碎片問的是另一件事：**這裡碰到的是水嗎**。用 `heightAt`
-   * 的話，摔在島上會噴水柱 —— 群島早就有這個缺陷，純內陸則是每一次墜毀
-   * 都會發生。
-   *
-   * 【誰讀它】`main.ts` 交給 `render/wrecks.ts`、`render/debris.ts` 與
-   * 水柱那一支。撞地判定不讀它（那一條走 `collisionHeightAt`）。
-   *
-   * 【不吃 `time`】呼叫端拿到的是這一格的平均水位。波的相位由
-   * `ocean.heightAt` 內部的時間決定，這裡傳 0 —— 水柱因此貼在平均水位上。
-   * 試飛看得出來的話再把 `time` 一路帶下去。
-   */
-  waterAt(x: number, z: number): number
-  /**
-   * AI 的地形來源。**圓盤法只需要這個，不需要高度場。**
-   *
-   * 【為什麼不給 AI 高度場】沿航跡取樣高度會漏 —— 步長比格距大的話，
-   * 射線跨得過一整座窄峰。島本來就是圓，用圓去判斷是解析的、沒有取樣、
-   * 而且知道自己在繞哪一座。`'sea'` 時是空陣列。
-   */
-  readonly islands: readonly IslandDesc[]
-  /**
-   * 這一場的陸地。**`null` = 沒有陸地**（`'sea'`）。
-   *
-   * 【誰讀它】`World.land`（彈丸撞到山就爆火花並回收）與 AI 的遮蔽判斷
-   * （不對山後面的敵人開火、不對山後面的瞄準閃躲）。
-   *
-   * 【它與 `islands` 是兩件事】避障讀 `islands` 的解析圓盤，遮蔽讀這一份
-   * 高度場 —— 因為遮蔽要的正是「畫面上那個面」。見 `world/occlusion.ts`。
-   *
-   * 【為什麼 `'sea'` 不給一個假的平原】造一個 `ceiling = SEA_FLOOR` 的物件
-   * 會讓每一發入海的彈丸都去查高度場，而且「陸地要高於海平面」會變成唯一
-   * 擋住海面回歸的東西。`null` 加上那道判準是兩道保險。
-   */
-  readonly land: LandField | null
-  /**
-   * 田色 clipmap。**只有內陸而且建地形時給了 `TerrainGfx` 才有**，否則 `null`。
-   * 畫質換檔位時經它調內圈半徑；量測出口經它讀挪窗統計。
-   */
-  readonly fieldClip: FieldClipmap | null
-  /**
-   * 海面的浪高 uniform（`Ocean.heightUniforms`）。**沒有海的地形是 null。** 貼著海面的
-   * 東西（航跡）在自己的著色器裡配 `OCEAN_HEIGHT_GLSL` 用它
-   */
-  readonly oceanHeight: Readonly<Record<string, { value: unknown }>> | null
-  /**
-   * 換時段。**海的那一半**（陸地與植被的顏色這一期不跟著換，見
-   * `timeOfDay.ts`）。
-   */
-  setPalette(p: DayPalette): void
-  /** 每幀更新。海浪要動；陸地是靜態的；植被跟著鏡頭補格 */
-  update(time: number, centerX: number, centerZ: number): void
-  /**
-   * 把植被的生成佇列一次排乾。**沒有植被的地形不提供這一支。**
-   *
-   * 【誰要它】`main.ts` 的 `__still`：定格截圖與逐像素比對前必須讓植被長齊，
-   * 否則拍到的是一片還沒補完的地。引擎每幀只生四格，光靠 `update` 要五十幀。
-   */
-  settle?(): void
-  /**
-   * 依這一台相機剔掉看不到的植被、近海的塊與佈景塊。**每次 render 之前呼叫** ——
-   * `main.ts` 掛在 `scene.onBeforeRender`，戰鬥、機庫、選單三個畫面都走得到。
-   */
-  cull(camera: Camera): void
-  /**
-   * 這一點落在哪一圈：樹、灌木、房子的級數與地面由哪一層畫。測距工具
-   * （`hud/rangeProbe.ts`）用，距離從上一次 `update` 的中心量。**只有內陸有**
-   */
-  describeAt?(x: number, z: number): readonly string[]
-  dispose(): void
-}
 
 /**
  * 點 (x, z) 那一格的植被是哪一級，與 `vegetation.ts` 同一個算法：整格（250 m）一起
@@ -270,239 +144,11 @@ export function createTerrain(
   return createArchipelagoTerrain()
 }
 
-/**
- * 雷伊泰：半邊是海、半邊是平坦的大島。**海面、浪花、地面網格與植被的機制
- * 照群島**，差別在生成器（`world/leyte.ts`）、切成方塊的地面與路（`leyteGround.ts`）、
- * 闊葉樹（`createLeyteFlora`）。
- *
- * 【children 的順序照群島】0 遠海、1 海、2 陸地、3 植被 —— 前三個是 `main.ts`
- * 的 `__gfx` 與工具共用的索引契約。
- */
-function createLeyteTerrain(): Terrain {
-  const { field, hills } = createLeyte()
-  const ocean = createOcean(bakeShore(field))
-  // 【樹冠圖先粗後細】精細的那一張要烘兩秒多，放在背景執行緒；烘好之前是粗的
-  // 平均暗綠。場已經收掉的話不換
-  const ground = createLeyteGround(field, leyteCanopyCoarse(field), leyteFarCover)
-  let disposed = false
-  void requestLeyteCanopy()?.then((map) => {
-    if (map !== null && !disposed) ground.setCanopy(map)
-  })
-  // 【容量是雷伊泰自己的】樹是闊葉樹，而群島的闊葉池只留了 16 格防呆 ——
-  // 超出的由 `stats.overflow` 靜靜丟掉。半徑用預設的 6 km：群島的 12 km 是建立
-  // 在「七千格裡只有三百格有東西」上，雷伊泰的陸地是整片，照搬的話非空的格子
-  // 多一個量級。單格上限用群島的（丘陵上的林子單格可到五百多株）
-  const flora = createVegetation(
-    [createLeyteFlora(field)], (x, z) => field.sample(x, z),
-    { capacity: LEYTE_CAPACITY, maxPerTile: ISLAND_MAX_PER_TILE },
-  )
-  const group = new Group()
-  group.add(ocean.farMesh)
-  group.add(ocean.mesh)
-  group.add(ground.object)
-  group.add(flora.object)
-  // 【灘頭的佈景排第五個】前四個是索引契約（見上）。木箱堆與停著的車合併成
-  // 一顆網格，材質與洛伊納的佈景相同
-  const beach = new Mesh(
-    buildLeyteBeach((x, z) => field.sample(x, z)),
-    new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 }),
-  )
-  group.add(beach)
-
-  return {
-    object: group,
-    heightAt(x, z, time) {
-      const h = field.sample(x, z)
-      const sea = ocean.heightAt(x, z, time)
-      return h > sea ? h : sea
-    },
-    collisionHeightAt(x, z) {
-      const h = field.sample(x, z)
-      return h > 0 ? h : 0
-    },
-    waterAt(x, z) {
-      const h = field.sample(x, z)
-      const sea = ocean.heightAt(x, z, 0)
-      return h > sea ? -Infinity : sea
-    },
-    islands: hills,
-    land: { field, ceiling: LEYTE_PEAK_MAX, landAbove: 0 },
-    fieldClip: null,
-    oceanHeight: ocean.heightUniforms,
-    setPalette(p) {
-      ocean.setPalette(p)
-      flora.setPointLight(p.foliage)
-    },
-    update(time, centerX, centerZ) {
-      ocean.update(time, centerX, centerZ)
-      flora.update(centerX, centerZ)
-    },
-    cull(camera) {
-      ocean.cull(camera)
-      flora.cull(camera)
-    },
-    settle() { flora.settle() },
-    dispose() {
-      disposed = true
-      ocean.dispose()
-      ground.dispose()
-      flora.dispose()
-      beach.geometry.dispose()
-      ;(beach.material as MeshStandardMaterial).dispose()
-    },
-  }
-}
-
-function createSeaTerrain(): Terrain {
-  const ocean = createOcean(null)
-  const group = new Group()
-  // 【順序：遠海先進去】繪製順序其實由 `farMesh.renderOrder` 決定（見
-  // `ocean.ts`），這裡的次序只影響 `children` 的索引 —— 但讀起來由遠到近，
-  // 而測試也靠這個次序（並自我驗證抓對了人）。
-  group.add(ocean.farMesh)
-  group.add(ocean.mesh)
-  // 【第三個位置仍然佔著】索引契約由 `main.ts` 的 `__gfx` 消融表與
-  // `src/tools/` 的兩支工具共用。沒有陸地就掛一個空 Group，
-  // 那兩邊才不必為了「這一場有沒有島」寫分支。
-  group.add(new Group())
-
-  return {
-    object: group,
-    heightAt: ocean.heightAt,
-    collisionHeightAt: () => 0,
-    waterAt: (x, z) => ocean.heightAt(x, z, 0),
-    islands: [],
-    land: null,
-    fieldClip: null,
-    oceanHeight: ocean.heightUniforms,
-    setPalette(p) { ocean.setPalette(p) },
-    update(time, centerX, centerZ) { ocean.update(time, centerX, centerZ) },
-    cull(camera) { ocean.cull(camera) },
-    dispose() { ocean.dispose() },
-  }
-}
-
-function createArchipelagoTerrain(): Terrain {
-  // 【陸地要先生出來，海面才接得上】浪花吃的是由高度場推出來的膨脹圖 ——
-  // 見 `world/archipelago.ts` 的 `bakeShore`。
-  //
-  // 【只烘一次】`createArchipelago` 不回傳膨脹圖：headless 的測試與 AI 那一
-  // 側都用不到它，讓生成器一律烘等於每個呼叫端都付一次 1024² 的距離傳播。
-  const { field, islands } = createArchipelago()
-  const ocean = createOcean(bakeShore(field))
-  // 【地色先帶上林相】見 `island.ts` 的 `shade`：植被的圈外一棵樹都不畫，
-  // 地色若不先按覆蓋率調暗，飛進圈時整座島會同時變暗變花
-  const meshes = createIslands(field, islands, islandCanopyCover(field, islands))
-  // 【植被 append 在索引 3】前三個是明文契約，見 `main.ts` 的 `__gfx`
-  // 【容量與單格上限都是群島專用的】島上只有針葉樹，但密度比農地高一個
-  // 量級 —— 見 `ISLAND_CAPACITY` 與 `ISLAND_MAX_PER_TILE`
-  const flora = createVegetation(
-    [createIslandFlora(field, islands)], (x, z) => field.sample(x, z),
-    {
-      capacity: ISLAND_CAPACITY, maxPerTile: ISLAND_MAX_PER_TILE,
-      radius: ISLAND_RADIUS, tilesPerFrame: ISLAND_TILES_PER_FRAME,
-    },
-  )
-  const group = new Group()
-  group.add(ocean.farMesh)
-  group.add(ocean.mesh)
-  group.add(meshes.object)
-  group.add(flora.object)
-
-  return {
-    object: group,
-    heightAt(x, z, time) {
-      // 【取 max，而且陸地那一份不吃 time】陸地是靜態的；海面才有波。
-      // 高度場出界回 −Infinity，所以場地之外自然退回純海面。
-      const h = field.sample(x, z)
-      const sea = ocean.heightAt(x, z, time)
-      return h > sea ? h : sea
-    },
-    // 【海面那一項是 0，不是 ocean.heightAt】見介面上的說明。出界回
-    // −Infinity，所以場地之外自然退回平海面
-    collisionHeightAt(x, z) {
-      const h = field.sample(x, z)
-      return h > 0 ? h : 0
-    },
-    // 【陸地高過海面的地方沒有水】那正是「摔在島上不該噴水柱」
-    waterAt(x, z) {
-      const h = field.sample(x, z)
-      const sea = ocean.heightAt(x, z, 0)
-      return h > sea ? -Infinity : sea
-    },
-    islands,
-    // 【`ceiling` 用 PEAK_MAX 而不是實測的最高點】它是一個上界就夠了 ——
-    // 高於它的彈丸一定碰不到陸地。用實測值要多掃一次全圖，而且會讓
-    // 「動了地形就要重算」多一條沒有人記得的規則
-    land: { field, ceiling: PEAK_MAX, landAbove: 0 },
-    // 【群島的地色是頂點色】沒有田色算式可以烘
-    fieldClip: null,
-    oceanHeight: ocean.heightUniforms,
-    setPalette(p) {
-      ocean.setPalette(p)
-      flora.setPointLight(p.foliage)
-    },
-    update(time, centerX, centerZ) {
-      ocean.update(time, centerX, centerZ)
-      flora.update(centerX, centerZ)
-    },
-    cull(camera) {
-      ocean.cull(camera)
-      flora.cull(camera)
-    },
-    settle() { flora.settle() },
-    dispose() {
-      ocean.dispose()
-      meshes.dispose()
-      flora.dispose()
-    },
-  }
-}
-
 function createFarmlandTerrain(
   gfx?: TerrainGfx, farmSite?: (hills: readonly IslandDesc[]) => SiteLayout,
 ): Terrain {
   const farm = createFarmland()
   return createInlandTerrain(farm, 'summer', farmSite?.(farm.hills), undefined, gfx)
-}
-
-/** 碴石：調車場的街廓 */
-const BALLAST = 0x5f5a52
-/** 裸土：留白的街廓 */
-const BARE_EARTH = 0x6b5f4e
-/** 牆外衛星設施的鋪面。比主廠區暗一階 —— 是附屬的、久沒整修的地 */
-const OUTPOST_SLAB = 0x807d76
-
-/**
- * 洛伊納廠區的墊面、道路與鋪面，世界座標。`fields.ts` 的著色器與植被的排除
- * 都讀它。
- *
- * 【鋪面照街廓的機能給】調車場是碴石、留白是裸土 —— 俯視時這兩塊的紋理與
- * 混凝土不同，整片廠區才不是一張均質的灰。
- */
-export const LEUNA_SITE: SiteLayout = {
-  pivot: { x: PLANT_CENTER.x, z: PLANT_CENTER.z },
-  heading: PLANT_HEADING,
-  pad: {
-    x0: -PLANT_PAD.halfX, z0: -PLANT_PAD.halfZ,
-    x1: PLANT_PAD.halfX, z1: PLANT_PAD.halfZ,
-  },
-  treeClear: PLANT_TREE_CLEAR,
-  roads: ROADS,
-  roadWidth: ROAD_WIDTH,
-  rails: RAILS,
-  railWidth: RAIL_WIDTH,
-  patches: PLANT_BLOCKS
-    .filter((b) => b.kind === 'railyard' || b.kind === 'open')
-    .map((b) => ({
-      x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1,
-      hex: b.kind === 'railyard' ? BALLAST : BARE_EARTH,
-    })),
-  outposts: PLANT_SATELLITES.map((s) => ({
-    x0: s.dx - s.w / 2, x1: s.dx + s.w / 2,
-    z0: s.dz - s.d / 2, z1: s.dz + s.d / 2,
-    hex: OUTPOST_SLAB,
-  })),
 }
 
 /**
@@ -529,37 +175,9 @@ function createAutumnFarmlandTerrain(
   return createInlandTerrain(farm, 'lateAutumn', farmSite?.(farm.hills), undefined, gfx)
 }
 
-/** 波爾塔瓦機場的墊面（草）、跑道／滑行道／停機位（水泥）、連外道路與鐵路 */
-export const POLTAVA_SITE: SiteLayout = {
-  pivot: { x: FIELD_CENTER.x, z: FIELD_CENTER.z },
-  pad: FIELD_PAD,
-  padLobes: FIELD_LOBES,
-  padHex: PAD_GRASS,
-  treeClear: FIELD_TREE_CLEAR,
-  roads: POLTAVA_ROADS,
-  roadWidth: POLTAVA_ROAD_WIDTH,
-  rails: POLTAVA_RAILS,
-  railWidth: POLTAVA_RAIL_WIDTH,
-  patches: PAVED.map((r) => ({ ...r, hex: RUNWAY_CONCRETE })),
-}
-
 /** 波爾塔瓦：農地的算繪路徑、極緩的丘、夏季、機場的墊面與佈景 */
 function createPoltavaTerrain(gfx?: TerrainGfx): Terrain {
   return createInlandTerrain(createPoltava(), 'summer', POLTAVA_SITE, buildAirfieldScenery, gfx)
-}
-
-/** Y-29 的墊面（草，含作業區與營區）、跑道／滑行帶／停機墊（鋼板網）、連外道路 */
-export const ASCH_SITE: SiteLayout = {
-  pivot: { x: ASCH_CENTER.x, z: ASCH_CENTER.z },
-  pad: ASCH_PAD,
-  padLobes: ASCH_LOBES,
-  padHex: ASCH_GRASS,
-  treeClear: ASCH_TREE_CLEAR,
-  buildingClear: ASCH_BUILDING_CLEAR,
-  flora: aschClumpFlora,
-  roads: ASCH_ROADS,
-  roadWidth: ASCH_ROAD_WIDTH,
-  patches: ASCH_PAVED.map((r) => ({ ...r, hex: PSP_STEEL })),
 }
 
 /**
@@ -592,24 +210,6 @@ const RAVINE_KEEP_OUT = ravineKeepOutFor(RAVINES)
  * 地形與測試用同一支，測的才是遊戲實際蓋出來的村。
  */
 export const rzhevVillageKeepOut = (x: number, z: number): boolean => battleKeepOut(x, z) || RAVINE_KEEP_OUT(x, z)
-
-/**
- * 勒熱夫：沒有墊面、不畫路（路是區塊交界的凹路），交戰帶疊上彈坑、燒田、履帶痕與壕溝
- *
- * 【彈坑的密度】交戰帶裡一格（24 m）三成有坑，往外 700 m 內降到三分。**起始值，
- * 拿眼睛校**
- */
-export const RZHEV_SITE: SiteLayout = {
-  roads: [],
-  roadWidth: 0,
-  scars: {
-    zone: SCAR_ZONE, fade: 700, dense: 0.3, sparse: 0.03,
-    scorch: SCORCH, trenches: TRENCHES, tracks: TRACKS, minefields: MINEFIELDS,
-    craterPatches: CRATER_PATCHES,
-  },
-  // 防風林帶在植被圈外（4.8～6 km 以遠）由著色器畫成田界上的帶；顏色是針葉樹冠色，與近處的林帶同一份
-  belts: { frame: BELT_FRAME, halfWidth: 9, hex: canopyColor(FLORA_COLORS.winterSteppe.conifer).getHex() },
-}
 
 /**
  * 丘陵要躲開的村與小聚落：村的街沿凹路拉長一兩公里，圓心取站址、半徑 700 m；小聚落 300 m。

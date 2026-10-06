@@ -5,8 +5,9 @@
  * 不跑引擎，所以掃得動 12 km 的圈。
  */
 import { createArchipelago } from '../../src/world/archipelago'
-import { createFloraBuffer, createIslandFlora } from '../../src/render/flora'
-import { TILE_SIZE, POINT_NEAR, LOD_NEAR } from '../../src/render/vegetation'
+import { createFloraBuffer } from '../../src/core/floraBuffer'
+import { createIslandFlora } from '../../src/render/islandFlora'
+import { TILE_SIZE, POINT_NEAR, LOD_NEAR } from '../../src/render/vegetationPolicy'
 
 const RADII = [6000, 9000, 12000, 16000]
 const arch = createArchipelago()

@@ -2,7 +2,7 @@ import {
   Color, Group, InstancedBufferAttribute, InstancedMesh, Matrix4, MeshBasicMaterial, NormalBlending,
   PlaneGeometry, Quaternion, SRGBColorSpace, type Texture, Vector3,
 } from 'three'
-import { hash01 } from './scatter'
+import { hash01 } from '../core/hash'
 import type { DayPalette } from './timeOfDay'
 import { CLOUD_FIELD_MARGIN, cloudFieldCount, type CloudField } from '../world/cloudField'
 import type { ArenaBounds } from '../world/arena'

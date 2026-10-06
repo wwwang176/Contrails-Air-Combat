@@ -3,7 +3,9 @@ import {
   PlaneGeometry, Scene, ShaderMaterial, Vector2, Vector4, WebGLRenderTarget,
   type BufferGeometry, type DataTexture, type WebGLProgramParametersWithUniforms, type WebGLRenderer,
 } from 'three'
-import { fieldGlslWithSite, type RegionCandidates, type SiteLayout } from './fields'
+import { fieldGlslWithSite } from './fieldShaders'
+import { type RegionCandidates } from './fields'
+import { type SiteLayout } from './siteSurface'
 import { SCAR_ATLAS } from './battleScars'
 import type { Season } from './season'
 

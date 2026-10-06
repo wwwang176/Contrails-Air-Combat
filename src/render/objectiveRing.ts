@@ -22,7 +22,7 @@ const COLOR = 0x7dfba8
 export interface ObjectiveRing {
   readonly object: Object3D
   /** 每幀更新：圓心、半徑、正對相機 */
-  update(centre: Vector3, radius: number, camera: Camera): void
+  update(centre: Vector3, radius: number, camera: Pick<Camera, 'position'>): void
   setVisible(v: boolean): void
   dispose(): void
 }

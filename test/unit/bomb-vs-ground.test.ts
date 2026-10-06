@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { World } from '../../src/world/World'
 import { GROUND_HP, createGroundTarget, type GroundTarget } from '../../src/world/groundTargets'
-import type { GroundUnitId } from '../../src/render/geometry/ground'
+import type { GroundUnitId } from '../../src/specs/ground'
 import { SHIP_CLASSES, createShip } from '../../src/world/ships'
 import { createShipGuns } from '../../src/world/shipGuns'
 import { BOMB_BLAST_DAMAGE, BOMB_BLAST_RADIUS } from '../../src/weapons/bomb'

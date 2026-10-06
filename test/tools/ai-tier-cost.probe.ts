@@ -18,7 +18,7 @@ const ais = b.world.combatants
   .map((c) => c.controller)
   .filter((k): k is AiController => k instanceof AiController)
 console.log(`AI 控制器 ${ais.length} 具`)
-const made = () => ais.reduce((a, k) => a + (k as unknown as { decisionsMade: number }).decisionsMade, 0)
+const made = () => ais.reduce((a, k) => a + k.decisionsMade, 0)
 
 for (let i = 0; i < 300 + 9600; i++) stepBattle(b, DT)   // 跑到穩態的纏鬥（t≈41 s）
 

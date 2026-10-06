@@ -11,6 +11,13 @@ import { ordnanceShakeScale } from '../../src/camera/cameraShake'
 const MAIN_SRC = Object.values(import.meta.glob('../../src/main.ts', {
   query: '?raw', import: 'default', eager: true,
 }) as Record<string, string>)[0]!
+const SCENE_FRAME_SRC = Object.values(import.meta.glob('../../src/app/battleSceneFrame.ts', {
+  query: '?raw', import: 'default', eager: true,
+}) as Record<string, string>)[0]!
+
+const PRESENTATION = Object.values(import.meta.glob('../../src/render/blastPresentation.ts', {
+  query: '?raw', import: 'default', eager: true,
+}) as Record<string, string>)[0]!.replace(/\r\n/g, '\n').replace(/^  /gm, '')
 
 const CAM = new Vector3(0, 300, 0)
 const lightsOf = (b: BlastLights): PointLight[] => b.object.children as PointLight[]
@@ -145,9 +152,13 @@ describe('createBlastLights：固定幾盞的燈池', () => {
    * 高射砲傳 `false` 不放大；船火與地面火的小爆炸不打（整場會一直閃）。
    */
   it('main.ts 的六種爆炸都打燈，高射砲不放大，火焰不打', () => {
-    const main = MAIN_SRC
-    const body = (from: string, to: string): string =>
-      main.slice(main.indexOf(from), main.indexOf(to, main.indexOf(from)))
+    const main = MAIN_SRC + '\n' + SCENE_FRAME_SRC
+    const body = (from: string, to: string): string => {
+      const source = from.startsWith('function ') ? PRESENTATION : main
+      const at = source.indexOf(from)
+      expect(at, from).toBeGreaterThanOrEqual(0)
+      return source.slice(at, source.indexOf(to, at))
+    }
     for (const fn of ['function emitKillBlasts', 'function emitGroundKills',
       'function emitBombBlasts', 'function emitTorpedoBlasts']) {
       expect(body(fn, '\n}\n'), fn).toContain('blastLights.flash(')
@@ -155,7 +166,8 @@ describe('createBlastLights：固定幾盞的燈池', () => {
     const flak = body('function shakeFlakBursts', '\n}\n')
     expect(flak).toContain('blastLights.flash(')
     expect(flak).toContain(', false)')
-    const gunLost = body('shipModels?.update(world.ships', '})')
+    expect(main).toContain('shipModels?.update(world.ships, blastPresentation.emitGunLostBlast)')
+    const gunLost = body('function emitGunLostBlast', '\n}\n')
     expect(gunLost).toContain('blastLights.flash(')
     expect(body('const emitFirePuff', '\n')).not.toContain('blastLights')
   })

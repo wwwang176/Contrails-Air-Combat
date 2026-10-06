@@ -244,8 +244,7 @@ function waterHeading(self: Aircraft, out: Vector3): boolean {
  * 【為什麼直接用 `canRelease`】它就是 `World` 那一側的判準。自己再寫一份
  * 門檻，兩邊漂開的症狀是「AI 鎖了一個它投不出去的航向」。
  *
- * 【不配置】自己算 roll/pitch 而不呼叫 `attitudeFromOrientation` —— 那一支
- * 回一個物件，而這裡是決策拍。
+ * 滾轉與俯仰以既有向量暫存計算，決策拍不配置。
  */
 function established(self: Aircraft, runAltitude: number): boolean {
   // 【要在航路高度上穩住，不是勉強擠進天花板】只看包絡的話，飛機一鑽進

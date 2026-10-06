@@ -1,3 +1,4 @@
+import { PLANT_LAT, PLANT_LON, PLANT_Z, HALF_M, M_PER_DEG_LAT, M_PER_DEG_LON, toGame } from './leuna-coordinates.mjs'
 /**
  * 抓洛伊納一帶的河道中心線，存成 `public/data/leuna-rivers.json`。
  *
@@ -20,18 +21,6 @@
  */
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-
-const PLANT_LAT = 51.3085
-const PLANT_LON = 12.0048
-const PLANT_Z = -7000
-const HALF_M = ((376 - 1) / 2) * 80
-const M_PER_DEG_LAT = 111320
-const M_PER_DEG_LON = 111320 * Math.cos((PLANT_LAT * Math.PI) / 180)
-
-/** 真實經緯度 → 遊戲座標 */
-function toGame(lat, lon) {
-  return [(lon - PLANT_LON) * M_PER_DEG_LON, PLANT_Z - (lat - PLANT_LAT) * M_PER_DEG_LAT]
-}
 
 const south = PLANT_LAT - (HALF_M + PLANT_Z * -1) / M_PER_DEG_LAT
 const north = PLANT_LAT + (HALF_M + PLANT_Z) / M_PER_DEG_LAT

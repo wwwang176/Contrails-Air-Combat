@@ -2,7 +2,7 @@ import {
   BufferAttribute, BufferGeometry, DynamicDrawUsage, Group, LineBasicMaterial,
   LineSegments, Mesh, MeshBasicMaterial, Object3D, SphereGeometry,
 } from 'three'
-import type { Team } from '../world/World'
+import type { Team } from '../world/team'
 
 /**
  * 指揮官集合點的可視化。**觀測工具，不進任何遊戲邏輯。**

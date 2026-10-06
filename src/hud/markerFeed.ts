@@ -1,5 +1,5 @@
 import { HUD_MAX_MARKERS, type HudFrame } from './types'
-import { teamSlot } from '../world/World'
+import { teamSlot } from '../world/team'
 import type { Ship } from '../world/ships'
 import type { GroundTarget } from '../world/groundTargets'
 
@@ -39,7 +39,7 @@ export type ShipMarkerTop = (ship: Ship) => number
 
 /**
  * 哪些船、地面目標是任務的主要目標（標記上標距離），與量距離的基準點。
- * 判定依當下的規則（`battle/setup.ts` 的 `isObjectiveShip`／`isObjectiveGround`）；
+ * 判定依當下的規則（`battle/objectiveQueries.ts` 的 `isObjectiveShip`／`isObjectiveGround`）；
  * 基準點與接觸點的距離讀數同一個 —— 自機，上帝視角是鏡頭。
  */
 export interface MarkerObjectives {

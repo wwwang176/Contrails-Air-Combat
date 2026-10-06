@@ -1,170 +1,58 @@
-import { Quaternion, Vector3 } from 'three'
-import { makeScratch } from '../core/pool'
-import { mountDirection } from '../weapons/types'
-import { stepCadence } from '../weapons/cadence'
-import { AIRCRAFT_ARMOUR, SHIP_GUN_ARMOUR, penetrationDamage } from '../weapons/armour'
+import { stepFixedGuns } from './fixedGuns'
+import type { Combatant } from './combatant'
+import { teamSlot, type Team } from './team'
+import { Vector3 } from 'three'
+import { createTorpedoContacts } from './torpedoContacts'
 import {
-  boundingRadius, createHitResult, hitAircraft, segmentBox, segmentPointDistanceSq,
-  NO_HIT, PART_INDEX, partDamage, type HitPart,
-  pointBoxDistance,
+  boundingRadius, createHitResult,
+  partDamage, type HitPart,
 } from './hit'
 import { Projectiles } from './Projectiles'
 import { createImpacts, pushImpact, type ImpactEvents } from './events'
 import {
   BOMB_TERMINAL_SPEED, TORPEDO_SPREAD_RAD,
-  type BombBlockFn,
   Bombs, bombDragK, dropDrift, spreadDirection, spreadPair,
   type BombImpactFn, type BombState,
 } from './bomb'
+import { createBombObstacleQuery } from './bombObstacles'
+import { applyBombBlast } from './bombBlast'
+import { popIfDead } from './targetDeaths'
+import { ProjectileHits } from './projectileHits'
 import {
-  blastRadiusOf, bombBlastDamage, createBombBay, resetBombBay, stepBombBay,
-  type BombBay,
+  createBombBay, resetBombBay, stepBombBay,
 } from '../weapons/bomb'
 import { loadoutOf, type Loadout } from '../weapons/stores'
 import { canRelease, envelopeFor } from '../weapons/releaseEnvelope'
-// 【`attitude-math.ts` 放錯層了】它是純數學（只依賴 three 與 core），
-// 卻住在 `hud/` 底下 —— `camera/godCamera.ts` 也已經跨層引用它。應該搬到
-// `core/`，但那是另一次清理，不在這次合併的範圍。
-import { attitudeFromOrientation } from '../hud/attitude-math'
-import {
-  Torpedoes,
-  type TorpedoBlockFn, type TorpedoEndFn, type TorpedoPointFn,
-} from './torpedo'
+import { attitudeFromOrientation } from '../core/attitude'
+import { Torpedoes } from './torpedo'
 import { createKills, pushKill, type KillEvents } from './kills'
-import { createDamageEvents, pushDamage, type DamageEvents } from './damage'
-import { CullIndex } from './cull'
-import { landHitT, type LandField } from './occlusion'
-import { normalAt, type SurfaceNormal } from './heightfield'
+import { createDamageEvents, type DamageEvents } from './damage'
+import type { LandField } from './occlusion'
 import { createTurretStates, resetTurretStates, stepTurrets } from './turrets'
 import { stepShips, type Ship } from './ships'
 import {
-  BALLOON_ENVELOPE, BALLOON_ENVELOPE_HIT, BALLOON_MISS, BALLOON_REACH, balloonCollision, envelopeCenter,
+  BALLOON_ENVELOPE_HIT, BALLOON_MISS, balloonCollision,
   stepBalloons,
   type Balloon,
 } from './balloons'
 import { stepScriptedKill, type GroundTarget } from './groundTargets'
 import { stepGroundMotion } from './groundMotion'
-import { MATERIAL } from './material'
-import {
-  GEAR_CLEARANCE, ROLL_SECONDS, stepTakeoff, type PoseState, type TakeoffRoll,
-} from '../control/takeoffRoll'
-import { airframePose } from './groundAirframe'
+import { stepGroundTaxi } from './groundTakeoff'
+import { stepTakeoff } from '../control/takeoffRoll'
 import { createFlares, stepFlares } from './flares'
-import { stepGunPlatform, ownerShipIndex } from './shipGuns'
+import { stepGunPlatform } from './shipGuns'
 import {
   createBursts, createFlak, clearBursts, flakDamage, pushBurst, stepFlak, FLAK_CAPACITY,
 } from './flak'
 import { obbOverlap } from './obb'
-import type { TurretState } from './turrets'
-import { createCommand, type Command, type Controller } from '../control/Controller'
+import { createCommand, type Controller } from '../control/Controller'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { AircraftSpec } from '../specs/types'
-import { PROJECTILE_LIFETIME } from './Projectiles'
 
-export type Team = 'blue' | 'red'
-
-/**
- * 隊別的整數編碼。**0 = 藍、1 = 紅。**
- *
- * 【為什麼是一個函數而不是讓呼叫端自己寫 `team === 'blue' ? 0 : 1`】那條
- * 三元式若在兩處各寫一次，其中一處寫反了不會有任何測試紅 —— 症狀只是
- * 「某一隊的東西顏色不對」或「某一隊的護航機從來不緊張」。
- *
- * 【為什麼住在這裡而不是 `ai/target.ts`】它本來在那裡，但彈丸、炸彈、
- * 魚雷這三個池都要用同一個編碼，而 `world/` 不能往上依賴 `ai/`。
- * `ai/target.ts` 現在轉出這一支。
- */
-export function teamSlot(team: Team): number {
-  return team === 'blue' ? 0 : 1
-}
-
-/** 世界裡的一架飛機：機體 + 控制器 + 武器狀態 + 戰損狀態。 */
-export interface Combatant {
-  /** 在 `World.combatants` 裡的索引。彈丸用它記錄射手，判定時排除自傷。 */
-  readonly index: number
-  readonly aircraft: Aircraft
-  controller: Controller
-  readonly command: Command
-  /**
-   * 每個掛架一個射擊時鐘。長度等於 `spec.battery.mounts.length`。
-   *
-   * 【不是 readonly】換裝機種時掛架數會變（P-51 六個、109 三個），
-   * `setSpec` 必須換掉整個陣列。
-   */
-  cooldowns: Float32Array
-  /**
-   * 這一台的彈艙。**不是 readonly** —— 換裝機種時容量會變（B-17G 十枚、
-   * G4M 兩枚、戰鬥機零枚），與 `cooldowns` 同一個理由。
-   *
-   * 【零容量就是掛不了彈】`stepBombBay` 在 `load === 0 && queue === 0` 時
-   * 進回補，而回補又補回 0 —— 空艙的機種因此永遠投不出東西，不必另外擋。
-   */
-  bombBay: BombBay
-  /**
-   * 這一台掛什麼。**`null` = 掛不了東西。**
-   *
-   * 【為什麼不是每次從 spec 查】`bombBay.capacity` 由它推導，而任務卡可以
-   * 用 `blueLoadout` 覆寫（`battle/setup.ts`）—— 覆寫過的值必須留得住，
-   * 從 spec 重查會把它抹掉。
-   */
-  loadout: Loadout | null
-  /**
-   * 每個掛架的槍焰剩餘秒數。長度等於 `spec.battery.mounts.length`。
-   *
-   * 【為什麼是計時器而不是事件】事件會帶著**物理子步**的位置，而畫面畫
-   * 在**內插後**的位置 —— 200 m/s 下差 0.83 m，槍焰會相對機身抖動接近
-   * 一個機身長度。計時器是一個**狀態**，渲染層讀它的時候自己用內插姿態
-   * 重算槍口位置（M7 spec §2.1）。
-   *
-   * 【不是 readonly】與 `cooldowns` 同一個理由：換裝機種時掛架數會變。
-   */
-  muzzleFlash: Float32Array
-
-  /**
-   * 每座砲塔的執行期狀態。
-   *
-   * 【不是 readonly】與 `cooldowns` 同一個理由：換裝機種時砲塔數會變。
-   */
-  turretStates: TurretState[]
-  /** 每座砲塔的射速時鐘。與 `cooldowns` 平行，但砲塔走自己那一條。 */
-  turretCooldowns: Float32Array
-  hp: number
-  /**
-   * 包圍球半徑，m。命中判定的粗篩用，隨 spec 一起更新。
-   *
-   * 【為什麼存在 Combatant 上而不是每次算】它只跟機種有關，而 resolveHits
-   * 每步要對 4,000 發 × 每架各問一次——那是每秒上百萬次呼叫。
-   */
-  hitRadius: number
-  team: Team
-  /**
-   * 還在戰場上。false = 已退場（被打爆或撞地）。
-   *
-   * 【為什麼是旗標而不是從 combatants 移除】`index` 是彈丸記錄射手用的。
-   * `splice` 之後所有在飛的彈丸都會認錯主人 —— 包括「打不到自己」那條
-   * 規則，於是死人的遺彈會開始打活人，而症狀離成因很遠。
-   */
-  alive: boolean
-  /** 這一步打中別人幾次。HUD 的 X 標記靠它觸發（0.15 s 計時在 HUD 那一層）。 */
-  hitsDealt: number
-  /** 靶機為真：被打爆就滿血重生。玩家為假（M2 沒有東西打得到玩家）。 */
-  respawnOnDestroy: boolean
-  /**
-   * 滾行起飛腳本。**非 null 時位置由腳本驅動**：控制器不跑、物理積分與撞地
-   * 判定跳過。它仍然在 `combatants` 裡、命中判定照打 —— 在跑道上打掉正在
-   * 加速的飛機要成立。腳本走完由 `step` 設回 null，之後照常飛。
-   */
-  takeoff: TakeoffRoll | null
-  /**
-   * 這個席位整場不進場（`battle/setup.ts` 的 `reinforce`：起飛時停機線上已經
-   * 沒有對應的那一架）。**`alive` 同時為 false**，但不是被擊落 —— 不推擊墜、
-   * 畫面不畫、不留殘骸。預留的座位範圍是建構期綁死的，所以席位留著、不進場。
-   */
-  retired: boolean
-  readonly spawnPosition: Vector3
-  spawnAltitude: number
-  spawnTas: number
-}
+export type { Combatant } from './combatant'
+export type { Team } from './team'
+export { teamSlot } from './team'
+export { FLASH_SECONDS } from '../weapons/muzzleFlash'
 
 /**
  * 撞地判定。回傳 true 代表這一架已經碰到地面／海面。
@@ -179,84 +67,22 @@ export type CrashPolicy = (c: Combatant) => boolean
 /** 預設政策：平海面。headless 測試與對戰矩陣用這一個。 */
 const SEA_LEVEL: CrashPolicy = (c) => c.aircraft.state.position.y <= 0
 
-// 【第四個給命中法線用】resolveHits 的 s0/s1 佔了 v[0]、v[1]，fire 佔
-// v[0..2]，兩者不同時執行。v[3] 是 M7 新增的法線暫存。
-const S = makeScratch(4)
-
-/** 撞到陸地時的法線。模組級 —— 熱路徑不得配置 */
-const LAND_N: SurfaceNormal = { nx: 0, ny: 1, nz: 0 }
-
 /** 投放偏移與推力的暫存。模組級 —— 熱路徑不得配置 */
 const BOMB_PAIR = { u: 0, v: 0 }
 const BOMB_VEL: BombState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
 const DRIFT = { x: 0, z: 0 }
-/** 世界 → 艦體的逆姿態。模組級，熱路徑不得配置。 */
-const SHIP_INV = /* @__PURE__ */ new Quaternion()
-/** 地上飛機的起飛腳本姿態。模組級，熱路徑不得配置。 */
-const TAXI_POSE: PoseState = {
-  position: new Vector3(), velocity: new Vector3(), orientation: new Quaternion(), angularVelocity: new Vector3(),
-}
-/** 地上飛機的機體原點與姿態（`airframePose`）。模組級，熱路徑不得配置。 */
-const AF_POS = /* @__PURE__ */ new Vector3()
-const AF_QUAT = /* @__PURE__ */ new Quaternion()
+const RELEASE_ATTITUDE = { pitch: 0, roll: 0 }
 /**
  * 投雷時的機首水平方向。**熱路徑不得配置**，所以是模組層級的一格。
  *
- * 【為什麼不併進 `S`】那一組在 `onBombBlocked` 與 `onTorpedoBlocked` 的
- * 迴圈裡活著，而投放回呼可能在同一個物理步裡被呼叫。
+ * 與 `fixedGuns.ts` 的暫存分開，避免投放與槍口運算共用中間結果。
  */
 const NOSE_H = /* @__PURE__ */ new Vector3()
-/** 撞船判定用的暫存。與 `SHIP_INV` 分開 —— 兩者同時活著。 */
+/** 飛機撞船時，船體命中盒的世界中心。 */
 const HULL_C = /* @__PURE__ */ new Vector3()
-/** 爆心。範圍傷害每次爆炸用一次，與上面那兩個不同時活著 */
-const BLAST_P = /* @__PURE__ */ new Vector3()
+/** 飛機命中盒的世界中心，撞船時與 HULL_C 同時使用。 */
 const BODY_C = /* @__PURE__ */ new Vector3()
-/** 氣囊盒的中心。彈丸判定與破掉的事件各用一次，不同時活著 */
-const BALLOON_C = /* @__PURE__ */ new Vector3()
 
-/**
- * 槍焰的顯示時長，s。
- *
- * 【兩個界夾出來的】
- * **下界 16.7 ms**：60 fps 的一幀。閃得比一幀短就會被抽樣漏掉 —— 有時
- * 看得到有時看不到，那比沒有更糟。30 ms 橫跨 1.8 幀，保證每次擊發至少
- * 畫到一幀。
- * **上界 67 ms**：全場最快的一管是 Bf 109 的 MG 131（900 rpm）。工作
- * 週期 30/67 = 45%，讀起來是**閃爍**；取到 60 ms 以上就變成一盞常亮的
- * 燈，那是錯的視覺（M7 spec §5.3）。
- *
- * 【為什麼住在 World 而不是 render】它記的是「這一管距離上次擊發多久」，
- * 那是物理事實不是畫面參數。渲染層決定它長什麼樣子。
- */
-export const FLASH_SECONDS = 0.03
-
-/**
- * 水面高度，m。**只用來決定「水柱畫在哪裡」**，不是回收深度。
- *
- * 【它是一個平面而海面不是】`main.ts` 注入的撞海判定走 Gerstner 波
- * （振幅合計約 ±2.15 m）。在 `resolveHits`（4,000 發 × 240 Hz）裡對每一
- * 發彈丸取一次浪高是每秒近百萬次 sin/cos，不划算。誤差最多 2.15 m ——
- * 887 m/s 下 2.4 ms —— 而**看得到的那個東西**（水柱）由渲染層擺在真實
- * 浪高上，所以畫面是對的（M7 spec §4.2）。
- */
-export const SEA_SURFACE_Y = 0
-
-/**
- * 彈丸低於這個高度就回收，m。
- *
- * 【為什麼不是 SEA_SURFACE_Y】撞海判定是 `y <= 浪高 + CRASH_CLEARANCE`，
- * 而 `CRASH_CLEARANCE = 2 m`、浪谷可到 −2.15 m —— 一架**還活著**的飛機
- * 可以低到 `y = −0.15 m`，它的命中盒更可以伸到更低。在水面就回收，理論上
- * 會吃掉那些命中（M7 spec §4.3，初稿在這裡寫錯過）。
- *
- * 【−20 m 的推導】存活 ⟹ 機體原點 > 浪谷 + `CRASH_CLEARANCE`。取一個保守
- * 的浪谷 −5 m（實際約 −2.15 m）得原點 > −3 m；加上全機種最大的包圍半徑
- * 7.1 m（P-51D 的機尾角），存活飛機的命中盒伸不到 −10.1 m 以下。−20 m
- * 有兩倍餘裕，所以**證明得出**回收它不會少算任何命中。
- *
- * 代價是彈丸多飛 20 m —— 887 m/s 下 22 ms，而且那一段整個被海面遮住。
- */
-export const SEA_KILL_Y = -20
 
 /**
  * 世界 —— `Combatant[]` + 彈丸池 + 每步的四段順序。
@@ -471,15 +297,8 @@ export class World {
    * 黑雲同一個約定。`nx` 是「這裡是不是水」的旗標，見 `onBombImpact`。
    */
   readonly bombEvents: ImpactEvents = createImpacts()
-  /**
-   * `onBombBlocked` 找到的那一艘與那一個砲位，`onBombImpact` 接著讀。
-   *
-   * 【為什麼是欄位而不是回傳值】`Bombs.step` 的擋路回呼只要一個 `t`，而扣血
-   * 要知道是誰。兩支回呼在同一個迴圈裡連續呼叫，欄位傳遞不必配置。
-   */
-  private bombShip: Ship | null = null
-  /** 同上，擋到的是建築時記這一格；兩格最多一格非空 */
-  private bombGround: GroundTarget | null = null
+  /** 命中目標由查詢留存，緊接著的 onBombImpact 用來標記落點事件。 */
+  private readonly bombObstacles = createBombObstacleQuery(this.ships, this.groundTargets)
 
   /**
    * 魚雷引爆。`nx` 是 0 撞岸／1 撞船，`ny` 是這一枚的傷害。
@@ -492,8 +311,8 @@ export class World {
    * 水花，只有規模不同（`main.ts` 決定）。與 `hitEvents` 一樣由呼叫端排空。
    */
   readonly torpedoWakeEvents: ImpactEvents = createImpacts()
-  /** `onTorpedoBlocked` 找到的那一艘，`onTorpedoEnd` 接著讀。同 `bombShip` */
-  private torpedoShip: Ship | null = null
+  /** 魚雷碰撞查詢與事件回呼只在建構時建立。 */
+  private readonly torpedoContacts = createTorpedoContacts(this)
 
   /**
    * 這一個物理步的擊墜事件。與 `hitEvents` 一樣由**呼叫端**排空。
@@ -549,13 +368,7 @@ export class World {
   damageStride = 0
 
   private readonly hit = createHitResult()
-  /**
-   * 地上飛機的命中結果。**與 `hit` 分開**：同一發彈先判過天上的飛機，`hit` 裡
-   * 留著那一架的部位；地上那一架沒打中時也可能寫過這一格。
-   */
-  private readonly groundHit = createHitResult()
-  /** 命中判定的粗篩索引。每個物理步重填一次（spec §5.2） */
-  private readonly cull = new CullIndex()
+  private readonly projectileHits = new ProjectileHits()
 
   add(
     aircraft: Aircraft,
@@ -619,7 +432,7 @@ export class World {
    * `reserve`。**戰鬥中不得走到這裡**，那正是 `reserve` 存在的理由。
    */
   private grow(n: number): void {
-    this.cull.ensure(n)
+    this.projectileHits.ensure(n)
     // 見 killEvents 的註解：容量跟著架數走，溢位於是在結構上不可能
     if (this.killEvents.capacity < n) {
       this.killEvents = createKills(n)
@@ -719,7 +532,7 @@ export class World {
           this.destroy(c)
           if (hit === BALLOON_ENVELOPE_HIT) {
             b.hp = 0
-            this.popIfDead(b, -1)
+            popIfDead(b, -1, this.balloonKillEvents)
           }
           break
         }
@@ -727,7 +540,7 @@ export class World {
     }
     for (const c of this.combatants) {
       if (!c.alive) continue
-      this.fire(c, dt)
+      stepFixedGuns(c, this.projectiles, dt)
       this.releaseBombs(c, dt)
     }
     // 【砲塔在 fire 之後、彈丸推進之前】兩者都往同一個池子寫，順序固定
@@ -755,7 +568,7 @@ export class World {
     // 開頭已經加上 dt，所以這裡是這一步結束時的時間
     for (const t of this.groundTargets) {
       stepGroundMotion(t, this.time, this.groundAt)
-      if (t.taxi !== null) this.stepGroundTaxi(t, dt)
+      if (t.taxi !== null) stepGroundTaxi(t, dt, this.combatants, this.liftoffs)
       stepScriptedKill(t, this.time, this.groundKillEvents)
     }
     // 【陸上的高砲位走同一支】掛了砲的地面目標（洛伊納那八個）就是一座砲台。
@@ -802,7 +615,7 @@ export class World {
     // 不到炸彈 —— 回呼根本沒被傳進去，而症狀是炸彈穿過建築在地上爆
     this.bombs.step(
       dt, this.bombDrag, this.groundAt, this.onBombImpact,
-      this.ships.length > 0 || this.groundTargets.length > 0 ? this.onBombBlocked : undefined,
+      this.ships.length > 0 || this.groundTargets.length > 0 ? this.bombObstacles.block : undefined,
     )
 
     // 3.6 魚雷推進
@@ -812,8 +625,8 @@ export class World {
     // 中心** —— 與炸彈一樣。水中段是定深等速直線，只由航程回收。
     this.torpedoes.step(
       dt, this.bombDrag, this.groundAt, this.waterAt,
-      this.onTorpedoEnd, this.onTorpedoEntry, this.onTorpedoWake,
-      this.ships.length > 0 ? this.onTorpedoBlocked : undefined,
+      this.torpedoContacts.end, this.torpedoContacts.entry, this.torpedoContacts.wake,
+      this.ships.length > 0 ? this.torpedoContacts.block : undefined,
     )
 
     // 4. 命中判定
@@ -831,200 +644,20 @@ export class World {
     // 不同的表現（土／水冠／火／火加碎片），而判斷所需的 `waterAt`、
     // `ships` 與 `groundTargets` 只有這一層有。法線那三格對炸彈沒有意義
     // —— 恆是 (0,1,0) —— 所以借第一格。
-    this.applyBombBlast(x, y, z, damage, owner)
+    applyBombBlast(this, x, y, z, damage, owner)
     // 【`ny` 帶爆心傷害】表現的規模由它推導（`blastScaleOf`），而
     // `ImpactEvents` 的法線那三格對炸彈沒有意義 —— `nx` 已經借去當種類
-    const hitShip = blocked && this.bombShip !== null
-    const hitGround = blocked && this.bombGround !== null
+    const hitShip = blocked && this.bombObstacles.ship !== null
+    const hitGround = blocked && this.bombObstacles.ground !== null
     const kind = hitShip ? 2 : hitGround ? 3 : this.waterAt(x, z) > -Infinity ? 1 : 0
     // 【`nz` 帶命中的那一艘或那一座，沒中是 −1】火災要長在船身上，而火點存
     // 的是**艦體座標**（船在動）—— 起火的那一層因此要知道是哪一艘。**讀這
     // 一格的人要先看 `nx`**：船與建築的索引是兩份清單。第六格對炸彈本來就
     // 恆是 0，是一格現成的空位
-    const index = hitShip ? this.bombShip!.index : hitGround ? this.bombGround!.index : -1
+    const index = hitShip ? this.bombObstacles.ship!.index : hitGround ? this.bombObstacles.ground!.index : -1
     pushImpact(this.bombEvents, x, y, z, kind, damage, index)
   }
 
-  /**
-   * 爆炸的範圍傷害。**直接命中只是距離 0 的那一個特例** —— 沒有另一套
-   * 「命中傷害」，兩者走同一條衰減曲線。
-   *
-   * 【船量的是到艦體的距離，不是到質心】Essex 有 266 m 長。落在艦首前
-   * 10 m 的那一顆離船體只有 10 m、離質心卻有 140 m —— 照質心算的話它完全
-   * 不會傷到船。`pointBoxDistance` 在艦體座標裡問「離這個盒子多遠」，
-   * 答案對艦首與對艦舯一樣正確。
-   *
-   * 【砲位也各自算】它們是獨立的盒子，離爆心近的那幾座先報銷。
-   *
-   * 【不分敵我】炸彈沒有敵我識別 —— 投彈的自己與僚機也炸得到。AI 戰鬥機對地
-   * 投彈因此另有一條高度下限（`AiController` 的 `AI_BOMB_MIN_HEIGHT`）。
-   *
-   * @param owner 投放者的 combatant 索引；−1 = 沒有主人。**只影響戰果歸屬，
-   *              不影響傷害** —— 炸到誰是幾何決定的
-   */
-  private applyBombBlast(
-    x: number, y: number, z: number, damage: number, owner: number,
-  ): void {
-    const radius = blastRadiusOf(damage)
-    for (const c of this.combatants) {
-      if (!c.alive) continue
-      const p = c.aircraft.state.position
-      const dmg = bombBlastDamage(Math.hypot(p.x - x, p.y - y, p.z - z), damage)
-      // 【飛機用質心】一架 12 m 的飛機在 30 m 的半徑下，質心與機翼尖的
-      // 差別小於衰減曲線本身的精度
-      if (dmg <= 0) continue
-      // 【只有敵機算兇手的戰果】炸彈不分敵我（見上面），而記分板不分 ——
-      // 照樣傳 shooter 的話，炸到自己僚機會替投彈的人記一次擊墜
-      const shooter = this.combatants[owner]
-      this.applyDamage(
-        c, dmg, 'fuselage',
-        shooter !== undefined && shooter.team !== c.team ? shooter : undefined,
-      )
-    }
-
-    // 【地面目標與船同一套】量的是到盒子的距離，不是到中心：火車 13 m 長，
-    // 落在車頭前 5 m 的那一顆離車體 5 m、離中心卻有 11 m。
-    for (const t of this.groundTargets) {
-      if (!t.alive) continue
-      const reach = t.radius + radius
-      if (t.position.distanceToSquared(BLAST_P.set(x, y, z)) > reach * reach) continue
-      SHIP_INV.copy(t.orientation).conjugate()
-      const local = BLAST_P.set(x, y, z).sub(t.position).applyQuaternion(SHIP_INV)
-      let near = Infinity
-      for (const box of t.unit.hull) {
-        const d = pointBoxDistance(local.x, local.y, local.z, box)
-        if (d < near) near = d
-      }
-      const dmg = bombBlastDamage(near, damage)
-      if (dmg > 0) {
-        t.hp -= dmg
-        this.wreckIfDead(t, owner, true)
-      }
-    }
-
-    for (const sh of this.ships) {
-      if (!sh.alive) continue
-      // 【先比包圍球】半徑加上殺傷半徑之外的船一定碰不到
-      const reach = sh.cls.radius + radius
-      if (sh.position.distanceToSquared(BLAST_P.set(x, y, z)) > reach * reach) continue
-
-      SHIP_INV.copy(sh.orientation).conjugate()
-      const local = BLAST_P.set(x, y, z).sub(sh.position).applyQuaternion(SHIP_INV)
-
-      let near = Infinity
-      for (const box of sh.cls.hull) {
-        const d = pointBoxDistance(local.x, local.y, local.z, box)
-        if (d < near) near = d
-      }
-      const hullDmg = bombBlastDamage(near, damage)
-      if (hullDmg > 0) sh.hp -= hullDmg
-
-      for (const g of sh.guns) {
-        if (!g.alive) continue
-        const gd = bombBlastDamage(
-          pointBoxDistance(local.x, local.y, local.z, g.box), damage,
-        )
-        if (gd <= 0) continue
-        g.hp -= gd
-        if (g.hp <= 0) g.alive = false
-      }
-      this.sinkIfDead(sh, owner)
-    }
-  }
-
-  /**
-   * 投一顆。位置與速度都是**世界座標**。
-   *
-   * 【方向帶 ±0.1° 的偏移】同一串投下去的彈不會落在一條數學直線上。偏移量
-   * 由**累計投彈序號**決定（`spreadPair`）而不是 `Math.random()` —— 後者
-   * 讓同一場重播不出同一個結果，而這個專案為「逐位元重播」寫過鐵律
-   * （見 `resetBattle` 對 `world.time` 的說明）。
-   *
-   * @param damage 這一顆的爆心傷害。**由投彈的那一台的掛載決定**
-   *               （`weapons/stores.ts`），整顆彈的規模都從它推導。
-   */
-  /**
-   * 魚雷引爆。**接觸引爆：只有直接命中的那一艘扣血。**
-   *
-   * 【沒有範圍傷害，也不掃飛機】真實魚雷是接觸引信，而「水下
-   * 爆炸炸傷了空中的飛機」講不通。所以這一支與 `applyBombBlast` 不共用。
-   */
-  private readonly onTorpedoEnd: TorpedoEndFn = (x, y, z, kind, damage, team, owner) => {
-    const sh = this.torpedoShip
-    // 【同隊的船擋得住雷，但雷對它無效】船是實體，不是空氣 —— 友軍艦擋在
-    // 航路上時雷撞上去就沒了。但它**不扣血、也不推爆炸事件**：畫面上不該
-    // 在自家船邊長出一根水柱。
-    if (kind === 1 && sh !== null && (sh.team === 'blue' ? 0 : 1) === team) return
-    // 【沉船只擋，不再扣血】`sinkIfDead` 對已經沉的船本來就早退，這一行的
-    // `sh.alive` 是讓意圖看得出來
-    if (kind === 1 && sh !== null && sh.alive) {
-      // 【推在扣血之前】沉沒事件由 `sinkIfDead` 推進另一個緩衝，兩者的
-      // 先後由消費端的排空次序決定（`drainReports`），不是這裡
-      pushImpact(this.shipHitEvents, x, y, z, sh.index, owner, 0)
-      sh.hp -= damage
-      this.sinkIfDead(sh, owner)
-    }
-    // 【`nz` 帶命中的那一艘，撞岸是 −1】與炸彈同一個約定，見 `onBombImpact`
-    pushImpact(
-      this.torpedoEvents, x, y, z, kind, damage,
-      kind === 1 && sh !== null ? sh.index : -1,
-    )
-  }
-
-  /**
-   * 魚雷入水。**與航跡走同一個管道** —— 兩者的表現都是水面上的一叢水花。
-   *
-   * 【高度改讀含浪的水面】`Torpedoes` 給的 `y` 是平海的碰撞高度（那一個
-   * 值要與瞄具的落點逐位元相同，護欄在 `torpedo.test.ts`）；水花要浮在
-   * **看得見**的水面上。讀不到水面時退回原值 —— 那是岸邊的淺帶，兩支
-   * 地形 API 在那裡的答案本來就不一致。
-   */
-  private readonly onTorpedoEntry: TorpedoPointFn = (x, y, z) => {
-    const w = this.waterAt(x, z)
-    pushImpact(this.torpedoWakeEvents, x, Number.isFinite(w) ? w : y, z, 0, 0, 0)
-  }
-
-  private readonly onTorpedoWake: TorpedoPointFn = (x, y, z) => {
-    pushImpact(this.torpedoWakeEvents, x, y, z, 0, 0, 0)
-  }
-
-  /**
-   * 魚雷這一步有沒有撞上船。**只掃船體盒，不掃砲位。**
-   *
-   * 【這是成本決定，不是行為差異】炸彈是面殺傷，落在砲座上與落在甲板上都
-   * 算打中，所以那一支兩種盒都掃。魚雷在水面下 1 m，而砲位盒全部在甲板上
-   * （Essex 最低的在 y = 14.18）—— 掃了也永遠不會命中，只是白花錢。
-   * 掃與不掃在行為上等價，`torpedo-vs-ship.test.ts` 的護欄因此分不出兩者；
-   * 它守的是「砲位不會被魚雷打掉」這條規則本身。
-   *
-   * 【比較的形狀】`NO_HIT` 是 **−1** 不是 `Infinity`，所以不能只寫
-   * `t >= best`：初值 −1 會讓每一個合法的 `t ≥ 0` 都被跳過。
-   */
-  private readonly onTorpedoBlocked: TorpedoBlockFn = (x0, y0, z0, x1, y1, z1) => {
-    this.torpedoShip = null
-    if (this.ships.length === 0) return NO_HIT
-    let best = NO_HIT
-    // 【沉船照樣擋】它不再開火、不再算勝負，但船體還浮在那裡 —— 跳過它的話
-    // 雷會穿過一艘船去打後面那一艘，而畫面上看得一清二楚。
-    // 同隊的船也擋（雷對它無效由 `onTorpedoEnd` 處理）
-    for (const sh of this.ships) {
-      if (segmentPointDistanceSq(
-        x0, y0, z0, x1, y1, z1, sh.position.x, sh.position.y, sh.position.z,
-      ) > sh.cls.radius * sh.cls.radius) continue
-
-      SHIP_INV.copy(sh.orientation).conjugate()
-      const a = S.v[0]!.set(x0, y0, z0).sub(sh.position).applyQuaternion(SHIP_INV)
-      const b = S.v[1]!.set(x1, y1, z1).sub(sh.position).applyQuaternion(SHIP_INV)
-
-      for (const box of sh.cls.hull) {
-        const t = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, box)
-        if (t === NO_HIT || (best !== NO_HIT && t >= best)) continue
-        best = t
-        this.torpedoShip = sh
-      }
-    }
-    return best
-  }
 
   /**
    * 投一枚魚雷。位置與速度都是**世界座標**。
@@ -1060,6 +693,17 @@ export class World {
     )
   }
 
+  /**
+   * 投一顆。位置與速度都是**世界座標**。
+   *
+   * 【方向帶 ±0.1° 的偏移】同一串投下去的彈不會落在一條數學直線上。偏移量
+   * 由**累計投彈序號**決定（`spreadPair`）而不是 `Math.random()` —— 後者
+   * 讓同一場重播不出同一個結果，而這個專案為「逐位元重播」寫過鐵律
+   * （見 `resetBattle` 對 `world.time` 的說明）。
+   *
+   * @param damage 這一顆的爆心傷害。**由投彈的那一台的掛載決定**
+   *               （`weapons/stores.ts`），整顆彈的規模都從它推導。
+   */
   /**
    * @param team  投放者的隊別，`teamSlot`。只有 HUD 標記讀它。
    *              **沒有預設值** —— 漏傳會靜靜地把彈標成藍色
@@ -1169,7 +813,7 @@ export class World {
     // （`main.ts` 的 `releaseOk`）—— 兩邊分家的話會出現「AI 投得出玩家投不
     // 出的彈」。
     const a = c.aircraft
-    const att = attitudeFromOrientation(a.state.orientation)
+    const att = attitudeFromOrientation(a.state.orientation, RELEASE_ATTITUDE)
     const agl = a.state.position.y - this.groundAt(a.state.position.x, a.state.position.z)
     // 【控制器自己的高度下限】包絡沒有高度下限；AI 帶著 `AI_RELEASE_FLOOR`，排好的連投
     // 在那之下暫停（`Command.releaseFloor`）
@@ -1181,407 +825,9 @@ export class World {
     this.bombing = null
   }
 
-  /** 依扳機與射速時鐘發射。熱路徑，不配置。 */
-  private fire(c: Combatant, dt: number): void {
-    // 打爆的飛機不會繼續射擊。step 已經擋過退場的，這一條擋的是「血歸零
-    // 但因為 respawnOnDestroy 而仍然活著」那一格的殘餘狀態。
-    if (c.hp <= 0) return
-
-    const battery = c.aircraft.spec.battery
-    const trigger = c.command.firing
-    const pos = c.aircraft.state.position
-    const vel = c.aircraft.state.velocity
-    const q = c.aircraft.state.orientation
-
-    for (let i = 0; i < battery.mounts.length; i++) {
-      const mount = battery.mounts[i]!
-      const shots = stepCadence(c.cooldowns, i, mount.weapon.roundsPerMinute, trigger, dt)
-      if (shots === 0) continue
-      c.muzzleFlash[i] = FLASH_SECONDS
-
-      // 槍口的世界位置與世界射向
-      const muzzle = S.v[0]!.copy(mount.position).applyQuaternion(q).add(pos)
-      const dir = mountDirection(battery, i, S.v[1]!).applyQuaternion(q)
-      // V_bullet = 槍口方向 × 初速 + 射手速度（spec §5.1）
-      const v = S.v[2]!.copy(dir).multiplyScalar(mount.weapon.muzzleVelocity).add(vel)
-
-      for (let n = 0; n < shots; n++) {
-        this.projectiles.spawn(
-          muzzle.x, muzzle.y, muzzle.z, v.x, v.y, v.z, mount.weapon.damage, c.index,
-          c.team === 'blue' ? 0 : 1, PROJECTILE_LIFETIME, mount.weapon.caliber,
-        )
-      }
-    }
-  }
-
-  /**
-   * 重填粗篩索引：只收存活的飛機，依 x 排序。
-   *
-   * 【為什麼在 resolveHits 裡而不是 step 開頭】判定吃的是**推進後**的位置。
-   * 在飛機推進之前填，粗篩用的是上一步的殘影，視窗會偏掉一整步的位移。
-   */
-  private buildCull(): void {
-    const cull = this.cull
-    cull.clear()
-    const combatants = this.combatants
-    for (let i = 0; i < combatants.length; i++) {
-      const c = combatants[i]!
-      if (!c.alive) continue
-      const p = c.aircraft.state.position
-      cull.add(p.x, p.y, p.z, c.hitRadius, c.index, c.team === 'blue' ? 0 : 1)
-    }
-    cull.sort()
-  }
-
-  /**
-   * 線段 vs 各機的命中盒，取最近的那一架。
-   *
-   * 【公開是為了等價測試】與 `applyDamage` 同一個理由。
-   * `test/unit/cull-equivalence.test.ts` 要能在完全掌控的狀態下呼叫它，
-   * 再與一份獨立的暴力法比對。
-   *
-   * 【這是整個專案最熱的迴圈】滿載 4,000 發 × 40 架。粗篩換成排序掃描之前
-   * 是 7,408 µs，換之後 202 µs（M5 spec §5.1）。所以這裡刻意寫得比別處囉嗦：
-   *
-   *   - **索引迴圈而不是 for...of**。後者每次都會配置一個迭代器物件，
-   *     在這個位置就是每步 4,000 次配置——違反熱路徑零配置的紀律。
-   *   - **視窗用 x 區間夾**。窗外的飛機在代數上不可能被命中（spec §5.3），
-   *     所以窗內取到的最小 t 就是全場的最小 t。
-   *   - **座標從 CullIndex 的並排陣列讀**，不穿 Combatant → Aircraft → state。
-   *   - **s0/s1 只在通過粗篩後才寫**。粗篩擋掉絕大多數的配對，把兩個
-   *     Vector3.set 留在外面等於替它們白做。
-   */
+  /** 結算目前彈丸；保留入口供命中等價測試與物理步共同使用。 */
   resolveHits(): void {
-    this.buildCull()
-
-    const p = this.projectiles
-    const combatants = this.combatants
-    const cull = this.cull
-    const rMax = cull.rMax
-    const s0 = S.v[0]!
-    const s1 = S.v[1]!
-    // 【在迴圈外取出】4,000 發的迴圈裡每一發讀一次屬性是白付的
-    const land = this.land
-    const ships = this.ships
-    const targets = this.groundTargets
-    const balloons = this.balloons
-
-    for (let i = 0; i < p.capacity; i++) {
-      const owner = p.owner[i]!
-      if (owner === -1) continue
-      const ax = p.sx[i]!, ay = p.sy[i]!, az = p.sz[i]!
-      const bx = p.x[i]!, by = p.y[i]!, bz = p.z[i]!
-
-      // 射手的陣營。同隊的彈丸直接穿過（spec §5.4）。
-      //
-      // 【為什麼讀 p.team 而不是從 owner 反查】船不是 combatant，反查不到
-      // —— 同隊過濾會靜靜失效，船於是打自己人。飛機那一側 `World.fire` 與
-      // `stepTurrets` 填的值與反查出來的完全相同，所以行為逐位元不變。
-      const shooter = owner >= 0 && owner < combatants.length ? combatants[owner] : undefined
-      const ownerTeam = p.team[i]!
-
-      const lo = (ax < bx ? ax : bx) - rMax
-      const hi = (ax > bx ? ax : bx) + rMax
-
-      let bestT = Infinity
-      let victim: Combatant | null = null
-      let part: HitPart = 'fuselage'
-      // 【法線要與 bestT 一起抄】this.hit 每次 hitAircraft 呼叫都被覆寫，
-      // 留到迴圈外再讀就會拿到「最後一個被測到的盒」而不是「最近的那一個」
-      let bestNx = 0
-      let bestNy = 0
-      let bestNz = 0
-      const count = cull.count
-      for (let j = cull.lowerBound(lo); j < count; j++) {
-        const cx = cull.x[j]!
-        if (cx > hi) break
-        if (cull.team[j]! === ownerTeam) continue
-        // 【同隊過濾已經涵蓋自傷，但這一條要留】spec §5.4：「同隊零傷害」
-        // 必須是一條自己成立的規則，而不是碰巧被另一條擋掉。
-        if (cull.index[j]! === owner) continue
-        // 【粗篩】線段離機體重心比包圍球還遠就一定碰不到，跳過六次 slab
-        // 測試與兩次四元數旋轉。
-        if (segmentPointDistanceSq(
-          ax, ay, az, bx, by, bz, cx, cull.y[j]!, cull.z[j]!,
-        ) > cull.r2[j]!) continue
-
-        const c = combatants[cull.index[j]!]!
-        s0.set(ax, ay, az)
-        s1.set(bx, by, bz)
-        if (!hitAircraft(
-          c.aircraft.spec.hitBoxes, c.aircraft.state.position, c.aircraft.state.orientation,
-          s0, s1, this.hit,
-        )) continue
-        if (this.hit.t >= bestT) continue
-        bestT = this.hit.t
-        victim = c
-        part = this.hit.part
-        bestNx = this.hit.nx
-        bestNy = this.hit.ny
-        bestNz = this.hit.nz
-      }
-      // ── 船 ──────────────────────────────────────────────
-      //
-      // 【為什麼排在飛機之後、陸地之前】同一個物理步之內「先擦過一架飛機、
-      // 再撞上艦橋」是合法的，而彈丸一步走 3.7–4.5 m。順序用線段參數 t 比。
-      //
-      // 【兩條排除規則缺一不可】
-      //   發射的那一艘：砲口就在砲位盒的中心，而 `segmentBox` 對「起點已在
-      //   盒內」回傳 t = 0 —— 每一發直射彈會在出膛那一步打中自己。
-      //   同隊的船：spec §12 明令不做船對船，而姊妹艦就在 800 m 外。
-      let shipHit: Ship | null = null
-      let shipGun = -1
-      if (ships.length > 0) {
-        const fromShip = ownerShipIndex(owner)
-        for (let k = 0; k < ships.length; k++) {
-          const sh = ships[k]!
-          // 沉了的船不再擋子彈
-          if (!sh.alive) continue
-          if (k === fromShip) continue
-          if ((sh.team === 'blue' ? 0 : 1) === ownerTeam) continue
-          if (segmentPointDistanceSq(
-            ax, ay, az, bx, by, bz, sh.position.x, sh.position.y, sh.position.z,
-          ) > sh.cls.radius * sh.cls.radius) continue
-
-          // 世界 → 艦體：平移再套用艏向的逆旋轉。與 `hitAircraft` 同一招，
-          // 但船只有 yaw，所以直接用四元數共軛即可。
-          SHIP_INV.copy(sh.orientation).conjugate()
-          const a = S.v[0]!.set(ax, ay, az).sub(sh.position).applyQuaternion(SHIP_INV)
-          const b = S.v[1]!.set(bx, by, bz).sub(sh.position).applyQuaternion(SHIP_INV)
-
-          // 【砲位優先於船體，不比 t】砲位盒可能與船體盒重疊（砲架長在甲板
-          // 與上層建築上，而船體盒是粗體積）。照 t 比的話從上方來的子彈會先
-          // 碰到船體那一面，砲位就打不掉了。露在外面的是砲，打到砲就算砲。
-          for (let gi = 0; gi < sh.guns.length; gi++) {
-            const g = sh.guns[gi]!
-            // 【死掉的砲位不參與判定】打掉的砲位是一個洞，不是擋子彈的殘骸。
-            if (!g.alive) continue
-            const t = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, g.box)
-            if (t === NO_HIT || t >= bestT) continue
-            bestT = t
-            victim = null
-            shipHit = sh
-            shipGun = gi
-          }
-          if (shipGun >= 0) continue
-
-          for (const box of sh.cls.hull) {
-            const t = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, box)
-            if (t === NO_HIT || t >= bestT) continue
-            bestT = t
-            victim = null
-            shipHit = sh
-            shipGun = -1
-          }
-        }
-      }
-      if (shipHit !== null) {
-        // 【火花與打到飛機同一組】`hitEvents` 的消費者是 `sparks.emit`。
-        // **不推 `damageEvents`** —— 那一條要一個 combatant 索引，船不是飛機。
-        const hx = ax + (bx - ax) * bestT, hy = ay + (by - ay) * bestT, hz = az + (bz - az) * bestT
-        pushImpact(this.hitEvents, hx, hy, hz, -(bx - ax), -(by - ay), -(bz - az))
-        pushImpact(this.materialHits, hx, hy, hz, MATERIAL.ship, 0, 0)
-        const dmg = p.damage[i]!
-        const cal = p.caliber[i]!
-        // 【不套 PART_MULTIPLIER】那是飛機的六個部位，船沒有座艙也沒有機翼。
-        //
-        // 【艦體吃口徑門檻，砲位不吃】機槍打不穿主力艦的裝甲帶，但甲板上的
-        // 防空砲是露天的 —— 掃射軍艦的意義正是打掉那幾座砲，而不是打沉它。
-        // 兩者問的是同一支函數，差別只在資料（`weapons/armour.ts`）。
-        shipHit.hp -= penetrationDamage(dmg, cal, shipHit.cls.armour)
-        if (shipGun >= 0) {
-          const g = shipHit.guns[shipGun]!
-          g.hp -= penetrationDamage(dmg, cal, SHIP_GUN_ARMOUR)
-          if (g.hp <= 0) g.alive = false
-        }
-        // 【要夾】船砲彈的 `owner` 在負數區（見 `ships.ts` 的 `index`），
-        // 不是 combatant —— 與底下地面目標那一行同一條
-        // 【命中 X】打中船與打中飛機同一格（`hitsDealt`），HUD 讀它
-        if (owner >= 0 && owner < combatants.length) combatants[owner]!.hitsDealt++
-        this.sinkIfDead(
-          shipHit, owner >= 0 && owner < combatants.length ? owner : -1,
-        )
-        p.kill(i)
-        continue
-      }
-
-      // ── 地面目標 ────────────────────────────────────────
-      //
-      // 【排在船之後、陸地之前，同一個理由】盒子貼在地上，彈丸一步走 3.7～
-      // 4.5 m，「先穿過戰車再入土」在同一步之內是合法命中，順序用 t 比。
-      // 一台一個盒、沒有部位、沒有砲位 —— 打中就扣。同隊過濾與船相同。
-      //
-      // 【地上的飛機例外】`airframe` 不是 null 的照飛機算：部位盒、部位倍率、
-      // 防護力（`groundAirframe.ts`、`partDamage`），與天上那一架同一條式子。
-      // 包圍球半徑照停放的盒 —— 它包得住 P-51 的部位盒（8.279 < 8.284 m）
-      if (targets.length > 0) {
-        let hitTarget: GroundTarget | null = null
-        let hitPart: HitPart | null = null
-        for (let k = 0; k < targets.length; k++) {
-          const t = targets[k]!
-          if (!t.alive) continue
-          if ((t.team === 'blue' ? 0 : 1) === ownerTeam) continue
-          if (segmentPointDistanceSq(
-            ax, ay, az, bx, by, bz, t.position.x, t.position.y, t.position.z,
-          ) > t.radius * t.radius) continue
-          if (t.airframe !== null) {
-            airframePose(t, AF_POS, AF_QUAT)
-            s0.set(ax, ay, az)
-            s1.set(bx, by, bz)
-            if (!hitAircraft(t.airframe.hitBoxes, AF_POS, AF_QUAT, s0, s1, this.groundHit)) continue
-            if (this.groundHit.t >= bestT) continue
-            bestT = this.groundHit.t
-            victim = null
-            hitTarget = t
-            hitPart = this.groundHit.part
-            continue
-          }
-          SHIP_INV.copy(t.orientation).conjugate()
-          const a = S.v[0]!.set(ax, ay, az).sub(t.position).applyQuaternion(SHIP_INV)
-          const b = S.v[1]!.set(bx, by, bz).sub(t.position).applyQuaternion(SHIP_INV)
-          for (const box of t.unit.hull) {
-            const tt = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, box)
-            if (tt === NO_HIT || tt >= bestT) continue
-            bestT = tt
-            victim = null
-            hitTarget = t
-            hitPart = null
-          }
-        }
-        if (hitTarget !== null) {
-          const hx = ax + (bx - ax) * bestT, hy = ay + (by - ay) * bestT, hz = az + (bz - az) * bestT
-          pushImpact(this.hitEvents, hx, hy, hz, -(bx - ax), -(by - ay), -(bz - az))
-          pushImpact(this.materialHits, hx, hy, hz, MATERIAL.ground, 0, 0)
-          if (hitPart !== null) {
-            hitTarget.hp -= partDamage(hitTarget.airframe!.protection, p.damage[i]!, hitPart)
-          } else {
-            // 口徑門檻與船同一支函數：戰車的 45 mm 讓機槍與機砲只扣底線
-            hitTarget.hp -= penetrationDamage(p.damage[i]!, p.caliber[i]!, hitTarget.armour)
-          }
-          // 【命中 X】打中地面目標與打中飛機同一格（`hitsDealt`），HUD 讀它
-          if (owner >= 0 && owner < combatants.length) combatants[owner]!.hitsDealt++
-          // 兇手只記飛機；船砲的 owner 在負數區，不是 combatant
-          this.wreckIfDead(
-            hitTarget, owner >= 0 && owner < combatants.length ? owner : -1, false,
-          )
-          p.kill(i)
-          continue
-        }
-      }
-
-      // ── 防空氣球 ────────────────────────────────────────
-      //
-      // 【與地面目標同一個做法】一顆一個氣囊盒，打中就扣；鋼索太細，子彈不判。
-      // 同隊過濾相同 —— 美軍自己的防空砲打不破自己的氣球。
-      if (balloons.length > 0) {
-        let hitBalloon: Balloon | null = null
-        for (let k = 0; k < balloons.length; k++) {
-          const bl = balloons[k]!
-          if (!bl.alive) continue
-          if ((bl.team === 'blue' ? 0 : 1) === ownerTeam) continue
-          envelopeCenter(bl, BALLOON_C)
-          if (segmentPointDistanceSq(
-            ax, ay, az, bx, by, bz, BALLOON_C.x, BALLOON_C.y, BALLOON_C.z,
-          ) > BALLOON_REACH * BALLOON_REACH) continue
-          SHIP_INV.copy(bl.orientation).conjugate()
-          const a = S.v[0]!.set(ax, ay, az).sub(bl.top).applyQuaternion(SHIP_INV)
-          const b = S.v[1]!.set(bx, by, bz).sub(bl.top).applyQuaternion(SHIP_INV)
-          const tt = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, BALLOON_ENVELOPE)
-          if (tt === NO_HIT || tt >= bestT) continue
-          bestT = tt
-          victim = null
-          hitBalloon = bl
-        }
-        if (hitBalloon !== null) {
-          const hx = ax + (bx - ax) * bestT, hy = ay + (by - ay) * bestT, hz = az + (bz - az) * bestT
-          pushImpact(this.hitEvents, hx, hy, hz, -(bx - ax), -(by - ay), -(bz - az))
-          hitBalloon.hp -= p.damage[i]!
-          this.popIfDead(hitBalloon, owner >= 0 && owner < combatants.length ? owner : -1)
-          p.kill(i)
-          continue
-        }
-      }
-
-      // ── 陸地 ────────────────────────────────────────────
-      //
-      // 【為什麼排在飛機之後而不是迴圈開頭】同一個物理步之內「先打中飛機、
-      // 後進入地面」是合法命中。飛機真的會貼著坡面飛（甲板實測量到過離地
-      // 6 m），而彈丸一步走 3.7~4.5 m —— 在迴圈開頭無條件 `continue` 會把
-      // 那個命中吃掉。所以要算出交點參數再跟 `bestT` 比先後。
-      //
-      // 【火花與打到飛機同一組】`hitEvents` 的消費者是 `sparks.emit`，
-      // 傷害走的是 `damageEvents` —— 所以推一筆進去就是「跟打到飛機一樣的
-      // 火花」，渲染層一行都不用改。**不推 `damageEvents`**：那一條要一個
-      // `victim.index`，山不是一架飛機。
-      if (land !== null) {
-        const landT = landHitT(ax, ay, az, bx, by, bz, land)
-        if (landT < bestT) {
-          const hx = ax + (bx - ax) * landT
-          const hy = ay + (by - ay) * landT
-          const hz = az + (bz - az) * landT
-          normalAt(land.field, hx, hz, LAND_N)
-          pushImpact(this.hitEvents, hx, hy, hz, LAND_N.nx, LAND_N.ny, LAND_N.nz)
-          p.kill(i)
-          continue
-        }
-      }
-
-      if (!victim) {
-        // 【水柱只在跨過水面的那一步推】寫成「y <= 水面」的話，彈丸在
-        // 水面下的每一步都會再推一筆，一發變成一串。
-        if (ay > SEA_SURFACE_Y && by <= SEA_SURFACE_Y) {
-          const s = (ay - SEA_SURFACE_Y) / (ay - by)
-          pushImpact(
-            this.splashEvents,
-            ax + (bx - ax) * s, SEA_SURFACE_Y, az + (bz - az) * s,
-            0, 1, 0,
-          )
-        }
-        // 【回收在更深的地方】見 SEA_KILL_Y 的推導
-        if (by <= SEA_KILL_Y) p.kill(i)
-        continue
-      }
-
-      // 【命中點與世界法線】命中點是線段上的 bestT；法線由機體座標轉世界
-      const n = S.v[3]!
-      if (bestNx !== 0 || bestNy !== 0 || bestNz !== 0) {
-        n.set(bestNx, bestNy, bestNz).applyQuaternion(victim.aircraft.state.orientation)
-      } else {
-        // 【起點就在盒內】沒有入射面（M7 spec §3.2）。迎面噴回去 ——
-        // 這是唯一一個「沒有正確答案」的情形，取一個不會出錯的方向。
-        n.set(ax - bx, ay - by, az - bz)
-        const len = n.length()
-        if (len > 1e-6) n.divideScalar(len)
-        else n.set(0, 1, 0)
-      }
-      pushImpact(
-        this.hitEvents,
-        ax + (bx - ax) * bestT, ay + (by - ay) * bestT, az + (bz - az) * bestT,
-        n.x, n.y, n.z,
-      )
-
-      // 【方向取彈丸速度的反向，不是射手的位置】887 m/s 飛 500 m 要 0.56 秒
-      // —— 指射手**現在**的位置，指的是一個玩家沒看到過的東西；而射手可能
-      // 已經死了。「子彈從那裡來」正是玩家在畫面上看到的曳光彈方向
-      // （受擊方向指示器 spec §3.2）。
-      const vx = p.vx[i]!, vy = p.vy[i]!, vz = p.vz[i]!
-      const vs = Math.hypot(vx, vy, vz)
-      // 靜止的彈丸不存在，但除以 0 會把 NaN 一路餵進 HUD —— 擋在源頭
-      if (vs > 1e-6) {
-        pushDamage(this.damageEvents, victim.index, -vx / vs, -vy / vs, -vz / vs, PART_INDEX[part])
-      }
-
-      // 【命中即回收】不回收的話同一發會在後續每一步繼續扣血，而且池子
-      // 會被打進機身的彈丸塞滿。
-      //
-      // 【飛機的裝甲是 0】口徑門檻於是恆不成立，這一條與規則出現之前逐位元
-      // 相同。留著這一句是因為規則屬於**每一次子彈結算**，哪裡咬人由資料
-      // 決定 —— 哪天有一台裝甲攻擊機，那是加一格資料，不是改這裡
-      this.applyDamage(
-        victim, penetrationDamage(p.damage[i]!, p.caliber[i]!, AIRCRAFT_ARMOUR), part, shooter,
-      )
-      p.kill(i)
-    }
+    this.projectileHits.resolve(this)
   }
 
   /**
@@ -1640,172 +886,6 @@ export class World {
     return false
   }
 
-  /**
-   * 血量歸零就整艘退場：砲位全滅、停船、不再擋子彈、不再是任何人的目標。
-   *
-   * 【砲位一起標死】否則渲染層還會畫它們的槍焰，而 `stepShipGuns` 已經整艘
-   * 早退了 —— 那會是一排永遠亮著的槍焰掛在沉船上。
-   *
-   * 【為什麼抽出來】子彈與炸彈兩條路都會打沉船。兩份長得很像的副本就是只有
-   * 一份會被修好的那種危險。
-   */
-  private sinkIfDead(sh: Ship, killer: number): void {
-    if (!sh.alive || sh.hp > 0) return
-    sh.alive = false
-    for (const g of sh.guns) g.alive = false
-    pushImpact(
-      this.shipKillEvents, sh.position.x, sh.position.y, sh.position.z,
-      sh.index, killer, 0,
-    )
-  }
-
-  /**
-   * 地面目標血量歸零就退場：不再擋子彈、不再是目標，並推一筆擊毀事件給
-   * 渲染層點火。**子彈與炸彈兩條路共用** —— 與 `sinkIfDead` 同一個理由。
-   *
-   * @param killer    打出那一發、或投下那一顆的 combatant 索引；−1 = 無主
-   *                  （船砲彈打的，或投放時沒帶主人）
-   * @param fromBlast 這一筆是炸彈的爆風造成的嗎。**渲染層靠它決定放不放
-   *                  第二團火**：那一顆已經有自己的落點事件，再放一團就是
-   *                  同一個地方爆兩次、鏡頭震兩次
-   */
-  /** 氣球血量歸零就破：不再擋飛機與子彈，推一筆事件給渲染層點火、讓它掉下去 */
-  private popIfDead(b: Balloon, killer: number): void {
-    if (!b.alive || b.hp > 0) return
-    b.alive = false
-    envelopeCenter(b, BALLOON_C)
-    pushImpact(this.balloonKillEvents, BALLOON_C.x, BALLOON_C.y, BALLOON_C.z, b.index, killer, 0)
-  }
-
-  private wreckIfDead(t: GroundTarget, killer: number, fromBlast: boolean): void {
-    if (!t.alive || t.hp > 0) return
-    t.alive = false
-    pushImpact(
-      this.groundKillEvents, t.position.x, t.position.y, t.position.z,
-      t.index, killer, fromBlast ? 1 : 0,
-    )
-  }
-
-  /**
-   * 炸彈這一步有沒有撞上船。**回傳線段參數 `t`，沒撞回 `NO_HIT`。**
-   *
-   * 【砲位與船體一起判】炸彈是面殺傷，落在砲座上與落在甲板上都是打中這艘
-   * 船。砲位盒突出於船體盒之外（砲架長在甲板上），只判船體的話從上方落下
-   * 的炸彈會穿過砲塔再在甲板上爆。
-   *
-   * 【哪一艘記在 `bombShip`】`Bombs.step` 只要 `t`，而落點的種類要知道撞到
-   * 的是不是船 —— 兩支回呼在同一個迴圈裡連續呼叫，用一個欄位傳遞不必配置。
-   * **扣血不看它**：那是 `applyBombBlast` 的事，而它對範圍內的每一艘都算。
-   */
-  private readonly onBombBlocked: BombBlockFn = (x0, y0, z0, x1, y1, z1) => {
-    this.bombShip = null
-    this.bombGround = null
-    if (this.ships.length === 0 && this.groundTargets.length === 0) return NO_HIT
-    let best = NO_HIT
-    // 【沉船照樣擋】理由同 `onTorpedoBlocked` —— 船體還浮在那裡。
-    // 沉船的砲位全死了，所以下面那一圈只會比到船體盒
-    for (const sh of this.ships) {
-      // 【先比包圍球】只有真的落在船附近的那一顆才付逐盒的錢
-      if (segmentPointDistanceSq(
-        x0, y0, z0, x1, y1, z1, sh.position.x, sh.position.y, sh.position.z,
-      ) > sh.cls.radius * sh.cls.radius) continue
-
-      SHIP_INV.copy(sh.orientation).conjugate()
-      const a = S.v[0]!.set(x0, y0, z0).sub(sh.position).applyQuaternion(SHIP_INV)
-      const b = S.v[1]!.set(x1, y1, z1).sub(sh.position).applyQuaternion(SHIP_INV)
-
-      for (let gi = 0; gi < sh.guns.length; gi++) {
-        const g = sh.guns[gi]!
-        if (!g.alive) continue
-        const t = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, g.box)
-        if (t === NO_HIT || (best !== NO_HIT && t >= best)) continue
-        best = t
-        this.bombShip = sh
-      }
-      for (const box of sh.cls.hull) {
-        const t = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, box)
-        if (t === NO_HIT || (best !== NO_HIT && t >= best)) continue
-        best = t
-        this.bombShip = sh
-      }
-    }
-    // 【炸毀的不擋】與沉船相反。子彈那一條也是死了就不擋（`resolveHits`），
-    // 兩邊一致。
-    //
-    // **代價**：炸毀的構件不換模型（`render/groundTargets.ts`），所以一根
-    // 燒黑的煙囪還立在那裡而後續的炸彈會穿過去在地上爆。要改的話是把這裡
-    // 的 `alive` 判斷拿掉，代價是投在死目標上的彈會白白引爆
-    for (let i = 0; i < this.groundTargets.length; i++) {
-      const g = this.groundTargets[i]!
-      if (!g.alive) continue
-      if (segmentPointDistanceSq(
-        x0, y0, z0, x1, y1, z1, g.position.x, g.position.y, g.position.z,
-      ) > g.radius * g.radius) continue
-
-      SHIP_INV.copy(g.orientation).conjugate()
-      const a = S.v[0]!.set(x0, y0, z0).sub(g.position).applyQuaternion(SHIP_INV)
-      const b = S.v[1]!.set(x1, y1, z1).sub(g.position).applyQuaternion(SHIP_INV)
-      for (const box of g.hull) {
-        const t = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, box)
-        if (t === NO_HIT || (best !== NO_HIT && t >= best)) continue
-        best = t
-        this.bombGround = g
-        this.bombShip = null
-      }
-    }
-    return best
-  }
-
-  /**
-   * 地上的飛機沿起飛腳本推進一步；滾行到離地就交給 `departedAs` 那一席。
-   *
-   * 【地面目標的位置是地面】腳本寫的是機體原點（地面 ＋ `GEAR_CLEARANCE`），
-   * 地面目標的 `position.y` 是地面高度 —— `impactY`、爆風的盒、AI 的瞄點都讀它。
-   *
-   * 【交接】那一席在等待期間沒有更新過（`alive = false`），所以姿態、上一幀姿態、
-   * 血量都在這裡一次寫好；腳本本身接著交給它跑完抬頭與初期爬升。飛行員名冊
-   * 由戰鬥層讀 `liftoffs` 同步（`battle/setup.ts`）。
-   */
-  private stepGroundTaxi(t: GroundTarget, dt: number): void {
-    const roll = t.taxi!
-    if (!t.alive) {
-      t.taxi = null
-      t.rolling = false
-      return
-    }
-    // 【先種回這一台自己的姿態】暫存是所有地上飛機共用的，而腳本離地那一步
-    // 從傳進去的位置積分 —— 不種的話會接在上一台的位置上
-    TAXI_POSE.position.set(t.position.x, t.position.y + GEAR_CLEARANCE, t.position.z)
-    TAXI_POSE.orientation.copy(t.orientation)
-    stepTakeoff(roll, TAXI_POSE, dt)
-    const taxiDone = roll.taxi === null || roll.elapsed >= roll.taxiTime
-    const tRoll = roll.elapsed - roll.delay
-    t.position.set(TAXI_POSE.position.x, TAXI_POSE.position.y - GEAR_CLEARANCE, TAXI_POSE.position.z)
-    t.orientation.copy(TAXI_POSE.orientation)
-    t.speed = TAXI_POSE.velocity.length()
-    t.rolling = taxiDone && tRoll > 0
-    if (!(taxiDone && tRoll >= ROLL_SECONDS)) return
-
-    t.taxi = null
-    t.rolling = false
-    t.speed = 0
-    t.alive = false
-    t.departed = true
-    const c = this.combatants[t.departedAs]
-    if (c === undefined) return
-    const a = c.aircraft
-    a.state.position.copy(TAXI_POSE.position)
-    a.state.orientation.copy(TAXI_POSE.orientation)
-    a.state.velocity.copy(TAXI_POSE.velocity)
-    a.state.angularVelocity.set(0, 0, 0)
-    a.prevPosition.copy(a.state.position)
-    a.prevOrientation.copy(a.state.orientation)
-    c.takeoff = roll
-    c.hp = t.hp
-    c.alive = true
-    c.retired = false
-    this.liftoffs.push(c.index)
-  }
 
   /** 扣血並在必要時重生。倍率在這裡套用，測試可以直接呼叫。 */
   applyDamage(victim: Combatant, damage: number, part: HitPart, shooter?: Combatant): void {

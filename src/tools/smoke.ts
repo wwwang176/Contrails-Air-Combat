@@ -36,7 +36,7 @@ import {
   stepGroundFires,
 } from '../render/groundFires'
 import { createImpacts } from '../world/events'
-import { hash01 } from '../render/scatter'
+import { hash01 } from '../core/hash'
 import {
   createLowResTransparencyPass,
   useLowResTransparency,

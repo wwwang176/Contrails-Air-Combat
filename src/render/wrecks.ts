@@ -1,5 +1,5 @@
 import { Quaternion, Vector3 } from 'three'
-import { hash01 } from './scatter'
+import { hash01 } from '../core/hash'
 import { seedWreckSpin, stepWreckSpin } from './wreckAero'
 import { SMOKE_COLOR } from './smoke'
 import type { Anchors } from './anchors'

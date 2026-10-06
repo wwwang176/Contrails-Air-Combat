@@ -3,10 +3,9 @@ import {
   InstancedMesh, Matrix4, MeshBasicMaterial, Quaternion, Vector3,
 } from 'three'
 import { MAX_MOUNTS, mountDirection, type Battery } from '../weapons/types'
-import { MAX_TURRETS, turretMuzzle, wobbleBasis } from '../weapons/turret'
+import { MAX_TURRETS, turretMuzzle, wobbleBasis, type Turret } from '../weapons/turret'
 import { BARREL_SPACING, TURRET_FLASH_SECONDS } from '../world/turrets'
-import { FLASH_SECONDS } from '../world/World'
-import type { Combatant } from '../world/World'
+import { FLASH_SECONDS } from '../weapons/muzzleFlash'
 
 /**
  * 槍焰的長度，m。
@@ -54,7 +53,19 @@ export interface MuzzleSource {
   readonly aircraft: { readonly spec: { readonly battery: Battery } }
 }
 
-export interface Muzzles<T = Combatant> {
+/** 砲塔槍焰只讀槍口方向、亮度與最後擊發的槍管。 */
+export interface TurretMuzzleSource {
+  readonly index: number
+  readonly alive: boolean
+  readonly aircraft: { readonly spec: { readonly turrets: readonly Turret[] } }
+  readonly turretStates: readonly {
+    readonly aim: Vector3
+    readonly flash: number
+    readonly lastBarrel: number
+  }[]
+}
+
+export interface Muzzles<T> {
   object: InstancedMesh
   /**
    * 寫入這一幀的實例矩陣。
@@ -170,7 +181,7 @@ export function createMuzzles(aircraftCapacity: number): Muzzles<MuzzleSource> {
     object,
 
     update(
-      combatants: readonly Combatant[],
+      combatants: readonly MuzzleSource[],
       positions: readonly Vector3[],
       quaternions: readonly Quaternion[],
     ): void {
@@ -268,7 +279,7 @@ export function createMuzzles(aircraftCapacity: number): Muzzles<MuzzleSource> {
  *
  * @param aircraftCapacity 最多幾架飛機。實例數是它乘上 `MAX_TURRETS`
  */
-export function createTurretMuzzles(aircraftCapacity: number): Muzzles {
+export function createTurretMuzzles(aircraftCapacity: number): Muzzles<TurretMuzzleSource> {
   const geometry = crossFlare()
 
   // 【forceSinglePass】透明雙面預設分兩趟、每次繪製重算兩次 shader program。
@@ -307,7 +318,7 @@ export function createTurretMuzzles(aircraftCapacity: number): Muzzles {
     object,
 
     update(
-      combatants: readonly Combatant[],
+      combatants: readonly TurretMuzzleSource[],
       positions: readonly Vector3[],
       quaternions: readonly Quaternion[],
     ): void {

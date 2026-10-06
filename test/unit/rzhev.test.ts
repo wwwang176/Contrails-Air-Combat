@@ -15,14 +15,15 @@ import { SCORCH, TRACKS, TRENCHES } from '../../src/world/rzhev'
 import { RZHEV_SITE, rzhevHillAvoid } from '../../src/render/terrain'
 import { createRzhev, rollingSpecs, rzhevHillSpecs } from '../../src/world/rzhevHills'
 import { RAVINES, ravineGap } from '../../src/world/rzhevRavines'
+import { fieldGlsl } from '../../src/render/fieldShaders'
 import {
-  fieldGlsl, fieldSurfaceColor, HEDGE_CHANCE, openWoodCover, OPEN_WOOD_GATE, regionAt, STEPPE_LAYOUT, trackGap,
-  trackWidthAt,
+  fieldSurfaceColor, HEDGE_CHANCE, openWoodCover, OPEN_WOOD_GATE, regionAt, STEPPE_LAYOUT,
+  trackGap, trackWidthAt,
 } from '../../src/render/fields'
 import { Color, Quaternion, Vector3 } from 'three'
 import { MORTAR_RANGE_MAX, MORTAR_RANGE_MIN } from '../../src/render/groundBattle'
 import { farmLaneVillages } from '../../src/render/farmSettlements'
-import { createFloraBuffer, FloraKind } from '../../src/render/flora'
+import { createFloraBuffer, FloraKind } from '../../src/core/floraBuffer'
 import { steppeLayout } from '../../src/render/steppeVillage'
 import { FIELD_COLORS } from '../../src/render/season'
 import { openHedgeFlora, openHedgeFloraFor, openWoodFlora, openWoodFloraFor } from '../../src/render/flora'

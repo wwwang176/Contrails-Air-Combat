@@ -333,7 +333,7 @@ export const GERMANY: readonly MissionCard[] = [
       // 四批都從停機位出發：簡報列 P-51D ×16，等於下面要擊毀的架數
       briefsOpening: true,
       // 【停機線上的 P-51 全部擊毀】地上打掉的、起飛後被擊落的都算（每一架只算
-      // 一次，見 `setup.ts` 的 `destroyedInPool`），所以這就是「所有野馬」。
+      // 一次，見 `objectiveQueries.ts` 的 `destroyedInPool`），所以這就是「所有野馬」。
       // 油桶堆與防空車打得掉但不算
       destroyCount: ASCH_PARKED.length + ASCH_HOLD.length, destroyUnit: 'parkedP51',
       /**

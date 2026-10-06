@@ -36,7 +36,7 @@ export interface FieldRect { readonly x0: number; readonly z0: number; readonly 
 /**
  * 墊面：草地，內部高度保證 0。**貼著鋪面走，不是一個大矩形** —— 主體是
  * 跑道加滑行道那一條帶子，每一組魚骨各自一塊（`FIELD_LOBES`），著色器取
- * 聯集；每一塊再外推 180 m 的裙邊（`fields.ts` 的 `PAD_SKIRT`）。機場局部
+ * 聯集；每一塊再外推 180 m 的裙邊（`siteSurface.ts` 的 `PAD_SKIRT`）。機場局部
  * 座標。
  */
 export const FIELD_PAD: FieldRect = { x0: -1270, z0: -50, x1: 1270, z1: 312 }

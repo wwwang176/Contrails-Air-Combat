@@ -86,6 +86,7 @@ export interface Controller {
    *
    * `out` 由呼叫端持有並重複使用——熱路徑禁止配置，所以這裡只能寫入，
    * 不能回傳新物件。
+   * 控制器可能在同一座位上替換；每次必須覆寫全部欄位，不得依賴前次指令的值。
    */
   update(self: Aircraft, dt: number, out: Command): void
 }

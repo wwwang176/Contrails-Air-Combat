@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { Aircraft } from '../../src/aircraft/Aircraft'
-import {
-  createAirPassState, createBandState, DEFAULT_STEER, stepAirPass,
-} from '../../src/ai/steer'
+import { createAirPassState, stepAirPass } from '../../src/ai/airPass'
+import { createBandState } from '../../src/ai/bandState'
+import { DEFAULT_STEER } from '../../src/ai/steerConfig'
 import { P51D } from '../../src/specs/p51d'
 
 /**

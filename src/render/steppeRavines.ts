@@ -1,5 +1,6 @@
 import { BufferAttribute, BufferGeometry, Color } from 'three'
-import { FloraKind, hash2, pushFlora, type FloraSource } from './flora'
+import { FloraKind, pushFlora, type FloraSource } from '../core/floraBuffer'
+import { hash2 } from '../core/hash'
 import {
   regionAt, trackGap, trackWidthAt, TRACK_WARP_MAX, TRACK_WIDTH_MAX, type RegionSample,
 } from './fields'

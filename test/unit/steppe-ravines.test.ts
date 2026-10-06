@@ -1,6 +1,8 @@
 import { Color } from 'three'
 import { describe, expect, it } from 'vitest'
-import { createFloraBuffer, FLORA_STRIDE, FloraKind, type FloraBuffer } from '../../src/render/flora'
+import {
+  createFloraBuffer, FLORA_STRIDE, FloraKind, type FloraBuffer,
+} from '../../src/core/floraBuffer'
 import { regionAt, trackGap, trackWidthAt, type RegionSample } from '../../src/render/fields'
 import { FIELD_COLORS } from '../../src/render/season'
 import { columnGround, MISSIONS, type ReadyMissionCard } from '../../src/battle/missions'

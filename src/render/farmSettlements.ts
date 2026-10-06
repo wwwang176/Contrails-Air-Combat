@@ -1,4 +1,5 @@
-import { villageSite, type FloraSource } from './flora'
+import { villageSite } from './flora'
+import { type FloraSource } from '../core/floraBuffer'
 import { regionAt, regionSeed, trackGap, trackWidthAt, REGION_SPACING, type RegionSample } from './fields'
 import { settlementLayout } from './settlements'
 import { steppeLayout, type Blast, type GardenStrip, type LaneVillage, type StreetRibbon } from './steppeVillage'

@@ -1,15 +1,17 @@
 import { describe, it, expect } from 'vitest'
 import { BufferAttribute, InstancedMesh, MeshStandardMaterial, Points } from 'three'
 import { POINT_POOLS } from '../../src/render/floraShapes'
+import { createVegetation } from '../../src/render/vegetation'
 import {
-  createVegetation, lodFor, poolOf, BUSH_RANGE, POINT_NEAR, FLORA_RADIUS,
-  CAPACITY, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS, ISLAND_TILES_PER_FRAME,
-  LOD_HYSTERESIS, LOD_NEAR, MAX_PER_TILE, REBUILD_EVERY, REBUILD_MOVE,
-  TILES_PER_FRAME, TILE_SIZE, type PoolName,
-} from '../../src/render/vegetation'
+  lodFor, poolOf, BUSH_RANGE, POINT_NEAR, FLORA_RADIUS, CAPACITY, ISLAND_CAPACITY,
+  ISLAND_MAX_PER_TILE, ISLAND_RADIUS, ISLAND_TILES_PER_FRAME, LOD_HYSTERESIS, LOD_NEAR,
+  MAX_PER_TILE, REBUILD_EVERY, REBUILD_MOVE, TILES_PER_FRAME, TILE_SIZE,
+} from '../../src/render/vegetationPolicy'
+import { type PoolName } from '../../src/render/floraShapes'
+import { createFloraBuffer, pushFlora, FloraKind, type FloraSource } from '../../src/core/floraBuffer'
+import { createIslandFlora } from '../../src/render/islandFlora'
 import {
-  createFloraBuffer, createIslandFlora, farmHedgeFlora, farmVillageFlora,
-  farmWoodFlora, openHedgeFlora, openWoodFlora, pushFlora, FloraKind, type FloraSource,
+  farmHedgeFlora, farmVillageFlora, farmWoodFlora, openHedgeFlora, openWoodFlora,
 } from '../../src/render/flora'
 import { createArchipelago } from '../../src/world/archipelago'
 import { FARM_EXTENT } from '../../src/world/farmland'

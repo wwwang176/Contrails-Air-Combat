@@ -17,7 +17,7 @@
  * 玩家機器上的編譯器。與 `island-shot.e2e.ts` 同一個理由。
  */
 import { chromium } from 'playwright'
-import { fieldGlsl, fieldGlslWithSite } from '../../src/render/fields'
+import { fieldGlsl, fieldGlslWithSite } from '../../src/render/fieldShaders'
 import { SEASONS } from '../../src/render/season'
 import { RZHEV_SITE, LEUNA_SITE } from '../../src/render/terrain'
 

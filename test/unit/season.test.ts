@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { Color } from 'three'
 import { FIELD_COLORS, FLORA_COLORS, PALETTE_STEPS, SEASONS } from '../../src/render/season'
-import { FIELD_GLSL, fieldGlsl, fieldSurfaceColor } from '../../src/render/fields'
+import { FIELD_GLSL, fieldGlsl } from '../../src/render/fieldShaders'
+import { fieldSurfaceColor } from '../../src/render/fields'
 import {
   createFloraGeometries, disposeFloraGeometries, pointColorOf,
 } from '../../src/render/floraShapes'

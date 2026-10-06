@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import {
   BALLOON_ENVELOPE, BALLOON_ENVELOPE_HIT, BALLOON_MISS, BALLOON_TETHER, BALLOON_TOP,
-  BALLOON_HP, balloonCollision, balloonHills, createBalloon, envelopeCenter, stepBalloons, syncBalloonHills,
+  BALLOON_HP, balloonCollision, createBalloon, envelopeCenter, stepBalloons,
 } from '../../src/world/balloons'
+import { balloonHills, syncBalloonHills } from '../../src/world/balloonHills'
 import { boundingRadius, createHitResult } from '../../src/world/hit'
 import { KI84 } from '../../src/specs/ki84'
 import { terrainCeiling } from '../../src/ai/terrainSense'

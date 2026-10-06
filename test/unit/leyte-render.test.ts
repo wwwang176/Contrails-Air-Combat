@@ -12,9 +12,12 @@ import {
   roadCoverageAt, roadHalfWidthAt, type CanopyMap,
 } from '../../src/render/leyteGround'
 import {
-  bakeLeyteCanopy, createFloraBuffer, createLeyteFlora, leyteAccept, leyteCanopyCoarse, leyteFarCover,
-  FLORA_STRIDE, FloraKind, LEYTE_HILL_DENSITY, type FloraBuffer,
-} from '../../src/render/flora'
+  bakeLeyteCanopy, createLeyteFlora, leyteAccept, leyteCanopyCoarse, leyteFarCover,
+  LEYTE_HILL_DENSITY,
+} from '../../src/render/leyteFlora'
+import {
+  createFloraBuffer, FLORA_STRIDE, FloraKind, type FloraBuffer,
+} from '../../src/core/floraBuffer'
 import { createTerrain } from '../../src/render/terrain'
 import { createOcean } from '../../src/render/ocean'
 

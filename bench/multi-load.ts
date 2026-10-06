@@ -1,20 +1,8 @@
-import { Vector3 } from 'three'
+import { LoadController } from './load-controller'
 import { createBattle, stepBattle, DEFAULT_BATTLE, type Battle } from '../src/battle/setup'
 import { PROJECTILE_CAPACITY, PROJECTILE_LIFETIME } from '../src/world/Projectiles'
-import type { Aircraft } from '../src/aircraft/Aircraft'
-import type { Command, Controller } from '../src/control/Controller'
 
 export const LOAD_DT = 1 / 240
-
-/** 玩家位置上放一個恆平飛的假控制器——量的是 39 架 AI 加滿載彈丸。 */
-class Idle implements Controller {
-  private readonly aim = new Vector3(0, 0, -1)
-  update(_a: Aircraft, _dt: number, out: Command): void {
-    out.aimWorld.copy(this.aim)
-    out.throttle = 0.7
-    out.firing = false
-  }
-}
 
 export interface MultiLoadState {
   battle: Battle
@@ -31,7 +19,7 @@ export interface MultiLoadState {
  * 隨戰況起伏。要量的是**最壞情形**，所以每步補回滿載。
  */
 export function createMultiLoad(): MultiLoadState {
-  const battle = createBattle(new Idle(), DEFAULT_BATTLE)
+  const battle = createBattle(new LoadController(), DEFAULT_BATTLE)
   const state: MultiLoadState = { battle }
   fill(state)
   return state

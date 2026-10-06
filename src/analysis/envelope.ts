@@ -4,29 +4,29 @@ import {
   controlEffectiveness, dragCoefficient, inducedDragFactor, redlineEffectiveness,
 } from '../physics/aero'
 import { WEP_THROTTLE, enginePower, propThrust } from '../physics/propulsion'
-import { derivedClMax, type AircraftSpec } from '../specs/types'
+import { derivedClMax, type FlightSpec } from '../specs/types'
 import type { AirData } from '../physics/types'
 
 const air: AirData = { density: 0, pressure: 0, temperature: 0, soundSpeed: 0, sigma: 0 }
 
 /** 高迎角時縫翼必然展開，故包絡計算一律採用展開後的 CL_max。 */
-function clMaxFor(spec: AircraftSpec): number {
+function clMaxFor(spec: FlightSpec): number {
   return derivedClMax(spec, spec.lift.slatAlphaBonus > 0)
 }
 
-function weight(spec: AircraftSpec): number {
+function weight(spec: FlightSpec): number {
   return spec.mass * G0
 }
 
 /** 當前速度與高度下，氣動能提供的最大過載。 */
-export function maxLoadFactorAero(spec: AircraftSpec, altitude: number, tas: number): number {
+export function maxLoadFactorAero(spec: FlightSpec, altitude: number, tas: number): number {
   atmosphere(altitude, air)
   const qbar = 0.5 * air.density * tas * tas
   return (qbar * spec.wing.area * clMaxFor(spec)) / weight(spec)
 }
 
 /** 指定過載下的失速速度，m/s TAS。 */
-export function stallSpeed(spec: AircraftSpec, altitude: number, loadFactor: number): number {
+export function stallSpeed(spec: FlightSpec, altitude: number, loadFactor: number): number {
   atmosphere(altitude, air)
   return Math.sqrt(
     (2 * loadFactor * weight(spec)) / (air.density * spec.wing.area * clMaxFor(spec)),
@@ -35,7 +35,7 @@ export function stallSpeed(spec: AircraftSpec, altitude: number, loadFactor: num
 
 /** 指定速度與過載下的總阻力，N。過載超出氣動極限時回傳 Infinity。 */
 export function dragAt(
-  spec: AircraftSpec,
+  spec: FlightSpec,
   altitude: number,
   tas: number,
   loadFactor: number,
@@ -52,7 +52,7 @@ export function dragAt(
 
 /** 指定速度與高度下的可用推力，N。 */
 export function thrustAt(
-  spec: AircraftSpec,
+  spec: FlightSpec,
   altitude: number,
   tas: number,
   throttle = WEP_THROTTLE,
@@ -65,7 +65,7 @@ export function thrustAt(
 
 /** 比超量功率 Ps = V(T − D)/W，m/s。正值代表能量累積。 */
 export function specificExcessPower(
-  spec: AircraftSpec,
+  spec: FlightSpec,
   altitude: number,
   tas: number,
   loadFactor: number,
@@ -91,7 +91,7 @@ const V_SEARCH_MAX = 400
  * T−D(v) 曲線，且仍是二分法而非導數法，滿足 finding #1 對增壓器接縫的要求。
  */
 export function maxLevelSpeed(
-  spec: AircraftSpec,
+  spec: FlightSpec,
   altitude: number,
   throttle = WEP_THROTTLE,
 ): number {
@@ -130,7 +130,7 @@ export function maxLevelSpeed(
 
 /** 最佳爬升率與對應速度。掃描後以三分搜尋細化。 */
 export function maxClimbRate(
-  spec: AircraftSpec,
+  spec: FlightSpec,
   altitude: number,
   throttle = WEP_THROTTLE,
 ): { rate: number; speed: number } {
@@ -185,7 +185,7 @@ const CEILING_RATE = 0.5
  * 「無解」的哨兵值，是因為兩者對升限而言本身就是可能出現的合法答案；
  * 只有 NaN 不會與任何合法海拔混淆，因此用 NaN 明確代表「此高度區間未括住解」。
  */
-export function serviceCeiling(spec: AircraftSpec, throttle = WEP_THROTTLE): number {
+export function serviceCeiling(spec: FlightSpec, throttle = WEP_THROTTLE): number {
   const rateAt = (alt: number) => maxClimbRate(spec, alt, throttle).rate
   if (rateAt(0) <= CEILING_RATE) return NaN // 海平面爬升率已達不到門檻：飛不起來
   if (rateAt(20000) >= CEILING_RATE) return NaN // 20,000 m 處仍超過門檻：搜尋範圍未括住解
@@ -202,7 +202,7 @@ export function serviceCeiling(spec: AircraftSpec, throttle = WEP_THROTTLE): num
 
 /** 瞬間轉彎率，rad/s。取氣動與結構過載的較小者。 */
 export function instantaneousTurnRate(
-  spec: AircraftSpec,
+  spec: FlightSpec,
   altitude: number,
   tas: number,
 ): number {
@@ -213,7 +213,7 @@ export function instantaneousTurnRate(
 
 /** 持續轉彎率，rad/s。以二分搜尋求 Ps = 0 的過載。 */
 export function sustainedTurnRate(
-  spec: AircraftSpec,
+  spec: FlightSpec,
   altitude: number,
   tas: number,
   throttle = WEP_THROTTLE,
@@ -263,7 +263,7 @@ export function sustainedTurnRate(
  * 所在的區間，才保證細化階段拿到的是真正的單峰段。
  */
 export function bestSustainedTurnRate(
-  spec: AircraftSpec,
+  spec: FlightSpec,
   altitude: number,
   throttle = WEP_THROTTLE,
 ): number {
@@ -282,7 +282,7 @@ let lastBestTurnSpeed = -1
  * 極好的起點，粗掃點數可以從 24 降到 6。
  */
 function searchBestTurn(
-  spec: AircraftSpec,
+  spec: FlightSpec,
   altitude: number,
   throttle: number,
   vHint: number,
@@ -357,9 +357,9 @@ const BEST_TURN_SLOTS = BEST_TURN_CEILING / BEST_TURN_STEP + 1
  * 每個機種一張惰性填充的表，**交錯存放** `[轉彎率0, 速度0, 轉彎率1, 速度1, …]`。
  * WeakMap 讓臨時的 spec 複本（消融測試）不會洩漏。
  */
-const bestTurnTables = new WeakMap<AircraftSpec, Float64Array>()
+const bestTurnTables = new WeakMap<FlightSpec, Float64Array>()
 
-function bestTurnTable(spec: AircraftSpec): Float64Array {
+function bestTurnTable(spec: FlightSpec): Float64Array {
   let table = bestTurnTables.get(spec)
   if (table !== undefined) return table
   table = new Float64Array(BEST_TURN_SLOTS * 2)
@@ -378,7 +378,7 @@ function bestTurnTable(spec: AircraftSpec): Float64Array {
 }
 
 /** 表格查詢 + 線性內插的共用部分。`offset` 0 取轉彎率、1 取速度。 */
-function lookupBestTurn(spec: AircraftSpec, altitude: number, offset: number): number {
+function lookupBestTurn(spec: FlightSpec, altitude: number, offset: number): number {
   const table = bestTurnTable(spec)
   const alt = altitude < 0 ? 0 : altitude > BEST_TURN_CEILING ? BEST_TURN_CEILING : altitude
   const x = alt / BEST_TURN_STEP
@@ -410,7 +410,7 @@ function lookupBestTurn(spec: AircraftSpec, altitude: number, offset: number): n
  * 【仍然是純函數】同樣的輸入永遠給同樣的輸出，快取只是省掉重算。首次填格
  * 之後不再有任何配置行為。
  */
-export function bestSustainedTurnRateCached(spec: AircraftSpec, altitude: number): number {
+export function bestSustainedTurnRateCached(spec: FlightSpec, altitude: number): number {
   return lookupBestTurn(spec, altitude, 0)
 }
 
@@ -420,7 +420,7 @@ export function bestSustainedTurnRateCached(spec: AircraftSpec, altitude: number
  * 【誰要用它】AI 的絕對能量底線：「我還剩多少本錢繼續纏鬥」的答案是
  * 「我的比能量夠不夠讓我在一個安全高度上維持最擅長的轉彎」，而那需要這個速度。
  */
-export function bestSustainedTurnSpeedCached(spec: AircraftSpec, altitude: number): number {
+export function bestSustainedTurnSpeedCached(spec: FlightSpec, altitude: number): number {
   return lookupBestTurn(spec, altitude, 1)
 }
 
@@ -432,18 +432,18 @@ export function bestSustainedTurnSpeedCached(spec: AircraftSpec, altitude: numbe
  * 暴增：He 111 在 1,500 m，80／95／105／110 m/s 是 559／924／2,007／0 m。
  * 拿它當尺會跟著速度亂跳；最佳那一點只隨機種與高度變。
  */
-export function bestSustainedTurnRadiusCached(spec: AircraftSpec, altitude: number): number {
+export function bestSustainedTurnRadiusCached(spec: FlightSpec, altitude: number): number {
   const omega = bestSustainedTurnRateCached(spec, altitude)
   return omega > 0 ? bestSustainedTurnSpeedCached(spec, altitude) / omega : 0
 }
 
 /** 角落速度：氣動過載首次達到結構極限的速度，m/s。 */
-export function cornerSpeed(spec: AircraftSpec, altitude: number): number {
+export function cornerSpeed(spec: FlightSpec, altitude: number): number {
   return stallSpeed(spec, altitude, spec.limits.gPositive)
 }
 
 /** 穩態最大滾轉率，rad/s。解 clDa·δa_eff + clP·(p·b/2V) = 0。 */
-export function maxRollRate(spec: AircraftSpec, altitude: number, tas: number): number {
+export function maxRollRate(spec: FlightSpec, altitude: number, tas: number): number {
   atmosphere(altitude, air)
   const qbar = 0.5 * air.density * tas * tas
   const CS = spec.controlStiffening
@@ -455,7 +455,7 @@ export function maxRollRate(spec: AircraftSpec, altitude: number, tas: number): 
  * 由目標升力係數反解迎角（僅適用線性段）。
  * 供交叉驗證測試建立指定過載的飛行狀態。
  */
-export function alphaForCl(spec: AircraftSpec, cl: number): number {
+export function alphaForCl(spec: FlightSpec, cl: number): number {
   return cl / spec.lift.clAlpha + spec.lift.alphaZero
 }
 

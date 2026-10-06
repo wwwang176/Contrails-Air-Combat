@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createSituation, evaluateGeometry } from '../../src/ai/assess'
-import { buildEngageBasis, createEngageBasis } from '../../src/ai/steer'
+import { buildEngageBasis, createEngageBasis } from '../../src/ai/engageGeometry'
 import { shouldFire, DEFAULT_FIRE } from '../../src/ai/fire'
 import { P51D } from '../../src/specs/p51d'
 

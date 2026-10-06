@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import { createLeyte } from '../world/leyte'
-import { bakeLeyteCanopy } from './flora'
+import { bakeLeyteCanopy } from './leyteFlora'
 
 /**
  * 雷伊泰的樹冠圖在這裡烘（`render/canopyBake.ts`）。高度場自己建一份 ——

@@ -6,7 +6,7 @@ import {
   aeroForceMoment, computeAeroState, lowSpeedEffectiveness, updateSlatState,
 } from './aero'
 import { enginePower, propThrust } from './propulsion'
-import type { AircraftSpec } from '../specs/types'
+import type { FlightSpec } from '../specs/types'
 import type { AeroState, AirData, Controls, FlightState, ForceMoment } from './types'
 
 const S = makeScratch(6, 2)
@@ -61,7 +61,7 @@ const fm: ForceMoment = { force: new Vector3(), moment: new Vector3() }
 
 /** 單一物理步。熱路徑，禁止任何配置行為。 */
 export function stepDynamics(
-  spec: AircraftSpec,
+  spec: FlightSpec,
   state: FlightState,
   controls: Controls,
   dt: number,

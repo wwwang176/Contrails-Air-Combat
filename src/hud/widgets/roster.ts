@@ -1,5 +1,6 @@
 import { t } from '../../i18n'
-import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
+import type { HudFrame, HudLayout } from '../types'
+import { HUD_COLORS, hudFont } from '../style'
 
 /**
  * 玩家分隊的存活字串；沒有分隊或只剩自己時回傳 null。

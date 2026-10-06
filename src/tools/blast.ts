@@ -41,7 +41,8 @@ const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
 
 // 【廠區的佈景與河道】切到洛伊納要先載完，`createTerrain` 是同步的
-await preloadTerrainScenery('leuna')
+// 地形頁籤同步切換；先載好洛伊納與波爾塔瓦需要的佈景。
+await Promise.all([preloadTerrainScenery('leuna'), preloadTerrainScenery('poltava')])
 
 let terrain: Terrain = createTerrain('sea')
 ctx.scene.add(terrain.object)

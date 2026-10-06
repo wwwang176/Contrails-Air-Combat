@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import {
-  createBattle, stepBattle, resetBattle, reviveFlight, DEFAULT_BATTLE, type Battle,
-} from '../../src/battle/setup'
+import { createBattle, stepBattle, resetBattle, DEFAULT_BATTLE, type Battle } from '../../src/battle/setup'
+import { reviveFlight } from '../../src/battle/flightRecovery'
 import { lineAbreast } from '../../src/battle/order'
 import { HEAD_ON } from '../../src/battle/entry'
 import { AiController } from '../../src/ai/AiController'

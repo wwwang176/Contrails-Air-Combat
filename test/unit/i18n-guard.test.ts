@@ -24,10 +24,10 @@ const EXEMPT: readonly string[] = [
   'src/hud/audioMeter.ts',
   // 代飛時 AI 讀數那一行（意圖、階段、介入）與 console 遙測
   'src/ai/rules.ts',
-  'src/ai/AiController.ts#emit',
+  'src/ai/commandOutput.ts#emitAiCommand',
   'src/hud/widgets/hints.ts#aiStateLine',
-  'src/main.ts#orderLabel',
-  'src/main.ts#leaderLabel',
+  'src/app/orderTelemetry.ts#label',
+  'src/app/orderTelemetry.ts#leaderLabel',
   'src/main.ts#logTelemetry',
   // 河道的內部名稱（接頭比對用，不顯示）
   'src/world/river.ts',

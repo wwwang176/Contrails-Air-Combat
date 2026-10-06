@@ -1,6 +1,7 @@
 import { t } from '../../i18n'
 import { aglOk, pitchOk, rollOk, type ReleaseEnvelope } from '../../weapons/releaseEnvelope'
-import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
+import type { HudFrame, HudLayout } from '../types'
+import { HUD_COLORS, hudFont } from '../style'
 
 const RAD = 180 / Math.PI
 
@@ -85,7 +86,7 @@ export function pitchHint(env: ReleaseEnvelope, pitch: number): string {
   return pitch > (env.minPitch + env.maxPitch) / 2 ? ' ▼' : ' ▲'
 }
 
-/** 【右滾為正】見 `hud/attitude-math.ts` */
+/** 【右滾為正】見 `core/attitude.ts` */
 export function rollHint(env: ReleaseEnvelope, roll: number): string {
   if (rollOk(env, roll)) return ''
   return roll > 0 ? ' ◀' : ' ▶'

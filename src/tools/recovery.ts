@@ -3,6 +3,7 @@
  * 什麼時候觸發、最低掉到哪裡。開發工具，不屬於遊戲。
  *
  * 模型與閉迴路試飛在 `recoveryModel.ts`，量測探針用的是同一份。
+ * 軌跡錄製與播放取樣在 `recoveryRecording.ts`。
  *
  * 【先算完整條軌跡再播放】兩架各跑一次 25 秒的物理，存成逐格姿態，
  * 播放只是插值 —— 拖滑桿時立刻看得到整條結果，重播也不會跑出不同的東西。
@@ -18,9 +19,12 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createScene } from '../render/scene'
 import { buildAircraft, preloadAircraftModels, type AircraftModel } from '../render/geometry/buildAircraft'
 import {
-  DT, RECOVERY_V2_COEFFS, bankFromUpright, fixedMargin, simulateTrial,
+  RECOVERY_V2_COEFFS, fixedMargin,
   type Intent, type ModelParams, type SafetyModel, type Scenario,
 } from './recoveryModel'
+import {
+  SIM_SECONDS, FRAME_DT, F, FIELDS, record, frameIndex, lerpField, type Run,
+} from './recoveryRecording'
 import { P51D } from '../specs/p51d'
 import { BF109K4 } from '../specs/bf109k4'
 import { A6M5 } from '../specs/a6m5'
@@ -33,73 +37,10 @@ import { G4M } from '../specs/g4m'
 import { JU87 } from '../specs/ju87'
 import type { AircraftSpec } from '../specs/types'
 
-const DEG = Math.PI / 180
-/** 模擬長度，s */
-const SIM_SECONDS = 25
-/** 每幾個物理步存一格 */
-const STRIDE = 2
-const FRAME_DT = DT * STRIDE
 /** 兩架並排的橫向間距，m。只影響畫面，物理各跑各的 */
 const LANE = 40
 
 const SPECS: readonly AircraftSpec[] = [P51D, BF109K4, A6M5, F4F4, F6F5, KI84, B17G, HE111, JU87, G4M]
-
-/** 每格欄位 */
-const F = { x: 0, y: 1, z: 2, qx: 3, qy: 4, qz: 5, qw: 6, needed: 7, takeover: 8, bank: 9, gamma: 10, n: 11, tas: 12 } as const
-const FIELDS = 13
-
-interface Run {
-  frames: Float32Array
-  count: number
-  /** 第一次接管的格；−1 = 沒有 */
-  trigger: number
-  minIndex: number
-  crashed: boolean
-}
-
-function record(s: Scenario, model: SafetyModel, p: ModelParams): Run {
-  const maxFrames = Math.ceil(SIM_SECONDS / FRAME_DT) + 2
-  const frames = new Float32Array(maxFrames * FIELDS)
-  let count = 0
-  let trigger = -1
-  let minIndex = 0
-  let minY = Infinity
-  let crashedAt = -1
-  const res = simulateTrial(s, model, p, SIM_SECONDS, true, (st) => {
-    const i = Math.round(st.t / DT)
-    const hit = st.agl <= 0
-    const first = st.takeover && trigger < 0
-    if (i % STRIDE !== 0 && !hit && !first) return
-    if (count >= maxFrames) return
-    const a = st.aircraft
-    const o = count * FIELDS
-    const pos = a.state.position
-    const q = a.state.orientation
-    const vel = a.state.velocity
-    const tas = vel.length()
-    frames[o + F.x] = pos.x
-    frames[o + F.y] = Math.max(st.agl, 0)
-    frames[o + F.z] = pos.z
-    frames[o + F.qx] = q.x
-    frames[o + F.qy] = q.y
-    frames[o + F.qz] = q.z
-    frames[o + F.qw] = q.w
-    frames[o + F.needed] = st.needed
-    frames[o + F.takeover] = st.takeover ? 1 : 0
-    frames[o + F.bank] = bankFromUpright(a) / DEG
-    frames[o + F.gamma] = Math.asin(Math.max(-1, Math.min(1, vel.y / Math.max(tas, 1e-3)))) / DEG
-    frames[o + F.n] = a.diag.loadFactor
-    frames[o + F.tas] = tas
-    if (first) trigger = count
-    if (st.agl < minY) {
-      minY = st.agl
-      minIndex = count
-    }
-    if (hit) crashedAt = count
-    count++
-  })
-  return { frames, count, trigger, minIndex: res.crashed && crashedAt >= 0 ? crashedAt : minIndex, crashed: res.crashed }
-}
 
 // ── 場景 ─────────────────────────────────────────────────────────
 
@@ -323,20 +264,6 @@ const mid = new Vector3()
 const prevMid = new Vector3()
 let havePrevMid = false
 let last = performance.now()
-
-function frameIndex(run: Run, t: number): { i: number; f: number } {
-  const x = t / FRAME_DT
-  const i = Math.min(Math.floor(x), run.count - 1)
-  const f = i >= run.count - 1 ? 0 : x - i
-  return { i: Math.max(i, 0), f }
-}
-
-function lerpField(run: Run, i: number, f: number, field: number): number {
-  const a = run.frames[i * FIELDS + field]!
-  if (f === 0) return a
-  const b = run.frames[(i + 1) * FIELDS + field]!
-  return a + (b - a) * f
-}
 
 function frame(now: number): void {
   const wall = Math.min((now - last) / 1000, 0.1)

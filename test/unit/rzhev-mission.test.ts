@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MISSIONS, missionConfigFrom, type ReadyMissionCard } from '../../src/battle/missions'
-import { createBattle, settleAtSpawn, stepBattle, type Battle } from '../../src/battle/setup'
+import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
+import { settleAtSpawn } from '../../src/battle/flightSpawn'
 import type { GroundTarget } from '../../src/world/groundTargets'
 import { ENTRY_PLANS, type SideEntry } from '../../src/battle/entry'
 import { DEFAULT_BATTLE } from '../../src/battle/setup'

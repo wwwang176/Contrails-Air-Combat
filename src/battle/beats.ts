@@ -1,9 +1,9 @@
 import type { Vector3 } from 'three'
-import type { Team } from '../world/World'
+import type { Team } from '../world/team'
 import type { AircraftSpec } from '../specs/types'
 import type { FlightPlan } from './order'
 import type { SideEntry } from './entry'
-import type { GroundUnitId } from '../render/geometry/ground'
+import type { GroundUnitId } from '../specs/ground'
 import type { MessageKey } from '../i18n'
 import type { MissionRules } from './mission'
 
@@ -76,7 +76,7 @@ export type BeatCondition =
    * 敵機才來」那種波次要它 —— 玩家遲遲不動手，敵機仍然要來。
    *
    * 【計數由呼叫端依 `unit` 數好】`conditionMet` 讀第五個參數，不自己掃目標
-   * （`setup.ts` 的 `countDestroyed`）。
+   * （`objectiveQueries.ts` 的 `countDestroyed`）。
    */
   | {
     readonly kind: 'destroyed'
@@ -250,3 +250,6 @@ export function conditionMet(
   if (time >= when.byLatest) return true
   return aliveOf(when.team, when.role) <= when.atMost
 }
+
+/** 畫面中心訊息從生效那一刻起再顯示幾秒 */
+export const MESSAGE_SECONDS = 4

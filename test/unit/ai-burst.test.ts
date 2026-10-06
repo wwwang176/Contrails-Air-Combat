@@ -171,18 +171,21 @@ describe('點放的工作週期跟著瞄準品質走', () => {
  * 跳過點放那一關，對準就一路扣著扳機。
  */
 describe('掃射的點放接線', () => {
-  const src = new TextDecoder().decode(readFileSync('src/ai/AiController.ts'))
+  const src = new TextDecoder().decode(readFileSync('src/ai/surfaceAttack.ts'))
+  const controller = new TextDecoder().decode(readFileSync('src/ai/AiController.ts'))
 
   it('對船與對地兩條路徑都乘上點放', () => {
-    expect(src.match(/out\.firing = out\.firing && this\.burstOpen/g) ?? []).toHaveLength(2)
+    expect(src.match(/out\.firing = out\.firing && burstOpen/g) ?? []).toHaveLength(2)
+    expect(controller).toContain('strafeGround(this.surface, this, self, decide, raw, this.aim, this.burstOpen')
+    expect(controller).toContain('attackShip(this.surface, this, self, decide, dt, raw, this.aim, this.burstOpen)')
   })
 
   /** 【夾角要回報】沒有它工作週期永遠停在最差那一端，掃射就變成零星點放 */
   it('兩條路徑都把瞄準夾角回報給工作週期', () => {
     expect(src).toContain(
-      'groundAttackCommand(this.groundStrafe, self, t, decide, out, this.aim, this.terrain?.land ?? null)',
+      'groundAttackCommand(s.groundStrafe, self, t, decide, out, aim, ctx.terrain?.land ?? null)',
     )
-    expect(src).toContain('shipAttackCommand(self, ship, this.shipAim.gun, out, this.shipAim.point, this.aim)')
+    expect(src).toContain('shipAttackCommand(self, ship, ctx.shipAim.gun, out, ctx.shipAim.point, aim)')
     const strafe = new TextDecoder().decode(readFileSync('src/ai/shipAttack.ts'))
     expect(strafe.match(/fireWithinCone\(nose\.dot\(lead\), fireAim\)/g) ?? []).toHaveLength(2)
   })

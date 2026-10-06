@@ -7,6 +7,7 @@ import {
   torpedoAt, torpedoEntry, velocityAt, wingman,
   type Cut, type Path, type ReelCamera, type ReelShip, type Shot,
 } from './kit'
+import { aimBetween } from './reelCameraMath'
 
 // ── 雷擊 ───────────────────────────────────────────────────
 //
@@ -43,17 +44,10 @@ function onShip(s: ReelShip, t: number, lx: number, ly: number, lz: number, out:
   return out
 }
 
-const AIM_A = new Vector3()
-const AIM_B = new Vector3()
 /**
  * 從 `from` 看出去、介於 `a` 與 `b` 兩個方向之間的注視點（`w` = 偏向 `b` 的比例）。
  * 混的是方向不是位置 —— 一個在 20 m、一個在 600 m 的話，位置的內插幾乎就是遠的那一點
  */
-function aimBetween(from: Vector3, a: Vector3, b: Vector3, w: number, out: Vector3): Vector3 {
-  AIM_A.subVectors(a, from).normalize().multiplyScalar(100 * (1 - w))
-  AIM_B.subVectors(b, from).normalize().multiplyScalar(100 * w)
-  return out.copy(from).add(AIM_A).add(AIM_B)
-}
 
 const AIM_F = new Vector3()
 const AIM_R = new Vector3()

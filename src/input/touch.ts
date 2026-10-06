@@ -1,6 +1,8 @@
 import type { InputState } from './InputState'
-import { endLook, pressBomb, pressView, slewLook, type TouchHold } from './bindings'
+import { pressBomb, pressView, slewLook } from './actions'
+import type { TouchHold } from './holdState'
 import { onLangChange, t, type MessageKey } from '../i18n'
+import { releaseTouchGrip, type Grip, type GripKind } from './touchGrip'
 
 /**
  * 觸控拖曳瞄準的靈敏度：每拖「一個螢幕半高」瞄準點轉多少弧度。
@@ -16,16 +18,6 @@ const TOUCH_AIM_SENSITIVITY = 1.6
 const PHONE_PORTRAIT = '(pointer: coarse) and (orientation: portrait) and (max-width: 600px)'
 
 /** 一根手指按下時抓到的東西。整段拖曳都算它，拖出範圍也不換 */
-type GripKind = 'aim' | 'look' | 'fire' | 'up' | 'down' | 'score' | 'bomb' | 'view' | 'pause'
-
-interface Grip {
-  kind: GripKind
-  x: number
-  y: number
-  /** 按鈕本身；拖曳區是 null */
-  el: HTMLElement | null
-}
-
 export interface TouchControls {
   /** 交給 `bindings.tick` 的按住狀態 */
   readonly hold: TouchHold
@@ -76,16 +68,7 @@ export function attachTouch(root: HTMLElement, state: InputState): TouchControls
     const g = grips.get(id)
     if (g === undefined) return
     grips.delete(id)
-    g.el?.classList.remove('down')
-    switch (g.kind) {
-      case 'aim': aimRing.hidden = true; break
-      case 'look': lookRing.hidden = true; endLook(state); break
-      case 'fire': hold.fire = false; state.firing = false; break
-      case 'up': hold.up = false; break
-      case 'down': hold.down = false; state.braking = false; break
-      case 'score': state.scoreboardHeld = false; break
-      default: break
-    }
+    releaseTouchGrip(g, state, hold, aimRing, lookRing)
   }
 
   const releaseAll = (): void => {

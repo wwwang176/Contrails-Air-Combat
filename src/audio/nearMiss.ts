@@ -1,5 +1,7 @@
 import type { Projectiles } from '../world/Projectiles'
 
+type PassingProjectiles = Pick<Projectiles, 'capacity' | 'owner' | 'team' | 'x' | 'y' | 'z' | 'vx' | 'vy' | 'vz'>
+
 /**
  * 這一幀有沒有敵彈從 (px,py,pz) 身邊 radius 公尺內掠過。回那一發的索引，沒有回 −1。
  *
@@ -11,7 +13,7 @@ import type { Projectiles } from '../world/Projectiles'
  *
  * 【每幀一次、不配置】彈丸池約 4000 格，與曳光彈更新同一個量級。
  */
-export function nearMiss(p: Projectiles, myTeam: number, px: number, py: number, pz: number, radius: number): number {
+export function nearMiss(p: PassingProjectiles, myTeam: number, px: number, py: number, pz: number, radius: number): number {
   const r2 = radius * radius
   for (let i = 0; i < p.capacity; i++) {
     if (p.owner[i] === -1 || p.team[i] === myTeam) continue

@@ -1,4 +1,5 @@
-import { contactColor, hudFont, type HudFrame, type HudLayout } from '../types'
+import type { HudFrame, HudLayout } from '../types'
+import { contactColor, hudFont } from '../style'
 import { contactRangeLabel } from './contacts'
 
 /**

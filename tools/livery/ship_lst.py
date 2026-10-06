@@ -156,4 +156,5 @@ def main(faces, variant, outline=None):
     L.save(outline, suffix='' if variant == 'a' else '_' + variant)
 
 
-main(*sys.argv[1:])
+if __name__ == '__main__':
+    main(*sys.argv[1:])

@@ -1,7 +1,5 @@
-import {
-  contactBoxRadius, contactColor, hudFont,
-  type HudContact, type HudFrame, type HudLayout,
-} from '../types'
+import type { HudContact, HudFrame, HudLayout } from '../types'
+import { contactBoxRadius, contactColor, hudFont } from '../style'
 
 /**
  * 這個接觸點要不要畫分隊標示。

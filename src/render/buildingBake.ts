@@ -1,11 +1,14 @@
 import { BufferAttribute, BufferGeometry, Color } from 'three'
-import { createFloraBuffer, FLORA_STRIDE, FloraKind, SHAPE_ONE, type FloraSource } from './flora'
 import {
-  BRICK_WALL, BROAD_CROWN_R, buildingColors, BUILDING_DEPTH, BUILDING_WIDTH, BUSH_R, CHURCH_WALL, CONE_CROWN_R,
+  createFloraBuffer, FLORA_STRIDE, FloraKind, SHAPE_ONE, type FloraSource,
+} from '../core/floraBuffer'
+import {
+  BRICK_WALL, buildingColors, BUILDING_DEPTH, BUILDING_WIDTH, CHURCH_WALL,
   OLD_ROOF, ROOF, SLATE, TAR_ROOF, WALL,
 } from './floraShapes'
+import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from '../specs/flora'
 import { canopyColor, FIELD_COLORS, FLORA_COLORS, type Season } from './season'
-import { TINT_RANGE } from './vegetation'
+import { TINT_RANGE } from './vegetationPolicy'
 
 /**
  * # 建築與樹的色塊：烘進遠處的地面

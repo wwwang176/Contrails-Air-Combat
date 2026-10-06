@@ -1,4 +1,4 @@
-import { Audio, AudioListener, Object3D } from 'three'
+import { Audio, type AudioListener } from 'three'
 
 /**
  * # 定位聲道：自己算左右，不用 `PannerNode`
@@ -12,16 +12,6 @@ import { Audio, AudioListener, Object3D } from 'three'
  * 增益矩陣：`音量 → 拆左右 → 四個增益 → 合回左右 → listener`。矩陣由 `pan.ts`
  * 算，逐幀平滑過去。
  */
-
-/**
- * 不寫位置的 listener。**聲道已經不用 panner**，listener 的位置參數沒人讀；
- * three 預設每幀對它排九條漸變，那是白做的。
- */
-export class SilentListener extends AudioListener {
-  override updateMatrixWorld(force?: boolean): void {
-    Object3D.prototype.updateMatrixWorld.call(this, force)
-  }
-}
 
 /** 矩陣的四格，與 `equalPowerMatrix` 的 `out` 同序：左←左、左←右、右←左、右←右 */
 const ROUTES: readonly (readonly [0 | 1, 0 | 1])[] = [[0, 0], [1, 0], [0, 1], [1, 1]]

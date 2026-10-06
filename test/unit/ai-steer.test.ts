@@ -3,13 +3,23 @@ import { Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createSituation, evaluateGeometry } from '../../src/ai/assess'
 import {
-  aimFromKnobs, buildEngageBasis, createEngageBasis, engageKnobs, extendPitchAngle,
-  geometryGate, steerCommand, DEFAULT_STEER, type Knobs,
-  createDefendState, stepDefend, defendAim, unloadPull, applyPitchBias,
-  sweetYield, type SteerConfig,
-  headingErrorTo, extendHeadingBias, stepExtendSide,
-  createTrackState, stepTrack, type TrackState, repositionKnobs,
+  aimFromKnobs,
+  engageKnobs,
+  extendPitchAngle,
+  geometryGate,
+  steerCommand,
+  type Knobs,
+  defendAim,
+  unloadPull,
+  applyPitchBias,
+  extendHeadingBias,
+  repositionKnobs,
 } from '../../src/ai/steer'
+import { sweetYield } from '../../src/ai/shotYield'
+import { createDefendState, stepDefend, stepExtendSide } from '../../src/ai/defendState'
+import { createTrackState, stepTrack, type TrackState } from '../../src/ai/trackState'
+import { DEFAULT_STEER, type SteerConfig } from '../../src/ai/steerConfig'
+import { buildEngageBasis, createEngageBasis, headingErrorTo } from '../../src/ai/engageGeometry'
 import { NO_INTERCEPT } from '../../src/world/lead'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 import { rallyAim } from '../../src/ai/rally'

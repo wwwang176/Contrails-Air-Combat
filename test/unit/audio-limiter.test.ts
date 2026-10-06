@@ -191,7 +191,8 @@ describe('worklet 與純函數同一套公式', () => {
  * 限幅器在鏈路最後一道，壞掉的症狀是**整場沒有聲音**，而且不報錯。
  */
 describe('限幅器的接線', () => {
-  const SRC = new TextDecoder().decode(readFileSync('src/audio/engine.ts')).replace(/\r\n/g, '\n')
+  const SRC = readFileSync('src/audio/output.ts', 'utf8').replace(/\r\n/g, '\n')
+  const ENGINE = readFileSync('src/audio/engine.ts', 'utf8').replace(/\r\n/g, '\n')
 
   it('接在淡入之後、喇叭之前', () => {
     expect(SRC).toContain('fade.connect(node)')
@@ -215,9 +216,12 @@ describe('限幅器的接線', () => {
   /** 【恢復與換場都要清緩衝】不清就會漏出乘過舊增益的那幾毫秒 */
   it('恢復與 stopAll 都送 reset', () => {
     expect(SRC).toContain("limiter?.port.postMessage('reset')")
-    const resume = SRC.slice(SRC.indexOf('function applyRunState'), SRC.indexOf('function fadeIn'))
+    expect(ENGINE).toContain('const output = createAudioOutput(ctx, listener.gain)')
+    expect(ENGINE).toContain('const { fadeIn, resetLimiter } = output')
+    const resume = ENGINE.slice(ENGINE.indexOf('function applyRunState'), ENGINE.indexOf('function gainOf'))
     expect(resume).toContain('resetLimiter()')
-    const stop = SRC.slice(SRC.indexOf('function stopAll'), SRC.indexOf('async function loadAll'))
+    const start = ENGINE.indexOf('function stopAll')
+    const stop = ENGINE.slice(start, ENGINE.indexOf('\n  return {', start))
     expect(stop).toContain('resetLimiter()')
   })
 })

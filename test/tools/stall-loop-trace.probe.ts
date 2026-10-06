@@ -32,7 +32,8 @@ import { Vector3 } from 'three'
 import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
 import { cornerSpeed, stallSpeed } from '../../src/analysis/envelope'
-import { extendPitchAngle, DEFAULT_STEER } from '../../src/ai/steer'
+import { extendPitchAngle } from '../../src/ai/steer'
+import { DEFAULT_STEER } from '../../src/ai/steerConfig'
 import type { Combatant } from '../../src/world/World'
 
 // 【為什麼可以調長】人工回報的情境是「戰鬥區域已經遠離」，那要等到大半

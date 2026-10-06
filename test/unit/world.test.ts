@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { World, FLASH_SECONDS, SEA_KILL_Y, SEA_SURFACE_Y } from '../../src/world/World'
+import { World, FLASH_SECONDS } from '../../src/world/World'
+import { SEA_KILL_Y, SEA_SURFACE_Y } from '../../src/world/projectileHits'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Command, Controller } from '../../src/control/Controller'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'

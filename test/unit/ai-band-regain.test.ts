@@ -2,10 +2,11 @@ import { describe, it, expect } from 'vitest'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { Vector3 } from 'three'
 import { createSituation, evaluateGeometry } from '../../src/ai/assess'
-import {
-  buildEngageBasis, createBandState, createDefendState, createEngageBasis, DEFAULT_STEER,
-  stepBand, steerCommand, type Knobs,
-} from '../../src/ai/steer'
+import { createBandState, stepBand } from '../../src/ai/bandState'
+import { steerCommand, type Knobs } from '../../src/ai/steer'
+import { createDefendState } from '../../src/ai/defendState'
+import { DEFAULT_STEER } from '../../src/ai/steerConfig'
+import { buildEngageBasis, createEngageBasis } from '../../src/ai/engageGeometry'
 import { createCommand } from '../../src/control/Controller'
 import { NO_INTERCEPT } from '../../src/world/lead'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'

@@ -8,7 +8,7 @@ import { VETERAN } from '../../src/ai/profile'
 import { createGroundTarget } from '../../src/world/groundTargets'
 import { P51D as RAW } from '../../src/specs/p51d'
 import { applyFeel, feelFor } from '../../src/specs/feel'
-import { DEFAULT_STEER } from '../../src/ai/steer'
+import { DEFAULT_STEER } from '../../src/ai/steerConfig'
 import { bestSustainedTurnRadiusCached } from '../../src/analysis/envelope'
 import type { Command, Controller } from '../../src/control/Controller'
 

@@ -3,7 +3,7 @@ import {
 } from 'three'
 import { arcAt, type ArcPoint, type ArcShot } from './arc'
 import { ringBasis, tubeIndices, tubeVertexCount, type RingBasis } from './tube'
-import { injectVertexAlpha, TRAIL_COLOR } from './vortex'
+import { injectVertexAlpha, TRAIL_COLOR } from './trailMaterial'
 
 /**
  * # 迫擊砲彈的白色尾流

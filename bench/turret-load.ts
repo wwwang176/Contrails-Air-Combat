@@ -1,3 +1,4 @@
+import { LoadController } from './load-controller'
 import { Vector3 } from 'three'
 import { GOLDEN_ANGLE } from '../src/weapons/turret'
 import { createBattle, stepBattle, DEFAULT_BATTLE, type Battle } from '../src/battle/setup'
@@ -6,23 +7,14 @@ import { HEAD_ON, PURSUIT, type EntryPlan } from '../src/battle/entry'
 import { P51D } from '../src/specs/p51d'
 import { B17G } from '../src/specs/b17g'
 import { PROJECTILE_CAPACITY, PROJECTILE_LIFETIME } from '../src/world/Projectiles'
-import type { Aircraft } from '../src/aircraft/Aircraft'
-import type { Command, Controller } from '../src/control/Controller'
+import type { FlightState } from '../src/physics/types'
 
 export const LOAD_DT = 1 / 240
 
-/** 玩家位置上放一個恆平飛的假控制器 —— 與 `bench/multi-load.ts` 同一個。 */
-class Idle implements Controller {
-  private readonly aim = new Vector3(0, 0, -1)
-  update(_a: Aircraft, _dt: number, out: Command): void {
-    out.aimWorld.copy(this.aim)
-    out.throttle = 0.7
-    out.firing = false
-  }
-}
-
 export interface TurretLoadState {
   battle: Battle
+  /** Synthetic load poses, restored before each step so coverage cannot drift. */
+  readonly poses: readonly FlightState[]
   /**
    * 這一份是不是「包圍」擺位。
    *
@@ -41,8 +33,8 @@ export interface TurretLoadState {
  * 門檻因此完全沒有量到砲塔那 160 座每步的成本。
  *
  * 【架數、彈丸池、控制器都與 `multi-load` 一致】唯一的差別是紅隊換成
- * B-17G。這樣「20v20 門檻」與「砲塔門檻」的差就**只有砲塔**，兩個數字直接
- * 可減 —— 兩份負載各自訂初始條件的話，那個差就沒有意義了。
+ * B-17G。搜尋與追瞄負載都在每步還原運動狀態，維持射界覆蓋；還原成本也計入
+ * 時間，因此與 `multi-load` 的差不能當成純砲塔成本。
  *
  * ── 為什麼要兩種 ────────────────────────────────────────
  *
@@ -57,10 +49,14 @@ export interface TurretLoadState {
  * 只量其中一種會漏掉另一種。
  */
 function build(entry: EntryPlan): TurretLoadState {
-  const battle = createBattle(new Idle(), {
+  const battle = createBattle(new LoadController(), {
     ...DEFAULT_BATTLE, units: lineAbreast(entry, P51D, 20, B17G, 20),
   })
-  const state: TurretLoadState = { battle, surrounded: false }
+  const poses = battle.world.combatants.map(({ aircraft: { state } }) => ({
+    position: state.position.clone(), velocity: state.velocity.clone(),
+    orientation: state.orientation.clone(), angularVelocity: state.angularVelocity.clone(),
+  }))
+  const state: TurretLoadState = { battle, surrounded: false, poses }
   fill(state)
   return state
 }
@@ -87,12 +83,14 @@ export function createTurretSearchLoad(): TurretLoadState {
  *
  * 【為什麼合成擺位是合理的】與 `fill()` 把彈丸池人工灌滿同一個道理：要量的
  * 是**最壞情形**，而最壞情形在一場真的戰鬥裡不會穩定出現。合成擺位是可達的
- * 輸入（實測 160/160），不是虛構的。
+ * 輸入（實測 160/160），不是虛構的。每步還原相對位置、姿態與速度，避免飛機
+ * 移動後離開射界，讓後半段測量悄悄退化成較輕的負載。
  */
 export function createTurretTrackLoad(): TurretLoadState {
   const state = build(PURSUIT)
   state.surrounded = true
   surround(state)
+  capturePoses(state)
   return state
 }
 
@@ -136,6 +134,19 @@ function fibonacci(k: number, n: number, r: number, out: Vector3): Vector3 {
   return out.set(Math.cos(theta) * rad * r, y * r, Math.sin(theta) * rad * r)
 }
 
+function capturePoses(state: TurretLoadState): void {
+  const cs = state.battle.world.combatants
+  for (let i = 0; i < cs.length; i++) {
+    const flight = cs[i]!.aircraft.state, pose = state.poses[i]!
+    // Equal velocities keep every tail turret's intercept inside its arc.
+    if (state.surrounded) flight.velocity.set(0, 0, -120)
+    pose.position.copy(flight.position)
+    pose.velocity.copy(flight.velocity)
+    pose.orientation.copy(flight.orientation)
+    pose.angularVelocity.copy(flight.angularVelocity)
+  }
+}
+
 /**
  * 【為什麼要人工把池灌滿】與 `multi-load` 同一個理由：穩態存量隨戰況起伏，
  * 而要量的是最壞情形。也讓這兩份負載的彈丸成本與既有的 20v20 門檻完全相同。
@@ -158,6 +169,16 @@ function fill(state: TurretLoadState): void {
 }
 
 export function stepTurretLoad(state: TurretLoadState): void {
+  // Fixture maintenance is included in the measurement, equally for search/track.
+  // AI, physics, target search and projectile simulation still run normally.
+  const cs = state.battle.world.combatants
+  for (let i = 0; i < cs.length; i++) {
+    const flight = cs[i]!.aircraft.state, pose = state.poses[i]!
+    flight.position.copy(pose.position)
+    flight.velocity.copy(pose.velocity)
+    flight.orientation.copy(pose.orientation)
+    flight.angularVelocity.copy(pose.angularVelocity)
+  }
   const p = state.battle.world.projectiles
   const o = state.battle.world.combatants[0]!.aircraft.state.position
   while (p.live < PROJECTILE_CAPACITY) {
@@ -167,13 +188,14 @@ export function stepTurretLoad(state: TurretLoadState): void {
 }
 
 /**
- * 【重置的意義在這一份特別重要】兩隊會相互接近。不定期把它們送回出生點的
- * 話，「搜尋」那一份跑久了會變成「追瞄」，兩種負載於是量到同一件事。
+ * 清掉彈丸與取得的目標，恢復出生狀態，再建立同一份合成擺位。
+ * 重置後須重新暖機，讓搜尋冷卻錯開的砲塔都完成第一次搜尋。
  */
 export function resetTurretLoad(state: TurretLoadState): void {
   state.battle.world.projectiles.clear()
   for (const c of state.battle.world.combatants) state.battle.world.respawn(c)
   // 【重置之後要重新擺】`respawn` 把飛機送回出生點，也就是把 surround 還原
   if (state.surrounded) surround(state)
+  capturePoses(state)
   fill(state)
 }

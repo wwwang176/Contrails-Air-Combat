@@ -1,6 +1,6 @@
 import { clamp, lerp } from '../core/math'
 import { atmosphere } from './atmosphere'
-import type { AircraftSpec } from '../specs/types'
+import type { FlightSpec } from '../specs/types'
 import type { AirData } from './types'
 
 /** 對應各機種登錄之 WEP 功率的油門值。 */
@@ -28,7 +28,7 @@ export function ramFactor(mach: number, efficiency: number): number {
  * 以 σ 表達最自然。多檔位取上包絡（自動換檔）。
  */
 export function enginePower(
-  spec: AircraftSpec,
+  spec: FlightSpec,
   air: AirData,
   mach: number,
   throttle: number,
@@ -69,7 +69,7 @@ export function enginePower(
 }
 
 /** 螺旋槳效率：低速效率低，高速趨近 etaMax。 */
-export function propEfficiency(spec: AircraftSpec, tas: number): number {
+export function propEfficiency(spec: FlightSpec, tas: number): number {
   return spec.prop.etaMax * (1 - Math.exp(-tas / spec.prop.vRef))
 }
 
@@ -98,7 +98,7 @@ const V_FLOOR = 0.1
  * 真正超過動量理論上限的機種——因此仍是活的防禦，只是對現有兩款機種不 binding。
  */
 export function propThrust(
-  spec: AircraftSpec,
+  spec: FlightSpec,
   powerW: number,
   tas: number,
   air: AirData,

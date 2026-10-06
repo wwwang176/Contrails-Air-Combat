@@ -18,7 +18,7 @@
  * 拿掉，「絕對像素數」必紅而「兩個距離的比值」照樣過。
  */
 import { chromium } from 'playwright'
-import { POINT_TOPDOWN_GAIN, POINT_TOPDOWN_RAMP } from '../../src/render/vegetation'
+import { POINT_TOPDOWN_GAIN, POINT_TOPDOWN_RAMP } from '../../src/render/vegetationPools'
 
 const URL = 'http://localhost:5190/'
 /** 與 fixture 的 `PROBE_FOV_DEG` 一致 */

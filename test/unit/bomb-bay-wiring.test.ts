@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
+import * as ts from 'typescript'
 
 /**
  * 接線護欄 —— **讀 `main.ts` 的原始碼**。
@@ -8,16 +9,37 @@ import { readFileSync } from 'node:fs'
  * 大括號會誤判，而會誤報的護欄比沒有護欄更糟。
  */
 const SRC = new TextDecoder().decode(readFileSync('src/main.ts')).split('\n')
+const MARKER_SRC = new TextDecoder().decode(readFileSync('src/app/battleHudMarkers.ts')).split('\n')
+const CAMERA = new TextDecoder().decode(readFileSync('src/app/battleCameraFrame.ts')).split('\n')
+const SCENE = new TextDecoder().decode(readFileSync('src/app/battleSceneFrame.ts')).split('\n')
+const EVENTS = readFileSync('src/app/battleEventPresentation.ts', 'utf8').split('\n')
 const WORLD = new TextDecoder().decode(readFileSync('src/world/World.ts')).replace(/\r\n/g, '\n')
 const PLAYER = new TextDecoder().decode(readFileSync('src/control/PlayerController.ts'))
   .replace(/\r\n/g, '\n')
 
 /** 唯一一行含 `needle` 的行號。找不到或找到多行都讓測試失敗 —— 那代表這支護欄該重寫 */
-function only(needle: string): number {
-  const hits: number[] = []
-  for (let i = 0; i < SRC.length; i++) if (SRC[i]!.includes(needle)) hits.push(i)
-  expect(hits, `main.ts 裡「${needle}」應該只出現一次，實際 ${hits.length} 次`).toHaveLength(1)
+function only(source: readonly string[], needle: string): number {
+  const hits = source.flatMap((line, index) => line.includes(needle) ? [index] : [])
+  expect(hits, `「${needle}」應該只出現一次`).toHaveLength(1)
   return hits[0]!
+}
+
+/** 解析函數本體，避免註解、匯入或巢狀視角分支被誤認成每幀呼叫。 */
+function frameCalls(source: readonly string[], functionName: string) {
+  const file = ts.createSourceFile('frame.ts', source.join('\n'), ts.ScriptTarget.Latest, true)
+  const fn = file.statements.find((node): node is ts.FunctionDeclaration =>
+    ts.isFunctionDeclaration(node) && node.name?.text === functionName)
+  if (!fn?.body) throw new Error(`找不到 ${functionName} 的函數本體`)
+  const all: string[] = []
+  function visit(node: ts.Node): void {
+    if (ts.isCallExpression(node)) all.push(node.expression.getText(file))
+    ts.forEachChild(node, visit)
+  }
+  visit(fn.body)
+  const direct = fn.body.statements.flatMap((node) =>
+    ts.isExpressionStatement(node) && ts.isCallExpression(node.expression)
+      ? [node.expression.expression.getText(file)] : [])
+  return { all, direct }
 }
 
 /**
@@ -34,7 +56,7 @@ describe('彈艙只在物理步推進', () => {
 
   /** 【不分玩家】`World` 認出玩家而跳過的話，玩家的彈艙就沒人推進 */
   it('World 對每一架都推進，沒有玩家或視角的例外', () => {
-    const loop = /for \(const c of this\.combatants\) \{\s*if \(!c\.alive\) continue\s*this\.fire\(c, dt\)\s*this\.releaseBombs\(c, dt\)/
+    const loop = /for \(const c of this\.combatants\) \{\s*if \(!c\.alive\) continue\s*stepFixedGuns\(c, this\.projectiles, dt\)\s*this\.releaseBombs\(c, dt\)/
     expect(WORLD).toMatch(loop)
     expect(WORLD.match(/stepBombBay\(/g)).toHaveLength(1)
   })
@@ -58,43 +80,50 @@ describe('彈艙只在物理步推進', () => {
  * 與上面那一支是同一個手法、同一個理由。
  */
 describe('標記的接線：`fillMarkers` 必須真的被呼叫', () => {
-  const fill = only('fillMarkers(')
+  const fill = only(MARKER_SRC, '  fillMarkers(')
 
   it('不在任何視角分支裡 —— 三種視角都要畫標記', () => {
-    let i = fill
-    while (i > 0 && !SRC[i]!.trimStart().startsWith('if (')) i--
-    const guard = SRC[i]!.trim()
-    expect(guard).not.toContain('viewMode')
-    expect(guard).not.toContain('godView')
+    const calls = frameCalls(MARKER_SRC, 'updateBattleHudMarkers')
+    expect(calls.all.filter((name) => name === 'fillMarkers')).toHaveLength(1)
+    expect(calls.direct).toContain('fillMarkers')
+  })
+
+  it('主程式每幀接上標記更新，且在 HUD 繪製前完成', () => {
+    const calls = frameCalls(SRC, 'stepAndDrawBattle')
+    expect(calls.all.filter((name) => name === 'updateBattleHudMarkers')).toHaveLength(1)
+    const update = calls.direct.indexOf('updateBattleHudMarkers')
+    const render = calls.direct.indexOf('hud.render')
+    expect(update).toBeGreaterThanOrEqual(0)
+    expect(render).toBeGreaterThan(update)
   })
 
   /** 【兩個池都要餵】少一個就是「魚雷沒有標記」，而且不會有錯誤訊息 */
   it('炸彈與魚雷兩個池都接上去', () => {
-    const near = SRC.slice(Math.max(0, fill - 6), fill).join('\n')
+    const near = MARKER_SRC.slice(Math.max(0, fill - 6), fill).join('\n')
     expect(near).toContain('world.bombs')
     expect(near).toContain('world.torpedoes')
   })
 })
 
 /**
- * # 火災的接線護欄 —— 同樣讀 `main.ts` 的原始碼
+ * # 火災的接線護欄 —— 讀事件呈現模組，畫面步進仍讀 `main.ts`
  *
- * `ship-fires.test.ts` 直接呼叫 `lightShipFires`，所以把 `main.ts` 裡那兩行
+ * `ship-fires.test.ts` 直接呼叫 `lightShipFires`，所以把事件呈現模組裡那兩行
  * 刪掉不會讓任何測試紅。而症狀是**一個火點都不會出現、零錯誤訊息**。
  *
  * **順序是這支護欄真正的內容**：兩份命中事件都在物理子步裡被 `clearImpacts`
  * 清掉。起火排在排空之後的話讀到的永遠是空的。
  */
 describe('火災的接線：起火必須排在事件排空之前', () => {
-  const lines = (needle: string): number[] => {
+  const lines = (needle: string, source = EVENTS): number[] => {
     const hits: number[] = []
-    for (let i = 0; i < SRC.length; i++) if (SRC[i]!.includes(needle)) hits.push(i)
+    for (let i = 0; i < source.length; i++) if (source[i]!.includes(needle)) hits.push(i)
     return hits
   }
 
   it('炸彈與魚雷兩份事件都拿去起火', () => {
     expect(lines('lightShipFires(')).toHaveLength(2)
-    const near = lines('lightShipFires(').map((i) => SRC[i]!).join('\n')
+    const near = lines('lightShipFires(').map((i) => EVENTS[i]!).join('\n')
     expect(near).toContain('world.bombEvents')
     expect(near).toContain('world.torpedoEvents')
   })
@@ -111,9 +140,9 @@ describe('火災的接線：起火必須排在事件排空之前', () => {
 
   /** 【燃燒一幀推一次】它是純裝飾。塞進物理子步的話一幀會燒好幾次。 */
   it('stepShipFires 吃的是 worldSeconds', () => {
-    const step = lines('stepShipFires(')
+    const step = lines('stepShipFires(', SCENE)
     expect(step).toHaveLength(1)
-    expect(SRC[step[0]!]!).toContain('worldSeconds')
+    expect(SCENE[step[0]!]!).toContain('worldSeconds')
   })
 })
 
@@ -124,7 +153,7 @@ describe('火災的接線：起火必須排在事件排空之前', () => {
  * 世界快，慢的電腦上看起來像兩個速度。它們要吃 `worldSeconds`。
  */
 describe('特效、螺旋槳與鏡頭跟世界同一個時鐘', () => {
-  const all = SRC.join('\n')
+  const all = SRC.join('\n') + '\n' + CAMERA.join('\n')
 
   it('特效沒有任何一支還吃 frameSeconds', () => {
     expect(all).not.toMatch(/\.step\(frameSeconds/)
@@ -153,8 +182,8 @@ describe('特效、螺旋槳與鏡頭跟世界同一個時鐘', () => {
  */
 describe('標記的接線：地面目標必須傳進 `fillMarkers`', () => {
   it('呼叫的引數裡有 world.groundTargets', () => {
-    const fill = only('fillMarkers(')
-    const call = SRC.slice(fill, fill + 4).join('\n')
+    const fill = only(MARKER_SRC, '  fillMarkers(')
+    const call = MARKER_SRC.slice(fill, fill + 4).join('\n')
     expect(call).toContain('world.ships')
     expect(call).toContain('world.groundTargets')
   })
@@ -165,9 +194,11 @@ describe('標記的接線：地面目標必須傳進 `fillMarkers`', () => {
  * 否則它只會掃射，與同一關的友軍 AI 行為不同。不會報錯。
  */
 describe('代飛接上玩家的彈艙', () => {
-  const ALL = SRC.join('\n')
+  const ALL = readFileSync('src/app/wireBattleAi.ts', 'utf8')
 
   it('playerAi.bombBay 接的是玩家那一架的彈艙', () => {
+    expect(frameCalls(SRC, 'stepAndDrawBattle').direct).toContain('wireBattleAi')
+    expect(SRC.join('\n')).toContain('wireBattleAi(world, battle.cfg.tuning, player, playerAi, aiTerrain)')
     expect(ALL).toContain('playerAi.bombBay = player.bombBay')
     expect(ALL).not.toMatch(/playerAi\.bombBay = null/)
   })

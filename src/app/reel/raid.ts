@@ -6,6 +6,7 @@ import {
   BOMB_RELEASE_Y, barrage, body, bodyUp, bombAt, edit, rampedOffset, timeline, velocityAt, wingman,
   type Cut, type Path, type ReelCamera, type ReelPlane, type ReelProp, type ReelShip, type Shot,
 } from './kit'
+import { aimBetween } from './reelCameraMath'
 
 // ── 雷雨空襲 ───────────────────────────────────────────────
 //
@@ -47,17 +48,10 @@ const S1 = new Vector3()
 const S2 = new Vector3()
 const S3 = new Vector3()
 
-const AIM_A = new Vector3()
-const AIM_B = new Vector3()
 /**
  * 從 `from` 看出去、介於 `a` 與 `b` 兩個方向之間的注視點（`w` = 偏向 `b` 的比例）。
  * 混的是方向不是位置 —— 一個在 20 m、一個在 600 m 的話，位置的內插幾乎就是遠的那一點
  */
-function aimBetween(from: Vector3, a: Vector3, b: Vector3, w: number, out: Vector3): Vector3 {
-  AIM_A.subVectors(a, from).normalize().multiplyScalar(100 * (1 - w))
-  AIM_B.subVectors(b, from).normalize().multiplyScalar(100 * w)
-  return out.copy(from).add(AIM_A).add(AIM_B)
-}
 
 /**
  * 手持／機上的慢晃：注視點繞著鏡頭偏一個小角度，頻率 0.3～1.1 Hz 互質的正弦疊起來。

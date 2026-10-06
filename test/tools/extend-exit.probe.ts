@@ -45,6 +45,8 @@ import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_RULES, type RuleConfig } from '../../src/ai/rules'
 import type { Combatant } from '../../src/world/World'
 import { readyCard } from '../fixtures/mission'
+import { SegmentGaps } from './segment-gaps'
+import { jitterInitialVelocity } from './initial-velocity'
 
 const DT = 1 / 240
 const SECONDS = 300
@@ -52,10 +54,7 @@ const SEED = 20260805
 const STRIDE = 24
 const STEP = DT * STRIDE
 
-const CARDS: [string, 'allies' | 'axis'][] = [
-  ['allies-m1', 'axis'],
-  ['allies-m1', 'allies'],
-]
+const CARDS = ['allies-m1'] as const
 
 /** 五次微擾。0 = 不擾動的那一次 */
 const SALTS = [0, 101, 202, 303, 404]
@@ -65,16 +64,6 @@ const EXITS: (number | null)[] = [null, 0.80, 0.85, 0.90]
 
 const n = (v: number, w: number, d = 1): string =>
   (Number.isFinite(v) ? v.toFixed(d) : '—').padStart(w)
-
-function jitter(b: ReturnType<typeof createBattle>, salt: number): void {
-  if (salt === 0) return
-  for (const c of b.world.combatants) {
-    let h = (salt ^ (c.index * 0x9e3779b1)) >>> 0
-    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0
-    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0
-    c.aircraft.state.velocity.multiplyScalar(1 + ((h >>> 8) / 0xffffff - 0.5) * 0.01)
-  }
-}
 
 function pct(sorted: number[], p: number): number {
   if (sorted.length === 0) return Number.NaN
@@ -131,7 +120,7 @@ interface Run {
 function run(id: string, salt: number, exit: number | null): Run {
   const card = readyCard(id)
   const b = createBattle(new AiController(), missionConfigFrom(card), SEED)
-  jitter(b, salt)
+  jitterInitialVelocity(b.world.combatants, salt)
 
   const cfg: RuleConfig = exit === null
     ? { ...DEFAULT_RULES, recoveredExit: false }
@@ -152,7 +141,7 @@ function run(id: string, salt: number, exit: number | null): Run {
   const pt = new Uint8Array(cs.length)
   const pf = new Uint8Array(cs.length)
   const pr = new Uint8Array(cs.length)
-  const lastEnd = new Float64Array(cs.length).fill(Number.NaN)
+  const gaps = new SegmentGaps()
   let protectedAlive = 0
   let fighterAlive = 0
   let t = 0
@@ -161,14 +150,15 @@ function run(id: string, salt: number, exit: number | null): Run {
     const l = live[i] ?? null
     if (l === null) return
     live[i] = null
-    segs.push({
+    const segment: Seg = {
       seconds: at - l.t0,
       recoveredAt: l.rec,
       cause,
       kind: kindOf(l),
       gap: Infinity,
-    })
-    lastEnd[i] = at
+    }
+    segs.push(segment)
+    gaps.close(i, at, segment)
   }
 
   for (let k = 0; k < Math.round(SECONDS / DT); k++) {
@@ -193,11 +183,7 @@ function run(id: string, salt: number, exit: number | null): Run {
       const l = live[i] ?? null
 
       if (isExtend && l === null) {
-        if (!Number.isNaN(lastEnd[i]!)) {
-          for (let j = segs.length - 1; j >= 0; j--) {
-            if (!Number.isFinite(segs[j]!.gap)) { segs[j]!.gap = t - lastEnd[i]!; break }
-          }
-        }
+        gaps.enter(i, t)
         live[i] = {
           t0: t,
           rec: Infinity,
@@ -252,7 +238,7 @@ function run(id: string, salt: number, exit: number | null): Run {
   return { segs, protectedAlive, fighterAlive }
 }
 
-for (const [id] of CARDS) {
+for (const id of CARDS) {
   console.log(`\n══════ ${id} ══════ ${SECONDS} s × ${SALTS.length} 次微擾 ══════`)
 
   for (const exit of EXITS) {

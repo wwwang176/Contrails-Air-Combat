@@ -4,8 +4,9 @@ import { BF109K4 } from '../../specs/bf109k4'
 import { scatterClouds, type CloudSpec } from '../../render/clouds'
 import {
   BOMB_RELEASE_Y, barrage, body, bodyUp, bombAt, edit, rampedOffset, timeline, velocityAt, wingman, wreckAt,
-  type Cut, type Path, type ReelCamera, type ReelDecor, type ReelPlane, type ReelProp, type Shot,
+  type Cut, type Path, type ReelDecor, type ReelPlane, type ReelProp, type Shot,
 } from './kit'
+import { aimBetween, dutch, jolt } from './reelCameraMath'
 
 // ── 轟炸機流 ───────────────────────────────────────────────
 //
@@ -56,18 +57,6 @@ const S1 = new Vector3()
 const S2 = new Vector3()
 const S3 = new Vector3()
 
-const AIM_A = new Vector3()
-const AIM_B = new Vector3()
-/**
- * 從 `from` 看出去、介於 `a` 與 `b` 兩個方向之間的注視點（`w` = 偏向 `b` 的比例）。
- * 混的是方向不是位置 —— 一個在 20 m、一個在 600 m 的話，位置的內插幾乎就是遠的那一點
- */
-function aimBetween(from: Vector3, a: Vector3, b: Vector3, w: number, out: Vector3): Vector3 {
-  AIM_A.subVectors(a, from).normalize().multiplyScalar(100 * (1 - w))
-  AIM_B.subVectors(b, from).normalize().multiplyScalar(100 * w)
-  return out.copy(from).add(AIM_A).add(AIM_B)
-}
-
 /**
  * 手持的晃動：每一軸三條頻率互質的正弦（0.7～2.9 Hz），疊進 `out`。`amp` 是最大位移，m。
  * 鏡頭位置與注視點各疊一份、`seed` 不同 —— 用同一份的話整台鏡頭平移，看不出晃
@@ -86,33 +75,10 @@ function shake(t: number, amp: number, seed: number, out: Vector3): Vector3 {
  * 衝擊的一震：`t0` 起 4～5 Hz、0.18 秒衰減一半多的快抖，0.6 秒後歸零，疊進 `out`。
  * 只給爆炸與擦身而過的那一下 —— 一直抖的話觀眾看的是鏡頭不是飛機
  */
-function jolt(t: number, t0: number, amp: number, out: Vector3): Vector3 {
-  const u = t - t0
-  if (u < 0 || u > 0.6) return out
-  const k = amp * Math.exp(-u / 0.18)
-  out.x += k * Math.sin(2 * Math.PI * 5.3 * u)
-  out.y += k * Math.sin(2 * Math.PI * 4.1 * u + 1)
-  return out
-}
-
 /** `t0` 起 `d` 秒內從 0 平順走到 1（smoothstep），之前是 0、之後是 1。鏡頭運動的起停用它 */
 function ease(t: number, t0: number, d: number): number {
   const u = Math.min(1, Math.max(0, (t - t0) / d))
   return u * u * (3 - 2 * u)
-}
-
-const DUTCH_F = new Vector3()
-const DUTCH_R = new Vector3()
-/**
- * 荷蘭角：把鏡頭的上方繞著視線轉 `deg` 度（正值 = 上方倒向畫面右邊，地平線左低右高）。
- * 固定的傾斜，不是晃。在 `position`、`target`、`up` 都設好之後呼叫
- */
-function dutch(out: ReelCamera, deg: number): void {
-  DUTCH_F.subVectors(out.target, out.position).normalize()
-  DUTCH_R.crossVectors(DUTCH_F, out.up).normalize()
-  out.up.copy(DUTCH_R).cross(DUTCH_F)
-  const a = (deg * Math.PI) / 180
-  out.up.multiplyScalar(Math.cos(a)).addScaledVector(DUTCH_R, Math.sin(a))
 }
 
 const STREAM_SPEED = 75
