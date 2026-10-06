@@ -3,7 +3,7 @@ import {
   ANTIALIAS_LEVELS, DEFAULT_ANTIALIAS, DEFAULT_QUALITY, QUALITY_LEVELS, qualityAvailable,
 } from '../render/quality'
 import { DEFAULT_VOLUME_DB, VOLUME_LEVELS } from '../audio/volume'
-import { AIM_ASSIST_LEVELS } from '../input/aimAssist'
+import { AIM_ASSIST_LEVELS } from '../input/aimAssistPreferences'
 import { optRow } from './menuOptions'
 
 export interface MenuSettingsHooks {

@@ -2,6 +2,8 @@ import type { Aircraft } from '../aircraft/Aircraft'
 import type { InputState } from '../input/InputState'
 import type { Command, Controller } from './Controller'
 
+type PlayerInput = Pick<InputState, 'aimWorld' | 'throttle' | 'braking' | 'firing' | 'viewMode' | 'bombTaps'>
+
 /**
  * 玩家：把 InputState 搬進 Command。
  *
@@ -19,7 +21,7 @@ export class PlayerController implements Controller {
   /** 上次看到的 `InputState.bombTaps`。多出來就投一次 */
   private bombTapsSeen = 0
 
-  constructor(private readonly input: InputState) {}
+  constructor(private readonly input: PlayerInput) {}
 
   update(_self: Aircraft, _dt: number, out: Command): void {
     // copy 而不是換參考：Command 是 World 持有的緩衝，指向 InputState
