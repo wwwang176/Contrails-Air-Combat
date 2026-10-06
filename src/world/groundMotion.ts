@@ -1,5 +1,5 @@
 import { Quaternion, Vector3 } from 'three'
-import { headingToward, walkRoute, type PoseState, type RouteMotion } from '../control/takeoffRoll'
+import { headingToward, walkRoute, type PoseState, type RouteMotion } from '../core/routeMotion'
 import type { GroundTarget } from './groundTargets'
 
 /**

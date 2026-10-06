@@ -6,7 +6,7 @@ import {
   baseHeight, carveFactor, coastZ, createLeyte, distanceToRoad, farHeight, isInRoadClearing, isNearRoad,
   roadTreeClear,
 } from '../../src/world/leyte'
-import { headingToward } from '../../src/control/takeoffRoll'
+import { headingToward } from '../../src/core/routeMotion'
 import { WOBBLE_MAX } from '../../src/world/archipelago'
 import { HILL_GAP } from '../../src/world/farmland'
 import { DEFAULT_SAFETY } from '../../src/ai/safety'
