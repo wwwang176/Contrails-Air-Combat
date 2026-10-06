@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
+import * as ts from 'typescript'
 
 /**
  * 接線護欄 —— **讀 `main.ts` 的原始碼**。
@@ -17,6 +18,29 @@ const PLAYER = new TextDecoder().decode(readFileSync('src/control/PlayerControll
   .replace(/\r\n/g, '\n')
 
 /** 唯一一行含 `needle` 的行號。找不到或找到多行都讓測試失敗 —— 那代表這支護欄該重寫 */
+function only(source: readonly string[], needle: string): number {
+  const hits = source.flatMap((line, index) => line.includes(needle) ? [index] : [])
+  expect(hits, `「${needle}」應該只出現一次`).toHaveLength(1)
+  return hits[0]!
+}
+
+/** 解析函數本體，避免註解、匯入或巢狀視角分支被誤認成每幀呼叫。 */
+function frameCalls(source: readonly string[], functionName: string) {
+  const file = ts.createSourceFile('frame.ts', source.join('\n'), ts.ScriptTarget.Latest, true)
+  const fn = file.statements.find((node): node is ts.FunctionDeclaration =>
+    ts.isFunctionDeclaration(node) && node.name?.text === functionName)
+  if (!fn?.body) throw new Error(`找不到 ${functionName} 的函數本體`)
+  const all: string[] = []
+  function visit(node: ts.Node): void {
+    if (ts.isCallExpression(node)) all.push(node.expression.getText(file))
+    ts.forEachChild(node, visit)
+  }
+  visit(fn.body)
+  const direct = fn.body.statements.flatMap((node) =>
+    ts.isExpressionStatement(node) && ts.isCallExpression(node.expression)
+      ? [node.expression.expression.getText(file)] : [])
+  return { all, direct }
+}
 
 /**
  * 彈艙**只在物理步推進**，玩家與 AI 同一條路。
@@ -56,14 +80,21 @@ describe('彈艙只在物理步推進', () => {
  * 與上面那一支是同一個手法、同一個理由。
  */
 describe('標記的接線：`fillMarkers` 必須真的被呼叫', () => {
-  const fill = MARKER_SRC.findIndex((line) => line.includes('  fillMarkers('))
+  const fill = only(MARKER_SRC, '  fillMarkers(')
 
   it('不在任何視角分支裡 —— 三種視角都要畫標記', () => {
-    let i = fill
-    while (i > 0 && !MARKER_SRC[i]!.trimStart().startsWith('if (')) i--
-    const guard = MARKER_SRC[i]!.trim()
-    expect(guard).not.toContain('viewMode')
-    expect(guard).not.toContain('godView')
+    const calls = frameCalls(MARKER_SRC, 'updateBattleHudMarkers')
+    expect(calls.all.filter((name) => name === 'fillMarkers')).toHaveLength(1)
+    expect(calls.direct).toContain('fillMarkers')
+  })
+
+  it('主程式每幀接上標記更新，且在 HUD 繪製前完成', () => {
+    const calls = frameCalls(SRC, 'stepAndDrawBattle')
+    expect(calls.all.filter((name) => name === 'updateBattleHudMarkers')).toHaveLength(1)
+    const update = calls.direct.indexOf('updateBattleHudMarkers')
+    const render = calls.direct.indexOf('hud.render')
+    expect(update).toBeGreaterThanOrEqual(0)
+    expect(render).toBeGreaterThan(update)
   })
 
   /** 【兩個池都要餵】少一個就是「魚雷沒有標記」，而且不會有錯誤訊息 */
@@ -151,7 +182,7 @@ describe('特效、螺旋槳與鏡頭跟世界同一個時鐘', () => {
  */
 describe('標記的接線：地面目標必須傳進 `fillMarkers`', () => {
   it('呼叫的引數裡有 world.groundTargets', () => {
-    const fill = MARKER_SRC.findIndex((line) => line.includes('  fillMarkers('))
+    const fill = only(MARKER_SRC, '  fillMarkers(')
     const call = MARKER_SRC.slice(fill, fill + 4).join('\n')
     expect(call).toContain('world.ships')
     expect(call).toContain('world.groundTargets')
