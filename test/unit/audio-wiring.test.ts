@@ -694,3 +694,28 @@ describe('世界的聲音淡入', () => {
     expect(r.indexOf('audio.fadeIn(BATTLE_FADE_IN)')).toBeGreaterThan(r.indexOf('setPausedState(false)'))
   })
 })
+
+describe('循環音的起音', () => {
+  const engine = ENGINE.join('\n')
+  const assign = engine.slice(engine.indexOf('function assign('), engine.indexOf('function endFrame('))
+
+  /** 【槍第一發就到位】開火與砲塔約 10 ms 爬完；引擎與警笛維持 0.1，一下子冒出來很突兀 */
+  it('起音時間常數：開火與砲塔 1/300 s，引擎與警笛 0.1 s', () => {
+    expect(engine).toMatch(
+      /const LOOP_ATTACK: Record<LoopPool, number> = \{ engine: 0\.1, fire: 0\.01 \/ 3, turret: 0\.01 \/ 3, siren: 0\.1 \}/)
+  })
+
+  /**
+   * 【新播與淡出中被叫回來都算起音】淡出中的判斷要在清掉 `releaseAt` 之前讀，
+   * 順序反了就永遠是 false —— 停火 0.3 秒內再開火時又回到慢慢爬
+   */
+  it('新播或淡出中被叫回來用起音的速度，其餘每幀以 0.1 跟隨', () => {
+    expect(assign).toMatch(/const rising = v\.releaseAt >= 0\n\s+v\.assigned = true\n\s+v\.releaseAt = -1/)
+    expect(assign).toMatch(/setTargetAtTime\(gainOf\(file, cat, absorptionDb\(d\) \+ duck \+ gainDb\), now,\s+fresh \|\| rising \? LOOP_ATTACK\[pool\] : 0\.1\)/)
+  })
+
+  it('收尾不變：淡出 0.3 秒', () => {
+    expect(engine).toMatch(/^const LOOP_FADE = 0\.3$/m)
+    expect(engine.slice(engine.indexOf('function endFrame('))).toContain('setTargetAtTime(0, now, LOOP_FADE / 3)')
+  })
+})

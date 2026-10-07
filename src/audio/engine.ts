@@ -131,6 +131,14 @@ const VOICE_QUOTA: Partial<Record<Category, number>> = {
 const LOOP_VOICES: Record<LoopPool, number> = { engine: 8, fire: 6, turret: 6, siren: 4 }
 const LOOP_CATEGORY: Record<LoopPool, Category> = { engine: 'engine', fire: 'fire', turret: 'turret', siren: 'siren' }
 const LOOP_FADE = 0.3
+/**
+ * 循環音起音的時間常數，s：從 0（新播）或淡出中被叫回來時用這個爬到目標，之後每幀以 0.1 跟隨。
+ *
+ * 【槍要第一發就到位】開火與砲塔一分鐘幾百到上千發，0.1 的話前 3～5 發明顯偏小，聽起來像漸強。
+ * 約 10 ms 爬完（時間常數 1/300 s）；再短的話從循環中間的隨機位置切入會「啪」一聲。
+ * 引擎與警笛維持 0.1 —— 一下子冒出來很突兀。
+ */
+const LOOP_ATTACK: Record<LoopPool, number> = { engine: 0.1, fire: 0.01 / 3, turret: 0.01 / 3, siren: 0.1 }
 const FULL_BAND = 22000
 /** 左右矩陣逐幀平滑的時間常數，s。約一幀：快速掠過的飛機不會一格一格跳 */
 const PAN_SMOOTH = 0.02
@@ -564,6 +572,8 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
       v.file = ''
     }
     const now = ctx.currentTime
+    // 淡出中被叫回來也算起音：音量已經掉下去，要用起音的速度回來
+    const rising = v.releaseAt >= 0
     v.assigned = true
     v.releaseAt = -1
     v.extraDb = gainDb
@@ -586,7 +596,8 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
     const live = voiceLoudnessDb(
       CATEGORY[cat].gainDb + (makeup.get(file) ?? 0) + gainDb, CATEGORY[cat].ref, d, CATEGORY[cat].rolloff ?? 1)
     const duck = !hdrOn || HDR_EXEMPT.has(cat) ? 0 : hdrDuckDb(live, loudest)
-    v.audio.gain.gain.setTargetAtTime(gainOf(file, cat, absorptionDb(d) + duck + gainDb), now, 0.1)
+    v.audio.gain.gain.setTargetAtTime(gainOf(file, cat, absorptionDb(d) + duck + gainDb), now,
+      fresh || rising ? LOOP_ATTACK[pool] : 0.1)
     v.audio.setPlaybackRate(rate * playback.timeScale)
     pan(v.audio, true, d, CATEGORY[cat].ref, CATEGORY[cat].rolloff ?? 1, now, fresh ? 0 : PAN_SMOOTH)
   }
