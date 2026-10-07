@@ -83,10 +83,10 @@ export interface AlertState {
   readonly spec: MissionAlert
   alerted: boolean
   timer: number
-  /** 依紅方長機座位索引：+1 往右端、−1 往左端 */
-  readonly legs: Int8Array          // 長度 64
+  /** 依分隊索引：+1 往右端、−1 往左端 */
+  readonly legs: Int8Array          // 長度 = 分隊數
   readonly initialLegs: Int8Array
-  /** 依紅方長機座位索引的巡邏命令，建立時配好 */
+  /** 依分隊索引的巡邏命令，建立時配好；藍方分隊是 null */
   readonly orders: (FlightOrder | null)[]
 }
 ```
@@ -119,22 +119,22 @@ export interface AlertState {
 **檔案**：`alert.ts`（`stepPatrol`）、`commandLayer.ts`
 
 - `stepPatrol(b)`（`stepAlert` 每步呼叫，未警戒時才做）：
-  - 艦隊中心 = 活著的紅船位置的平均（暫存向量，不配置）；沒有活船時用 `cfg.fleet.center`。
-  - 對每個紅方小隊：長機座位 `s = flight.members[0]`；端點 = 中心 + (`legs[s]` × `patrolHalfWidth`, 0, 0)，`y = patrolAltitude`；寫進 `orders[s].point`。長機與端點的水平距離 `< patrolRadius` 就 `legs[s] = −legs[s]`。
-  - `orders[s]` 是建立時配好的 `{ kind: 'rally', point, radius: patrolRadius, targetFlight: −1, side: 0, focusIndex: −1 }`。
+  - 艦隊中心 = 活著的紅船位置的平均（形心；驅逐艦在前方，所以比卡片上的艦隊中心偏前約 500 m）（暫存向量，不配置）；沒有活船時用 `cfg.fleet.center`。
+  - 對每個紅方分隊 `f`（分隊表建立時就定了，之後只壓縮 `members`，索引不變）：端點 = 中心 + (`legs[f]` × `patrolHalfWidth`, 0, 0)，`y = patrolAltitude`；寫進 `orders[f].point`。長機 `members[0]` 與端點的水平距離 `< patrolRadius` 就 `legs[f] = −legs[f]`。
+  - `orders[f]` 是建立時配好的 `{ kind: 'rally', point, radius: patrolRadius, targetFlight: −1, side: 0, focusIndex: −1 }`。
   - `initialLegs`：紅方小隊依建立時的順序交替 −1、+1（兩隊反方向，覆蓋比較廣）。
 - `commandLayer.ts` 發命令那一段：
 
   ```ts
   const patrolOrder = flight.team === 'red' && b.alert !== null && !b.alert.alerted
-    ? b.alert.orders[flight.members[0]!] ?? null : null
+    ? b.alert.orders[f] ?? null : null
   const order = convoyOrder ?? evacOrder ?? patrolOrder ?? state.orders[f] ?? null
   ...
   ai.transit = convoyOrder !== null || patrolOrder !== null
   ```
 
 - `armPatrol(b)`：`b.alert !== null` 且未警戒時，對每個紅方小隊的每一架 AI 寫入巡邏命令、`transit = true`、`target = null`、`targetIndex = −1`、`board.assignments[座位] = −1`。`createBattle` 結尾（`wireStations` 之後）與 `resetBattle` 結尾各呼叫一次。命令層排在世界步之後，不先發的話紅方的第一個世界步會帶著上一場的作戰命令與目標。沒有 `alert` 的關卡不呼叫，初始化順序不變。
-- **長機換人**（長機陣亡、壓縮後換成別人）：新長機座位的 `orders` 為 null 時當場配一張（只在建立時與換人時配置，不是每步）—— 或建立時就為每個紅方座位都配好。**取後者**，64 張以內、只在 `createBattle` 配一次。
+- **長機換人**（長機陣亡、壓縮後換成別人）：命令與方向依分隊索引，新長機沿用同一張，不必另外處理。
 
 **測試**：
 
