@@ -18,6 +18,7 @@ SPEC：`docs/superpowers/specs/2026-10-08-rennell-alert-design.md`　分支：`f
 - 一艘紅船、一架藍機在射程內：`holdFire = true` 跑幾步，彈丸池與高砲池都沒有新的；改回 false 後有。
 - 一架帶砲塔的藍機、一架紅機在射程內：同上。
 - 省略參數時行為與現在相同（既有測試全綠）。
+- 接線護欄（讀 `World.ts` 原始碼）：砲塔、船、地面砲位三個呼叫點都傳 `this.holdFire[teamSlot(…)] === 1`。少傳任何一處，那一種武器會靜靜地照常開火，而直接測函數的那兩條仍然是綠的。
 
 ## 任務 2：卡片與設定的欄位
 
@@ -95,10 +96,12 @@ export interface AlertState {
   2. 活著的藍機與活著的紅機、或活著的紅船（`ship.position`），三維距離 `< ALERT_RANGE`；
   3. 彈丸池有 `owner !== −1 && team === 0` 的一格；魚雷池、炸彈池有 `active && team === 0`；
   4. 紅機 `hp < spec.hp`、或紅船 `hp < cls.hp`。
-- `stepAlert(b, dt)`：`b.alert === null` 或已警戒就只更新巡邏（見任務 5）並返回；否則 10 Hz 計時器（`AI_DECISION_HZ`，同 `stepPressure`），到點時呼叫 `alertTriggered`。成立：`alerted = true`、`world.holdFire.fill(0)`、`b.message = spec.messageKey`。
+- `stepAlert(b, dt)`：`b.alert === null` 或已警戒就返回；否則先更新巡邏（任務 5），再走 10 Hz 計時器（`AI_DECISION_HZ`，同 `stepPressure`），到點時呼叫 `alertTriggered`。成立：`alerted = true`、`world.holdFire.fill(0)`、`b.message = spec.messageKey`、`b.messageUntil = world.time + MESSAGE_SECONDS`。
+- **訊息過期**：`stepBeats` 裡清過期訊息的那一行移到「沒有節拍就返回」之前。沒有節拍的關卡原本 `message` 恆為 null，這一行對它們是空轉，行為不變。
+- **G4M 沒有前射武器**（`G4M_BATTERY.mounts` 是空的，機首槍屬於砲塔）。彈丸池那一條仍然保留（任何會開火的藍機都適用），但這一關警戒前能觸發的主動出手只有魚雷。
 - `Battle` 加 `alert: AlertState | null`。
 - `createBattle`：`cfg.alert` 有值就建 `AlertState`、`world.holdFire.fill(1)`；沒有就 `null`、`holdFire` 維持 0。
-- `resetBattle`：有 `alert` 就 `alerted = false`、`timer = 0`、`legs.set(initialLegs)`、`holdFire.fill(1)`。
+- `resetBattle`：有 `alert` 就 `alerted = false`、`timer = 0`、`legs.set(initialLegs)`、`holdFire.fill(1)`，最後呼叫 `armPatrol(b)`（任務 5）。**不論有沒有 `alert`** 都清 `b.message = null`、`b.messageUntil = 0` —— 就地重開的只有沒有節拍的關卡，它們的訊息原本恆為 null。
 - `stepBattle`：`stepAlert` 排在 `stepBeats` 之後、`stepCommandLayer` 之前 —— 同一步觸發，同一步就把命令交回指揮官。
 
 **測試**（`alert.test.ts`，假的 combatant／ship／池子）：
@@ -106,8 +109,10 @@ export interface AlertState {
 - 四種條件各一條成立、各一條差一點不成立（499 / 501 m，899 / 901 m）。
 - 死掉的藍機、死掉的紅機、沉掉的紅船不算。
 - 紅方的子彈不算；彈丸池空槽（`owner −1`）不算。
-- `stepAlert`：觸發後 `holdFire` 歸零、訊息寫入；之後條件不成立仍維持警戒；`b.alert === null` 時什麼都不動。
-- `resetBattle` 之後回到未警戒、`holdFire` 為 1。
+- `stepAlert`：觸發後 `holdFire` 歸零、訊息寫入、`messageUntil` 是 4 秒後；之後條件不成立仍維持警戒；`b.alert === null` 時什麼都不動。
+- 沒有節拍的關卡：`stepBeats` 在 `messageUntil` 之後把訊息清成 null。
+- `resetBattle` 之後回到未警戒、`holdFire` 為 1、訊息為 null；新的一場再觸發，訊息從 null 變回那個鍵（畫面那一層靠這個變化重播）。
+- 門檻剛好等於 500 m、900 m 時不觸發（殺 `>`→`>=`、`<`→`<=`）。
 
 ## 任務 5：F4F 巡邏
 
@@ -128,6 +133,7 @@ export interface AlertState {
   ai.transit = convoyOrder !== null || patrolOrder !== null
   ```
 
+- `armPatrol(b)`：`b.alert !== null` 且未警戒時，對每個紅方小隊的每一架 AI 寫入巡邏命令、`transit = true`、`target = null`、`targetIndex = −1`、`board.assignments[座位] = −1`。`createBattle` 結尾（`wireStations` 之後）與 `resetBattle` 結尾各呼叫一次。命令層排在世界步之後，不先發的話紅方的第一個世界步會帶著上一場的作戰命令與目標。沒有 `alert` 的關卡不呼叫，初始化順序不變。
 - **長機換人**（長機陣亡、壓縮後換成別人）：新長機座位的 `orders` 為 null 時當場配一張（只在建立時與換人時配置，不是每步）—— 或建立時就為每個紅方座位都配好。**取後者**，64 張以內、只在 `createBattle` 配一次。
 
 **測試**：
@@ -136,6 +142,7 @@ export interface AlertState {
 - 警戒後：紅方回到指揮官的命令、`transit === false`。
 - 藍方不受影響。
 - 接線護欄（讀原始碼，同 `audio-wiring.test.ts` 的寫法）：`stepBattle` 裡 `stepAlert` 在 `stepBeats` 之後、`stepCommandLayer` 之前。
+- 重新開始：上一場已警戒、紅方拿著別的命令與目標 → `resetBattle` 之後、第一個 `world.step` 之前，紅方 AI 已經是巡邏命令、`transit === true`、`target === null`。
 
 ## 任務 6：卡片與文案
 
