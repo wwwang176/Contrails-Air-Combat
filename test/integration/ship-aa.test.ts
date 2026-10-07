@@ -376,6 +376,8 @@ describe('resetBattle 要把船一起重設', () => {
     const s = b.world.ships[0]!
     const spawn = s.position.clone()
 
+    // 【先解除停火】這一關警戒前艦砲不開火（`battle/alert.ts`）；這一條要的是空中有高砲彈
+    b.world.holdFire.fill(0)
     for (let i = 0; i < 30 * 240; i++) b.world.step(DT)
     s.guns[0]!.hp = 0
     s.guns[0]!.alive = false
