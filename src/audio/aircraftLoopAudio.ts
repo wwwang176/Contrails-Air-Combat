@@ -2,7 +2,7 @@ import type { Vector3 } from 'three'
 import type { Combatant } from '../world/combatant'
 import { indicatedAirspeed } from '../core/airspeed'
 import type { AudioEngine } from './engine'
-import { engineFile, fireFile, sirenFile, turretFile } from './catalog'
+import { engineFile, fireFile, sirenFile, turretFile, turretGainDb } from './catalog'
 import { SIREN_AUDIBLE_DB, dopplerRate, engineRate, noseDownRad, sirenParams, sirenWobble } from './curves'
 import { nearestN } from './nearest'
 
@@ -144,8 +144,9 @@ export function createAircraftLoopAudio(audio: Pick<AudioEngine, 'assign'>, cam:
       const c = all[TURRET_KEYS[j]!]!
       const t = c.aircraft.spec.turrets[turretPick[c.index]!]!
       const p = positions[c.index]!
-      audio.assign('turret', c.index, turretFile(t.weapon.id, t.guns), p.x, p.y, p.z,
-        dopplerRate(p, c.aircraft.state.velocity, cam, camVel))
+      const file = turretFile(t.weapon.id, t.guns)
+      audio.assign('turret', c.index, file, p.x, p.y, p.z,
+        dopplerRate(p, c.aircraft.state.velocity, cam, camVel), turretGainDb(file))
     }
   }
 

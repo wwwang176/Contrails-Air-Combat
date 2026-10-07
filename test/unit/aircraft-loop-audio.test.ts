@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createAircraftLoopAudio } from '../../src/audio/aircraftLoopAudio'
-import { turretFile } from '../../src/audio/catalog'
+import { turretFile, turretGainDb } from '../../src/audio/catalog'
+import { G4M } from '../../src/specs/g4m'
 import { P51D } from '../../src/specs/p51d'
 import { JU87 } from '../../src/specs/ju87'
 import { B17G } from '../../src/specs/b17g'
@@ -95,6 +96,19 @@ describe('飛機定位循環的聲道選擇', () => {
     assign.mockClear()
     loops.update(world.combatants, positions, me, 1.4, true, false)
     expect(assign.mock.calls.find(c => c[0] === 'turret')![2]).toBe(expected(single))
+  })
+
+  it('砲塔帶上這個檔的音量修正', () => {
+    const { world, positions, assign, loops, add } = setup()
+    const me = add(), bomber = add(G4M)
+    const k = bomber.aircraft.spec.turrets.findIndex(t => t.weapon.id === 'type92')
+    expect(k).toBeGreaterThanOrEqual(0)
+    bomber.turretStates[k]!.flash = 0.03
+    loops.update(world.combatants, positions, me, 1, true, false)
+    const call = assign.mock.calls.find(c => c[0] === 'turret')!
+    expect(call[2]).toBe('turret-type92x1')
+    expect(call[7]).toBe(turretGainDb('turret-type92x1'))
+    expect(call[7]).toBe(-3)
   })
 
   it('只處理前 64 席，死亡及退場飛機不佔引擎聲道', () => {

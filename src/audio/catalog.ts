@@ -208,6 +208,33 @@ export function turretFile(weaponId: string, guns: number): string {
 }
 
 /**
+ * 各砲塔檔的音量修正，dB；不在表裡的是 0。目標是各砲塔聽起來一樣大。
+ *
+ * ```
+ *   檔                   A 加權（整段）   修正    修正後
+ *   M2 .50 單管/雙聯     −21.5 / −22.2     0
+ *   MG 131               −23.2             0
+ *   MG 15 單管/雙聯      −23.0 / −23.8     0
+ *   九二式 7.7 mm        −19.5            −3     −22.5
+ *   九九式 20 mm         −23.8            +1     −22.8
+ * ```
+ *
+ * 【為什麼不看 LUFS】七個檔的 LUFS 都在 −16.4 上下，但九二式的能量在中高頻、九九式在 300 Hz
+ * 以下 —— 耳朵對中高頻敏感，同樣的 LUFS 下九二式明顯比較大聲，九九式偏小。
+ * 【不放進素材清單的補償值】那一欄只能是 0–12 dB，負的修正放不進去。
+ */
+const TURRET_GAIN_DB: Readonly<Record<string, number>> = {
+  'turret-type92x1': -3,
+  'turret-type99-1x1': 1,
+}
+
+export const TURRET_GAIN_FILES: readonly string[] = Object.keys(TURRET_GAIN_DB)
+
+export function turretGainDb(file: string): number {
+  return TURRET_GAIN_DB[file] ?? 0
+}
+
+/**
  * 子彈打在飛機以外的東西上，該播什麼。**索引是 `world/material.ts` 的 `MATERIAL`。**
  *
  * 【為什麼有預設】新加的目標忘了定材質、或材質新增了而這張表沒跟上時，

@@ -123,7 +123,8 @@ describe('撞擊材質', () => {
 
 import { existsSync, readFileSync } from 'node:fs'
 import {
-  ALL_FILES, CATEGORY, POOLS, engineFile, fireFile, ownTurretVolleyPools, sirenFile, turretFile, volleyPool,
+  ALL_FILES, CATEGORY, POOLS, TURRET_GAIN_FILES, engineFile, fireFile, ownTurretVolleyPools, sirenFile, turretFile,
+  turretGainDb, volleyPool,
 } from '../../src/audio/catalog'
 import { ALL_SPECS } from '../../src/battle/skirmish'
 import { JU87 } from '../../src/specs/ju87'
@@ -248,5 +249,23 @@ describe('音效目錄', () => {
     for (const s of ALL_SPECS) {
       for (const t of s.turrets) expect(manifest[turretFile(t.weapon.id, t.guns)], `${s.id} ${t.id}`).toBeDefined()
     }
+  })
+
+  /**
+   * 【各砲塔聽起來一樣大】七個檔的 LUFS 都在 −16.4 上下，但九二式 7.7 mm 的中高頻多、
+   * A 加權比其他砲塔大 3 dB 以上；九九式 20 mm 的能量在低頻，聽起來偏小。
+   */
+  it('砲塔音量修正：九二式 −3 dB、九九式 +1 dB，其他不修正', () => {
+    expect(turretGainDb('turret-type92x1')).toBe(-3)
+    expect(turretGainDb('turret-type99-1x1')).toBe(1)
+    for (const id of ['turret-m2-50calx1', 'turret-m2-50calx2', 'turret-mg131x1', 'turret-mg15x1', 'turret-mg15x2']) {
+      expect(turretGainDb(id), id).toBe(0)
+    }
+  })
+
+  /** 【表裡的檔名打錯不會報錯】只會讓那一座的修正靜悄悄地不生效 */
+  it('砲塔音量修正表裡的每一個檔都是遊戲用得到的砲塔檔', () => {
+    const used = new Set(ALL_SPECS.flatMap((s) => s.turrets.map((t) => turretFile(t.weapon.id, t.guns))))
+    for (const id of TURRET_GAIN_FILES) expect(used.has(id), id).toBe(true)
   })
 })
