@@ -302,6 +302,11 @@ export class AiController implements Controller {
     this.bandTarget = null
     resetAirPass(this.airPass)
   }
+
+  /** 丟掉反應延遲佇列裡排著的指令（見 `CommandDelay.reset`） */
+  dropPendingCommands(): void {
+    this.output.delay.reset()
+  }
   profile: DifficultyProfile = ACE
 
   /**

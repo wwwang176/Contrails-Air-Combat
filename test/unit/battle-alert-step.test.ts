@@ -130,6 +130,18 @@ describe('警戒：重新開始', () => {
     }
   })
 
+  /** 【反應延遲的佇列也要清】不清的話上一場排著的扣扳機在新的一場吐出來，未警戒的野貓就開了火 */
+  it('重新開始時清掉紅方 AI 排隊中的指令', () => {
+    const b = rennell()
+    const dropped: AiController[] = []
+    for (const ai of redAi(b)) {
+      const orig = ai.dropPendingCommands.bind(ai)
+      ai.dropPendingCommands = () => { dropped.push(ai); orig() }
+    }
+    resetBattle(b, 1)
+    expect(new Set(dropped)).toEqual(new Set(redAi(b)))
+  })
+
   it('新的一場再觸發，訊息從 null 變回那個鍵', () => {
     const b = rennell()
     const lift = (): void => {

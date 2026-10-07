@@ -163,7 +163,7 @@ export function stepPatrol(b: AlertBattle): void {
 }
 
 /**
- * 把巡邏命令直接發到紅方的每一架 AI，並放掉它們的目標。
+ * 把巡邏命令直接發到紅方的每一架 AI，放掉它們的目標，並清掉反應延遲佇列裡排著的指令。
  *
  * 【要在第一個世界步之前】命令層排在世界步之後；開場與重新開始時不先發，紅方的第一個世界步
  * 會帶著上一場的作戰命令與目標跑。只有警戒關呼叫，其他關卡的初始化順序不動。
@@ -186,6 +186,8 @@ export function armPatrol(b: AlertBattle): void {
       ai.transit = true
       ai.target = null
       ai.targetIndex = -1
+      // 反應延遲的佇列裡可能還排著上一場的扣扳機
+      ai.dropPendingCommands()
       if (seat < b.board.assignments.length) b.board.assignments[seat] = -1
     }
   }

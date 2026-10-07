@@ -187,4 +187,22 @@ describe('CommandDelay', () => {
     d.push(input, 5 * DT, DT, out)
     expect(step(out)).toBe(200)
   })
+
+  /** 【重開一場要丟掉佇列】不丟的話，上一場排在佇列裡的扣扳機會在新的一場吐出來 */
+  it('reset 之後丟掉排隊中的指令，下一步讀到的是當下這一步', () => {
+    const d = new CommandDelay()
+    const input = createCommand()
+    const out = createCommand()
+    for (let k = 0; k < 30; k++) {
+      mark(input, k)
+      input.firing = true
+      d.push(input, 5 * DT, DT, out)
+    }
+    d.reset()
+    mark(input, 300)
+    input.firing = false
+    d.push(input, 5 * DT, DT, out)
+    expect(step(out)).toBe(300)
+    expect(out.firing).toBe(false)
+  })
 })

@@ -78,6 +78,15 @@ export class CommandDelay {
   private tz = 0
 
   /**
+   * 丟掉排隊中的指令：下一次 `push` 用當下的指令重新填滿緩衝區。
+   * 重開一場時用 —— 不丟的話上一場排著的扣扳機會在新的一場吐出來。
+   */
+  reset(): void {
+    this.primed = false
+    this.tx = this.ty = this.tz = 0
+  }
+
+  /**
    * @param input        這一步 AI 算出來的指令
    * @param delaySeconds `DifficultyProfile.reactionDelay`
    * @param dt           物理步長。步長固定（`FixedStepAccumulator`，240 Hz），
