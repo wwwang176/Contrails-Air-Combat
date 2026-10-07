@@ -21,6 +21,8 @@ const VOLLEY = readFileSync('src/audio/volleyGroups.ts', 'utf8').replace(/\r\n/g
 const SCENERY = readFileSync('src/render/battleScenery.ts', 'utf8')
 const CANNONS = readFileSync('src/audio/cannonAudio.ts', 'utf8').replace(/\r\n/g, '\n')
   .split('\n').map(line => line.replace(/^  /, ''))
+const ENGINE = readFileSync('src/audio/engine.ts', 'utf8').replace(/\r\n/g, '\n')
+  .split('\n').map(line => line.replace(/^  /, ''))
 const MENU_SOUND = readFileSync('src/ui/menuSound.ts', 'utf8').replace(/\r\n/g, '\n')
 
 function lines(needle: string, source = SRC): number[] {
@@ -223,7 +225,7 @@ describe('音效的戰鬥事件接線', () => {
     expect(ALL).toContain('burn: emitFirePuff, impact: onGroundImpact, fired: noteGroundShot')
     expect(ALL).toContain('battleScenery.rebuild(world, pendingMission?.battle.theater)')
     expect(SCENERY).toContain('createGroundBattle(theater, assets.burn, assets.smokeTexture, assets.impact, assets.fired)')
-    expect(ALL).toContain('const cannonAudio = createCannonAudio(audio, ctx.camera.position)')
+    expect(ALL).toContain('const cannonAudio = createCannonAudio(audio, audioEar)')
     expect(ALL).toContain('const noteGroundShot = cannonAudio.noteGroundShot')
     const note = body('function noteGroundShot(', CANNONS)
     expect(note).toContain('const tier = groundGunTier(unit)')
@@ -264,7 +266,7 @@ describe('音效的戰鬥事件接線', () => {
     const call = 'queueExplosionCues(cues, world, terrain, crashBlastHeight)'
     expect(fn).toContain(call)
     expect(CUES.filter(line => line.includes('queueExplosionCues('))).toHaveLength(1)
-    expect(ALL).toContain('createBattleAudioCues(audio, ctx.camera.position, CRASH_BLAST_HEIGHT)')
+    expect(ALL).toContain('createBattleAudioCues(audio, audioEar, CRASH_BLAST_HEIGHT)')
     expect(fn.indexOf(call)).toBeGreaterThan(fn.indexOf('CUE.SelfVolley'))
     expect(fn.indexOf(call)).toBeLessThan(fn.indexOf('const f = world.burstEvents'))
   })
@@ -354,12 +356,23 @@ describe('音效的戰鬥事件接線', () => {
     expect(ALL).toContain('const camVel = listenerMotion.velocity')
     expect(lines('listenerMotion.update(', CONTROLLER)).toHaveLength(1)
     const upd = body('function update(', CONTROLLER)
-    const call = 'listenerMotion.update(cameraPosition, worldSeconds)'
+    // 【聽者的速度量耳朵，不量鏡頭】第三人稱轉頭時鏡頭繞機身轉，量鏡頭的話都卜勒會變調
+    const call = 'listenerMotion.update(ear, worldSeconds)'
     expect(upd).toContain(call)
     expect(upd.indexOf(call)).toBeLessThan(upd.indexOf('aircraftLoopAudio.update('))
     expect(body('function reset(', CONTROLLER)).toContain('listenerMotion.reset()')
     expect(body('function reset(', CONTROLLER)).toContain('flightAudio.reset()')
-    expect(ALL).toContain('const flightAudio = createFlightAudio(audio, ctx.camera.position, input, {')
+    expect(ALL).toContain('const flightAudio = createFlightAudio(audio, audioEar, input, {')
+    expect(ALL).toContain('const aircraftLoopAudio = createAircraftLoopAudio(audio, audioEar, camVel)')
+    // 引擎與各模組持有同一個耳朵物件；控制器寫它
+    expect(ALL).toContain('const audio = createAudioEngine(ctx.camera, audioEar)')
+    expect(ALL).toContain('ear: audioEar')
+    // 引擎的距離與方位讀耳朵，朝向讀鏡頭
+    expect(body('function camDistance(', ENGINE)).toContain('ear.x')
+    expect(body('function camDistance(', ENGINE)).not.toContain('camera.position')
+    const pose = body('function readPose(', ENGINE)
+    expect(pose).toContain('const p = ear')
+    expect(pose).toContain('camera.quaternion')
     expect(ALL).toContain('playHeavyHit: battleAudioCues.playHeavyHit, teamSlot,')
   })
 

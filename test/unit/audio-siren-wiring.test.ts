@@ -98,7 +98,7 @@ describe('警笛：主程式', () => {
     expect(LOOPS).toMatch(/^const SIREN = \{ rate: 0, gainDb: 0 \}$/m)
     expect(LOOPS).toMatch(/^const SIREN_RATE = new Float32Array\(64\)$/m)
     expect(LOOPS).toMatch(/^const SIREN_GAIN = new Float32Array\(64\)$/m)
-    expect(MAIN).toContain('const aircraftLoopAudio = createAircraftLoopAudio(audio, ctx.camera.position, camVel)')
+    expect(MAIN).toContain('const aircraftLoopAudio = createAircraftLoopAudio(audio, audioEar, camVel)')
     expect(main).toMatch(/aircraftLoopAudio\.update\(\s*world\.combatants, renderPositions, me, elapsed, flying,\s*battleAudioCues\.ownTurretVolley,?\s*\)/)
     expect(body(CONTROLLER, 'function reset(')).toContain('aircraftLoopAudio.reset()')
     expect(main).toContain('flightAudio.update(world, me, elapsed, worldSeconds, arenaWarning)')

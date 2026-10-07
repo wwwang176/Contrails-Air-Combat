@@ -25,6 +25,11 @@ export interface BattleAudioControllerDeps {
   readonly aircraftLoopAudio: AircraftLoopAudio
   readonly battleAudioCues: BattleAudioCues
   readonly cameraPosition: Vector3
+  /**
+   * 聽者的位置。音訊引擎與各音效模組持有**同一個物件**，這裡每幀寫入：自己在飛時是
+   * 自機的內插位置，上帝視角與陣亡後是鏡頭。朝向一律是鏡頭 —— 見 `createAudioEngine`
+   */
+  readonly ear: Vector3
   readonly renderPositions: readonly Vector3[]
 }
 
@@ -32,7 +37,7 @@ export interface BattleAudioControllerDeps {
 export function createBattleAudioController(deps: BattleAudioControllerDeps) {
   const {
     audio, cannonAudio, listenerMotion, flightAudio, aircraftLoopAudio,
-    battleAudioCues, cameraPosition, renderPositions,
+    battleAudioCues, cameraPosition, ear, renderPositions,
   } = deps
 
   function reset(): void {
@@ -59,8 +64,12 @@ export function createBattleAudioController(deps: BattleAudioControllerDeps) {
   ): void {
     const me = player
     const flying = me.alive && !godView
+    // 【耳朵在機身上，不在鏡頭上】第三人稱鏡頭繞著機身轉，跟著它的話轉頭會改變
+    // 距離、讓聽者有速度 —— 都卜勒把附近的引擎聲拉高拉低。要排在 `beginFrame`
+    // 之前：方位與距離在那裡讀
+    ear.copy(flying ? renderPositions[me.index]! : cameraPosition)
     audio.beginFrame()
-    listenerMotion.update(cameraPosition, worldSeconds)
+    listenerMotion.update(ear, worldSeconds)
     battleAudioCues.playFrame(world, player, elapsed, flying)
     cannonAudio.playCannons(world, elapsed)
     aircraftLoopAudio.update(

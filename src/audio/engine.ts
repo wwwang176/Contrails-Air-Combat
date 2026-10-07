@@ -27,7 +27,9 @@ import {
  * - **距離**：定位的聲音接兩級低通（遠處只剩低頻）並依距離再減一點音量
  *   （空氣吸收，見 `curves.ts` 的 `absorptionDb`）；單次音效要等音波傳到才開始播。
  *   等待中與播放中都是每一幀用當下的距離重算 —— 遠方的爆炸要好幾秒才傳到、
- *   聲音本身又有好幾秒，這期間鏡頭會飛掉好幾百公尺。
+ *   聲音本身又有好幾秒，這期間聽者會飛掉好幾百公尺。
+ * - **聽者**：位置是 `ear`（戰鬥中是自機），朝向是鏡頭。第三人稱轉頭只改左右聲道，
+ *   距離、音波延遲、都卜勒都不跟著鏡頭繞機身晃。
  *
  * 【暫停與音量關閉是兩個旗標】任一個成立就 suspend；兩個都不成立、而且使用者
  * 已經有過手勢，才 resume。只看一個的話，暫停中切音量會把聲音叫醒。
@@ -149,7 +151,7 @@ interface Voice {
   envelope: readonly number[] | undefined
   startedAt: number
   filters: BiquadFilterNode[]
-  /** 離鏡頭多遠；不定位的是 0 */
+  /** 離聽者多遠；不定位的是 0 */
   distance: number
   /** 類別音量＋補償＋額外，不含距離的那幾項。播放中每幀重算用 */
   baseDb: number
@@ -190,8 +192,13 @@ interface LoopVoice {
   extraDb: number
 }
 
-export function createAudioEngine(camera: Camera): AudioEngine {
-  // 只用 listener 的 context 與主音量，不掛進場景；方位由 readPose 直接讀相機。
+/**
+ * @param ear 聽者的**位置**（距離、衰減、音波延遲都量到這裡）。朝向一律讀鏡頭 ——
+ *   左右聲道看的是玩家面對哪裡。戰鬥中由 `battleAudioController` 每幀寫成自機的位置，
+ *   第三人稱鏡頭轉頭時只換耳朵的方向、不搬耳朵。省略時就是鏡頭的位置
+ */
+export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position): AudioEngine {
+  // 只用 listener 的 context 與主音量，不掛進場景；方位由 readPose 直接讀相機與 `ear`。
   // 避免相機更新時觸發 AudioListener 的九條位置漸變，聲道並沒有 PannerNode 需要它們。
   const listener = new AudioListener()
   const ctx = listener.context
@@ -212,7 +219,7 @@ export function createAudioEngine(camera: Camera): AudioEngine {
     return { limiter: output.limiterEnabled, hdr: hdrOn }
   }
 
-  /** 這一刻的聽者：鏡頭的位置與朝向。定位聲道的左右由它算 */
+  /** 這一刻的聽者：耳朵（`ear`）的位置與鏡頭的朝向。定位聲道的左右由它算 */
   const pose: ListenerPose = { px: 0, py: 0, pz: 0, fx: 0, fy: 0, fz: -1, ux: 0, uy: 1, uz: 0 }
   /** 左右矩陣的暫存，逐幀重用 */
   const panOut = new Float32Array(4)
@@ -263,9 +270,9 @@ export function createAudioEngine(camera: Camera): AudioEngine {
     return { audio, filters }
   }
 
-  /** 鏡頭的位置與朝向寫進 `pose`。鏡頭在場景最上層，區域座標就是世界座標 */
+  /** 耳朵的位置與鏡頭的朝向寫進 `pose`。鏡頭在場景最上層，區域座標就是世界座標 */
   function readPose(): void {
-    const p = camera.position
+    const p = ear
     pose.px = p.x
     pose.py = p.y
     pose.pz = p.z
@@ -362,8 +369,7 @@ export function createAudioEngine(camera: Camera): AudioEngine {
   }
 
   function camDistance(x: number, y: number, z: number): number {
-    const p = camera.position
-    return Math.hypot(x - p.x, y - p.y, z - p.z)
+    return Math.hypot(x - ear.x, y - ear.y, z - ear.z)
   }
 
   function playFile(file: string, cat: Category, x: number, y: number, z: number, positioned: boolean,
@@ -422,7 +428,7 @@ export function createAudioEngine(camera: Camera): AudioEngine {
     pick.loudness = loud
     pick.maxCutoff = cutoffHz
     lastFreeVoices = free
-    // 【不定位的永遠在正中間】它跟著鏡頭走，不看座標
+    // 【不定位的永遠在正中間】它跟著聽者走，不看座標
     if (loc) a.position.set(x, y, z)
     setCutoff(pick, loc ? Math.min(distanceCutoffHz(d), cutoffHz) : cutoffHz, ctx.currentTime, 0)
     a.setBuffer(buffer)
@@ -438,7 +444,7 @@ export function createAudioEngine(camera: Camera): AudioEngine {
     lastPlayed.set(file, ctx.currentTime)
     const rate = randomRate(Math.random) * rateScale
     a.setPlaybackRate(rate * playback.timeScale)
-    // 【定位的先等音波】`start()` 排下去就改不了了，等待期間要能依鏡頭移動提前或延後
+    // 【定位的先等音波】`start()` 排下去就改不了了，等待期間要能依聽者移動提前或延後
     if (loc && d > 0) {
       pick.waitingSince = ctx.currentTime
       pick.waitDelay = delay
@@ -511,7 +517,7 @@ export function createAudioEngine(camera: Camera): AudioEngine {
       v.distance = d
       v.loudness = voiceLoudnessDb(v.baseDb, v.ref, d, v.rolloff)
       setCutoff(v, Math.min(distanceCutoffHz(d), v.maxCutoff), now, 0.05)
-      // 【HDR 的衰減逐幀重算】鏡頭移動與素材衰減都會讓它變
+      // 【HDR 的衰減逐幀重算】聽者移動與素材衰減都會讓它變
       const live = v.loudness + envelopeAt(v.envelope, now - v.startedAt)
       const duck = !hdrOn || (v.cat !== null && HDR_EXEMPT.has(v.cat)) ? 0 : hdrDuckDb(live, loudest)
       v.audio.gain.gain.setTargetAtTime(dbToGain(v.baseDb + absorptionDb(d) + duck), now, 0.05)
@@ -519,7 +525,7 @@ export function createAudioEngine(camera: Camera): AudioEngine {
         panVoice(v, now, PAN_SMOOTH)
         continue
       }
-      // 【飛出可聽範圍就放棄】鏡頭切換會讓距離瞬間跳掉，不放棄的話那個聲道會一直卡著
+      // 【飛出可聽範圍就放棄】切上帝視角會讓距離瞬間跳掉，不放棄的話那個聲道會一直卡著
       if (d > v.waitMax) { v.waitingSince = -1; continue }
       if (!soundArrived(now - v.waitingSince, d)) continue
       v.waitingSince = -1

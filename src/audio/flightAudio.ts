@@ -71,8 +71,8 @@ export function createFlightAudio(
     const warn = flying && (arenaWarning || vneRatio >= OVERSPEED_FULL)
     audio.selfLoop('warn', warn ? SINGLE_FILES.warn : null, 1, 0)
 
-    // 【擦過看的是鏡頭，不是機身】上帝視角時鏡頭在世界裡自由飛，從它旁邊掠過的
-    // 子彈一樣該有聲音。坐在座艙裡時鏡頭就在機身上，兩者等價
+    // 【擦過看的是聽者】`cam` 是聽者的位置（`battleAudioController` 寫入）：自己在飛
+    // 時是機身，上帝視角時是在世界裡自由飛的鏡頭 —— 從它旁邊掠過的子彈一樣該有聲音
     const eye = cam
     if (elapsed - lastFlyby >= FLYBY_GAP) {
       const team = input.godView ? -1 : teamSlot(me.team)

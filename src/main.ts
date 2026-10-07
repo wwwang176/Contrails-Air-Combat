@@ -197,8 +197,13 @@ const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
 const perf = createPerfOverlay(ctx.renderer)
 const rangeProbe = createRangeProbe()
-const audio = createAudioEngine(ctx.camera)
-const cannonAudio = createCannonAudio(audio, ctx.camera.position)
+/**
+ * 聽者的位置。音訊引擎與各音效模組共用這一個物件，`battleAudioController` 每幀寫入
+ * （自己在飛時是自機，其餘是鏡頭）；朝向一律讀鏡頭
+ */
+const audioEar = new Vector3()
+const audio = createAudioEngine(ctx.camera, audioEar)
+const cannonAudio = createCannonAudio(audio, audioEar)
 const noteGroundShot = cannonAudio.noteGroundShot
 audio.setVolume(readVolume())
 
@@ -738,7 +743,7 @@ const BLAST_POOLS: BlastPools = {
   glow: blastGlow,
   jets: blastJets,
 }
-const battleAudioCues = createBattleAudioCues(audio, ctx.camera.position, CRASH_BLAST_HEIGHT)
+const battleAudioCues = createBattleAudioCues(audio, audioEar, CRASH_BLAST_HEIGHT)
 const blastPresentation = createBlastPresentation({
   BLAST_POOLS, cameraPosition: ctx.camera.position, cameraShake,
   blastLights, blastSparks, debris, groundFires, fireball,
@@ -1483,12 +1488,12 @@ const orderTelemetry = createOrderTelemetry()
 //
 // 【子步只記、每幀才播】世界的事件在物理子步裡就被清掉，所以要在子步裡讀；
 // 但 240 Hz 裡不碰 Web Audio —— `queueAudioCues` 只寫五個數字進佇列，
-// `updateAudio` 每一幀在鏡頭定位之後才播（距離、延遲、低通都量到鏡頭）。
+// `updateAudio` 每一幀在鏡頭定位之後才播（距離、延遲、低通都量到 `audioEar`）。
 
 const listenerMotion = createListenerMotion()
 const camVel = listenerMotion.velocity
-const aircraftLoopAudio = createAircraftLoopAudio(audio, ctx.camera.position, camVel)
-const flightAudio = createFlightAudio(audio, ctx.camera.position, input, {
+const aircraftLoopAudio = createAircraftLoopAudio(audio, audioEar, camVel)
+const flightAudio = createFlightAudio(audio, audioEar, input, {
   playHeavyHit: battleAudioCues.playHeavyHit, teamSlot,
 })
 
@@ -1498,7 +1503,7 @@ const flightAudio = createFlightAudio(audio, ctx.camera.position, input, {
  */
 const battleAudio = createBattleAudioController({
   audio, cannonAudio, listenerMotion, flightAudio, aircraftLoopAudio, battleAudioCues,
-  cameraPosition: ctx.camera.position, renderPositions,
+  cameraPosition: ctx.camera.position, ear: audioEar, renderPositions,
 })
 function resetAudioState(): void {
   battleAudio.reset()
