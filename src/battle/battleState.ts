@@ -12,6 +12,7 @@ import type { FlightIndex } from './flights'
 import type { ConvoyIndex } from './convoy'
 import type { BeatState, FlareBeat } from './beats'
 import type { MissionRules, MissionState, Outcome } from './mission'
+import type { AlertState } from './alert'
 import type { Roster } from './pilots'
 import type { BattleReport } from './report'
 
@@ -256,4 +257,9 @@ export interface Battle {
   redKilled: number
   /** 上面那些裡面機體角色是轟炸機的。`hunt.role` 限定時要分得出來 */
   redKilledBombers: number
+  /**
+   * 警戒狀態（`battle/alert.ts`）。卡片上沒有 `alert` 的關卡是 null —— 那時沒有巡邏、
+   * 不停火，與一開場就警戒相同。
+   */
+  readonly alert: AlertState | null
 }

@@ -17,6 +17,7 @@ import { drainKills, drainReports } from './combatEvents'
 import { pilotNames } from './names'
 import { resetMissionState } from './mission'
 import { wireStations } from './stationWiring'
+import { resetAlert, stepAlert } from './alert'
 import type { Battle } from './battleState'
 
 /** HUD 的編隊查詢只需玩家索引與編制，不依賴完整戰局。 */
@@ -86,6 +87,8 @@ export function stepBattle(b: Battle, dt: number): void {
   // `compactFlights` 之前，新分隊在下一次 `World.step` 之前就完成編制與接線
   stepBeats(b)
   stepFlareRotation(b)
+  // 【排在命令層之前】同一步觸發警戒，同一步就把紅方交回指揮官
+  stepAlert(b, dt)
 
   compactFlights(b.flights, cs)
   wireStations(b)
@@ -240,6 +243,12 @@ export function resetBattle(
   b.evacOrder = evacOrderOf(b.rules)
   resetMissionState(b.rules, b.mission)
   b.outcome = 'fighting'
+  // 【訊息也要清】就地重開的是沒有節拍的關卡；上一場的警戒訊息留著的話，新的一場
+  // 沒警戒卻寫著「進入警戒狀態」，而再觸發時鍵沒有變化、畫面不會重播
+  b.message = null
+  b.messageUntil = 0
+  // 【排在最後】要在控制器換回 AI 之後才發巡邏令
+  resetAlert(b)
 }
 
 /**

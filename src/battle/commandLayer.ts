@@ -20,7 +20,7 @@ interface CommandSeats {
 
 type CommandBattle = CommandSeats & Pick<Battle,
   'commandUnits' | 'blueCommand' | 'redCommand' | 'blueOrderFlights' | 'redOrderFlights'
-  | 'blueFlightIndices' | 'redFlightIndices' | 'convoy' | 'evacOrder'>
+  | 'blueFlightIndices' | 'redFlightIndices' | 'convoy' | 'evacOrder' | 'alert'>
 
 type PressureBattle = Pick<Battle, 'pressureTimer' | 'board'>
 
@@ -209,7 +209,11 @@ export function stepCommandLayer(b: CommandBattle, dt: number): void {
     // 【撤離令排在指揮官前面】撤離是任務層的命令，指揮官的集合／包抄／集火
     // 都是在戰場裡周旋，那時已經不該再周旋
     const evacOrder = convoyOrder === null && flight.team === 'blue' ? b.evacOrder : null
-    const order = convoyOrder ?? evacOrder ?? state.orders[f] ?? null
+    // 【警戒前紅方只巡邏】蓋過指揮官；警戒之後不再給，回到指揮官的命令（`battle/alert.ts`）
+    const patrolOrder = flight.team === 'red' && b.alert !== null && !b.alert.alerted
+      ? b.alert.orders[f] ?? null
+      : null
+    const order = convoyOrder ?? evacOrder ?? patrolOrder ?? state.orders[f] ?? null
     // 【索引解析成 Aircraft 在這一層】規劃層是純函數、只吃快照，不認識
     // Aircraft。與 wireStations 把 stationReferenceOf 的索引解析成飛機是
     // 同一個手法。
@@ -231,7 +235,7 @@ export function stepCommandLayer(b: CommandBattle, dt: number): void {
         // 【無條件飛完航程】被護送的那幾架連閃躲都不讓位，見
         // `AiController.transit`。每步重寫而不是生成時設一次 —— 玩家接手
         // 或代飛會換掉座位上的控制器物件，設一次的話新的那顆會漏掉
-        ai.transit = convoyOrder !== null
+        ai.transit = convoyOrder !== null || patrolOrder !== null
         ai.evacuating = evacOrder !== null
       }
     }

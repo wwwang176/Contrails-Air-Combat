@@ -42,12 +42,13 @@ function aliveOf(team: Team, role?: AircraftSpec['role']): number {
  * 熱路徑：`beats` 為空時只有一次長度檢查。
  */
 export function stepBeats(b: Battle): void {
-  const beats = b.cfg.beats
-  if (beats === undefined || beats.length === 0) return
   const now = b.world.time
   // 【過期的訊息在這裡收掉】`message` 因此恆是「這一刻該顯示的那一則」，
-  // 畫面那一層照抄就好，不必自己持有一份計時
+  // 畫面那一層照抄就好，不必自己持有一份計時。
+  // 【排在「沒有節拍就返回」之前】警戒訊息出現在沒有節拍的關卡（倫內爾島）
   if (b.message !== null && now >= b.messageUntil) b.message = null
+  const beats = b.cfg.beats
+  if (beats === undefined || beats.length === 0) return
   // 【走完就不再掃全場】節拍是一場裡的幾個瞬間，而這個函數每個物理步都跑
   if (b.beatsLeft === 0) return
 

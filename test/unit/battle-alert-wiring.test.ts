@@ -7,6 +7,23 @@ import { readFileSync } from 'node:fs'
  */
 const read = (p: string): string => readFileSync(p, 'utf8').replace(/\r\n/g, '\n')
 const WORLD = read('src/world/World.ts')
+const RUNTIME = read('src/battle/battleRuntime.ts')
+const CREATE = read('src/battle/createBattle.ts')
+
+describe('警戒接進戰鬥', () => {
+  /** 【排在命令層之前】同一步觸發，同一步就把紅方交回指揮官；排在後面會多巡邏一步 */
+  it('stepBattle：stepAlert 在 stepBeats 之後、stepCommandLayer 之前', () => {
+    const step = RUNTIME.slice(RUNTIME.indexOf('export function stepBattle('), RUNTIME.indexOf('export function resetBattle('))
+    const at = step.indexOf('stepAlert(b, dt)')
+    expect(at).toBeGreaterThan(step.indexOf('stepBeats(b)'))
+    expect(at).toBeLessThan(step.indexOf('stepCommandLayer(b, dt)'))
+  })
+
+  /** 【排在 wireStations 之後】它會重接站位參考 */
+  it('createBattle：有警戒才停火並先發巡邏令，排在 wireStations 之後', () => {
+    expect(CREATE).toMatch(/wireStations\(battle\)\n[\s\S]*if \(battle\.alert !== null\) \{\n\s+world\.holdFire\.fill\(1\)\n\s+armPatrol\(battle\)/)
+  })
+})
 
 describe('停火旗標接進 World.step', () => {
   /**

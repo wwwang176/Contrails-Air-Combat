@@ -26,6 +26,7 @@ import type { Controller } from '../control/Controller'
 import type { AircraftSpec } from '../specs/types'
 import { FLARE_LANES } from '../world/flares'
 import { wireStations } from './stationWiring'
+import { armPatrol, createAlertState } from './alert'
 
 /**
  * 造一場 N vs N。
@@ -310,7 +311,13 @@ export function createBattle(
     report: createBattleReport(),
     redKilled: 0,
     redKilledBombers: 0,
+    alert: cfg.alert === undefined ? null : createAlertState(cfg.alert, flights.flights),
   }
   wireStations(battle)
+  // 【警戒關：開場就停火、先發巡邏令】排在 `wireStations` 之後 —— 它會重接站位參考
+  if (battle.alert !== null) {
+    world.holdFire.fill(1)
+    armPatrol(battle)
+  }
   return battle
 }
