@@ -595,6 +595,41 @@ export function soloBombers(units: OrderOfBattle, schwarmSpacing: number): Order
 }
 
 /**
+ * 藍方開場重排成一條橫線：依編組表順序，相鄰左右間距 `spacing` m、以中央為 0；
+ * 高度從 `altitudeMin` 依序平均排到 `altitudeMax`（世界高度，m）。紅方原樣。
+ *
+ * 【高度要扣掉所有加成】出生高度是 `altitude + climb + altitudeOffset(tier) + rise`
+ * （`unitFrame`）。`tier = 2` 讓鋸齒那一項恆為 0（與 spread 無關），`rise` 補到目標高度。
+ * 漏扣的話最高那一架會飄出範圍 —— 倫內爾島上就是一開場越過警戒高度。
+ * 【只收單機小隊】多機小隊的僚機還有站位偏移，間距與高度都會跑掉，寫錯的卡片要炸出來。
+ * `player` 旗標原樣保留。
+ */
+export function spreadBlue(
+  units: OrderOfBattle,
+  spawn: { readonly altitudeMin: number; readonly altitudeMax: number; readonly spacing: number },
+  altitude: number, schwarmSpacing: number,
+): OrderOfBattle {
+  const n = units.filter((u) => u.team === 'blue').length
+  let i = 0
+  return units.map((u) => {
+    if (u.team !== 'blue') return u
+    if (u.members.length !== 1) throw new Error('spreadBlue 只收單機小隊：多機小隊的站位偏移會破壞間距')
+    const t = n === 1 ? 0.5 : i / (n - 1)
+    const y = spawn.altitudeMin + (spawn.altitudeMax - spawn.altitudeMin) * t
+    const { slide: _slide, ...rest } = u
+    const out: FlightPlan = {
+      ...rest,
+      lane: ((i - (n - 1) / 2) * spawn.spacing) / schwarmSpacing,
+      depth: 0,
+      tier: 2,
+      rise: y - altitude - u.entry.climb,
+    }
+    i++
+    return out
+  })
+}
+
+/**
  * 藍隊分批前後排開：每 `waveSize` 架一批，第 `g` 批在世界座標 z 上比第一批多落後 `g × depth` m，
  * 前後交錯進場。玩家在第一批；每批同一條橫向（`lane` 0）、同一個高度層（`tier` 0）。紅隊與
  * `lineAbreast` 相同。**只決定開場站在哪裡**，起飛之後每一架照自己的攻擊航路飛。

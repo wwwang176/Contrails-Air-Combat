@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
   lineAbreast, mixedLine, flightLine, pincer, assertOrderOfBattle, sideSummary,
-  soloBombers, stackedEntry, waveColumn, type OrderOfBattle,
+  soloBombers, spreadBlue, stackedEntry, waveColumn, type OrderOfBattle,
 } from '../../src/battle/order'
+import { G4M } from '../../src/specs/g4m'
+import { F4F4 } from '../../src/specs/f4f4'
 import { createBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
 import { DEG } from '../../src/core/math'
 import { HEAD_ON, PURSUIT } from '../../src/battle/entry'
@@ -389,6 +391,37 @@ describe('soloBombers', () => {
         expect(q.z, `z ${i}`).toBeCloseTo(p.z, 6)
       }
     }
+  })
+})
+
+/**
+ * 藍方開場的高度範圍與左右間距（倫內爾島：貼海 200–300 m、拉開）。
+ *
+ * 【它在防什麼】高度要真的落在範圍裡 —— 鋸齒錯開（`altitudeOffset`）與站位的上下偏移
+ * 漏扣的話，最高那一架會超過 500 m，一開場就觸發警戒而不報錯。
+ */
+describe('spreadBlue', () => {
+  const idle = { update() {} }
+  const SPAWN = { altitudeMin: 200, altitudeMax: 300, spacing: 400 }
+  const base = () => soloBombers(lineAbreast(HEAD_ON, G4M, 11, F4F4, 6), DEFAULT_BATTLE.schwarmSpacing)
+
+  it('出生高度平均落在範圍內、相鄰左右間距相同、玩家恰一架、紅方逐位元不變', () => {
+    const units = spreadBlue(base(), SPAWN, 1000, DEFAULT_BATTLE.schwarmSpacing)
+    assertOrderOfBattle(units)
+    expect(red(units)).toEqual(red(base()))
+    const b = createBattle(idle, { ...DEFAULT_BATTLE, altitude: 1000, units }, 1)
+    const blues = b.world.combatants.filter((c) => c.team === 'blue').map((c) => c.aircraft.state.position)
+    expect(blues.length).toBe(11)
+    blues.forEach((p, i) => expect(p.y, `y ${i}`).toBeCloseTo(200 + (100 * i) / 10, 6))
+    for (let i = 1; i < blues.length; i++) expect(blues[i]!.x - blues[i - 1]!.x, `x ${i}`).toBeCloseTo(400, 6)
+    // 全部在同一條橫線上
+    for (const p of blues) expect(p.z).toBeCloseTo(blues[0]!.z, 6)
+    expect(blue(units).filter((f) => f.player === true).length).toBe(1)
+  })
+
+  it('藍方有多機小隊時拋錯：站位偏移會破壞間距', () => {
+    expect(() => spreadBlue(lineAbreast(HEAD_ON, P51D, 8, F4F4, 4), SPAWN, 1000, DEFAULT_BATTLE.schwarmSpacing))
+      .toThrow()
   })
 })
 
