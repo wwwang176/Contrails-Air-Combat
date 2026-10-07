@@ -63,4 +63,37 @@ describe('聽者的位置', () => {
     }
     expect(listenerMotion.velocity.length()).toBe(0)
   })
+
+  /**
+   * 上帝視角：聽者不參與都卜勒。鏡頭 300 m/s 掠過飛機時音高會被拉到近兩倍，而 Shift 的
+   * 1,200 m/s 會被當成瞬移、一下歸零一下恢復 —— 只留飛機自己的移動造成的變調
+   */
+  it('上帝視角時鏡頭在移動，都卜勒用的聽者速度仍是 0', () => {
+    const { controller, camera, plane, player, world, listenerMotion } = setup()
+    // 先在座艙裡飛一段，帶著速度切進上帝視角 —— 不歸零的話那一段速度會留著
+    for (let i = 0; i < 30; i++) {
+      plane.z -= 100 / 60
+      controller.update(world, player, i / 60, 1 / 60, false, false)
+    }
+    expect(listenerMotion.velocity.length()).toBeGreaterThan(50)
+    for (let i = 0; i < 60; i++) {
+      camera.set(i * 5, 500, 0)
+      controller.update(world, player, i / 60, 1 / 60, true, false)
+    }
+    expect(listenerMotion.velocity.length()).toBe(0)
+  })
+
+  /** 回座艙：耳朵瞬移回機身那一幀不算速度，之後照常量機身的速度 */
+  it('從上帝視角回座艙：不跳，之後聽者速度跟上機身', () => {
+    const { controller, camera, plane, player, world, listenerMotion } = setup()
+    camera.set(5000, 800, 0)
+    controller.update(world, player, 0, 1 / 60, true, false)
+    controller.update(world, player, 1 / 60, 1 / 60, false, false)
+    expect(listenerMotion.velocity.length()).toBe(0)
+    for (let i = 0; i < 60; i++) {
+      plane.z -= 100 / 60
+      controller.update(world, player, (i + 2) / 60, 1 / 60, false, false)
+    }
+    expect(-listenerMotion.velocity.z).toBeCloseTo(100, 0)
+  })
 })

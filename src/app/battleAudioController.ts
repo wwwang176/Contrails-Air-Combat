@@ -69,7 +69,12 @@ export function createBattleAudioController(deps: BattleAudioControllerDeps) {
     // 之前：方位與距離在那裡讀
     ear.copy(flying ? renderPositions[me.index]! : cameraPosition)
     audio.beginFrame()
-    listenerMotion.update(ear, worldSeconds)
+    // 【上帝視角時聽者不參與都卜勒】鏡頭 300 m/s 掠過時音高被拉到近兩倍，Shift 的
+    // 1,200 m/s 又超過瞬移門檻、一下歸零一下恢復。只留飛機自己的移動造成的變調。
+    // 用 `reset` 而不是不更新：不更新的話切進來前的速度一直留著；回座艙那一幀耳朵
+    // 瞬移回機身，從零重新量才不會跳
+    if (godView) listenerMotion.reset()
+    else listenerMotion.update(ear, worldSeconds)
     battleAudioCues.playFrame(world, player, elapsed, flying)
     cannonAudio.playCannons(world, elapsed)
     aircraftLoopAudio.update(
