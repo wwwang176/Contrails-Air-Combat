@@ -34,6 +34,15 @@ const HIT_X_WIDTH = 2.2
 const LINK_WIDTH = 1
 
 /**
+ * 飛機準星四條線的內端與外端離中心多遠，px（未乘 `L.scale`）。
+ *
+ * 【中間空一塊】四條線圍出一塊空心，中心點不被線蓋住，看得到後面的目標。
+ * 兩準星之間的虛線也從缺口邊緣才開始畫，不穿進這塊空心
+ */
+const CROSS_GAP = 7
+const CROSS_REACH = 16
+
+/**
  * 滑鼠準星（圓）與飛機準星（十字）。兩者的分離距離就是「飛機跟不上意圖」的視覺化。
  *
  * 相機跟著瞄準點走，所以圓圈恆在畫面正中央，會漂的是十字。沒有可動範圍的
@@ -61,8 +70,8 @@ export function drawReticle(
   if (f.noseVisible) {
     const nx = L.cx + (f.noseX * L.width) / 2
     const ny = L.cy - (f.noseY * L.height) / 2
-    const a = 14 * L.scale
-    const gap = 4 * L.scale
+    const a = CROSS_REACH * L.scale
+    const gap = CROSS_GAP * L.scale
     ctx.strokeStyle = HUD_COLORS.primary
     ctx.lineWidth = CROSS_WIDTH * L.scale
     ctx.beginPath()
@@ -93,15 +102,19 @@ export function drawReticle(
       ctx.stroke()
     }
 
-    // 兩準星之間的連線，強化「跟不上」的感受
-    if (f.aimVisible) {
+    // 兩準星之間的連線，強化「跟不上」的感受。從十字的缺口邊緣畫起；兩者
+    // 近到還沒出缺口時不畫 —— 那時本來就對準了
+    const dx = mx - nx
+    const dy = my - ny
+    const len = Math.hypot(dx, dy)
+    if (f.aimVisible && len > gap) {
       ctx.strokeStyle = HUD_COLORS.dim
       // 【虛線的格也要乘 scale】線寬乘了而格沒乘的話，高解析度下虛線會
       // 變成一條幾乎連續的線
       ctx.lineWidth = LINK_WIDTH * L.scale
       ctx.setLineDash([4 * L.scale, 4 * L.scale])
       ctx.beginPath()
-      ctx.moveTo(nx, ny); ctx.lineTo(mx, my)
+      ctx.moveTo(nx + (dx / len) * gap, ny + (dy / len) * gap); ctx.lineTo(mx, my)
       ctx.stroke()
       ctx.setLineDash([])
     }
