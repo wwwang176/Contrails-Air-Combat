@@ -94,6 +94,25 @@ describe('物理子步的事件呈現', () => {
     expect(deps.flakBursts.emit).toHaveBeenCalledTimes(flakCalls)
   })
 
+  /** 破片從黑雲那一團噴過來：方向是玩家指向爆點。判準與世界層扣血同一支 */
+  it('敵方空爆傷到玩家：受擊紅邊亮在爆點那一側；友軍的、半徑外的不亮', () => {
+    const { world, player, deps, present, terrain } = setup()
+    // 玩家在原點、藍隊；鏡頭朝 −z，所以 +x 是畫面右邊。`world.add` 只記出生點
+    player.aircraft.state.position.set(0, 0, 0)
+    pushBurst(world.burstEvents, 10, 0, 0, 0, 30, 400)
+    pushBurst(world.burstEvents, -100, 0, 0, 1, 30, 400)
+    present(world, player, terrain, 1, false)
+    expect(deps.damageMarks.filter(m => m.intensity > 0)).toHaveLength(0)
+
+    pushBurst(world.burstEvents, 10, 0, 0, 1, 30, 400)
+    present(world, player, terrain, 2, false)
+    const lit = deps.damageMarks.filter(m => m.intensity > 0)
+    expect(lit).toHaveLength(1)
+    expect(lit[0]!.x).toBeCloseTo(1)
+    expect(lit[0]!.y).toBeCloseTo(0)
+    expect(lit[0]!.z).toBeCloseTo(0)
+  })
+
   it('換場使用新的事件、地形與玩家，受擊提示依當前鏡頭轉換且只取玩家', () => {
     const { world: oldWorld, deps, present, terrain } = setup()
     const world = new World()

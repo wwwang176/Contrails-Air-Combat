@@ -404,11 +404,14 @@ describe('音效的戰鬥事件接線', () => {
     expect(fn).not.toContain('bombs.owner[i] === me.index')
   })
 
-  /** 【被高射砲炸到也要有感覺】爆風的傷害不走子彈那條事件，只能自己判 */
+  /**
+   * 【被高射砲炸到也要有感覺】爆風的傷害不走子彈那條事件，只能自己判 —— 用與
+   * `World.applyBursts` 同一支 `burstDamageTo`（那一發自己的半徑與傷害、同隊不傷）
+   */
   it('高射砲的爆風打到自己時記一筆機身受創', () => {
     const fn = body('function queueAudioCues(', CUES)
     expect(fn).toContain('pushCue(cues, CUE.Damage')
-    expect(fn).toContain('f.radius[i]')
+    expect(fn).toContain('burstDamageTo(f, i,')
   })
 
   /** 【超速也要警告】原本只有飛出邊界會響；超速是另一種「再這樣下去會出事」 */

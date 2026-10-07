@@ -3,7 +3,7 @@ import type { World } from '../world/World'
 import type { Combatant } from '../world/combatant'
 import { DAMAGE_STRIDE } from '../world/damage'
 import { IMPACT_STRIDE, clearImpacts } from '../world/events'
-import { flakDamage } from '../world/flak'
+import { burstDamageTo } from '../world/flak'
 import { HIT_PARTS, type HitPart } from '../world/hit'
 import type { AudioEngine } from './engine'
 import { impactSound, type Pool } from './catalog'
@@ -135,15 +135,15 @@ export function createBattleAudioCues(audio: Pick<AudioEngine, 'playPool'>, cam:
         pushCue(cues, CUE.FlakBurst, f.x[i]!, f.y[i]!, f.z[i]!)
       }
       // 【炸在自己身上就是受創】爆風的傷害不走子彈那條事件（`World.applyBursts`
-      // 自己吃掉），這裡用同一支 `flakDamage` 算，聲音的輕重才跟實際傷害一致
+      // 自己吃掉），這裡用同一支 `burstDamageTo` 算：同隊的砲不扣血也不出聲，
+      // 聲音的輕重跟實際傷害一致
       //
       // 【上帝視角不記】身上的聲音是不定位的，那時鏡頭在世界裡、離自機很遠，
       // 貼在鏡頭上播等於「在耳邊」，與畫面對不上
       if (!player.alive || godView) continue
-      const ex = f.x[i]! - me.x, ey = f.y[i]! - me.y, ez = f.z[i]! - me.z
       // 【輕重看炸得多近，不看血量】同一發打在 B-17 與 P-51 身上，玩家聽到的該是
       // 同一聲；除以血量的話，血厚的機種永遠只聽到擦邊
-      const dmg = flakDamage(Math.sqrt(ex * ex + ey * ey + ez * ez), f.radius[i]!, f.damage[i]!)
+      const dmg = burstDamageTo(f, i, player.team === 'blue' ? 0 : 1, me.x, me.y, me.z)
       if (dmg > 0) pushCue(cues, CUE.Damage, dmg / f.damage[i]!, 0, 0)
     }
     // 子彈打在船殼、建築上。【要限頻率】對船掃射時六挺每秒命中幾十發，

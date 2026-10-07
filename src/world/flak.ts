@@ -266,3 +266,18 @@ export function flakDamage(
   if (distance >= radius) return 0
   return damage * (1 - distance / radius)
 }
+
+/**
+ * 第 `k` 朵空爆傷到 (x, y, z) 那一架多少血；`team` 是那一架的陣營（0 藍、1 紅）。
+ * **同隊的砲不傷自己人。**
+ *
+ * 【扣血、受創聲、受擊紅邊都問這一支】三處的判準要一模一樣：不一致的症狀是
+ * 沒扣血卻聽到受創聲、或扣了血卻沒有紅邊，而且都不報錯。
+ */
+export function burstDamageTo(
+  e: BurstEvents, k: number, team: number, x: number, y: number, z: number,
+): number {
+  if (e.team[k] === team) return 0
+  const d = Math.hypot(x - e.x[k]!, y - e.y[k]!, z - e.z[k]!)
+  return flakDamage(d, e.radius[k]!, e.damage[k]!)
+}

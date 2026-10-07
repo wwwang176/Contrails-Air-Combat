@@ -126,6 +126,23 @@ describe('戰鬥單次音效的收集與播放', () => {
     expect(world.burstEvents.count).toBe(1)
   })
 
+  /** 與世界層扣血同一條判準：同隊的砲不傷自己人，就不該有受創聲 */
+  it('友軍空爆炸在身上：有爆炸聲、沒有受創聲；敵軍的才有', () => {
+    const { world, player, playPool, cues } = setup()
+    // 玩家是藍隊（0）。`world.add` 只記出生點，位置要自己擺
+    player.aircraft.state.position.set(0, 1000, 0)
+    pushBurst(world.burstEvents, 0, 1000, 0, 0)
+    cues.queueAudioCues(world, player, land, false)
+    cues.playFrame(world, player, 1, true)
+    expect(playPool.mock.calls.map(c => c[1])).toEqual(['flakBurst'])
+    playPool.mockClear()
+    world.burstEvents.count = 0
+    pushBurst(world.burstEvents, 0, 1000, 0, 1)
+    cues.queueAudioCues(world, player, land, false)
+    cues.playFrame(world, player, 2, true)
+    expect(playPool.mock.calls.map(c => c[1])).toEqual(['flakBurst', 'damage', 'hitSelf'])
+  })
+
   it('換機重建前射與後座齊射，清除上一架的槍焰邊緣狀態', () => {
     const { world, player, playPool, cues } = setup(JU87)
     expect(cues.ownTurretVolley).toBe(true)

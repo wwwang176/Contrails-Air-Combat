@@ -42,7 +42,7 @@ import { stepTakeoff } from '../control/takeoffRoll'
 import { createFlares, stepFlares } from './flares'
 import { stepGunPlatform } from './shipGuns'
 import {
-  createBursts, createFlak, clearBursts, flakDamage, pushBurst, stepFlak, FLAK_CAPACITY,
+  burstDamageTo, createBursts, createFlak, clearBursts, pushBurst, stepFlak, FLAK_CAPACITY,
 } from './flak'
 import { obbOverlap } from './obb'
 import { createCommand, type Controller } from '../control/Controller'
@@ -853,16 +853,11 @@ export class World {
     const e = this.stepBursts
     if (e.count === 0) return
     for (let k = 0; k < e.count; k++) {
-      const team = e.team[k]!
-      const x = e.x[k]!, y = e.y[k]!, z = e.z[k]!
-      // 【半徑與傷害讀那一發自己的】艦砲與陸砲不同強度
-      const radius = e.radius[k]!, damage = e.damage[k]!
       for (const c of this.combatants) {
         if (!c.alive) continue
-        if ((c.team === 'blue' ? 0 : 1) === team) continue
         const pos = c.aircraft.state.position
-        const d = Math.hypot(pos.x - x, pos.y - y, pos.z - z)
-        const dmg = flakDamage(d, radius, damage)
+        // 半徑與傷害讀那一發自己的（艦砲與陸砲不同強度）；同隊不傷
+        const dmg = burstDamageTo(e, k, c.team === 'blue' ? 0 : 1, pos.x, pos.y, pos.z)
         if (dmg > 0) this.applyDamage(c, dmg, 'fuselage')
       }
     }

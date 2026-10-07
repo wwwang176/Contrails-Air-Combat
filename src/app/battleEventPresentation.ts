@@ -4,7 +4,7 @@ import type { Combatant } from '../world/combatant'
 import { clearImpacts, createImpacts } from '../world/events'
 import { clearKills } from '../world/kills'
 import { clearDamage, DAMAGE_STRIDE } from '../world/damage'
-import { clearBursts } from '../world/flak'
+import { burstDamageTo, clearBursts } from '../world/flak'
 import { pushDamageMark, type DamageMark } from '../hud/damageMarks'
 import type { createBattleAudioCues } from '../audio/battleAudioCues'
 import type { createBlastPresentation } from '../render/blastPresentation'
@@ -99,6 +99,27 @@ export function createBattleEventPresentation({
       }
     }
     clearDamage(dmg)
+    // 【空爆的破片也亮紅邊】它的傷害由 `World.applyBursts` 直接扣，不走上面那條事件
+    // （那一條音效也在讀，推進去會多一聲子彈受擊、別人被高砲打中還會播命中確認）。
+    // 判準與扣血同一支 `burstDamageTo`；方向是玩家指向爆點 —— 破片從那團黑雲來
+    const bursts = world.burstEvents
+    if (bursts.count > 0 && player.alive) {
+      const me = player.aircraft.state.position
+      const team = player.team === 'blue' ? 0 : 1
+      for (let k = 0; k < bursts.count; k++) {
+        if (burstDamageTo(bursts, k, team, me.x, me.y, me.z) <= 0) continue
+        DAMAGE_DIR.set(bursts.x[k]! - me.x, bursts.y[k]! - me.y, bursts.z[k]! - me.z)
+        const len = DAMAGE_DIR.length()
+        // 炸在機身上：沒有方向可言，整圈亮（視角座標的正後方）
+        if (len < 1e-3) {
+          pushDamageMark(damageMarks, 0, 0, 1)
+          continue
+        }
+        DAMAGE_VIEW.copy(camera.quaternion).invert()
+        DAMAGE_DIR.divideScalar(len).applyQuaternion(DAMAGE_VIEW)
+        pushDamageMark(damageMarks, DAMAGE_DIR.x, DAMAGE_DIR.y, DAMAGE_DIR.z)
+      }
+    }
     // 【火球與零件走事件】它們是世界錨定的一次性效果，用事件裡的子步位置
     // ——與火花同一個理由（M7 spec §2.2）。**玩家自己被擊墜時也要有**，
     // 而那正是「每幀比對 alive」做不到的事（M8 spec §2.1）
