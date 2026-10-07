@@ -494,6 +494,7 @@ export function stepGunPlatform(
   time: number,
   dt: number,
   fleet: readonly GunPlatform[] = (SOLO[0] = ship, SOLO),
+  holdFire = false,
 ): void {
   const guns = ship.guns
   // 【沉了的砲台一門砲都不動】與「砲位死了完全不動」同一條規則，只是整座。
@@ -543,7 +544,8 @@ export function stepGunPlatform(
     let trigger = false
     if (g.targetIndex >= 0 && leadInBody(all[g.targetIndex]!, g, spec, WANT)) {
       slew(g.aim, WANT, spec.rotationRate * dt)
-      trigger = firingWindow && g.aim.angleTo(WANT) < FIRE_THRESHOLD
+      // 【停火只擋扳機】搜尋、追瞄、射速時鐘照常，解除的那一步就接得上
+      trigger = !holdFire && firingWindow && g.aim.angleTo(WANT) < FIRE_THRESHOLD
     } else {
       // 沒有目標就慢慢回到中心方向 —— 否則砲位會停在最後一次追瞄的角度
       slew(g.aim, g.axis, spec.rotationRate * dt)

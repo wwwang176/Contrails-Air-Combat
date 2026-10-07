@@ -216,6 +216,7 @@ export function stepTurrets(
   dt: number,
   land: LandField | null = null,
   ships: readonly Ship[] = [],
+  holdFire = false,
 ): void {
   const turrets = c.aircraft.spec.turrets
   if (turrets.length === 0 || !c.alive || c.hp <= 0) return
@@ -258,7 +259,8 @@ export function stepTurrets(
       : s.targetShip >= 0 && leadShipGun(ships[s.targetShip]!, s.targetGun, t, vel, WANT)
     if (hasTarget) {
       slew(s.aim, WANT, t.rotationRate * dt)
-      trigger = firingWindow && s.aim.angleTo(WANT) < FIRE_THRESHOLD
+      // 【停火只擋扳機】搜尋、追瞄、射速時鐘照常，解除的那一步就接得上
+      trigger = !holdFire && firingWindow && s.aim.angleTo(WANT) < FIRE_THRESHOLD
     } else {
       // 沒有目標就慢慢回到中心方向 —— 否則砲塔會停在最後一次追瞄的角度
       slew(s.aim, t.axis, t.rotationRate * dt)

@@ -176,6 +176,17 @@ describe('stepTurrets', () => {
     expect(projectiles.live).toBeGreaterThan(0)
   })
 
+  /** 【停火時照常追瞄、不扣扳機】倫內爾島警戒前，陸攻先開槍就是自曝位置 */
+  it('停火時同樣的局面一發都不打，但照常鎖定；解除後開火', () => {
+    const b = bomberAt(-100)
+    const f = fighterAt(300, -150)
+    for (let k = 0; k < 480; k++) stepTurrets(b, [b, f], projectiles, k * DT, DT, null, [], true)
+    expect(projectiles.live).toBe(0)
+    expect(b.turretStates.some((s) => s.targetIndex === 1)).toBe(true)
+    for (let k = 480; k < 960; k++) stepTurrets(b, [b, f], projectiles, k * DT, DT, null, [], false)
+    expect(projectiles.live).toBeGreaterThan(0)
+  })
+
   it('敵人在正前方時尾砲塔沒有目標', () => {
     const b = bomberAt(-100)
     const f = fighterAt(-300, -150)

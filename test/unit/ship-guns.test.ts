@@ -120,6 +120,23 @@ describe('stepGunPlatform', () => {
     expect(run(shipWith('autocannon'), [target(0, 0, 3500, 0)], 3).live).toBe(0)
   })
 
+  /** 【停火時照常追瞄、不扣扳機】倫內爾島警戒前艦隊還沒發現陸攻 */
+  it('停火時三層都一發不打、照常鎖定；解除後開火', () => {
+    for (const tier of ['mg', 'autocannon', 'flak'] as const) {
+      const ship = shipWith(tier)
+      const all = [target(0, 0, 600, 0)]
+      const p = new Projectiles(4096)
+      const flak = createFlak()
+      const dt = 1 / 240
+      for (let i = 0; i < 3 * 240; i++) stepGunPlatform(ship, all, p, flak, i * dt, dt, undefined, true)
+      expect(p.live, tier).toBe(0)
+      expect(flak.live, tier).toBe(0)
+      expect(ship.guns.some((g) => g.targetIndex === 0), tier).toBe(true)
+      for (let i = 3 * 240; i < 6 * 240; i++) stepGunPlatform(ship, all, p, flak, i * dt, dt, undefined, false)
+      expect(p.live + flak.live, tier).toBeGreaterThan(0)
+    }
+  })
+
   it('同隊的飛機不是目標', () => {
     expect(run(shipWith('mg'), [target(0, 0, 600, 0, 'red')], 3).live).toBe(0)
   })

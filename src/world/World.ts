@@ -130,6 +130,14 @@ export class World {
   readonly ships: Ship[] = []
 
   /**
+   * 各隊的停火旗標，依 `teamSlot`（0 藍、1 紅）；1 = 砲塔、艦砲與地面砲位不扣扳機
+   * （照常搜尋與追瞄）。飛機的前射武器不受影響。
+   *
+   * 由戰鬥層寫（倫內爾島的警戒，`battle/alert.ts`）；沒有人寫的關恆為 0。
+   */
+  readonly holdFire = new Uint8Array(2)
+
+  /**
    * 這一場的地面目標（戰車、卡車、砲位、火車、油廠的構件）。**與船同一個
    * 性質**：不是 `Combatant`、不動、死了是旗標。空陣列 = 這一場沒有，
    * 三條判定都零長度早退，既有的關逐位元不變。
@@ -558,7 +566,10 @@ export class World {
     // 迴圈裡做過了。
     for (const c of this.combatants) {
       if (!c.alive) continue
-      stepTurrets(c, this.combatants, this.projectiles, this.time, dt, this.land, this.ships)
+      stepTurrets(
+        c, this.combatants, this.projectiles, this.time, dt, this.land, this.ships,
+        this.holdFire[teamSlot(c.team)] === 1,
+      )
     }
     // 【船排在飛機砲塔之後、彈丸推進之前】三者都往同一個彈丸池寫，
     // 順序固定才可重現。
@@ -572,7 +583,10 @@ export class World {
         g.flash = v > 0 ? v : 0
       }
       // 【傳整個艦隊】目標分攤數的是全艦隊的鎖定，不是這一艘的
-      stepGunPlatform(s, this.combatants, this.projectiles, this.flak, this.time, dt, this.ships)
+      stepGunPlatform(
+        s, this.combatants, this.projectiles, this.flak, this.time, dt, this.ships,
+        this.holdFire[teamSlot(s.team)] === 1,
+      )
     }
     // 【車先動、砲後打】防空車的槍口由這一步的位置算。`this.time` 在 `step`
     // 開頭已經加上 dt，所以這裡是這一步結束時的時間
@@ -592,6 +606,7 @@ export class World {
       }
       stepGunPlatform(
         t, this.combatants, this.projectiles, this.flak, this.time, dt, this.groundTargets,
+        this.holdFire[teamSlot(t.team)] === 1,
       )
     }
     // 【兩份緩衝】傷害吃 `stepBursts`（每步清空、World 自己排空），
