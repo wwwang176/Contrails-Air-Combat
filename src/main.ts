@@ -44,6 +44,7 @@ import { createTracers } from './render/tracers'
 import { createMuzzles, createTurretMuzzles } from './render/muzzle'
 import { createTurretBarrels } from './render/turretBarrels'
 import { createSparks } from './render/sparks'
+import { createDirtImpacts, dirtSurfaceOf } from './render/dirtImpact'
 import { createBlastSparks } from './render/blastSparks'
 import { createSplashes } from './render/splash'
 import { TextureLoader } from 'three'
@@ -564,6 +565,9 @@ const smokeTexture = new TextureLoader().load(assetUrl('/textures/smoke.png'))
  */
 const flakBursts = createFlakBursts(undefined, smokeTexture)
 ctx.scene.add(flakBursts.object)
+/** 子彈打進地面的土柱、土塊與煙塵。四池一組，建一次；換地圖只換顏色 */
+const dirt = createDirtImpacts(undefined, smokeTexture)
+for (const p of Object.values(dirt.pools)) ctx.scene.add(p.object)
 // 【照明彈的燈由開戰時決定掛不掛】光源數變動會讓每一個材質重編著色器，所以只在
 // `startWorld` 依 `battleLights` 掛上或拿掉 —— 卡頓留在載入那一刻，戰鬥中燈數不變。
 // 燈就算強度 0 也照算，用不到就不掛。
@@ -773,7 +777,7 @@ const emitWreckFirePuff = createFirePuff(
 )
 
 const stepEffects = createEffectStepper({
-  sparks, blastSparks, wrecks, debris, emitWreckFirePuff, smoke, spray, BLAST_POOLS,
+  sparks, dirt, blastSparks, wrecks, debris, emitWreckFirePuff, smoke, spray, BLAST_POOLS,
   splashes, fireball, steam, shipFireSmoke, wreckFireSmoke, blastJets,
   blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, blastMist, flakBursts, blastLights,
 })
@@ -804,7 +808,7 @@ const burnBalloon = (x: number, y: number, z: number): void => {
  * 那是 `releaseVisuals()` 的責任、順序也不同（見 `enterBattle` 的註解）。
  */
 const POOLS = [
-  fireball, smoke, spray, sparks, blastSparks, splashes, debris, vortex, flakBursts, wakes,
+  fireball, smoke, spray, sparks, dirt, blastSparks, splashes, debris, vortex, flakBursts, wakes,
   blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, blastMist, blastJets, reelTrackDust,
   // 【船火那兩份也在這裡】漏清煙池的話上一場的煙殘留 12 秒；漏清 `shipFires`
   // 更糟 —— 上一場的火點會用同一個船索引附到新一場的船上，燒滿 60 秒
@@ -828,7 +832,7 @@ const debrisColorOf = (index: number): number =>
 
 const presentBattleEvents = createBattleEventPresentation({
   camera: ctx.camera, damageMarks: hudFrame.damageMarks, battleAudioCues,
-  sparks, splashes, blastPresentation, debris, debrisColorOf, shipFires, groundFires,
+  sparks, dirt, splashes, blastPresentation, debris, debrisColorOf, shipFires, groundFires,
   spray, flakBursts, BLAST_POOLS,
 })
 
@@ -1278,6 +1282,8 @@ function buildBattleTerrain(): void {
     ? pendingMission.battle.timeOfDay ?? 'noon'
     : setup.timeOfDay
   applyTimeOfDay(ctx, terrain, timeOfDay)
+  // 子彈打進地面的顏色跟著地圖：雪原噴雪粉夾泥土，其他噴土
+  dirt.setSurface(dirtSurfaceOf(terrainKind))
   sceneWeather.reset(timeOfDay)
   // 煙的材質不是 three 內建受光材質；時段換完要把同一顆太陽同步進 shader。
   syncFireSmokeLighting()
@@ -2383,6 +2389,55 @@ Object.assign(window, createSceneryInspection({
     // 得起來只可能在這裡
     fireSmoke: shipFireSmoke.live,
   }
+}
+
+/**
+ * 子彈打進地面的**量測出口**。
+ *
+ * - `strafe(n, x, z)`：從 (x, z) 西邊 500 m、高 290 m（30° 俯角）往那一點射 `n` 發，
+ *   落點散在 4 m 內。走真正的彈丸 → `projectileHits` → 事件 → 渲染那條路；射手是
+ *   自機，所以打中敵方地面目標一樣算命中。每一發起點往後錯開一個子步的距離，
+ *   落地分散在不同子步 —— 擠在同一步會超過事件緩衝的 64 筆。
+ * - `targets()`：存活地面目標的位置，對準它們驗「打到目標仍是火花」。
+ * - `visible(on)`：土柱四池顯示與否，同頁 A/B 用。
+ * - `live()`：各池與火花的存活數。
+ */
+;(window as unknown as Record<string, unknown>)['__dirt'] = {
+  strafe(n = 40, x = 0, z = 0) {
+    const ty = world.groundAt(x, z)
+    const ox = x - 500
+    const oy = ty + 290
+    const speed = 887
+    const step = speed / 240
+    for (let k = 0; k < n; k++) {
+      const tx = x + (hash01(k * 7919 + 11) * 2 - 1) * 4
+      const tz = z + (hash01(k * 7919 + 12) * 2 - 1) * 4
+      const dx = tx - ox, dy = ty - oy, dz = tz - z
+      const len = Math.hypot(dx, dy, dz)
+      const back = k * step
+      world.projectiles.spawn(
+        ox - (dx / len) * back, oy - (dy / len) * back, z - (dz / len) * back,
+        (dx / len) * speed, (dy / len) * speed, (dz / len) * speed,
+        10, player.index, player.team === 'blue' ? 0 : 1, 2, 12.7,
+      )
+    }
+    return { x, y: +ty.toFixed(1), z, n }
+  },
+  targets() {
+    return world.groundTargets.filter((t) => t.alive)
+      .map((t) => ({ x: +t.position.x.toFixed(0), z: +t.position.z.toFixed(0), team: t.team }))
+  },
+  visible(on: boolean) {
+    for (const p of Object.values(dirt.pools)) p.object.visible = on
+  },
+  /** 各池目前活著幾顆，加上火花 */
+  live() {
+    const p = dirt.pools
+    return {
+      clods: p.clods.live, mixClods: p.mixClods.live, spout: p.spout.live, dust: p.dust.live,
+      sparks: sparks.live,
+    }
+  },
 }
 
 ;(window as unknown as Record<string, unknown>)['__drill'] = (altitude = 5000) => {

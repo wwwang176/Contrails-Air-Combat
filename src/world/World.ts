@@ -266,18 +266,28 @@ export class World {
    * headless 測試不排空，於是它會填滿並開始丟棄。那沒有問題：`dropped`
    * 是給**有排空**的整合測試斷言用的（見 `multi-battle.test.ts`）。
    *
-   * 【它的語意是「彈丸撞到東西」，不是「彈丸打中飛機」】`land` 接上之後，
-   * 撞在山壁上的那一發也推一筆（火花與打到飛機同一組）。`multi-battle`
-   * 拿它的 `count` 當命中數 —— 那一支不注入地形，所以仍然成立，但下一個
-   * 想這樣用的人要知道。傷害仍然只走 `damageEvents`。
+   * 【它的語意是「彈丸撞到東西」，不是「彈丸打中飛機」】船、地面目標、氣球
+   * 也推一筆（火花與打到飛機同一組）。`multi-battle` 拿它的 `count` 當命中數
+   * —— 那一支沒有船與地面目標，所以仍然成立，但下一個想這樣用的人要知道。
+   * 打到地形走 `terrainHitEvents`。傷害仍然只走 `damageEvents`。
    */
   readonly hitEvents: ImpactEvents = createImpacts()
+
+  /**
+   * 子彈打到地形：x, y, z, 地表法線。消費者是土柱（`render/dirtImpact.ts`）。
+   *
+   * 【為什麼不共用 `hitEvents`】那一條的消費者是火花，而打進地面要噴的是土。
+   * 沒有欄位分得出來的話，渲染層就得自己再查一次地形。
+   *
+   * **呼叫端負責排空**（與 `hitEvents` 同一個理由）。
+   */
+  readonly terrainHitEvents: ImpactEvents = createImpacts()
 
   /**
    * 子彈打在**飛機以外**的東西上：x, y, z, 材質（`ImpactMaterial`）, 0, 0。
    * 法線那三格不用 —— 音效只要位置。
    *
-   * 【為什麼不共用 `hitEvents`】那一條同時收飛機、船、地面目標與山壁，而飛機
+   * 【為什麼不共用 `hitEvents`】那一條同時收飛機、船、地面目標與氣球，而飛機
    * 那些已經有自己的聲音（`hitSelf`／`hitDealt`）。沒有欄位分得出來，整批播就
    * 會與飛機那一套重複一次。
    *

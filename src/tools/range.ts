@@ -286,6 +286,8 @@ function frame(now: number): void {
     )
     splashes.emit(world.splashEvents, ocean.heightAt, elapsed)
     clearImpacts(world.hitEvents)
+    // 靶場在海上，沒有地形命中；照約定排空
+    clearImpacts(world.terrainHitEvents)
     clearImpacts(world.splashEvents)
     // 【擊墜走球塊火球，與 `main.ts` 同一份】靶場一律在海上，而海面的
     // `waterAt` 是有限值 —— 那一支的分支在這裡恆為空爆，所以只留 `AIR_BLAST`

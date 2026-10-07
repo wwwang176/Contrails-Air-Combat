@@ -1,7 +1,7 @@
 import { Quaternion, Vector3, type Camera } from 'three'
 import type { World } from '../world/World'
 import type { Combatant } from '../world/combatant'
-import { clearImpacts } from '../world/events'
+import { clearImpacts, createImpacts } from '../world/events'
 import { clearKills } from '../world/kills'
 import { clearDamage, DAMAGE_STRIDE } from '../world/damage'
 import { clearBursts } from '../world/flak'
@@ -9,6 +9,7 @@ import { pushDamageMark, type DamageMark } from '../hud/damageMarks'
 import type { createBattleAudioCues } from '../audio/battleAudioCues'
 import type { createBlastPresentation } from '../render/blastPresentation'
 import type { createSparks } from '../render/sparks'
+import type { DirtImpacts } from '../render/dirtImpact'
 import type { createSplashes } from '../render/splash'
 import type { createDebris } from '../render/debris'
 import type { createTerrain } from '../render/terrain'
@@ -21,7 +22,8 @@ import { emitFlakBlasts, type BlastPools } from '../render/blast'
 
 type EventWorld = Pick<World,
   'time' | 'killEvents' | 'groundKillEvents' | 'balloonKillEvents' | 'bombEvents'
-  | 'torpedoEvents' | 'torpedoWakeEvents' | 'burstEvents' | 'hitEvents' | 'splashEvents'
+  | 'torpedoEvents' | 'torpedoWakeEvents' | 'burstEvents' | 'hitEvents' | 'terrainHitEvents'
+  | 'splashEvents'
   | 'damageEvents' | 'materialHits' | 'groundTargets' | 'ships'>
 type EventTerrain = Pick<ReturnType<typeof createTerrain>, 'heightAt' | 'collisionHeightAt' | 'waterAt'>
 
@@ -30,6 +32,7 @@ export interface BattleEventSinks {
   readonly damageMarks: DamageMark[]
   readonly battleAudioCues: Pick<ReturnType<typeof createBattleAudioCues>, 'queueAudioCues'>
   readonly sparks: Pick<ReturnType<typeof createSparks>, 'emit'>
+  readonly dirt: Pick<DirtImpacts, 'emit'>
   readonly splashes: Pick<ReturnType<typeof createSplashes>, 'emit'>
   readonly blastPresentation: Pick<ReturnType<typeof createBlastPresentation>,
     'emitKillBlasts' | 'emitGroundKills' | 'emitBalloonPops' | 'emitBombBlasts'
@@ -45,11 +48,13 @@ export interface BattleEventSinks {
 
 /** 每個物理子步把事件交給音效、HUD 與特效，再依原順序排空來源。接收端與暫存只建一次。 */
 export function createBattleEventPresentation({
-  camera, damageMarks, battleAudioCues, sparks, splashes, blastPresentation,
+  camera, damageMarks, battleAudioCues, sparks, dirt, splashes, blastPresentation,
   debris, debrisColorOf, shipFires, groundFires, spray, flakBursts, BLAST_POOLS,
 }: BattleEventSinks) {
   const DAMAGE_DIR = new Vector3()
   const DAMAGE_VIEW = new Quaternion()
+  /** 打進河床的子彈：土柱推到這裡、同一個子步交給水柱、同一個子步排空 */
+  const riverSplashes = createImpacts()
 
   // 每次傳入當前戰局與地形，重新開戰時不會持有上一場的事件池。
   return function presentBattleEvents(
@@ -67,7 +72,14 @@ export function createBattleEventPresentation({
       world.hitEvents, camera.position.x, camera.position.y, camera.position.z,
     )
     splashes.emit(world.splashEvents, terrain.heightAt, elapsed)
+    // 【打到地形噴土】剔除距離與河面判斷在 `dirt.emit` 裡。河面水柱的高度函數
+    // 是水面（`waterAt`），不是 `heightAt` —— 後者是陸地與海面取 max，不含河
+    const c = camera.position
+    dirt.emit(world.terrainHitEvents, c.x, c.y, c.z, terrain.waterAt, riverSplashes)
+    splashes.emit(riverSplashes, terrain.waterAt, elapsed)
     clearImpacts(world.hitEvents)
+    clearImpacts(world.terrainHitEvents)
+    clearImpacts(riverSplashes)
     clearImpacts(world.splashEvents)
     // 【只取玩家自己的】World 不知道誰是玩家，所以它對每一架都推
     // （受擊方向指示器 spec §3.1）。過濾在這裡做。

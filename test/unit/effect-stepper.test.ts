@@ -34,7 +34,7 @@ function setup() {
   const deps = {
     wrecks, debris,
     emitWreckFirePuff: vi.fn(() => { order.push('wreckFire') }),
-    sparks: pool('sparks'), blastSparks: pool('blastSparks'),
+    sparks: pool('sparks'), dirt: pool('dirt'), blastSparks: pool('blastSparks'),
     smoke: pool('smoke'), spray: pool('spray'), splashes: pool('splashes'),
     fireball: pool('fireball'), steam: pool('steam'), shipFireSmoke: pool('shipFireSmoke'),
     wreckFireSmoke: pool('wreckFireSmoke'), blastChunks: pool('blastChunks'),
@@ -63,6 +63,7 @@ describe('共用特效步進', () => {
     expect(order.indexOf('smoke.emit')).toBeLessThan(order.indexOf('smoke.step'))
     expect(deps.blastChunks.step).toHaveBeenCalledWith(0.1, deps.wrecks.anchors)
     expect(deps.blastGlow.step).toHaveBeenCalledWith(0.1, deps.wrecks.anchors)
+    expect(deps.dirt.step).toHaveBeenCalledWith(0.1)
     expect(mistStepped()).toBe(true)
   })
 

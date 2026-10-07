@@ -29,6 +29,7 @@ export interface ProjectileHitWorld {
   readonly balloons: readonly Balloon[]
   readonly land: LandField | null
   readonly hitEvents: ImpactEvents
+  readonly terrainHitEvents: ImpactEvents
   readonly materialHits: ImpactEvents
   readonly shipKillEvents: ImpactEvents
   readonly groundKillEvents: ImpactEvents
@@ -375,18 +376,20 @@ export class ProjectileHits {
       // 6 m），而彈丸一步走 3.7~4.5 m —— 在迴圈開頭無條件 `continue` 會把
       // 那個命中吃掉。所以要算出交點參數再跟 `bestT` 比先後。
       //
-      // 【火花與打到飛機同一組】`hitEvents` 的消費者是 `sparks.emit`，
-      // 傷害走的是 `damageEvents` —— 所以推一筆進去就是「跟打到飛機一樣的
-      // 火花」，渲染層一行都不用改。**不推 `damageEvents`**：那一條要一個
-      // `victim.index`，山不是一架飛機。
+      // 【推 `terrainHitEvents`，不推 `hitEvents`】打進地面噴的是土柱，不是
+      // 火花。**不推 `damageEvents`**：那一條要一個 `victim.index`，山不是
+      // 一架飛機。
       if (land !== null) {
         const landT = landHitT(ax, ay, az, bx, by, bz, land)
         if (landT < bestT) {
           const hx = ax + (bx - ax) * landT
-          const hy = ay + (by - ay) * landT
           const hz = az + (bz - az) * landT
+          // 【高度取地表，不取線段】`landHitT` 回的是第一個落到地面以下的
+          // 取樣點。線段的水平長度短於取樣步長時只取兩端 —— 垂直往下打的
+          // 那一發終點在地下好幾公尺，土柱與煙塵會整團埋在地面下
+          const hy = land.field.sample(hx, hz)
           normalAt(land.field, hx, hz, LAND_N)
-          pushImpact(world.hitEvents, hx, hy, hz, LAND_N.nx, LAND_N.ny, LAND_N.nz)
+          pushImpact(world.terrainHitEvents, hx, hy, hz, LAND_N.nx, LAND_N.ny, LAND_N.nz)
           p.kill(i)
           continue
         }

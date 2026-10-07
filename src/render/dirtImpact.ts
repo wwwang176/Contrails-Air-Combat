@@ -2,6 +2,8 @@ import { Color, NormalBlending, Vector3, type Texture } from 'three'
 import { hash01 } from '../core/hash'
 import { createParticles, type Particles } from './particles'
 import { coneDirection } from './scatter'
+import { IMPACT_STRIDE, pushImpact, type ImpactEvents } from '../world/events'
+import type { TerrainKind } from '../world/terrainKind'
 
 /**
  * 子彈打進地面 —— 土柱＋土塊＋煙塵。
@@ -98,8 +100,8 @@ interface SurfaceColors {
   readonly clod: number
   readonly spout: number
   readonly dust: number
-  /** 夾在裡面的深色土塊。null = 不夾 */
-  readonly mix: number | null
+  /** 夾在裡面的深色土塊。土地上不發射，這一格只是讓池有個顏色 */
+  readonly mix: number
 }
 
 /**
@@ -109,51 +111,108 @@ interface SurfaceColors {
  * 剛翻起的濕土，比較深。兩者同色的話分不出哪一團是剛打的。
  */
 export const DIRT_COLORS: Record<DirtSurface, SurfaceColors> = {
-  soil: { clod: 0x3b2a1b, spout: 0x5a4532, dust: 0xb3a38c, mix: null },
+  soil: { clod: 0x3b2a1b, spout: 0x5a4532, dust: 0xb3a38c, mix: 0x3b2a1b },
   snow: { clod: 0xeef1f4, spout: 0xe6eaee, dust: 0xf2f4f6, mix: 0x3b2a1b },
+}
+
+/**
+ * 離相機超過這個距離的命中不噴，m。
+ *
+ * 1,920 px、65° 視野下 1 px 約 5.9e-4 rad（見 `sparks.ts`）：1,500 m 處 1 px
+ * 約 0.9 m，煙塵約 9 px、土柱約 4 px，再遠就讀不出來了。
+ */
+export const DIRT_CULL = 1500
+
+/**
+ * 池的容量。一架六挺掃射每秒約 80 發落地，存活數是土塊約 520（雪地上其中約
+ * 180 顆在夾土池）、土柱約 180、煙塵約 140。
+ *
+ * 【不要隨手加大】`createParticles.step` 每幀掃完整容量，GPU 每幀畫滿容量的
+ * 實例 —— 固定成本跟著容量走，不是存活數。滿了覆蓋最舊的，那幾顆快燒完了。
+ */
+const CAPACITY = { clods: 1024, mixClods: 512, spout: 512, dust: 512 } as const
+
+/** 雪地就是 `winterSteppe` 季節的地圖（`render/terrain.ts`）。新增冬季地圖要一起改這裡 */
+export function dirtSurfaceOf(kind: TerrainKind): DirtSurface {
+  return kind === 'rzhev' ? 'snow' : 'soil'
 }
 
 export interface DirtPools {
   readonly clods: Particles
-  /** 雪地上的深色土塊。土地上是 null */
-  readonly mixClods: Particles | null
+  /** 雪地上的深色土塊。土地上不發射 */
+  readonly mixClods: Particles
   readonly spout: Particles
   readonly dust: Particles
 }
 
+export type MutableDirtParams = { -readonly [K in keyof DirtImpactParams]: number }
+
+export interface DirtImpacts {
+  /** 四池。場景加各池的 `object` */
+  readonly pools: DirtPools
+  /** 每一發的配方，`emit` 每次讀它。展示區直接改這一份 */
+  readonly params: MutableDirtParams
+  /** 換地表只改顏色，池不重建 */
+  setSurface(s: DirtSurface): void
+  /**
+   * 依地形命中事件發射。熱路徑：不配置。
+   *
+   * @param waterAt       水面高度（`Terrain.waterAt`），沒有水是 −Infinity
+   * @param riverSplashes 落點在河面以下的推到這裡，高度是水面，交給水柱
+   */
+  emit(
+    events: ImpactEvents, cameraX: number, cameraY: number, cameraZ: number,
+    waterAt: (x: number, z: number) => number, riverSplashes: ImpactEvents,
+  ): void
+  /** 積分一幀。**在渲染幀率呼叫，不在物理步** */
+  step(dt: number): void
+  /** 四池歸零、種子歸零 */
+  reset(): void
+  dispose(): void
+}
+
 /**
- * 建一組池。換地表要重建 —— 顏色在建構時就烘進 `color` 回呼。
+ * 建一組。**建一次，換地圖用 `setSurface`**。
  *
  * @param dustTex 煙塵的不透明度貼圖（`textures/smoke.png`）。省略時是軟邊圓
  */
-export function createDirtPools(
-  surface: DirtSurface, tune: DirtPoolTune = DIRT_POOL_TUNE, dustTex?: Texture,
-  capacity = 2048,
-): DirtPools {
-  const c = DIRT_COLORS[surface]
-  const solid = (hex: number, life: number): Particles => {
-    const tint = new Color(hex)
-    return createParticles({
-      capacity,
-      blending: NormalBlending,
-      life,
-      lifeJitter: 0.2,
-      sizeFrom: CLOD_SIZE,
-      sizeTo: CLOD_SIZE,
-      gravity: -9.80665,
-      drag: 0.4,
-      alphaFrom: 1,
-      shadeJitter: 0.35,
-      color: (_t, out) => { out.copy(tint) },
-    })
+export function createDirtImpacts(
+  tune: DirtPoolTune = DIRT_POOL_TUNE, dustTex?: Texture,
+): DirtImpacts {
+  // 【顏色由這四個物件持有】`color` 回呼每幀讀它們，`setSurface` 改寫它們
+  const clodTint = new Color()
+  const mixTint = new Color()
+  const spoutTint = new Color()
+  const dustTint = new Color()
+  let surface: DirtSurface = 'soil'
+  const setSurface = (s: DirtSurface): void => {
+    surface = s
+    const c = DIRT_COLORS[s]
+    clodTint.set(c.clod)
+    mixTint.set(c.mix)
+    spoutTint.set(c.spout)
+    dustTint.set(c.dust)
   }
-  const spoutTint = new Color(c.spout)
-  const dustTint = new Color(c.dust)
-  return {
-    clods: solid(c.clod, tune.clodLife),
-    mixClods: c.mix === null ? null : solid(c.mix, tune.clodLife),
+  setSurface('soil')
+
+  const solid = (tint: Color, capacity: number): Particles => createParticles({
+    capacity,
+    blending: NormalBlending,
+    life: tune.clodLife,
+    lifeJitter: 0.2,
+    sizeFrom: CLOD_SIZE,
+    sizeTo: CLOD_SIZE,
+    gravity: -9.80665,
+    drag: 0.4,
+    alphaFrom: 1,
+    shadeJitter: 0.35,
+    color: (_t, out) => { out.copy(tint) },
+  })
+  const pools: DirtPools = {
+    clods: solid(clodTint, CAPACITY.clods),
+    mixClods: solid(mixTint, CAPACITY.mixClods),
     spout: createParticles({
-      capacity,
+      capacity: CAPACITY.spout,
       blending: NormalBlending,
       life: tune.spoutLife,
       lifeJitter: 0.25,
@@ -166,7 +225,7 @@ export function createDirtPools(
       color: (_t, out) => { out.copy(spoutTint) },
     }),
     dust: createParticles({
-      capacity,
+      capacity: CAPACITY.dust,
       blending: NormalBlending,
       life: tune.dustLife,
       lifeJitter: 0.3,
@@ -183,29 +242,57 @@ export function createDirtPools(
       color: (_t, out) => { out.copy(dustTint) },
     }),
   }
-}
+  const list = [pools.clods, pools.mixClods, pools.spout, pools.dust]
+  const params: MutableDirtParams = { ...DIRT_IMPACT }
+  /** 這一場第幾發。種子用它 —— 同一個種子的兩發長得一模一樣 */
+  let seed = 0
 
-export function dirtPoolList(p: DirtPools): Particles[] {
-  return p.mixClods === null ? [p.clods, p.spout, p.dust] : [p.clods, p.mixClods, p.spout, p.dust]
+  return {
+    pools,
+    params,
+    setSurface,
+    emit(events, cx, cy, cz, waterAt, riverSplashes) {
+      const d = events.data
+      for (let e = 0; e < events.count; e++) {
+        const o = e * IMPACT_STRIDE
+        const x = d[o]!, y = d[o + 1]!, z = d[o + 2]!
+        const dx = x - cx, dy = y - cy, dz = z - cz
+        if (dx * dx + dy * dy + dz * dz > DIRT_CULL * DIRT_CULL) continue
+        // 【河底不噴土】子彈穿過河面才打到河床，看得到的是水面上那一柱水
+        const w = waterAt(x, z)
+        if (w > y) {
+          pushImpact(riverSplashes, x, w, z, 0, 1, 0)
+          continue
+        }
+        emitDirtImpact(pools, params, surface === 'snow', x, y, z, seed++)
+      }
+    },
+    step(dt) {
+      for (const p of list) p.step(dt)
+    },
+    reset() {
+      for (const p of list) p.reset()
+      seed = 0
+    },
+    dispose() {
+      for (const p of list) p.dispose()
+    },
+  }
 }
 
 const DIR = new Vector3()
 
-/**
- * 一發打進地面。熱路徑：不配置。
- *
- * @param seed 這一發的種子。**每一發要不同** —— 用序號遞增，同一個種子的兩發
- *             長得一模一樣
- */
-export function emitDirtImpact(
-  pools: DirtPools, p: DirtImpactParams, x: number, y: number, z: number, seed: number,
+/** 一發打進地面。熱路徑：不配置。`mix` = 這裡是雪地，土塊要夾泥土 */
+function emitDirtImpact(
+  pools: DirtPools, p: DirtImpactParams, mix: boolean,
+  x: number, y: number, z: number, seed: number,
 ): void {
   const base = seed * 37
   for (let k = 0; k < p.clodCount; k++) {
     coneDirection(0, 1, 0, p.clodCone, base + k, DIR)
     const v = p.clodSpeed * (0.6 + 0.4 * hash01(base + k + 0x51))
-    const mixed = pools.mixClods !== null && hash01(base + k + 0x9e3) < p.mixRatio
-    ;(mixed ? pools.mixClods! : pools.clods).emit(
+    const mixed = mix && hash01(base + k + 0x9e3) < p.mixRatio
+    ;(mixed ? pools.mixClods : pools.clods).emit(
       x, y, z, DIR.x * v, DIR.y * v, DIR.z * v, p.clodSize,
     )
   }

@@ -84,7 +84,7 @@ describe('考題本身要成立', () => {
 // ── 彈丸 ──────────────────────────────────────────────────
 
 /**
- * 從 A 往 B 射一發，回報它有沒有到得了 B、以及一路上有幾朵火花。
+ * 從 A 往 B 射一發，回報它有沒有到得了 B、以及一路上打到幾次地形。
  *
  * 【為什麼不擺一架飛機當靶、不走飛行模型】那樣量到的會是「機首追不追得上
  * 預瞄點」——1 km 外 3° 的機首誤差就是 52 m，對照組會因為打不準而紅，
@@ -106,8 +106,9 @@ function shot(land: LandField | null) {
   let closest = Infinity
   for (let i = 0; i < Math.round(2 / DT); i++) {
     w.step(DT)
-    sparks += w.hitEvents.count
+    sparks += w.terrainHitEvents.count
     clearImpacts(w.hitEvents)
+    clearImpacts(w.terrainHitEvents)
     clearImpacts(w.splashEvents)
     if (w.projectiles.live > 0) {
       // 池子裡只有這一發
@@ -116,7 +117,7 @@ function shot(land: LandField | null) {
       if (d < closest) closest = d
     }
   }
-  return { closest, sparks, dropped: w.hitEvents.dropped }
+  return { closest, sparks, dropped: w.terrainHitEvents.dropped }
 }
 
 describe('彈丸：山擋得住子彈', () => {
@@ -129,7 +130,7 @@ describe('彈丸：山擋得住子彈', () => {
     without = shot(null)
   }, 60_000)
 
-  it('有山：到不了對面，而且山壁上有火花', () => {
+  it('有山：到不了對面，而且打到了山壁', () => {
     console.log(JSON.stringify({
       closest: withLand.closest.toFixed(0), sparks: withLand.sparks,
     }))
@@ -146,7 +147,7 @@ describe('彈丸：山擋得住子彈', () => {
     expect(without.sparks).toBe(0)
   })
 
-  it('火花的緩衝沒有溢位', () => {
+  it('地形命中的緩衝沒有溢位', () => {
     expect(withLand.dropped).toBe(0)
   })
 })

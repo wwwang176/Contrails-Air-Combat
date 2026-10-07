@@ -14,6 +14,7 @@ type StepEffect = Pick<Particles, 'step'>
 
 export interface EffectStepPools {
   readonly sparks: StepEffect
+  readonly dirt: StepEffect
   readonly blastSparks: StepEffect
   readonly wrecks: Pick<ReturnType<typeof createWrecks>, 'step' | 'fireEvents' | 'sprayEvents' | 'splashEvents' | 'anchors'>
   readonly debris: Pick<ReturnType<typeof createDebris>, 'step' | 'smokeEvents' | 'sprayEvents'>
@@ -39,7 +40,7 @@ export interface EffectStepPools {
 
 /** 管理共用特效的步進與事件傳遞順序。池與回呼只綁定一次，不持有戰局或地形。 */
 export function createEffectStepper({
-  sparks, blastSparks, wrecks, debris, emitWreckFirePuff, smoke, spray, BLAST_POOLS,
+  sparks, dirt, blastSparks, wrecks, debris, emitWreckFirePuff, smoke, spray, BLAST_POOLS,
   splashes, fireball, steam, shipFireSmoke, wreckFireSmoke, blastJets,
   blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, blastMist, flakBursts, blastLights,
 }: EffectStepPools) {
@@ -52,8 +53,9 @@ export function createEffectStepper({
   return function stepEffects(
     worldSeconds: number, seedTime: number, terrain: EffectTerrain, elapsed: number,
   ): void {
-    // 【火花與水柱在幀率積分】純裝飾，不參與判定也不需要決定性
+    // 【火花、土柱與水柱在幀率積分】純裝飾，不參與判定也不需要決定性
     sparks.step(worldSeconds)
+    dirt.step(worldSeconds)
     // 【爆炸的火星走 `elapsed`】位置在著色器裡由出生到現在的時間算出來 ——
     // 暫停時它不走，慢動作時它一起慢
     blastSparks.step(elapsed)

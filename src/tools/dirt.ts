@@ -3,9 +3,10 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createScene } from '../render/scene'
 import { createTerrain, preloadTerrainScenery, type Terrain } from '../render/terrain'
 import {
-  DIRT_IMPACT, DIRT_POOL_TUNE, createDirtPools, dirtPoolList, emitDirtImpact,
-  type DirtImpactParams, type DirtPoolTune, type DirtPools, type DirtSurface,
+  DIRT_POOL_TUNE, createDirtImpacts,
+  type DirtImpactParams, type DirtImpacts, type DirtPoolTune, type DirtSurface,
 } from '../render/dirtImpact'
+import type { Particles } from '../render/particles'
 import { createSparks } from '../render/sparks'
 import { SMOKE_WIND } from '../render/wind'
 import { createImpacts, clearImpacts, pushImpact } from '../world/events'
@@ -17,7 +18,8 @@ import { assetUrl } from '../core/asset'
 /**
  * 彈著土柱展示區 —— 調校用的開發工具，不屬於遊戲。
  *
- * 子彈打進地面的土柱、土塊、煙塵。地形、日照、粒子池與遊戲同一批建構函數。
+ * 子彈打進地面的土柱、土塊、煙塵。地形、日照與遊戲同一批建構函數，土柱走的
+ * 是遊戲那一份 `createDirtImpacts`。
  * 「掃射」模擬一串機槍彈沿著地面推進，看的是落點記號在地上留多久、從機上
  * 讀不讀得出來；「疊上火花」是遊戲目前打到地形時的效果，對照用。
  *
@@ -35,21 +37,28 @@ ctx.scene.add(terrain.object)
 
 const dustTex = await new TextureLoader().loadAsync(assetUrl('/textures/smoke.png'))
 
-const params: { -readonly [K in keyof DirtImpactParams]: number } = { ...DIRT_IMPACT }
 const tune: { -readonly [K in keyof DirtPoolTune]: number } = { ...DIRT_POOL_TUNE }
 
 let surface: DirtSurface = 'soil'
-let pools: DirtPools = createDirtPools(surface, tune, dustTex)
-for (const p of dirtPoolList(pools)) ctx.scene.add(p.object)
+let impacts: DirtImpacts = createDirtImpacts(tune, dustTex)
+const poolList = (): Particles[] => Object.values(impacts.pools)
+for (const p of poolList()) ctx.scene.add(p.object)
 
+/** 池的壽命與尺寸在建構時固定，改了要重建。配方與地表沿用目前這一份 */
 function rebuildPools(): void {
-  for (const p of dirtPoolList(pools)) {
-    ctx.scene.remove(p.object)
-    p.dispose()
-  }
-  pools = createDirtPools(surface, tune, dustTex)
-  for (const p of dirtPoolList(pools)) ctx.scene.add(p.object)
+  for (const p of poolList()) ctx.scene.remove(p.object)
+  impacts.dispose()
+  const params = impacts.params
+  impacts = createDirtImpacts(tune, dustTex)
+  Object.assign(impacts.params, params)
+  impacts.setSurface(surface)
+  for (const p of poolList()) ctx.scene.add(p.object)
 }
+
+/** 單發一筆、立刻發射。展示區沒有河 */
+const shotEvents = createImpacts(1)
+const noRiver = createImpacts(1)
+const NO_WATER = (): number => -Infinity
 
 const sparks = createSparks()
 ctx.scene.add(sparks.object)
@@ -97,7 +106,11 @@ function hitAt(dx: number, dz: number): void {
   const x = aimX + dx
   const z = aimZ + dz
   const y = terrain.heightAt(x, z, elapsed)
-  emitDirtImpact(pools, params, x, y, z, shotSeed++)
+  shotSeed++
+  pushImpact(shotEvents, x, y, z, 0, 1, 0)
+  const c = ctx.camera.position
+  impacts.emit(shotEvents, c.x, c.y, c.z, NO_WATER, noRiver)
+  clearImpacts(shotEvents)
   if (showSparks) pushImpact(sparkEvents, x, y, z, 0, 1, 0)
 }
 
@@ -188,10 +201,10 @@ const f2 = (v: number): string => v.toFixed(2)
 const deg = (v: number): string => v.toFixed(0) + '°'
 
 type ParamKey = keyof DirtImpactParams
-const pGet = (k: ParamKey) => (): number => params[k]
-const pSet = (k: ParamKey) => (v: number): void => { params[k] = v }
-const coneGet = (k: ParamKey) => (): number => Math.round((params[k] * 180) / Math.PI)
-const coneSet = (k: ParamKey) => (v: number): void => { params[k] = (v * Math.PI) / 180 }
+const pGet = (k: ParamKey) => (): number => impacts.params[k]
+const pSet = (k: ParamKey) => (v: number): void => { impacts.params[k] = v }
+const coneGet = (k: ParamKey) => (): number => Math.round((impacts.params[k] * 180) / Math.PI)
+const coneSet = (k: ParamKey) => (v: number): void => { impacts.params[k] = (v * Math.PI) / 180 }
 type TuneKey = keyof DirtPoolTune
 const tGet = (k: TuneKey) => (): number => tune[k]
 const tSet = (k: TuneKey) => (v: number): void => { tune[k] = v; rebuildPools() }
@@ -244,6 +257,7 @@ numRow(poolRows, '煙塵濃度', 0.05, 1, 0.05, tGet('dustAlpha'), tSet('dustAlp
 function dump(): void {
   const d = (v: number): string => '(' + Math.round((v * 180) / Math.PI) + ' * Math.PI) / 180'
   const cones = new Set<string>(['clodCone', 'spoutCone', 'dustCone'])
+  const params = impacts.params
   out.textContent = [
     'export const DIRT_IMPACT: DirtImpactParams = {',
     ...(Object.keys(params) as ParamKey[]).map((k) =>
@@ -289,7 +303,7 @@ const surfaceTabs = document.getElementById('surface') as HTMLElement
 function setSurface(s: DirtSurface): void {
   surface = s
   markTab(surfaceTabs, s)
-  rebuildPools()
+  impacts.setSurface(s)
 }
 tabs(surfaceTabs, [
   { id: 'soil', name: '土' }, { id: 'snow', name: '雪＋土' },
@@ -394,7 +408,7 @@ function stepAll(dt: number): void {
     sparks.emit(sparkEvents, c.x, c.y, c.z)
     clearImpacts(sparkEvents)
   }
-  for (const p of dirtPoolList(pools)) p.step(dt)
+  impacts.step(dt)
   sparks.step(dt)
 }
 
@@ -429,7 +443,7 @@ const probe = {
    * 舊粒子歸零；先 step 再畫的話上傳範圍只剩新粒子那幾格，舊的留在畫面上
    */
   clear(): void {
-    for (const p of dirtPoolList(pools)) p.reset()
+    impacts.reset()
     sparks.reset()
     strafeT = -1
     ctx.renderer.render(ctx.scene, ctx.camera)
@@ -481,9 +495,10 @@ function frame(now: number): void {
   terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
   ctx.renderer.render(ctx.scene, ctx.camera)
 
-  const live = dirtPoolList(pools).reduce((n, p) => n + p.live, 0)
+  const pools = impacts.pools
+  const live = poolList().reduce((n, p) => n + p.live, 0)
   liveOut.textContent =
-    `土柱 ${pools.spout.live}　土塊 ${pools.clods.live + (pools.mixClods?.live ?? 0)}　` +
+    `土柱 ${pools.spout.live}　土塊 ${pools.clods.live + pools.mixClods.live}　` +
     `煙塵 ${pools.dust.live}\n合計 ${live}　火花 ${sparks.live}\n` +
     `距上一輪 ${sinceFire.toFixed(1)}s`
   requestAnimationFrame(frame)

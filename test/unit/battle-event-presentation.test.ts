@@ -4,7 +4,7 @@ import { createBattleEventPresentation } from '../../src/app/battleEventPresenta
 import { World } from '../../src/world/World'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
-import { createImpacts, pushImpact } from '../../src/world/events'
+import { createImpacts, pushImpact, type ImpactEvents } from '../../src/world/events'
 import { pushKill } from '../../src/world/kills'
 import { pushDamage } from '../../src/world/damage'
 import { pushBurst } from '../../src/world/flak'
@@ -21,6 +21,14 @@ function setup() {
     observed.push(`${name}:${events.count}`)
   })
   const particle = () => ({ emit: vi.fn() })
+  /** 假的土柱：記下收到幾筆，並把每一筆當成河面以下推進水柱緩衝 */
+  const dirt = {
+    emit: vi.fn((events: ImpactEvents, _x: number, _y: number, _z: number,
+      _waterAt: (x: number, z: number) => number, river: ImpactEvents) => {
+      observed.push(`dirt:${events.count}`)
+      for (let i = 0; i < events.count; i++) pushImpact(river, 0, 1, 0, 0, 1, 0)
+    }),
+  }
   // 記錄池邊界，不建立 GPU 資源。
   const BLAST_POOLS = {
     fireball: particle(), smoke: particle(), dust: particle(), spray: particle(),
@@ -35,7 +43,7 @@ function setup() {
   const deps = {
     camera, damageMarks, groundFires, shipFires: createShipFires(), BLAST_POOLS,
     battleAudioCues: { queueAudioCues: audio },
-    sparks: { emit: record('sparks') }, splashes: { emit: record('splashes') },
+    sparks: { emit: record('sparks') }, splashes: { emit: record('splashes') }, dirt,
     blastPresentation: {
       emitKillBlasts: record('kill'), emitGroundKills: record('ground'),
       emitBalloonPops: record('balloon'), emitBombBlasts: record('bomb'),
@@ -53,6 +61,7 @@ describe('物理子步的事件呈現', () => {
   it('音效、特效與火災先讀事件，消費後排空，下一個子步不重播', () => {
     const { world, player, deps, present, terrain, observed } = setup()
     pushImpact(world.hitEvents, 1, 2, 3, 0, 1, 0)
+    pushImpact(world.terrainHitEvents, 4, 0, 6, 0, 1, 0)
     pushImpact(world.splashEvents, 1, 0, 3, 0, 1, 0)
     pushKill(world.killEvents, 1, 2, 3, 0, 0, 0, player.index)
     pushDamage(world.damageEvents, player.index, 1, 0, 0, 0)
@@ -61,15 +70,20 @@ describe('物理子步的事件呈現', () => {
     pushImpact(world.torpedoWakeEvents, 30, 0, 40, 0, 1, 0)
     pushBurst(world.burstEvents, 1, 2, 3, 0)
     present(world, player, terrain, 5, false)
+    // 兩次 splashes：子彈入海那一份、土柱推出的河面水柱那一份
     expect(observed).toEqual([
-      'audio:1:1:1', 'sparks:1', 'splashes:1', 'kill:1', 'ground:0',
+      'audio:1:1:1', 'sparks:1', 'splashes:1', 'dirt:1', 'splashes:1', 'kill:1', 'ground:0',
       'balloon:0', 'debris:1', 'bomb:1', 'torpedo:1', 'flak:1',
     ])
+    // 河面水柱的高度函數是這一次傳進來的水面，不是陸地高度
+    const river = deps.dirt.emit.mock.calls[0]![5]
+    expect(deps.dirt.emit.mock.calls[0]![4]).toBe(terrain.waterAt)
+    expect(deps.splashes.emit).toHaveBeenCalledWith(river, terrain.waterAt, 5)
     expect(deps.groundFires.live.some(x => x !== 0)).toBe(true)
     expect(deps.spray.emit).toHaveBeenCalled()
     expect(deps.flakBursts.emit).toHaveBeenCalled()
-    for (const events of [world.hitEvents, world.splashEvents, world.killEvents,
-      world.damageEvents, world.bombEvents, world.torpedoEvents,
+    for (const events of [world.hitEvents, world.terrainHitEvents, river, world.splashEvents,
+      world.killEvents, world.damageEvents, world.bombEvents, world.torpedoEvents,
       world.torpedoWakeEvents, world.burstEvents]) expect(events.count).toBe(0)
     const sprayCalls = deps.spray.emit.mock.calls.length
     const flakCalls = deps.flakBursts.emit.mock.calls.length
@@ -92,7 +106,7 @@ describe('物理子步的事件呈現', () => {
     pushImpact(oldWorld.hitEvents, 1, 2, 3, 0, 1, 0)
     present(world, player, newTerrain, 99, true)
     expect(deps.battleAudioCues.queueAudioCues).toHaveBeenLastCalledWith(world, player, newTerrain, true)
-    expect(deps.splashes.emit).toHaveBeenLastCalledWith(world.splashEvents, newTerrain.heightAt, 99)
+    expect(deps.splashes.emit).toHaveBeenCalledWith(world.splashEvents, newTerrain.heightAt, 99)
     const visible = deps.damageMarks.filter(m => m.intensity > 0)
     expect(visible).toHaveLength(1)
     expect(visible[0]!.x).toBeCloseTo(0)

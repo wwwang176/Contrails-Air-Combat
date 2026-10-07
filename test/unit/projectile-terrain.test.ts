@@ -18,7 +18,7 @@ import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
  *
  * ```
  *   海面回歸    高度場沒島的地方是 −8。少了「陸地要 > 0」，入海的子彈會在
- *               水下 8 m 爆火花並提早消失，而不是到 SEA_KILL_Y 才回收
+ *               水下 8 m 噴土並提早消失，而不是到 SEA_KILL_Y 才回收
  *   命中優先    同一步「先打中飛機、後進入地面」是合法命中。飛機真的會貼著
  *               坡面飛（甲板實測離地 6 m），而彈丸一步走 3.7~4.5 m
  *   不推傷害    damageEvents 要一個 victim.index。山不是飛機
@@ -56,33 +56,54 @@ const UP = new Vector3(0, 1, 0)
 function fireOne(
   w: World, x: number, y: number, z: number, vx: number, vy: number, vz: number,
   steps: number,
-): { hits: number; splashes: number; damage: number; live: number } {
+): { hits: number; terrain: number; splashes: number; damage: number; live: number } {
   // 【owner 不能是 −1】那是彈丸池的空槽哨兵，resolveHits 會直接跳過。
   // 給 0：這一支多半沒有 combatants，於是射手是 undefined、陣營 −1，
   // 等於「不做同隊過濾」——正是這幾條想要的
   w.projectiles.spawn(x, y, z, vx, vy, vz, 10, 0, 0, PROJECTILE_LIFETIME, 12.7)
   let hits = 0
+  let terrain = 0
   let splashes = 0
   let damage = 0
   for (let i = 0; i < steps; i++) {
     w.step(DT)
     hits += w.hitEvents.count
+    terrain += w.terrainHitEvents.count
     splashes += w.splashEvents.count
     damage += w.damageEvents.count
     clearImpacts(w.hitEvents)
+    clearImpacts(w.terrainHitEvents)
     clearImpacts(w.splashEvents)
     w.damageEvents.count = 0
   }
-  return { hits, splashes, damage, live: w.projectiles.live }
+  return { hits, terrain, splashes, damage, live: w.projectiles.live }
 }
 
 describe('彈丸撞到陸地', () => {
-  it('往高台裡飛 → 火花 + 回收', () => {
+  it('往高台裡飛 → 地形命中（不是火花）+ 回收', () => {
     const w = new World()
     w.land = plateau(100)
     const r = fireOne(w, 0, 200, 0, 0, -400, 0, 120)
-    expect(r.hits).toBeGreaterThan(0)
+    expect(r.terrain).toBe(1)
+    expect(r.hits).toBe(0)
     expect(r.live).toBe(0)
+  })
+
+  /**
+   * 【命中點的高度是地表】`landHitT` 回的是第一個落到地面以下的取樣點。
+   * 垂直往下打時線段沒有水平長度，取樣只有兩端 —— 終點在地下 3.65 m，
+   * 土柱與煙塵會整團埋在地面下。
+   */
+  it('垂直打進平地：事件高度等於地表', () => {
+    const w = new World()
+    const f = createHeightField(16, 40)
+    f.data.fill(0)
+    // 【landAbove 要是 −Infinity】內陸的平原正好是 0，`h > 0` 對它恆為假
+    w.land = { field: f, ceiling: 0, landAbove: -Infinity }
+    w.projectiles.spawn(0, 0.1, 0, 0, -900, 0, 10, 0, 0, PROJECTILE_LIFETIME, 12.7)
+    w.step(DT)
+    expect(w.terrainHitEvents.count).toBe(1)
+    expect(w.terrainHitEvents.data[1]).toBeCloseTo(0, 5)
   })
 
   it('撞到陸地不推 damageEvents —— 山不是一架飛機', () => {
@@ -96,6 +117,7 @@ describe('彈丸撞到陸地', () => {
     const w = new World()
     const r = fireOne(w, 0, 200, 0, 0, -400, 0, 120)
     expect(r.hits).toBe(0)
+    expect(r.terrain).toBe(0)
   })
 
   /**
@@ -109,6 +131,7 @@ describe('彈丸撞到陸地', () => {
     const r = fireOne(w, 0, 20, 0, 0, -400, 0, 120)
     expect(r.splashes).toBeGreaterThan(0)
     expect(r.hits).toBe(0)
+    expect(r.terrain).toBe(0)
     expect(r.live).toBe(0)
   })
 
@@ -120,6 +143,7 @@ describe('彈丸撞到陸地', () => {
     const rb = fireOne(b, 0, 20, 0, 0, -400, 0, 120)
     expect(ra.splashes).toBe(rb.splashes)
     expect(ra.hits).toBe(rb.hits)
+    expect(ra.terrain).toBe(rb.terrain)
     expect(ra.live).toBe(rb.live)
   })
 })
