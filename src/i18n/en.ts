@@ -197,6 +197,7 @@ export const en: Record<MessageKey, string> = {
   'mission.japan-m3.place': 'Off Rennell Island, Solomon Islands',
   'mission.japan-m3.objective': 'Sink the enemy ships',
   'mission.japan-m3.banner': 'Get low. Go for the fleet',
+  'mission.japan-m3.alert': 'Enemy alerted',
 
   'unit.planes': '{n, plural, one {# plane} other {# planes}}',
 

@@ -2,7 +2,7 @@ import type { Team } from '../world/team'
 import type { OrderOfBattle } from './order'
 import type { Beat } from './beats'
 import type { TransitRoute } from './convoy'
-import type { BalloonEntry, GroundEntry, MissionFleet } from './missions/types'
+import type { BalloonEntry, GroundEntry, MissionAlert, MissionFleet } from './missions/types'
 import type { ShipGunSpec } from '../world/shipGuns'
 import type { Loadout } from '../weapons/stores'
 import type { FeelKind } from '../specs/feel'
@@ -69,6 +69,8 @@ export interface BattleConfig {
    * 就是「型別過了但進戰鬥零艘船」，而且不報錯。
    */
   readonly fleet?: MissionFleet
+  /** 這一關的警戒設定。省略 = 沒有警戒（一開場就是已警戒）。透傳的約定與 `fleet` 相同。 */
+  readonly alert?: MissionAlert
   /** 這一關的地面目標。省略 = 一台都不放。透傳的約定與 `fleet` 相同。 */
   readonly ground?: readonly GroundEntry[]
   /** 這一關的防空氣球。省略 = 一顆都不放。透傳的約定與 `fleet` 相同。 */

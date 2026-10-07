@@ -267,9 +267,18 @@ export const JAPAN: readonly MissionCard[] = [
       // 黃昏的橘雲
       clouds: { yMin: 800, yMax: 1500, amount: 'some' },
       fleet: RENNELL_FLEET,
-      // 【低空】卡片寫的是「貼海飛行」。用預設的 4,000 m 的話，開場時
-      // 艦隊在 6.3 km 外、3.85 km 正下方 —— 不低頭看不到船。**起始值。**
+      // 【1,000 m 是紅方的開場高度】藍方由下面的 `blueSpawn` 另外排
       altitude: 1000,
+      // 【貼海、拉開】陸攻開在 200–300 m，低於警戒高度 500 m；相鄰 400 m，一開場不擠成一團
+      blueSpawn: { altitudeMin: 200, altitudeMax: 300, spacing: 400 },
+      // 【被發現才開打】史實的黃昏雷擊沒有護航，陸攻貼海從暗的一側進場、最後才被目視發現。
+      // 警戒前野貓在艦隊上空左右 5 km 之間來回巡邏不接戰，艦砲與陸攻砲塔停火；
+      // 陸攻飛高、靠近敵機或敵艦、投雷或打中東西就進入警戒（門檻在 `battle/alert.ts`）。
+      // 巡邏的寬度、高度與折返半徑是**起始值，由試飛裁定**
+      alert: {
+        messageKey: 'mission.japan-m3.alert',
+        patrolHalfWidth: 5000, patrolAltitude: 800, patrolRadius: 500,
+      },
       // 【擊沉任意四艘】八艘裡挑四艘，玩家自己決定打哪幾艘 —— 那本來
       // 就是雷擊機該做的決定。
       sinkCount: 4,

@@ -483,6 +483,19 @@ export interface MissionBattle {
    */
   readonly fleet?: MissionFleet
   /**
+   * 有這一格才有警戒（`battle/alert.ts`）：警戒前紅方戰鬥機在艦隊上空直線巡邏不接戰，
+   * 紅方艦砲與藍方砲塔停火；藍方被發現就進入警戒，整場不解除。
+   *
+   * 沒有這一格的關卡一開場就是「已警戒」，行為不變。
+   * 【要一路透傳】`MissionBattle` → `BattleConfig` → `createBattle`，漏一處就是警戒靜靜地不存在。
+   */
+  readonly alert?: MissionAlert
+  /**
+   * 藍方開場的高度範圍與左右間距（`battle/order.ts` 的 `spreadBlue`）。只動藍方，
+   * 而且藍方必須全是單機小隊（轟炸機）。
+   */
+  readonly blueSpawn?: BlueSpawn
+  /**
    * 這一關的地面目標。**沒有這一格的卡完全不產生**（與 `fleet` 同一個約定），
    * 透傳的路也相同 —— 漏一處就是進戰鬥零台，不報錯。
    */
@@ -614,6 +627,25 @@ export interface MissionBattle {
  * 【為什麼是一個中心＋一個艏向＋相對偏移】改艏向時若每一艘各存世界座標，
  * 全部都要重算，而重算的錯誤是「陣型悄悄歪掉」—— 沒有任何測試會紅。
  */
+/** 卡片上的警戒設定。觸發門檻寫死在 `battle/alert.ts`，這裡只有這一關自己的東西 */
+export interface MissionAlert {
+  /** 進入警戒時的訊息（`src/i18n`） */
+  readonly messageKey: MessageKey
+  /** 巡邏線兩端離艦隊中心的左右距離，m */
+  readonly patrolHalfWidth: number
+  /** 巡邏高度，m（世界高度） */
+  readonly patrolAltitude: number
+  /** 長機離端點多近（水平距離）就折返，m */
+  readonly patrolRadius: number
+}
+
+/** 藍方開場：高度在 `altitudeMin`…`altitudeMax` 之間依序平均排開，相鄰左右間距 `spacing`，m */
+export interface BlueSpawn {
+  readonly altitudeMin: number
+  readonly altitudeMax: number
+  readonly spacing: number
+}
+
 export interface MissionFleet {
   /** 艦隊中心的世界座標。 */
   readonly center: Vector3

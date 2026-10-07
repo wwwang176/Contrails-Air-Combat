@@ -261,6 +261,36 @@ describe('開場高度', () => {
 })
 
 /**
+ * 警戒與藍方開場（倫內爾島）。`missionConfigFrom` 明列回傳欄位，漏抄的症狀是警戒靜靜地不存在、
+ * 或陸攻照舊開在 1,000 m —— 一開場就越過警戒高度。
+ */
+describe('警戒與藍方開場', () => {
+  const rennell = (): ReadyMissionCard => MISSIONS.japan.find((c) => c.id === 'japan-m3') as ReadyMissionCard
+
+  it('倫內爾島帶著警戒設定；其餘的關卡都沒有', () => {
+    expect(missionConfigFrom(rennell()).alert).toEqual(rennell().battle.alert)
+    expect(rennell().battle.alert).toBeDefined()
+    for (const m of playable) {
+      if (m.id === 'japan-m3') continue
+      expect(missionConfigFrom(m).alert, m.id).toBeUndefined()
+    }
+  })
+
+  it('倫內爾島的陸攻排成一條橫線、高度 200–300 m、相鄰 400 m', () => {
+    expect(rennell().battle.blueSpawn).toEqual({ altitudeMin: 200, altitudeMax: 300, spacing: 400 })
+    const cfg = missionConfigFrom(rennell())
+    const blues = cfg.units.filter((u) => u.team === 'blue')
+    expect(blues.length).toBe(11)
+    for (const u of blues) {
+      expect(u.members.length).toBe(1)
+      expect(u.tier).toBe(2)
+    }
+    const step = 400 / cfg.schwarmSpacing
+    for (let i = 1; i < blues.length; i++) expect(blues[i]!.lane - blues[i - 1]!.lane).toBeCloseTo(step, 9)
+  })
+})
+
+/**
  * 掛載的複寫。
  *
  * 【為什麼這一條非有不可】`missionConfigFrom` **明列回傳欄位、不透傳未知

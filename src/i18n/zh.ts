@@ -199,6 +199,7 @@ export const zh = {
   'mission.japan-m3.place': '所羅門 倫內爾島外海',
   'mission.japan-m3.objective': '擊沉敵艦',
   'mission.japan-m3.banner': '壓低高度，衝向艦隊',
+  'mission.japan-m3.alert': '進入警戒狀態',
 
   'unit.planes': '{n} 架',
 

@@ -4,7 +4,7 @@ import { DEFAULT_BATTLE } from '../battleDefaults'
 import { VETERAN } from '../../ai/profile'
 import { ENTRY_PLANS, type EntryPlan, type SideEntry } from '../entry'
 import {
-  WAVE_LANE, convoyLine, lineAbreast, pincer, rotateEntry, soloBombers, stackedEntry, waveColumn,
+  WAVE_LANE, convoyLine, lineAbreast, pincer, rotateEntry, soloBombers, spreadBlue, stackedEntry, waveColumn,
 } from '../order'
 import { SCHWARM_SIZE } from '../flights'
 import type { Beat, BeatCondition, RecycleBeat, ReinforceBeat, WithdrawBeat } from '../beats'
@@ -157,7 +157,7 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
   // 【省略時連鍵都不放】理由同 `need`：沒寫 `convoyBox` 的卡一個位元都不該動
   const box = b.convoyBox === true ? { box: true } as const : {}
   // 【轟炸機一架一隊】見 `soloBombers`。波次在 `cardBeats` 過同一支
-  const units = soloBombers(rules.kind === 'convoy'
+  const solo = soloBombers(rules.kind === 'convoy'
     ? convoyLine(plan, {
       fighter: b.blueSpec,
       fighters: b.blueCount,
@@ -212,6 +212,10 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
           plan, b.blueSpec, b.blueCount, b.redSpec, b.redCount, b.redStarboard,
           DEFAULT_BATTLE.entryRange, DEFAULT_BATTLE.lateralOffset,
         ), DEFAULT_BATTLE.schwarmSpacing)
+  // 【藍方開場重排在拆單機之後】`spreadBlue` 只收單機小隊
+  const units = b.blueSpawn === undefined
+    ? solo
+    : spreadBlue(solo, b.blueSpawn, altitude, DEFAULT_BATTLE.schwarmSpacing)
   // 【縱隊排在最後】`depart` 節拍用索引範圍指認它們，而地面目標的索引就是在這張
   // 清單裡的位置
   const ground: GroundEntry[] = [
@@ -252,6 +256,8 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
       }
       : {}),
     ...(b.fleet === undefined ? {} : { fleet: b.fleet }),
+    // 【同樣明列】漏抄的症狀是警戒靜靜地不存在，艦隊一開場就開火
+    ...(b.alert === undefined ? {} : { alert: b.alert }),
     ...(b.balloons === undefined ? {} : { balloons: b.balloons }),
     // 【車隊與縱隊併進地面目標】三者都沒有時連鍵都不放
     ...(b.ground === undefined && b.vehicleConvoy === undefined && b.columns === undefined
