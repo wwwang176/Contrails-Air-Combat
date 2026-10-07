@@ -45,22 +45,22 @@ export function noseDownRad(q: { x: number; y: number; z: number; w: number }): 
  * 【0.62 全開】AI 俯衝的指示空速實測 0.65–0.76 倍極速（多半在 0.69 上下），整段俯衝都是全音量。
  *
  * 【音量先爬、音高後走】音高只看速度，從 0.58 起線性升到極速，音量全開時才剛開始走。
- * 【音高範圍 308–416 Hz】循環的基準是 428 Hz（播放速度 1），整體比基準低約 20%：從 308 Hz 升到 416 Hz 為止。
- * 地面聽到的警笛要經過距離低通，基準的音高會讓諧波集中在被濾掉的那一段，聽起來又高又扁。
+ * 【音高範圍 735–905 Hz】循環檔的基頻 864 Hz（播放速度 1）：從 735 Hz 升到 905 Hz 為止。
+ * 呼叫端再乘上 `sirenWobble` 的擺動。
  *
  * 【非有限值當 0】NaN 進到 AudioParam 會讓整條匯流排變成靜音，而且不報錯。
  */
 export const SIREN_AUDIBLE_DB = -45
 /** 循環檔的基頻，Hz（播放速度 1） */
-export const SIREN_BASE_HZ = 428
-export const SIREN_RATE_MAX = 416 / SIREN_BASE_HZ
+export const SIREN_BASE_HZ = 864
+export const SIREN_RATE_MAX = 905 / SIREN_BASE_HZ
 const SIREN_FLOOR_DB = -50
 const SIREN_ANGLE_START = (10 * Math.PI) / 180
 const SIREN_ANGLE_FULL = (45 * Math.PI) / 180
 const SIREN_GAIN_START = 0.40
 const SIREN_GAIN_FULL = 0.62
 const SIREN_PITCH_START = 0.58
-const SIREN_RATE_MIN = 308 / SIREN_BASE_HZ
+const SIREN_RATE_MIN = 735 / SIREN_BASE_HZ
 const smooth = (t: number): number => t * t * (3 - 2 * t)
 
 export function sirenParams(vneRatio: number, noseDown: number, out: { rate: number; gainDb: number }): void {
@@ -72,6 +72,22 @@ export function sirenParams(vneRatio: number, noseDown: number, out: { rate: num
   const speed = SIREN_FLOOR_DB * (1 - smooth(clamp((s - SIREN_GAIN_START) / (SIREN_GAIN_FULL - SIREN_GAIN_START), 0, 1)))
   out.gainDb = angle + speed
   out.rate = SIREN_RATE_MIN + (SIREN_RATE_MAX - SIREN_RATE_MIN) * clamp((s - SIREN_PITCH_START) / (1 - SIREN_PITCH_START), 0, 1)
+}
+
+/** 擺動的幅度（曲線音高的 1 倍到 1 + 這個倍數）與每秒次數 */
+const SIREN_WOBBLE = 0.03
+const SIREN_WOBBLE_HZ = 0.3
+
+/**
+ * 警笛音高的擺動倍數：以正弦在 1 到 1.03 之間來回，每秒 0.3 次。`t` 秒，`phase` 是錯開的圈數。
+ * 只往上擺，曲線給的音高是下緣。
+ *
+ * 【非有限值當 1】NaN 進到 AudioParam 會讓整條匯流排變成靜音，而且不報錯。
+ */
+export function sirenWobble(t: number, phase: number): number {
+  const c = SIREN_WOBBLE_HZ * t + phase
+  if (!Number.isFinite(c)) return 1
+  return 1 + (SIREN_WOBBLE / 2) * (1 + Math.sin(2 * Math.PI * c))
 }
 
 /**

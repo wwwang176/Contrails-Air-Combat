@@ -58,9 +58,9 @@ describe('警笛：主程式', () => {
   const fn = body(LOOPS, 'function update(')
 
   /** 【自己的不定位、坐在座艙裡才有】上帝視角時鏡頭在世界裡，不定位的聲音會變成「在耳邊」 */
-  it('自己的警笛：只有坐在座艙裡且這型有檔才播，音量與音高來自 sirenParams', () => {
+  it('自己的警笛：只有坐在座艙裡且這型有檔才播，音量與音高來自 sirenParams，音高再乘擺動', () => {
     expect(self).toMatch(/sirenParams\(vneRatio, noseDownRad\(me\.aircraft\.state\.orientation\), SIREN\)/)
-    expect(self).toMatch(/audio\.selfLoop\('siren', flying && sirenSelf !== null \? sirenSelf : null, SIREN\.rate, SIREN\.gainDb\)/)
+    expect(self).toMatch(/audio\.selfLoop\('siren', flying && sirenSelf !== null \? sirenSelf : null,\s*SIREN\.rate \* sirenWobble\(elapsed, 0\), SIREN\.gainDb\)/)
     expect(self).toMatch(/const sirenSelf = sirenFile\(spec\.id\)/)
   })
 
@@ -78,9 +78,10 @@ describe('警笛：主程式', () => {
    * 【先清再填、而且把這一架的播放速度與增益存起來】`AUDIO_VALID` 是與引擎、開火、砲塔共用的暫存，
    * 不先清的話上一段留下的 1 會讓不是警笛的飛機被當成警笛；速度與增益不存的話，`assign` 讀到上一幀（或別架）的值。
    */
-  it('每一架先清可用旗標，再存這一架的播放速度與增益', () => {
+  /** 擺動的相位用這一架的編號錯開，幾架一起俯衝時不會齊步擺 */
+  it('每一架先清可用旗標，再存這一架的播放速度（乘上錯開相位的擺動）與增益', () => {
     expect(fn).toMatch(/AUDIO_VALID\[c\.index\] = 0\n\s+if \(!c\.alive \|\| c\.retired/)
-    expect(fn).toMatch(/SIREN_RATE\[c\.index\] = SIREN\.rate\n\s+SIREN_GAIN\[c\.index\] = SIREN\.gainDb\n\s+if \(SIREN\.gainDb > SIREN_AUDIBLE_DB\)/)
+    expect(fn).toMatch(/SIREN_RATE\[c\.index\] = SIREN\.rate \* sirenWobble\(elapsed, c\.index \* SIREN_PHASE_STEP\)\n\s+SIREN_GAIN\[c\.index\] = SIREN\.gainDb\n\s+if \(SIREN\.gainDb > SIREN_AUDIBLE_DB\)/)
   })
 
   it('最近的四架進池，播放速度乘上多普勒、增益帶進去', () => {

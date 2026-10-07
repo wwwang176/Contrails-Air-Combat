@@ -41,14 +41,14 @@ export const CATEGORY: Record<Category, CategorySpec> = {
   engineSelf: { gainDb: -3, ref: 0, max: 0 },
   engine: { gainDb: -3, ref: 150, max: 3000 },
   /**
-   * 俯衝警笛（`sirenFile` 有檔的機種）。**自己的不定位**，音量與引擎同一個數字；別人的走 3D 定位。
+   * 俯衝警笛（`sirenFile` 有檔的機種）。**自己的不定位**，比引擎大 10 dB；別人的走 3D 定位。
    * 實際大小再乘上空速的曲線（`curves.ts` 的 `sirenParams`）。
    *
    * 【別人的傳得比引擎遠得多】警笛是專門拿來嚇人的，而且上帝視角停在地面時鏡頭離俯衝的飛機常有
    * 一兩公里：參考距離 250 m、衰減率 0.6，同為全音量時 1 km 外比引擎大約 10 dB、2 km 外大約 11 dB。
    * **起始值，由試玩裁定。**
    */
-  sirenSelf: { gainDb: -3, ref: 0, max: 0 },
+  sirenSelf: { gainDb: 7, ref: 0, max: 0 },
   siren: { gainDb: 0, ref: 250, max: 6000, rolloff: 0.6 },
   /**
    * 自己的槍。**一次擊發一個 one-shot，不是循環。**
@@ -192,7 +192,9 @@ export function fireFile(specId: string): string | null {
  * 俯衝警笛的檔。**只有 Ju 87 有**（Jericho 警笛）；回 null 的機種不響警笛 ——
  * 這是「這架會不會響」的唯一判斷，音量與音高隨空速變（`curves.ts` 的 `sirenParams`）。
  *
- * 檔案是 8 秒的循環：幾台差約 2% 的警報器疊在一起，播放速度 1 時基頻約 428 Hz。
+ * 檔案是 8 秒的立體聲循環（同一段 1 秒的循環接 8 次），播放速度 1 時基頻約 864 Hz。
+ * 左右聲道是同一段錯開半圈、往左右各擺一些再混的：寬度做在檔案裡，播放端不必再擺位。
+ * 換檔時 `curves.ts` 的 `SIREN_BASE_HZ` 要跟著改，否則整條音高曲線偏掉而且不報錯。
  */
 const SIREN_OF: Readonly<Record<string, string>> = { ju87: 'siren-ju87' }
 

@@ -7,7 +7,7 @@ import { indicatedAirspeed } from '../core/airspeed'
 import { OVERSPEED_FULL, OVERSPEED_SHAKE, overspeedShake } from '../core/overspeedFeedback'
 import type { AudioEngine } from './engine'
 import { SINGLE_FILES, engineFile, sirenFile } from './catalog'
-import { engineRate, noseDownRad, shakeGainDb, shakeInterval, sirenParams, windParams } from './curves'
+import { engineRate, noseDownRad, shakeGainDb, shakeInterval, sirenParams, sirenWobble, windParams } from './curves'
 import { nearMiss } from './nearMiss'
 
 interface FlightAudioFeedback {
@@ -66,7 +66,8 @@ export function createFlightAudio(
     // 俯衝警笛：自己的（不定位）。機頭朝下 10° 以上才響（10–45° 漸變），音量與音高隨空速；沒有警笛檔的機種是 null
     const sirenSelf = sirenFile(spec.id)
     sirenParams(vneRatio, noseDownRad(me.aircraft.state.orientation), SIREN)
-    audio.selfLoop('siren', flying && sirenSelf !== null ? sirenSelf : null, SIREN.rate, SIREN.gainDb)
+    audio.selfLoop('siren', flying && sirenSelf !== null ? sirenSelf : null,
+      SIREN.rate * sirenWobble(elapsed, 0), SIREN.gainDb)
     // 警告蜂鳴：飛出邊界，或速度進了紅線（與 HUD 的紅線警告同一個門檻）
     const warn = flying && (arenaWarning || vneRatio >= OVERSPEED_FULL)
     audio.selfLoop('warn', warn ? SINGLE_FILES.warn : null, 1, 0)

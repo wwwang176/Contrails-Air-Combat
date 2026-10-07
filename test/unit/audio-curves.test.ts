@@ -3,7 +3,7 @@ import { Quaternion, Vector3 } from 'three'
 import {
   engineRate, windParams, shakeInterval, shakeGainDb, dbToGain, soundArrived, distanceCutoffHz,
   hitFeedback, damageGainDb, absorptionDb, voiceLoudnessDb, blastGainDb, blastRate, dopplerRate, hitRate,
-  fadeInCurve, noseDownRad, sirenParams, SIREN_AUDIBLE_DB, SIREN_BASE_HZ, SIREN_RATE_MAX,
+  fadeInCurve, noseDownRad, sirenParams, sirenWobble, SIREN_AUDIBLE_DB, SIREN_BASE_HZ, SIREN_RATE_MAX,
 } from '../../src/audio/curves'
 
 describe('淡入曲線', () => {
@@ -169,20 +169,14 @@ describe('俯衝警笛', () => {
     expect((at(0.72).rate - lo) / (hi - lo)).toBeLessThan(0.5)
   })
 
-  /**
-   * 【整體比檔案的基頻（428 Hz）低約 20%】最低 308 Hz、最高 416 Hz。
-   * 地面聽到的警笛要經過距離低通，基頻再高的話諧波集中在被濾掉的那一段，聽起來又高又扁。
-   */
-  it('音高範圍 308–416 Hz：最高到極速為止，超過極速夾住；整段都比檔案的基頻低', () => {
-    expect(SIREN_BASE_HZ).toBe(428)
-    expect(at(0).rate * SIREN_BASE_HZ).toBeCloseTo(308, 6)
-    expect(SIREN_RATE_MAX * SIREN_BASE_HZ).toBeCloseTo(416, 6)
+  /** 【音高範圍 735–905 Hz】循環檔的基頻 864 Hz；極速時比檔案高約 5%，超過極速夾住 */
+  it('音高範圍 735–905 Hz：最高到極速為止，超過極速夾住', () => {
+    expect(SIREN_BASE_HZ).toBe(864)
+    expect(at(0).rate * SIREN_BASE_HZ).toBeCloseTo(735, 6)
+    expect(SIREN_RATE_MAX * SIREN_BASE_HZ).toBeCloseTo(905, 6)
     expect(at(1).rate).toBeCloseTo(SIREN_RATE_MAX, 6)
     expect(at(1.5).rate).toBeCloseTo(SIREN_RATE_MAX, 6)
-    for (const s of grid) {
-      expect(at(s).rate).toBeLessThanOrEqual(SIREN_RATE_MAX + 1e-9)
-      expect(at(s).rate, `s=${s}`).toBeLessThan(1)
-    }
+    for (const s of grid) expect(at(s).rate).toBeLessThanOrEqual(SIREN_RATE_MAX + 1e-9)
   })
 
   /** 【壞值不得傳下去】NaN 進到 AudioParam 會讓整條匯流排變成靜音，而且不報錯 */
@@ -193,6 +187,43 @@ describe('俯衝警笛', () => {
         expect(Number.isFinite(r.rate)).toBe(true)
         expect(r.gainDb).toBeLessThan(SIREN_AUDIBLE_DB)
       }
+    }
+  })
+})
+
+describe('警笛音高擺動', () => {
+  const PERIOD = 1 / 0.3
+
+  /** 【只往上擺】曲線給的音高是擺動的下緣，最多高 3%；不會比曲線低 */
+  it('倍數在 1.00–1.03 之間，兩端都碰得到', () => {
+    let lo = Infinity, hi = -Infinity
+    for (let i = 0; i <= 1000; i++) {
+      const m = sirenWobble((i / 1000) * PERIOD, 0)
+      lo = Math.min(lo, m)
+      hi = Math.max(hi, m)
+    }
+    expect(lo).toBeCloseTo(1, 4)
+    expect(hi).toBeCloseTo(1.03, 4)
+  })
+
+  it('每秒 0.3 次：隔一個週期回到同一個值，隔半個週期不同', () => {
+    // 正弦過零的時刻（t = 0）隔半個週期也在中點，所以不取
+    for (const t of [0.4, 0.7, 2.1]) {
+      expect(sirenWobble(t + PERIOD, 0)).toBeCloseTo(sirenWobble(t, 0), 9)
+      expect(Math.abs(sirenWobble(t + PERIOD / 2, 0) - sirenWobble(t, 0))).toBeGreaterThan(1e-3)
+    }
+  })
+
+  /** 【各架錯開】相位不同的兩架同一刻的倍數不同，空中幾架一起俯衝時不會齊步擺 */
+  it('相位不同，同一刻的倍數不同', () => {
+    expect(Math.abs(sirenWobble(1, 0) - sirenWobble(1, 0.25))).toBeGreaterThan(1e-3)
+  })
+
+  /** 【壞值不得傳下去】NaN 進到 AudioParam 會讓整條匯流排變成靜音，而且不報錯 */
+  it('非有限值回 1', () => {
+    for (const bad of [NaN, Infinity, -Infinity]) {
+      expect(sirenWobble(bad, 0)).toBe(1)
+      expect(sirenWobble(1, bad)).toBe(1)
     }
   })
 })

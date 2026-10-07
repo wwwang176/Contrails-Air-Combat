@@ -226,9 +226,9 @@ describe('音效目錄', () => {
    * 【別人的警笛要在遠處聽得到】上帝視角停在地面時，鏡頭離俯衝的飛機常有一兩公里。
    * 同為全音量時，1 km 與 2 km 外的警笛要比同一架的引擎大 8 dB 以上，否則被引擎與槍炮蓋掉。
    */
-  it('警笛的類別：自己的不定位、與引擎同音量；別人的定位，1–2 km 外比引擎大 8 dB 以上、傳得比引擎遠', () => {
+  it('警笛的類別：自己的不定位、比引擎大 10 dB；別人的定位，1–2 km 外比引擎大 8 dB 以上、傳得比引擎遠', () => {
     expect(CATEGORY.sirenSelf.ref).toBe(0)
-    expect(CATEGORY.sirenSelf.gainDb).toBe(CATEGORY.engineSelf.gainDb)
+    expect(CATEGORY.sirenSelf.gainDb).toBe(CATEGORY.engineSelf.gainDb + 10)
     expect(CATEGORY.siren.ref).toBeGreaterThan(0)
     expect(CATEGORY.siren.max).toBeGreaterThan(CATEGORY.engine.max)
     const loud = (c: keyof typeof CATEGORY, d: number): number =>

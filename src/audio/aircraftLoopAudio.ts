@@ -3,7 +3,7 @@ import type { Combatant } from '../world/combatant'
 import { indicatedAirspeed } from '../core/airspeed'
 import type { AudioEngine } from './engine'
 import { engineFile, fireFile, sirenFile, turretFile } from './catalog'
-import { SIREN_AUDIBLE_DB, dopplerRate, engineRate, noseDownRad, sirenParams } from './curves'
+import { SIREN_AUDIBLE_DB, dopplerRate, engineRate, noseDownRad, sirenParams, sirenWobble } from './curves'
 import { nearestN } from './nearest'
 
 /** 飛機定位循環的聲道選擇與開火保持；暫存只在建立時配置。 */
@@ -32,6 +32,9 @@ export function createAircraftLoopAudio(audio: Pick<AudioEngine, 'assign'>, cam:
   const SIREN_RATE = new Float32Array(64)
 
   const SIREN_GAIN = new Float32Array(64)
+
+  /** 警笛擺動每一個座位錯開的圈數：取黃金比例的小數部分，幾架一起俯衝時不會齊步擺 */
+  const SIREN_PHASE_STEP = 0.618
 
   const AUDIO_VALID = new Uint8Array(64)
 
@@ -98,7 +101,7 @@ export function createAircraftLoopAudio(audio: Pick<AudioEngine, 'assign'>, cam:
       sirenParams(
         indicatedAirspeed(c.aircraft.diag.aero.tas, c.aircraft.diag.air.sigma) / c.aircraft.spec.limits.vne,
         noseDownRad(c.aircraft.state.orientation), SIREN)
-      SIREN_RATE[c.index] = SIREN.rate
+      SIREN_RATE[c.index] = SIREN.rate * sirenWobble(elapsed, c.index * SIREN_PHASE_STEP)
       SIREN_GAIN[c.index] = SIREN.gainDb
       if (SIREN.gainDb > SIREN_AUDIBLE_DB) AUDIO_VALID[c.index] = 1
     }
