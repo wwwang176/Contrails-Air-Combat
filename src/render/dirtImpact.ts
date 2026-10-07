@@ -44,18 +44,18 @@ export interface DirtImpactParams {
 }
 
 export const DIRT_IMPACT: DirtImpactParams = {
-  clodCount: 6,
-  clodSpeed: 11,
-  clodCone: (22 * Math.PI) / 180,
+  clodCount: 5,
+  clodSpeed: 12,
+  clodCone: (38 * Math.PI) / 180,
   clodSize: 1,
-  spoutCount: 8,
+  spoutCount: 4,
   spoutSpeed: 54,
   spoutCone: (10 * Math.PI) / 180,
   spoutSize: 1,
-  dustCount: 4,
+  dustCount: 1,
   dustSpeed: 2,
   dustCone: (70 * Math.PI) / 180,
-  dustSize: 1,
+  dustSize: 0.8,
   mixRatio: 0.35,
 }
 
@@ -78,11 +78,11 @@ export interface DirtPoolTune {
 
 export const DIRT_POOL_TUNE: DirtPoolTune = {
   clodLife: 1.3,
-  spoutLife: 0.8,
+  spoutLife: 0.55,
   spoutFrom: 1.6,
   spoutTo: 3.5,
   spoutDrag: 6,
-  dustLife: 4,
+  dustLife: 1.75,
   dustFrom: 2.5,
   dustTo: 8,
   dustAlpha: 0.85,
