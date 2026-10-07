@@ -438,7 +438,7 @@ describe('音效的戰鬥事件接線', () => {
   /**
    * 【自己的槍不播循環】循環是連續掃射，播多久就聽到幾發 —— 點放一次會被聽成
    * 好幾發，停的時候又一定切在某一發中間。自己那架改成一次擊發播一個齊射
-   * one-shot；別人的槍與砲塔仍用循環加 `FIRE_HOLD`，不然聲道一直釋放又重播。
+   * one-shot；別人的槍與砲塔仍用循環加保持時間（`fireHold`），不然聲道一直釋放又重播。
    */
   it('自己的槍用齊射 one-shot，別人的才用開火循環', () => {
     for (const src of [ALL, CONTROLLER.join('\n'), FLIGHT.join('\n'), LOOPS.join('\n'), CUES.join('\n')]) {
@@ -714,8 +714,12 @@ describe('循環音的起音', () => {
     expect(assign).toMatch(/setTargetAtTime\(gainOf\(file, cat, absorptionDb\(d\) \+ duck \+ gainDb\), now,\s+fresh \|\| rising \? LOOP_ATTACK\[pool\] : 0\.1\)/)
   })
 
-  it('收尾不變：淡出 0.3 秒', () => {
-    expect(engine).toMatch(/^const LOOP_FADE = 0\.3$/m)
-    expect(engine.slice(engine.indexOf('function endFrame('))).toContain('setTargetAtTime(0, now, LOOP_FADE / 3)')
+  /** 【槍停了就停】開火與砲塔 0.1 秒收完，拖長的話停火後還聽得到一發；引擎與警笛 0.3 秒 */
+  it('收尾：開火與砲塔 0.1 秒，引擎與警笛 0.3 秒', () => {
+    expect(engine).toMatch(
+      /const LOOP_FADE: Record<LoopPool, number> = \{ engine: 0\.3, fire: 0\.1, turret: 0\.1, siren: 0\.3 \}/)
+    const end = engine.slice(engine.indexOf('function endFrame('))
+    expect(end).toContain('v.releaseAt = now + LOOP_FADE[pool]')
+    expect(end).toContain('setTargetAtTime(0, now, LOOP_FADE[pool] / 3)')
   })
 })

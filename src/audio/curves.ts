@@ -74,6 +74,20 @@ export function sirenParams(vneRatio: number, noseDown: number, out: { rate: num
   out.rate = SIREN_RATE_MIN + (SIREN_RATE_MAX - SIREN_RATE_MIN) * clamp((s - SIREN_PITCH_START) / (1 - SIREN_PITCH_START), 0, 1)
 }
 
+/**
+ * 槍聲循環在最後一道槍口閃光之後還保持幾秒，s。取 1.5 個射擊間隔與「間隔 + 50 ms」的較大者。
+ *
+ * 【要撐過兩發之間的空檔】閃光一發只亮 0.03 s，兩發之間有幾幀是暗的；短於射擊間隔的話循環一發開、一發關。
+ * 50 ms 是低幀率的餘裕：閃光是逐幀取樣的，30 幀時晚一幀就是 33 ms。
+ * 【不能長】循環檔裡的每一發與實際擊發不同步，保持多長，停火之後就多播幾發。
+ * 【射速壞值回 0.25】寧可拖一點尾巴，也不要循環一發開、一發關。
+ */
+export function fireHold(roundsPerMinute: number): number {
+  if (!Number.isFinite(roundsPerMinute) || roundsPerMinute <= 0) return 0.25
+  const interval = 60 / roundsPerMinute
+  return Math.max(1.5 * interval, interval + 0.05)
+}
+
 /** 擺動的幅度（曲線音高的 1 倍到 1 + 這個倍數）與每秒次數 */
 const SIREN_WOBBLE = 0.03
 const SIREN_WOBBLE_HZ = 0.3

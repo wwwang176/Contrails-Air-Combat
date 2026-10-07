@@ -4,6 +4,8 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createAircraftLoopAudio } from '../../src/audio/aircraftLoopAudio'
 import { turretFile, turretGainDb } from '../../src/audio/catalog'
 import { G4M } from '../../src/specs/g4m'
+import { A6M5 } from '../../src/specs/a6m5'
+import { fireHold } from '../../src/audio/curves'
 import { P51D } from '../../src/specs/p51d'
 import { JU87 } from '../../src/specs/ju87'
 import { B17G } from '../../src/specs/b17g'
@@ -49,17 +51,23 @@ describe('飛機定位循環的聲道選擇', () => {
     expect(assign.mock.calls[0]![6]).toBeGreaterThan(originalRate)
   })
 
-  it('槍聲保持 0.25 秒，重設會清掉上一場的開火狀態', () => {
+  it('槍聲保持依這架最慢那一挺的射速，重設會清掉上一場的開火狀態', () => {
     const { world, positions, assign, loops, add } = setup()
-    const me = add(), other = add()
+    // 零戰的機槍與機砲射速不同：保持要撐得過最慢那一挺
+    const me = add(), other = add(A6M5)
+    const rpms = A6M5.battery.mounts.map(m => m.weapon.roundsPerMinute)
+    expect(Math.max(...rpms)).toBeGreaterThan(Math.min(...rpms))
+    const hold = fireHold(Math.min(...rpms))
+    expect(fireHold(Math.max(...rpms))).toBeLessThan(hold - 0.01)
+    expect(hold).toBeLessThan(0.2)
     other.muzzleFlash.fill(0.03)
     loops.update(world.combatants, positions, me, 1, true, false)
     other.muzzleFlash.fill(0)
     assign.mockClear()
-    loops.update(world.combatants, positions, me, 1.24, true, false)
+    loops.update(world.combatants, positions, me, 1 + hold - 0.01, true, false)
     expect(assign.mock.calls.some(c => c[0] === 'fire')).toBe(true)
     assign.mockClear()
-    loops.update(world.combatants, positions, me, 1.25, true, false)
+    loops.update(world.combatants, positions, me, 1 + hold + 0.001, true, false)
     expect(assign.mock.calls.some(c => c[0] === 'fire')).toBe(false)
     loops.reset()
     assign.mockClear()
@@ -96,6 +104,23 @@ describe('飛機定位循環的聲道選擇', () => {
     assign.mockClear()
     loops.update(world.combatants, positions, me, 1.4, true, false)
     expect(assign.mock.calls.find(c => c[0] === 'turret')![2]).toBe(expected(single))
+  })
+
+  it('砲塔保持依開火那一座的射速', () => {
+    const { world, positions, assign, loops, add } = setup()
+    const me = add(), bomber = add(G4M)
+    const k = bomber.aircraft.spec.turrets.findIndex(t => t.weapon.id === 'type99-1')
+    expect(k).toBeGreaterThanOrEqual(0)
+    const hold = fireHold(bomber.aircraft.spec.turrets[k]!.weapon.roundsPerMinute)
+    bomber.turretStates[k]!.flash = 0.03
+    loops.update(world.combatants, positions, me, 1, true, false)
+    bomber.turretStates[k]!.flash = 0
+    assign.mockClear()
+    loops.update(world.combatants, positions, me, 1 + hold - 0.01, true, false)
+    expect(assign.mock.calls.some(c => c[0] === 'turret')).toBe(true)
+    assign.mockClear()
+    loops.update(world.combatants, positions, me, 1 + hold + 0.001, true, false)
+    expect(assign.mock.calls.some(c => c[0] === 'turret')).toBe(false)
   })
 
   it('砲塔帶上這個檔的音量修正', () => {

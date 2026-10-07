@@ -3,7 +3,7 @@ import { Quaternion, Vector3 } from 'three'
 import {
   engineRate, windParams, shakeInterval, shakeGainDb, dbToGain, soundArrived, distanceCutoffHz,
   hitFeedback, damageGainDb, absorptionDb, voiceLoudnessDb, blastGainDb, blastRate, dopplerRate, hitRate,
-  fadeInCurve, noseDownRad, sirenParams, sirenWobble, SIREN_AUDIBLE_DB, SIREN_BASE_HZ, SIREN_RATE_MAX,
+  fadeInCurve, fireHold, noseDownRad, sirenParams, sirenWobble, SIREN_AUDIBLE_DB, SIREN_BASE_HZ, SIREN_RATE_MAX,
 } from '../../src/audio/curves'
 
 describe('淡入曲線', () => {
@@ -188,6 +188,23 @@ describe('俯衝警笛', () => {
         expect(r.gainDb).toBeLessThan(SIREN_AUDIBLE_DB)
       }
     }
+  })
+})
+
+describe('槍聲循環的保持', () => {
+  /**
+   * 【撐過兩發之間的空檔，但不要多】閃光一發只亮 0.03 s，兩發之間有幾幀是暗的；保持短於射擊間隔的話
+   * 循環一發開、一發關。長了則停火之後還多播好幾發。取 1.5 個間隔，且至少多出 50 ms（低幀率時閃光被取樣到的時間會晚一幀）
+   */
+  it('取 1.5 個射擊間隔與「間隔 + 50 ms」的較大者', () => {
+    expect(fireHold(700)).toBeCloseTo(60 / 700 + 0.05, 9)
+    expect(fireHold(535)).toBeCloseTo(1.5 * 60 / 535, 9)
+    expect(fireHold(1150)).toBeCloseTo(60 / 1150 + 0.05, 9)
+    for (let rpm = 300; rpm <= 1500; rpm += 50) expect(fireHold(rpm), `${rpm}`).toBeGreaterThanOrEqual(60 / rpm + 0.05 - 1e-9)
+  })
+
+  it('射速壞掉時回 0.25 s', () => {
+    for (const bad of [0, -100, NaN, Infinity]) expect(fireHold(bad)).toBe(0.25)
   })
 })
 

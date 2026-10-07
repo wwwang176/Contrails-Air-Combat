@@ -3,14 +3,15 @@ import type { Combatant } from '../world/combatant'
 import { indicatedAirspeed } from '../core/airspeed'
 import type { AudioEngine } from './engine'
 import { engineFile, fireFile, sirenFile, turretFile, turretGainDb } from './catalog'
-import { SIREN_AUDIBLE_DB, dopplerRate, engineRate, noseDownRad, sirenParams, sirenWobble } from './curves'
+import { SIREN_AUDIBLE_DB, dopplerRate, engineRate, fireHold, noseDownRad, sirenParams, sirenWobble } from './curves'
 import { nearestN } from './nearest'
 
 /** 飛機定位循環的聲道選擇與開火保持；暫存只在建立時配置。 */
 export function createAircraftLoopAudio(audio: Pick<AudioEngine, 'assign'>, cam: Vector3, camVel: Vector3) {
   const SIREN = { rate: 0, gainDb: 0 }
   /**
-   * 別人的槍：最近這麼多秒內開過火就算「還在開火」，s。
+   * 別人的槍與砲塔：最後一次開火之後還算「還在開火」幾秒（`fireHold`），依座位索引。
+   * 前射武器取這架最慢那一挺的射速；砲塔取正在用的那一座。
    *
    * 【為什麼要保持】槍口閃光一發只亮 0.03 s，發與發之間有好幾幀是 0 ——
    * 直接看閃光的話，開火的循環一幀開、一幀關，聲道一直釋放又重播。砲塔更嚴重：
@@ -19,7 +20,9 @@ export function createAircraftLoopAudio(audio: Pick<AudioEngine, 'assign'>, cam:
    * 【自己的槍不用這個】自己那架不播循環 —— 每次擊發播一個齊射 one-shot，
    * 見 `CUE.SelfVolley` 與 `volleyPool`。
    */
-  const FIRE_HOLD = 0.25
+  const gunHold = new Float32Array(64)
+
+  const turretHold = new Float32Array(64)
 
   const ENGINE_KEYS = new Int32Array(8)
 
@@ -55,7 +58,7 @@ export function createAircraftLoopAudio(audio: Pick<AudioEngine, 'assign'>, cam:
    * 記下這架轟炸機的砲塔循環用哪一座的聲音：**最近在開火、管數最多的那一座**。
    *
    * 【只往大的換】閃光一幀一幀在不同砲塔之間跳；每一幀都挑「現在亮著的」的話，
-   * 單管、雙聯輪流被選到，每換一次檔就從頭播。停火超過 FIRE_HOLD 才重新挑。
+   * 單管、雙聯輪流被選到，每換一次檔就從頭播。停火超過保持時間才重新挑。
    * 呼叫時 `lastTurretFire` 還是上一次開火的時間。
    */
   function noteTurretFire(c: Combatant, elapsed: number): void {
@@ -67,8 +70,19 @@ export function createAircraftLoopAudio(audio: Pick<AudioEngine, 'assign'>, cam:
     if (cand < 0) return
     const i = c.index
     const cur = turretPick[i]!
-    if (cur < 0 || elapsed - lastTurretFire[i]! >= FIRE_HOLD || turrets[cand]!.guns > turrets[cur]!.guns) turretPick[i] = cand
+    if (cur < 0 || elapsed - lastTurretFire[i]! >= turretHold[i]! || turrets[cand]!.guns > turrets[cur]!.guns) {
+      turretPick[i] = cand
+      turretHold[i] = fireHold(turrets[cand]!.weapon.roundsPerMinute)
+    }
     lastTurretFire[i] = elapsed
+  }
+
+  /** 這架前射武器的保持時間：最慢那一挺兩發之間的空檔最長 */
+  function batteryHold(c: Combatant): number {
+    const mounts = c.aircraft.spec.battery.mounts
+    let rpm = Infinity
+    for (let k = 0; k < mounts.length; k++) rpm = Math.min(rpm, mounts[k]!.weapon.roundsPerMinute)
+    return fireHold(rpm)
   }
 
   /** positions 依座位索引排列，直接讀顯示管理器的內插位置，不重建位置清單。 */
@@ -112,10 +126,13 @@ export function createAircraftLoopAudio(audio: Pick<AudioEngine, 'assign'>, cam:
       audio.assign('siren', c.index, sirenFile(c.aircraft.spec.id)!, p.x, p.y, p.z,
         SIREN_RATE[c.index]! * dopplerRate(p, c.aircraft.state.velocity, cam, camVel), SIREN_GAIN[c.index]!)
     }
-    // 開火的保持：最近 FIRE_HOLD 秒內開過火就算還在開火
+    // 開火的保持：最近 `gunHold`／`turretHold` 秒內開過火就算還在開火
     for (let i = 0; i < n; i++) {
       const c = all[i]!
-      if (anyFlash(c.muzzleFlash)) lastGunFire[i] = elapsed
+      if (anyFlash(c.muzzleFlash)) {
+        lastGunFire[i] = elapsed
+        gunHold[i] = batteryHold(c)
+      }
       noteTurretFire(c, elapsed)
     }
     // 其他戰鬥機開火
@@ -123,7 +140,7 @@ export function createAircraftLoopAudio(audio: Pick<AudioEngine, 'assign'>, cam:
       const c = all[i]!
       // 【上帝視角時自己也算一架】那時自機在畫面裡，開火聲該從它身上來
       AUDIO_VALID[i] = c.alive && (c !== me || !flying) && fireFile(c.aircraft.spec.id) !== null
-        && elapsed - lastGunFire[i]! < FIRE_HOLD ? 1 : 0
+        && elapsed - lastGunFire[i]! < gunHold[i]! ? 1 : 0
     }
     m = nearestN(positions, AUDIO_VALID, n, cam.x, cam.y, cam.z, FIRE_KEYS)
     for (let j = 0; j < m; j++) {
@@ -136,7 +153,7 @@ export function createAircraftLoopAudio(audio: Pick<AudioEngine, 'assign'>, cam:
     for (let i = 0; i < n; i++) {
       const c = all[i]!
       // 【自己那架的後座機槍走齊射庫，不進循環】與前機槍同一個道理（上帝視角時才輪到循環）
-      AUDIO_VALID[i] = c.alive && turretPick[i]! >= 0 && elapsed - lastTurretFire[i]! < FIRE_HOLD
+      AUDIO_VALID[i] = c.alive && turretPick[i]! >= 0 && elapsed - lastTurretFire[i]! < turretHold[i]!
         && !(c === me && flying && ownTurretVolley) ? 1 : 0
     }
     m = nearestN(positions, AUDIO_VALID, n, cam.x, cam.y, cam.z, TURRET_KEYS)

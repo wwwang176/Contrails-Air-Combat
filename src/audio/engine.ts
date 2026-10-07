@@ -130,7 +130,13 @@ const VOICE_QUOTA: Partial<Record<Category, number>> = {
 }
 const LOOP_VOICES: Record<LoopPool, number> = { engine: 8, fire: 6, turret: 6, siren: 4 }
 const LOOP_CATEGORY: Record<LoopPool, Category> = { engine: 'engine', fire: 'fire', turret: 'turret', siren: 'siren' }
-const LOOP_FADE = 0.3
+/**
+ * 循環音沒被指派之後的淡出，s：時間常數取三分之一，到時就停掉放回池子。
+ *
+ * 【槍停了就停】開火與砲塔 0.1 s。循環檔裡的每一發與實際擊發不同步，拖長的話停火之後還聽得到一發。
+ * 引擎與警笛 0.3 s，飛機離開範圍時才不會一下子斷掉。
+ */
+const LOOP_FADE: Record<LoopPool, number> = { engine: 0.3, fire: 0.1, turret: 0.1, siren: 0.3 }
 /**
  * 循環音起音的時間常數，s：從 0（新播）或淡出中被叫回來時用這個爬到目標，之後每幀以 0.1 跟隨。
  *
@@ -608,8 +614,8 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
       for (const v of loops[pool]) {
         if (v.key === -1 || v.assigned) continue
         if (v.releaseAt < 0) {
-          v.releaseAt = now + LOOP_FADE
-          v.audio.gain.gain.setTargetAtTime(0, now, LOOP_FADE / 3)
+          v.releaseAt = now + LOOP_FADE[pool]
+          v.audio.gain.gain.setTargetAtTime(0, now, LOOP_FADE[pool] / 3)
         } else if (now >= v.releaseAt) {
           if (v.audio.isPlaying) v.audio.stop()
           v.audio.sleep()
