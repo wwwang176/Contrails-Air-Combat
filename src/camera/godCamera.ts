@@ -29,6 +29,14 @@ export interface GodCameraOptions {
   entryPitch: number
   /** 每移動「一個螢幕半高」轉多少弧度 */
   lookSensitivity: number
+  /**
+   * 位移速度追上按鍵的時間常數，s。0 = 一按就是全速、一放就停。
+   *
+   * 【為什麼位移要有一點慣性】上帝視角時聽者就在鏡頭上（`battleAudioController`），
+   * 速度一幀之內跳 300 m/s 的話，附近引擎聲的都卜勒整段跳音。轉頭不平滑 —— 那是
+   * 瞄準與觀察，延遲會讓人看不準
+   */
+  moveSmooth: number
 }
 
 /**
@@ -61,11 +69,15 @@ export const DEFAULT_GOD_CAMERA: GodCameraOptions = {
   entryHeight: 800,
   entryPitch: 45 * (Math.PI / 180),
   lookSensitivity: 5.5 / 1.6,
+  // 0.3 s 到八成速度：起步與煞停聽得出滑順，操作上感覺不到拖
+  moveSmooth: 0.15,
 }
 
 export interface GodCameraState {
   /** 世界座標。**參考固定**，每步寫進去而不是換掉 */
   readonly position: Vector3
+  /** 目前的位移速度，m/s。往按鍵的目標速度平滑追過去（`moveSmooth`）。參考固定 */
+  readonly velocity: Vector3
   /**
    * 方位角，rad。**與 `core/attitude.ts` 的 `headingFromOrientation`
    * 同一個約定**：0 = −Z 方向，順時針（往 +X）為正。`enterGodCamera`
@@ -99,7 +111,7 @@ export interface GodCameraInput {
 }
 
 export function createGodCameraState(): GodCameraState {
-  return { position: new Vector3(), yaw: 0, pitch: 0 }
+  return { position: new Vector3(), velocity: new Vector3(), yaw: 0, pitch: 0 }
 }
 
 /**
@@ -125,6 +137,8 @@ export function enterGodCamera(
   )
   s.yaw = heading
   s.pitch = -cfg.entryPitch
+  // 不帶著上一次離開時的滑行
+  s.velocity.set(0, 0, 0)
 }
 
 /**
@@ -141,7 +155,9 @@ export function enterGodCamera(
  * 會讓靈敏度隨幀率變化。移動吃 `dt`（速率是每秒），轉動不吃 —— 這與既有的
  * `input/aim.ts` 是同一個處理方式。
  *
- * 不配置：整條路徑只有純量運算，最後寫進 `s.position`。**不改動 `input`。**
+ * 【位移吃 `moveSmooth`，轉動不吃】速度往按鍵的目標指數逼近，見那個欄位的註解。
+ *
+ * 不配置：整條路徑只有純量運算，最後寫進 `s.velocity` 與 `s.position`。**不改動 `input`。**
  */
 export function stepGodCamera(
   s: GodCameraState,
@@ -169,13 +185,23 @@ export function stepGodCamera(
   if (len > 0) { fx /= len; fz /= len }
 
   const vy = (input.up ? 1 : 0) - (input.down ? 1 : 0)
-  const speed = cfg.moveSpeed * (input.boost ? cfg.boostFactor : 1) * dt
+  const speed = cfg.moveSpeed * (input.boost ? cfg.boostFactor : 1)
 
-  s.position.set(
-    s.position.x + fx * speed,
-    clamp(s.position.y + vy * speed, cfg.minAltitude, cfg.maxAltitude),
-    s.position.z + fz * speed,
+  // 【速度往目標指數逼近】與幀率無關：同樣一秒，切成幾幀追到的比例都一樣。
+  // `dt` 為 0（暫停）時 k 是 0，速度與位置都不動
+  const v = s.velocity
+  const k = cfg.moveSmooth > 0 ? 1 - Math.exp(-dt / cfg.moveSmooth) : 1
+  v.set(
+    v.x + (fx * speed - v.x) * k,
+    v.y + (vy * speed - v.y) * k,
+    v.z + (fz * speed - v.z) * k,
   )
+
+  const y = s.position.y + v.y * dt
+  const clampedY = clamp(y, cfg.minAltitude, cfg.maxAltitude)
+  // 【頂到上下限就把垂直速度歸零】不然那一段速度一直累積，反向按要先吃掉它才動
+  if (clampedY !== y) v.y = 0
+  s.position.set(s.position.x + v.x * dt, clampedY, s.position.z + v.z * dt)
 }
 
 /**

@@ -5,7 +5,11 @@ import {
   DEFAULT_GOD_CAMERA, type GodCameraInput,
 } from '../../src/camera/godCamera'
 
-const cfg = DEFAULT_GOD_CAMERA
+/**
+ * 移動軸、速率、夾擠這幾組測試量的是「全速時往哪走、走多快」，所以把位移的平滑
+ * 關掉（`moveSmooth: 0` = 一按就是全速）。平滑本身在最後一組
+ */
+const cfg = { ...DEFAULT_GOD_CAMERA, moveSmooth: 0 }
 const DT = 1 / 60
 
 /** 全部放開的輸入。每一條測試自己打開要用的那幾個 */
@@ -302,5 +306,55 @@ describe('決定性', () => {
     const before = JSON.stringify(input)
     stepGodCamera(s, input, DT, cfg)
     expect(JSON.stringify(input)).toBe(before)
+  })
+})
+
+/**
+ * 【位移有一點慣性，轉頭沒有】上帝視角時聽者就在鏡頭上；一按就 300 m/s、一放就停的話，
+ * 聽者速度一幀之內跳 300 m/s，附近引擎聲的都卜勒整段跳音。
+ */
+describe('stepGodCamera：位移的平滑', () => {
+  const smooth = DEFAULT_GOD_CAMERA
+  const speed = smooth.moveSpeed
+
+  it('起步不是一幀就到全速，一秒內到全速', () => {
+    const s = createGodCameraState()
+    stepGodCamera(s, idle({ forward: true }), DT, smooth)
+    expect(-s.position.z).toBeGreaterThan(0)
+    expect(-s.position.z).toBeLessThan(speed * DT * 0.3)
+    for (let i = 0; i < 60; i++) stepGodCamera(s, idle({ forward: true }), DT, smooth)
+    expect(-s.velocity.z).toBeGreaterThan(speed * 0.99)
+  })
+
+  it('放開之後滑一小段才停，一秒內停下', () => {
+    const s = createGodCameraState()
+    for (let i = 0; i < 120; i++) stepGodCamera(s, idle({ forward: true }), DT, smooth)
+    const z0 = s.position.z
+    stepGodCamera(s, idle(), DT, smooth)
+    expect(z0 - s.position.z).toBeGreaterThan(speed * DT * 0.7)
+    for (let i = 0; i < 60; i++) stepGodCamera(s, idle(), DT, smooth)
+    expect(s.velocity.length()).toBeLessThan(speed * 0.01)
+  })
+
+  it('轉頭不平滑：滑鼠一動，方向就到', () => {
+    const s = createGodCameraState()
+    stepGodCamera(s, idle({ lookX: 0.1 }), DT, smooth)
+    expect(s.yaw).toBeCloseTo(0.1 * smooth.lookSensitivity, 12)
+  })
+
+  it('進場時速度歸零：不帶著上一次離開時的滑行', () => {
+    const s = createGodCameraState()
+    for (let i = 0; i < 60; i++) stepGodCamera(s, idle({ forward: true }), DT, smooth)
+    enterGodCamera(s, new Vector3(0, 1000, 0), 0, smooth)
+    expect(s.velocity.length()).toBe(0)
+  })
+
+  /** 頂到高度上下限時垂直速度不累積 —— 不然反向按要先把那一段速度吃掉才動 */
+  it('碰到高度下限，垂直速度歸零', () => {
+    const s = createGodCameraState()
+    s.position.set(0, smooth.minAltitude + 1, 0)
+    for (let i = 0; i < 60; i++) stepGodCamera(s, idle({ down: true }), DT, smooth)
+    expect(s.position.y).toBe(smooth.minAltitude)
+    expect(s.velocity.y).toBe(0)
   })
 })

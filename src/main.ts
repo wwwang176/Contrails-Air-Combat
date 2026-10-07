@@ -2355,6 +2355,8 @@ Object.assign(window, createSceneryInspection({
   x: number, y: number, z: number, yawDeg = 0, pitchDeg = 0,
 ) => {
   godCam.position.set(x, y, z)
+  // 搬過去就停在那裡，不帶著原本的滑行
+  godCam.velocity.set(0, 0, 0)
   godCam.yaw = (yawDeg * Math.PI) / 180
   godCam.pitch = (pitchDeg * Math.PI) / 180
   return { x, y, z, yawDeg, pitchDeg }
