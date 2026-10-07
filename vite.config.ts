@@ -19,6 +19,7 @@ const TOOLS = {
   torpedo: 'tools/torpedo.html',
   recovery: 'tools/recovery.html',
   clipmap: 'tools/clipmap.html',
+  dirt: 'tools/dirt.html',
 }
 
 export default defineConfig(({ command, mode }) => ({
