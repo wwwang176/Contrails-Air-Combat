@@ -2399,7 +2399,6 @@ Object.assign(window, createSceneryInspection({
  *   自機，所以打中敵方地面目標一樣算命中。每一發起點往後錯開一個子步的距離，
  *   落地分散在不同子步 —— 擠在同一步會超過事件緩衝的 64 筆。
  * - `targets()`：存活地面目標的位置，對準它們驗「打到目標仍是火花」。
- * - `visible(on)`：土柱四池顯示與否，同頁 A/B 用。
  * - `live()`：各池與火花的存活數。
  */
 ;(window as unknown as Record<string, unknown>)['__dirt'] = {
@@ -2426,9 +2425,6 @@ Object.assign(window, createSceneryInspection({
   targets() {
     return world.groundTargets.filter((t) => t.alive)
       .map((t) => ({ x: +t.position.x.toFixed(0), z: +t.position.z.toFixed(0), team: t.team }))
-  },
-  visible(on: boolean) {
-    for (const p of Object.values(dirt.pools)) p.object.visible = on
   },
   /** 各池目前活著幾顆，加上火花 */
   live() {
