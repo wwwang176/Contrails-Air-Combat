@@ -17,6 +17,9 @@ export const PLANT_SIZE = {
 
 export type PlantKind = keyof typeof PLANT_SIZE
 
+/** 地面單位的塗裝變體。`winter`：烤漆刷成雪白（`render/geometry/ground/palette.ts` 的 `WINTER_PAINT`） */
+export type GroundLivery = 'winter'
+
 export type GroundUnitId =
   | 'tank' | 'tankDug' | 'truck' | 'atGun'
   | 'panzer4' | 'tiger' | 'infantry' | 'mortar'

@@ -2,7 +2,7 @@
 import type { FogExp2, Scene, Texture } from 'three'
 import type { World } from '../world/World'
 import type { MissionTheater } from '../battle/missions/types'
-import type { GroundUnitId } from '../specs/ground'
+import type { GroundLivery, GroundUnitId } from '../specs/ground'
 import type { FirePuffFn } from './shipFires'
 import type { createShipModels, ShipModels } from './ships'
 import type { createShipWakes, ShipWakes } from './shipWakes'
@@ -41,7 +41,8 @@ export interface BattleScenery {
   readonly balloonModels: BalloonModels | null
   readonly groundBattle: GroundBattle | null
   readonly battleFogOn: boolean
-  rebuild(world: SceneryWorld, theater: MissionTheater | undefined): void
+  /** @param groundLivery 地面單位的塗裝（`BattleConfig.groundLivery`）。省略 = 預設配色 */
+  rebuild(world: SceneryWorld, theater: MissionTheater | undefined, groundLivery?: GroundLivery): void
   /** 模型與地面戰效果分開清理，讓離場流程維持原有順序。 */
   clearModels(): void
   releaseGroundBattle(): void
@@ -64,7 +65,7 @@ export function createBattleScenery(
     rebuild, clearModels, releaseGroundBattle,
   }
 
-  function rebuild(world: SceneryWorld, theater: MissionTheater | undefined): void {
+  function rebuild(world: SceneryWorld, theater: MissionTheater | undefined, groundLivery?: GroundLivery): void {
     // 【船的模型每一場重建】艦隊是設定的一部分 —— 沿用上一場的話，換一張
     // 沒有艦隊的卡時那幾艘會留在海上。
     clearShips()
@@ -77,7 +78,7 @@ export function createBattleScenery(
     // 地面目標與船同一個做法：每一場重建
     clearGroundModels()
     if (world.groundTargets.length > 0) {
-      state.groundModels = builders.createGroundModels(world.groundTargets)
+      state.groundModels = builders.createGroundModels(world.groundTargets, groundLivery)
       scene.add(state.groundModels.object)
       state.searchlights = builders.createSearchlights(world.groundTargets, assets.glareTexture)
       scene.add(state.searchlights.object)

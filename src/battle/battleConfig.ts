@@ -6,6 +6,7 @@ import type { BalloonEntry, GroundEntry, MissionAlert, MissionFleet } from './mi
 import type { ShipGunSpec } from '../world/shipGuns'
 import type { Loadout } from '../weapons/stores'
 import type { FeelKind } from '../specs/feel'
+import type { GroundLivery } from '../specs/ground'
 import type { DifficultyProfile } from '../ai/profile'
 import type { MissionRules, MissionTuning } from './mission'
 
@@ -109,6 +110,8 @@ export interface BattleConfig {
    * 不進模擬。省略 = 全部預設塗裝。
    */
   readonly liveries?: Readonly<Record<string, string>>
+  /** 地面單位的塗裝，整場一起換。**只給畫面讀**（建地面模型時）。省略 = 預設配色 */
+  readonly groundLivery?: GroundLivery
   /**
    * 依機種指名用哪一組手感，鍵是 `spec.id`，**不分隊伍**，進場、增援、重生與地上的飛機都照它
    * （`feeledSpec`）。省略 = 依機種角色挑。

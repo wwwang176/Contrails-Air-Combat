@@ -2,12 +2,13 @@ import { BufferGeometry, Group, Mesh, MeshStandardMaterial, Quaternion, Vector3 
 import type { GroundTarget } from '../world/groundTargets'
 import { GEAR_CLEARANCE } from '../control/takeoffRoll'
 import { GROUND_MODELS, groundGeometry, groundLodGeometry } from './geometry/ground'
-import { PARKED_TAIL_DOWN } from '../specs/ground'
+import { PARKED_TAIL_DOWN, type GroundLivery } from '../specs/ground'
 import {
   PARKED_OFFSET_KEY, PARKED_PROP_KEY, type ParkedProp,
 } from './geometry/ground/parked'
 import { useAircraftLod } from './geometry/buildAircraft'
 import { GUN_TURRET_KEY, type GunTurretParts } from './geometry/ground/turret'
+import { disposeLivery, liveryGeometry } from './geometry/ground/livery'
 import {
   GUN_PITCH_MAX, GUN_PITCH_MIN, TANK_PITCH_MAX, TANK_PITCH_MIN, TANK_TRAVERSE_RATE, aimAngles, slewYaw,
 } from './gunAim'
@@ -88,7 +89,10 @@ interface Pair {
   readonly lo: BufferGeometry | null
 }
 
-export function createGroundModels(targets: readonly GroundTarget[]): GroundModels {
+/**
+ * @param livery 這一場地面單位的塗裝（任務卡的 `groundLivery`）。省略 = 預設配色、直接用共用的幾何
+ */
+export function createGroundModels(targets: readonly GroundTarget[], livery?: GroundLivery): GroundModels {
   const live = new MeshStandardMaterial({
     vertexColors: true, flatShading: true, roughness: 0.85, metalness: 0.06,
   })
@@ -102,6 +106,8 @@ export function createGroundModels(targets: readonly GroundTarget[]): GroundMode
   const far: boolean[] = []
   /** 程序化那幾種的幾何是這裡建的，這裡放；GLB 的是快取共用的，不碰。 */
   const owned: BufferGeometry[] = []
+  /** 換過塗裝的那一份，依共用的原物一份（共用同一支 GLB 的單位共用它）；這裡建的、這裡放 */
+  const liveried = new Map<BufferGeometry, BufferGeometry>()
   const byId = new Map<string, Pair>()
   /** 逐台一格：拆開的槳葉（停放的 P-51），沒有就是 null */
   const props: (Mesh | null)[] = []
@@ -117,8 +123,17 @@ export function createGroundModels(targets: readonly GroundTarget[]): GroundMode
     let pair = byId.get(t.unit.id)
     if (pair === undefined) {
       const { model, lodModel } = GROUND_MODELS[t.unit.id]
-      const hi = groundGeometry(t.unit)
+      let hi = groundGeometry(t.unit)
       if ('build' in model) owned.push(hi)
+      else if (livery !== undefined) {
+        // 【只換 GLB 那幾台】程序化的沒有冬季資料，`liveryGeometry` 會回原物
+        let painted = liveried.get(hi)
+        if (painted === undefined) {
+          painted = liveryGeometry(hi, livery)
+          liveried.set(hi, painted)
+        }
+        hi = painted
+      }
       const lo = groundLodGeometry(t.unit)
       if (lo !== null && lodModel !== undefined && 'build' in lodModel) owned.push(lo)
       pair = { hi, lo }
@@ -267,6 +282,7 @@ export function createGroundModels(targets: readonly GroundTarget[]): GroundMode
     },
     dispose() {
       for (const g of owned) g.dispose()
+      for (const [base, g] of liveried) if (g !== base) disposeLivery(g)
       live.dispose()
       wreck.dispose()
     },

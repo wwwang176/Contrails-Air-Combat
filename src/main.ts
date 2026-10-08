@@ -1377,7 +1377,7 @@ function startWorld(cfg: BattleConfig): void {
   setPlayer(battle.player)
   rebuildVisuals()
 
-  battleScenery.rebuild(world, pendingMission?.battle.theater)
+  battleScenery.rebuild(world, pendingMission?.battle.theater, battle.cfg.groundLivery)
 
   // 5. 撤離圓環。【比照地形每一場都重建】那條路徑因此每一場都在走，不是
   //    一條等著被第一次使用的死碼。沒有撤離點的一場就是建了不加進場景 ——

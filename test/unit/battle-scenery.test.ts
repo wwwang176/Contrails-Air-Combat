@@ -59,12 +59,13 @@ describe('戰場佈景的所有權', () => {
     expect(scenery.battleFogOn).toBe(false)
     expect(builders.shipFoamTexture).not.toHaveBeenCalled()
 
-    scenery.rebuild(world, theater)
+    // 地面塗裝原樣交給地面模型（漏傳的症狀是雪地上一台沙黃的戰車，不報錯）
+    scenery.rebuild(world, theater, 'winter')
     expect(built.map(x => x.kind)).toEqual(['ships', 'wakes', 'ground', 'searchlights', 'theater', 'balloons'])
     expect(scene.children).toEqual(built.map(x => x.object))
     expect(builders.createShipModels).toHaveBeenCalledWith(world.ships)
     expect(builders.createShipWakes).toHaveBeenCalledWith(world.ships, foam)
-    expect(builders.createGroundModels).toHaveBeenCalledWith(world.groundTargets)
+    expect(builders.createGroundModels).toHaveBeenCalledWith(world.groundTargets, 'winter')
     expect(builders.createSearchlights).toHaveBeenCalledWith(world.groundTargets, assets.glareTexture)
     expect(builders.createBalloonModels).toHaveBeenCalledWith(world.balloons)
     expect(builders.createGroundBattle).toHaveBeenCalledWith(theater, assets.burn, assets.smokeTexture, assets.impact, assets.fired)

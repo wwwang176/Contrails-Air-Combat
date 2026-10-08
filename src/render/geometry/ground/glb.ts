@@ -2,7 +2,8 @@ import { BufferAttribute, BufferGeometry, Color, Material, Mesh, Object3D, Vecto
 import { GUN_TURRET_KEY, type GroundTurretNodes, type GunTurretParts } from './turret'
 import { createGltfLoader } from '../gltfLoader'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { GLB_MATERIALS, PLANT_MATERIALS } from './palette'
+import { GLB_MATERIALS, PLANT_MATERIALS, WINTER_PAINT } from './palette'
+import { WINTER_COLOR_KEY } from './livery'
 export { GLB_MATERIALS, PLANT_MATERIALS } from './palette'
 import { assetUrl } from '../../../core/asset'
 
@@ -70,15 +71,10 @@ export function bakeGroundScene(scene: Object3D, turret?: GroundTurretNodes): Bu
     for (const attr of Object.keys(g.attributes)) {
       if (attr !== 'position') g.deleteAttribute(attr)
     }
-    C.setHex(hex)
     const n = g.getAttribute('position').count
-    const col = new Float32Array(n * 3)
-    for (let i = 0; i < n; i++) {
-      col[i * 3] = C.r
-      col[i * 3 + 1] = C.g
-      col[i * 3 + 2] = C.b
-    }
-    g.setAttribute('color', new BufferAttribute(col, 3))
+    g.setAttribute('color', new BufferAttribute(solid(hex, n), 3))
+    // 冬季那一份與預設同一個頂點順序，合併之後搬進 `userData`（`WINTER_COLOR_KEY`）
+    g.setAttribute(WINTER_ATTR, new BufferAttribute(solid(WINTER_PAINT[name] ?? hex, n), 3))
     if (elev !== null && under(mesh, elev.node)) {
       g.translate(-elev.at.x, -elev.at.y, -elev.at.z)
       elevating.push(g)
@@ -105,12 +101,34 @@ export function bakeGroundScene(scene: Object3D, turret?: GroundTurretNodes): Bu
   return geo
 }
 
-/** 合併一組、算法線與包圍球。空的一組是登記錯了（某一塊底下沒有任何網格） */
+/** 合併前暫放冬季頂點色的屬性名。合併完就移走，不上傳 GPU */
+const WINTER_ATTR = 'winterColor'
+
+/** n 個頂點同一個顏色 */
+function solid(hex: number, n: number): Float32Array {
+  C.setHex(hex)
+  const col = new Float32Array(n * 3)
+  for (let i = 0; i < n; i++) {
+    col[i * 3] = C.r
+    col[i * 3 + 1] = C.g
+    col[i * 3 + 2] = C.b
+  }
+  return col
+}
+
+/**
+ * 合併一組、算法線與包圍球。空的一組是登記錯了（某一塊底下沒有任何網格）。
+ *
+ * 【冬季頂點色不留在屬性裡】three 會把幾何的每一個屬性都上傳 GPU，著色器用不用都一樣。
+ * 搬進 `userData[WINTER_COLOR_KEY]`，換塗裝時才拿出來（`liveryGeometry`）
+ */
 function mergeParts(parts: BufferGeometry[], what: 'fixed' | 'traverse' | 'elevate'): BufferGeometry {
   if (parts.length === 0) throw new Error(`地面單位的 GLB：${what} 那一塊沒有任何網格`)
   const geo = mergeGeometries(parts)
   if (geo === null) throw new Error('地面單位的 GLB 合併失敗 —— 屬性不一致')
   for (const p of parts) p.dispose()
+  geo.userData[WINTER_COLOR_KEY] = geo.getAttribute(WINTER_ATTR).array
+  geo.deleteAttribute(WINTER_ATTR)
   geo.computeVertexNormals()
   geo.computeBoundingSphere()
   return geo

@@ -25,6 +25,11 @@ export const HUE = {
   glass: 0x2c3a44,
   /** 標記紅：軌道車輛的底架、緩衝器。 */
   markRed: 0x7a2f26,
+  /**
+   * 冬季白漆。帶一點灰：純白在平面著色下與雪地融成一片，車身的稜線都看不出來。
+   * **起始值，由試玩裁定。**
+   */
+  winterWhite: 0xc8c8c0,
 } as const
 
 
@@ -82,6 +87,16 @@ export const GLB_MATERIALS: Readonly<Record<string, number>> = {
   LP_Tire: HUE.rubber,
   LP_Glass: HUE.glass,
   LP_GunGrey: HUE.sandYellow,
+}
+
+/**
+ * 冬季塗裝：只換烤漆，**鋼、履帶、輪胎、玻璃、帆布不刷**。表裡沒有的材質照 `GLB_MATERIALS`。
+ * 純頂點色，不用貼圖（`liveryGeometry`）。
+ */
+export const WINTER_PAINT: Readonly<Record<string, number>> = {
+  LP_ArmorGreen: HUE.winterWhite,
+  LP_TruckGreen: HUE.winterWhite,
+  LP_GunGrey: HUE.winterWhite,
 }
 
 

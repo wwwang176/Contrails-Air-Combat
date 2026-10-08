@@ -152,6 +152,8 @@ export const GERMANY: readonly MissionCard[] = [
       blueCount: 6, redCount: 0,
       // 【冬季塗裝】雪地上的綠飛機太顯眼；Ju 87、Yak-1B 與護航的 Bf 109 都穿白漆。只影響畫面
       liveries: { ju87: 'winter', yak1b: 'winter', bf109k4: 'winter' },
+      // 【地面的車也刷白】1942–43 冬天的勒熱夫，蘇軍與德軍的戰車、砲、卡車都塗白漆。敵我靠標記分辨
+      groundLivery: 'winter',
       // 【Ju 87 用戰鬥機的手感】爬回 800 m 進場高度太慢，一輪俯衝的節奏拖沓。戰鬥機那一組的功率與阻力
       // 同倍率放大：800 m 爬升 9.2 → 13.7 m/s、極速不動（358 → 360 km/h），而且倍率不超過戰鬥機。
       // 平常（遭遇戰、其他任務、機庫）它仍是轟炸機的手感。**起始值，由試玩裁定**

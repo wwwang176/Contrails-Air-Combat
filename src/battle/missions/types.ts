@@ -1,5 +1,5 @@
 import type { Vector3 } from 'three'
-import type { GroundUnitId } from '../../specs/ground'
+import type { GroundLivery, GroundUnitId } from '../../specs/ground'
 import type { EntryPlanId } from '../entry'
 import type { ShipClassId } from '../../world/ships'
 import type { ShipGunSpec } from '../../world/shipGuns'
@@ -308,6 +308,11 @@ export interface MissionBattle {
    * 只影響畫面，不進模擬；遭遇戰與機庫沒有這個欄位，所以不受影響。
    */
   readonly liveries?: Readonly<Record<string, string>>
+  /**
+   * 這一關地面單位的塗裝，**整關的車輛一起換、不分隊伍**。`winter`：烤漆刷成雪白（純頂點色）。
+   * 只影響畫面。**省略 = 預設配色。**
+   */
+  readonly groundLivery?: GroundLivery
   /**
    * 依機種指名用哪一組手感（`specs/feel.ts`），鍵是 `spec.id`，**不分隊伍**，進場、增援、重生都照它。
    * 德 M4 讓 Ju 87 用戰鬥機那一組（`{ ju87: 'fighter' }`）：功率與阻力同倍率放大，只動爬升，極速不動。
