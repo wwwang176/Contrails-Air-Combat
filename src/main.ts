@@ -743,7 +743,7 @@ const BLAST_POOLS: BlastPools = {
   glow: blastGlow,
   jets: blastJets,
 }
-const battleAudioCues = createBattleAudioCues(audio, audioEar, CRASH_BLAST_HEIGHT)
+const battleAudioCues = createBattleAudioCues(audio, audioEar, CRASH_BLAST_HEIGHT, playerController)
 const blastPresentation = createBlastPresentation({
   BLAST_POOLS, cameraPosition: ctx.camera.position, cameraShake,
   blastLights, blastSparks, debris, groundFires, fireball,

@@ -249,7 +249,7 @@ describe('音效的戰鬥事件接線', () => {
     expect(rebuild).toContain('buildVolleyGroups(player, prevVolleyFlash.length, TURRET_VOLLEY_DB)')
     expect(rebuild).toContain('ownTurretVolley = built.ownTurretVolley')
     expect(VOLLEY).toContain('ownTurretVolleyPools(player.aircraft.spec.turrets)')
-    expect(VOLLEY).toContain('groups.push({ mount: -1, turret: i, pool: rear[i]!, db: turretDb })')
+    expect(VOLLEY).toContain('groups.push({ mount: -1, turret: i, pool: rear[i]!, db: turretDb, jam: null })')
     const q = body('function queueAudioCues(', CUES)
     expect(q).toContain('player.turretStates[g.turret]')
     expect(q).toContain('pushCue(cues, CUE.SelfVolley, i, 0, 0)')
@@ -266,7 +266,8 @@ describe('音效的戰鬥事件接線', () => {
     const call = 'queueExplosionCues(cues, world, terrain, crashBlastHeight)'
     expect(fn).toContain(call)
     expect(CUES.filter(line => line.includes('queueExplosionCues('))).toHaveLength(1)
-    expect(ALL).toContain('createBattleAudioCues(audio, audioEar, CRASH_BLAST_HEIGHT)')
+    // 【第四個是玩家的控制器】快過熱時每一發配一聲槍機聲；漏接的話黃色階段一聲都不響、不報錯
+    expect(ALL).toContain('createBattleAudioCues(audio, audioEar, CRASH_BLAST_HEIGHT, playerController)')
     expect(fn.indexOf(call)).toBeGreaterThan(fn.indexOf('CUE.SelfVolley'))
     expect(fn.indexOf(call)).toBeLessThan(fn.indexOf('const f = world.burstEvents'))
   })

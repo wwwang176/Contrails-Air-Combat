@@ -1,11 +1,13 @@
 import type { AircraftSpec } from '../specs/types'
-import { ownTurretVolleyPools, volleyPool, type Pool } from './catalog'
+import { jamPool, ownTurretVolleyPools, volleyPool, type Pool } from './catalog'
 
 export interface VolleyGroup {
   readonly mount: number
   readonly turret: number
   readonly pool: Pool
   readonly db: number
+  /** 這一組的槍機聲（快過熱時每一發配一聲，`control/gunHeat.ts`）；砲塔與沒有庫的是 null */
+  readonly jam: Pool | null
 }
 
 interface VolleySource {
@@ -26,12 +28,14 @@ export function buildVolleyGroups(
     let guns = 0
     for (const m of mounts) if (m.weapon.id === id) guns++
     const pool = volleyPool(id, guns)
-    if (pool !== null && groups.length < maxGroups) groups.push({ mount: i, turret: -1, pool, db: 0 })
+    if (pool !== null && groups.length < maxGroups) {
+      groups.push({ mount: i, turret: -1, pool, db: 0, jam: jamPool(id, guns) })
+    }
   }
   const rear = ownTurretVolleyPools(player.aircraft.spec.turrets)
   if (rear === null) return { groups, ownTurretVolley: false }
   for (let i = 0; i < rear.length && groups.length < maxGroups; i++) {
-    groups.push({ mount: -1, turret: i, pool: rear[i]!, db: turretDb })
+    groups.push({ mount: -1, turret: i, pool: rear[i]!, db: turretDb, jam: null })
   }
   return { groups, ownTurretVolley: true }
 }

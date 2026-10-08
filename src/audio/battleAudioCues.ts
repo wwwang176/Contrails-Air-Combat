@@ -12,12 +12,19 @@ import { queueExplosionCues, type ExplosionTerrain } from './explosionCues'
 import { LAYER_DB } from './pick'
 import { CUE, CUE_STRIDE, clearCues, createCueQueue, pushCue } from './queue'
 import { buildVolleyGroups } from './volleyGroups'
+import { warmJamGainDb } from '../control/gunHeat'
 
 type CueWorld = Pick<World, 'killEvents' | 'groundKillEvents' | 'bombEvents' | 'torpedoEvents'
   | 'groundTargets' | 'burstEvents' | 'materialHits' | 'damageEvents' | 'time'>
 
 /** 固定容量的戰鬥單次音效：物理子步收集，鏡頭更新後集中播放。 */
-export function createBattleAudioCues(audio: Pick<AudioEngine, 'playPool'>, cam: Vector3, crashBlastHeight: number) {
+/**
+ * @param gun 玩家的控制器：快過熱（黃色）時每一發齊射配一聲槍機聲（`control/gunHeat.ts`）。省略 = 不配
+ */
+export function createBattleAudioCues(
+  audio: Pick<AudioEngine, 'playPool'>, cam: Vector3, crashBlastHeight: number,
+  gun: { readonly warmFiring: boolean; readonly gunHeat: { readonly heat: number } } | null = null,
+) {
   const state = {
     /** 後座砲塔走自機齊射時，座艙視角須排除同一架的定位砲塔循環。 */
     ownTurretVolley: false,
@@ -63,7 +70,7 @@ export function createBattleAudioCues(audio: Pick<AudioEngine, 'playPool'>, cam:
    * 【為什麼同一種槍只記一個掛架】`stepCadence` 讓同型槍共用一份射速時鐘，
    * 六挺是一起擊發的；素材也是照這樣疊出來的，一組播一次就好。
    */
-  const volleyGroups: { mount: number; turret: number; pool: Pool; db: number }[] = []
+  const volleyGroups: { mount: number; turret: number; pool: Pool; db: number; jam: Pool | null }[] = []
 
   /** 分組代表掛架（或砲塔）上一個子步的槍焰 —— 由 0 變正就是剛擊發 */
   const prevVolleyFlash = new Float32Array(8)
@@ -209,6 +216,10 @@ export function createBattleAudioCues(audio: Pick<AudioEngine, 'playPool'>, cam:
         case CUE.SelfVolley: {
           const g = volleyGroups[x]!
           audio.playPool(g.pool, 'fireSelf', 0, 0, 0, false, g.db)
+          // 【快過熱：每一發配一聲槍機聲】與槍聲同步，越熱越大聲，過熱那一刻接上空響（`flightAudio`）
+          if (g.jam !== null && gun !== null && gun.warmFiring) {
+            audio.playPool(g.jam, 'reload', 0, 0, 0, false, warmJamGainDb(gun.gunHeat.heat))
+          }
           break
         }
       }

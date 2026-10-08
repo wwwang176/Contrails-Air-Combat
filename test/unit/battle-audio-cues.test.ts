@@ -3,6 +3,7 @@ import { Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createBattleAudioCues } from '../../src/audio/battleAudioCues'
 import { hitFeedback, hitRate } from '../../src/audio/curves'
+import { warmJamGainDb } from '../../src/control/gunHeat'
 import { P51D } from '../../src/specs/p51d'
 import { JU87 } from '../../src/specs/ju87'
 import { B17G } from '../../src/specs/b17g'
@@ -23,6 +24,62 @@ function setup(spec = P51D) {
 }
 
 afterEach(() => vi.restoreAllMocks())
+
+/**
+ * 【快過熱：每打一發配一聲槍機聲】跟齊射同一條路（子步收槍焰的上升緣），與槍聲完全同步、低幀率也不漏。
+ * 音量隨熱度從 −18 dB 升到 0 dB（`warmJamGainDb`），過熱那一刻接上紅色空響
+ */
+describe('快過熱的槍機聲', () => {
+  function warmSetup(spec = P51D) {
+    const world = new World()
+    const player = world.add(new Aircraft(spec), { update() {} }, 'blue', new Vector3(0, 1000, 0))
+    const playPool = vi.fn()
+    const gun = { warmFiring: false, gunHeat: { heat: 0 } }
+    const cues = createBattleAudioCues({ playPool }, new Vector3(0, 1000, 0), 25, gun)
+    cues.rebuildVolleyGroups(player)
+    // 前射武器與砲塔一起打一發
+    const shoot = (t: number): void => {
+      player.muzzleFlash.fill(0)
+      for (const ts of player.turretStates) ts.flash = 0
+      cues.queueAudioCues(world, player, land, false)
+      player.muzzleFlash.fill(0.03)
+      for (const ts of player.turretStates) ts.flash = 0.03
+      cues.queueAudioCues(world, player, land, false)
+      cues.playFrame(world, player, t, true)
+    }
+    const jams = () => playPool.mock.calls.filter((c) => String(c[0]).startsWith('gun-jam-'))
+    return { playPool, gun, shoot, jams }
+  }
+
+  it('綠色時只有槍聲', () => {
+    const s = warmSetup()
+    s.shoot(1)
+    expect(s.jams()).toHaveLength(0)
+  })
+
+  it('快過熱時每一發齊射配一聲那一組的槍機聲，音量照熱度', () => {
+    const s = warmSetup()
+    s.gun.warmFiring = true
+    s.gun.gunHeat.heat = 0.6
+    s.shoot(1)
+    s.gun.gunHeat.heat = 0.9
+    s.shoot(2)
+    const j = s.jams()
+    expect(j.map((c) => c[0])).toEqual(['gun-jam-m2-50calx6', 'gun-jam-m2-50calx6'])
+    expect(j.map((c) => c.slice(1, 6))).toEqual([['reload', 0, 0, 0, false], ['reload', 0, 0, 0, false]])
+    expect(j[0]![6]).toBeCloseTo(warmJamGainDb(0.6), 9)
+    expect(j[1]![6]).toBeCloseTo(warmJamGainDb(0.9), 9)
+  })
+
+  /** 【只配前射武器】後座砲塔的齊射不是玩家扣的扳機，不吃過熱 */
+  it('後座砲塔的齊射不配槍機聲', () => {
+    const s = warmSetup(JU87)
+    s.gun.warmFiring = true
+    s.gun.gunHeat.heat = 0.8
+    s.shoot(1)
+    expect(s.jams().map((c) => c[0])).toEqual(['gun-jam-mg17x2'])
+  })
+})
 
 describe('戰鬥單次音效的收集與播放', () => {
   it('子步只收集齊射，持續槍焰不重複；播放後不留事件', () => {

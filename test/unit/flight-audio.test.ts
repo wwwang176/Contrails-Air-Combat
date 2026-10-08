@@ -8,7 +8,7 @@ import { P51D } from '../../src/specs/p51d'
 import { JU87 } from '../../src/specs/ju87'
 import { BF109K4 } from '../../src/specs/bf109k4'
 import { World, teamSlot } from '../../src/world/World'
-import { dryClickInterval, warmJamGainDb } from '../../src/control/gunHeat'
+import { dryClickInterval } from '../../src/control/gunHeat'
 
 function setup(spec = P51D) {
   const world = new World()
@@ -99,32 +99,12 @@ describe('過熱的空響', () => {
   })
 
   /**
-   * 【快過熱：槍機聲疊在槍聲上，越來越大聲】節奏與空響相同；音量隨熱度從 −18 dB 升到 0 dB，
-   * 過熱那一刻接上空響（0 dB）
+   * 【快過熱不走這裡】那時每打一發配一聲，由齊射那一條路播（`battleAudioCues`）；這裡只管過熱的空響。
+   * 兩邊都播的話黃色時會多出一條不同步的節奏
    */
-  it('快過熱時依同樣的節奏響，音量隨熱度變大；過熱後是 0 dB 的空響', () => {
+  it('快過熱時這裡不響，只有過熱才響空響', () => {
     const { audio, update, gun } = setup()
-    const gains = (from: number) =>
-      audio.playPool.mock.calls.slice(from).filter((c) => String(c[0]).startsWith('gun-jam-')).map((c) => c[6] ?? 0)
     gun.warmFiring = true
-    gun.gunHeat.heat = 0.6
-    update(1, false, 1 / 60)
-    let n = audio.playPool.mock.calls.length
-    expect(gains(0)).toEqual([warmJamGainDb(0.6)])
-    gun.gunHeat.heat = 0.9
-    for (let i = 1; i <= 30; i++) update(1 + i / 60, false, 1 / 60)
-    expect(gains(n).length).toBeGreaterThan(0)
-    for (const g of gains(n)) expect(g).toBeCloseTo(warmJamGainDb(0.9), 9)
-    n = audio.playPool.mock.calls.length
-    gun.warmFiring = false
-    gun.dryFiring = true
-    gun.gunHeat.heat = 1
-    for (let i = 31; i <= 60; i++) update(1 + i / 60, false, 1 / 60)
-    for (const g of gains(n)) expect(g).toBe(0)
-  })
-
-  it('不快過熱也不過熱時不響', () => {
-    const { audio, update, gun } = setup()
     gun.gunHeat.heat = 0.9
     for (let i = 0; i < 60; i++) update(1 + i / 60, false, 1 / 60)
     expect(jams(audio)).toBe(0)

@@ -9,18 +9,13 @@ import type { AudioEngine } from './engine'
 import { SINGLE_FILES, engineFile, jamPool, sirenFile, type Pool } from './catalog'
 import { engineRate, noseDownRad, shakeGainDb, shakeInterval, sirenParams, sirenWobble, windParams } from './curves'
 import { nearMiss } from './nearMiss'
-import { dryClickInterval, warmJamGainDb } from '../control/gunHeat'
+import { dryClickInterval } from '../control/gunHeat'
 
 interface FlightAudioFeedback {
   playHeavyHit(severity: number): void
   teamSlot: typeof teamSlot
   /** 玩家的控制器：前機槍過熱而且扳機按著（`control/gunHeat.ts`） */
-  gun: {
-    readonly dryFiring: boolean
-    /** 快過熱（黃色）而且還在開火 */
-    readonly warmFiring: boolean
-    readonly gunHeat: { readonly heat: number }
-  }
+  gun: { readonly dryFiring: boolean }
 }
 
 /** 自機狀態與附近彈藥的聽覺回饋；換場、接手僚機時重設事件邊緣。 */
@@ -110,19 +105,17 @@ export function createFlightAudio(
     // 警告蜂鳴：飛出邊界，或速度進了紅線（與 HUD 的紅線警告同一個門檻）
     const warn = flying && (arenaWarning || vneRatio >= OVERSPEED_FULL)
     audio.selfLoop('warn', warn ? SINGLE_FILES.warn : null, 1, 0)
-    // 槍機聲：每一組依自己射擊間隔的 2.5 倍一聲（`dryClickInterval`）。
-    // 過熱時扣扳機是空響（0 dB）；快過熱（黃色）而且還在開火時疊在槍聲上，越熱越大聲（`warmJamGainDb`），
-    // 過熱那一刻剛好接上空響。兩者共用同一組計時，從黃轉紅時節奏不斷
+    // 過熱時扣扳機的空響：每一組依自己射擊間隔的 2.5 倍一聲（`dryClickInterval`）。
+    // 快過熱（黃色）的槍機聲不在這裡：那時每打一發配一聲，跟著齊射走（`battleAudioCues`）
     // 【保留餘數】這裡每畫面幀才跑一次；每響一次就重設整個間隔的話，節奏會隨幀率變慢
     if (spec !== jamSpec) buildJamGroups(spec)
-    if (flying && (gun.dryFiring || gun.warmFiring)) {
-      const gainDb = gun.dryFiring ? 0 : warmJamGainDb(gun.gunHeat.heat)
+    if (flying && gun.dryFiring) {
       for (let g = 0; g < jamPools.length; g++) {
         const pool = jamPools[g]
         if (pool === null || pool === undefined) continue
         let t = jamTimers[g]! - worldSeconds
         for (let n = 0; t <= 0 && n < DRY_CLICK_BURST; n++) {
-          audio.playPool(pool, 'reload', 0, 0, 0, false, gainDb)
+          audio.playPool(pool, 'reload', 0, 0, 0, false)
           t += jamIntervals[g]!
         }
         jamTimers[g] = t <= 0 ? jamIntervals[g]! : t
