@@ -125,6 +125,9 @@ const MAX_SHOTS_PER_FRAME = 8
 /** 劇本打掉的那一台，在 `killAt` 前幾秒內開始找人補最後一發，s。要大於砲彈最長的飛行時間（射程 ÷ 砲彈速度） */
 const KILL_SHOT_LEAD = 6
 
+/** 砲塔的瞄準目標多久檢查一次還有沒有效，s */
+const AIM_CHECK_EVERY = 1
+
 const TWO_PI = Math.PI * 2
 
 /**
@@ -197,6 +200,11 @@ export interface GroundBattle {
   ): void
   /** 重開一場：清掉在飛的與在飄的 */
   reset(): void
+  /**
+   * 第 `s` 台（`update` 收到的那一份清單的序號）砲塔該指著誰：清單序號，−1 = 沒有。
+   * 開砲打誰就是誰；失效了每秒重挑射程內最近的敵方。只有直射的戰車與砲有
+   */
+  aimTarget(s: number): number
   dispose(): void
 }
 
@@ -256,6 +264,10 @@ export function createGroundBattle(
   let diedAt = new Float32Array(0)
   /** 每一台劇本打掉前的那一發補過了沒（1 = 補過）。`reset` 清掉 */
   let killShot = new Uint8Array(0)
+  /** 每一台直射砲的瞄準目標（砲塔指向它）；−1 = 沒有。`reset` 清掉 */
+  let aimTargets = new Int32Array(0)
+  /** 每一台下一次檢查瞄準目標還有沒有效的倒數，秒。初值依序號錯開 */
+  let aimClock = new Float32Array(0)
   let burnClock = 0
   let artilleryClock = 0
   let lastTime = -1
@@ -264,6 +276,22 @@ export function createGroundBattle(
   const arcLastLanding = { x: 0, y: 0, z: 0 }
   /** `lob` 解出來的彈道，交給尾流之前的暫存。熱路徑：不配置 */
   const arcShot: ArcShot = { x0: 0, y0: 0, z0: 0, vx: 0, vy: 0, vz: 0, flight: 0 }
+
+  /** 檢查倒數的初值：依序號錯開，全場不在同一幀一起掃 */
+  function resetAimClock(): void {
+    for (let s = 0; s < aimClock.length; s++) aimClock[s] = ((s * 0.618034) % 1) * AIM_CHECK_EVERY
+  }
+
+  /** 第 `s` 台的瞄準目標 `j` 還能打：存在、在場上、是敵方、在射程內 */
+  function aimValid(targets: readonly GroundTarget[], s: number, j: number): boolean {
+    const t = j >= 0 ? targets[j] : undefined
+    if (t === undefined || !inPlay(t)) return false
+    const me = targets[s]!
+    if (t.team === me.team) return false
+    const dx = t.position.x - me.position.x
+    const dz = t.position.z - me.position.z
+    return dx * dx + dz * dz <= theater.range * theater.range
+  }
 
   /** 迫擊砲彈落地：爆炸交給呼叫端（炸彈的火球與粒子，縮小一號），與直射砲彈擊中同一份 */
   function land(x: number, y: number, z: number): void {
@@ -342,6 +370,8 @@ export function createGroundBattle(
     const j = victim >= 0 ? victim
       : nearestEnemy(targets, s, infantry ? Math.min(INFANTRY_RANGE, theater.range) : theater.range, isTarget)
     if (j < 0) return
+    // 【砲塔指著這一發的目標】包括劇本指定的 `victim`：它不是最近的敵方
+    if (!infantry) aimTargets[s] = j
     const them = targets[j]!
     const dx = them.position.x - me.position.x
     const dz = them.position.z - me.position.z
@@ -349,7 +379,8 @@ export function createGroundBattle(
     if (d < 1) return
     const ux = dx / d
     const uz = dz / d
-    // 【砲口朝目標】不讀砲塔的轉向（模型的砲塔不轉）：車頭前方半個車長、車高八成
+    // 【砲口用近似】朝目標方向、離車心半個車長、車高八成。畫面上的砲塔照 `aimTarget` 慢慢轉，
+    // 剛換目標時還沒轉到，槍焰會短暫不在砲口上
     const reach = infantry ? 0 : me.unit.realLength / 2
     const ox = me.position.x + ux * reach
     const oz = me.position.z + uz * reach
@@ -393,6 +424,9 @@ export function createGroundBattle(
         trackClock = new Float32Array(targets.length)
         diedAt = new Float32Array(targets.length).fill(-1)
         killShot = new Uint8Array(targets.length)
+        aimTargets = new Int32Array(targets.length).fill(-1)
+        aimClock = new Float32Array(targets.length)
+        resetAimClock()
       }
       // 【第一幀不補發】開場那一刻沒有「上一幀」，從 0 算的話會一口氣補上開場前的發數
       const first = lastTime < 0
@@ -407,6 +441,18 @@ export function createGroundBattle(
       for (let s = 0; s < targets.length; s++) {
         const me = targets[s]!
         if (!inPlay(me)) continue
+        // 【砲塔的瞄準目標】失效了才重挑最近的 —— 每次都換成最近的話，劇本補發之後砲塔馬上轉走
+        if (isTank(me.unit.id)) {
+          const c = aimClock[s]! - frameDt
+          if (c <= 0) {
+            aimClock[s] = Math.max(0, c + AIM_CHECK_EVERY)
+            if (!aimValid(targets, s, aimTargets[s]!)) {
+              aimTargets[s] = nearestEnemy(targets, s, theater.range, isTarget)
+            }
+          } else {
+            aimClock[s] = c
+          }
+        }
         if (shooters.has(me.unit.id)) {
           if (ARC_SHOOTERS.has(me.unit.id)) {
             // 【開場天上就有彈】戰鬥是從中途開始的：第一幀補上開場前 `MORTAR_OPENING` 秒內發出、
@@ -525,6 +571,12 @@ export function createGroundBattle(
       trackClock.fill(0)
       diedAt.fill(-1)
       killShot.fill(0)
+      aimTargets.fill(-1)
+      resetAimClock()
+    },
+
+    aimTarget(s) {
+      return s >= 0 && s < aimTargets.length ? aimTargets[s]! : -1
     },
 
     dispose() {

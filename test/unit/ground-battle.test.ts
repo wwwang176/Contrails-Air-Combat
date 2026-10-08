@@ -238,6 +238,83 @@ describe('用真的卡片開打', () => {
  * 【劇本打掉的最後一發】`killAt` 到了，那一台由模擬打掉（沒有血量可言）；畫面上補一發命中的砲彈，
  * 看得到是誰打的、不是憑空爆炸。週期設得極大，只剩這一發。
  */
+/**
+ * 【砲塔的瞄準目標】SPEC `2026-10-08-gun-traverse-design.md` §5.2：開砲打誰就指著誰；
+ * 目標失效才每秒重挑最近的
+ */
+describe('砲塔的瞄準目標', () => {
+  const theater = { shooters: ['tank', 'atGun'], period: 1e6, range: 1500 } as const
+  const flat = (): number => 0
+  const run = (targets: ReturnType<typeof createGroundTarget>[], from: number, to: number, gb: ReturnType<typeof createGroundBattle>): void => {
+    for (let t = from; t < to; t += 0.1) gb.update(targets, t, 0.1, flat)
+  }
+
+  it('一秒內挑到射程內最近的敵方；死了換下一個；都沒有是 −1', () => {
+    const me = createGroundTarget(0, 'tank', 'blue', 0, 0, 0)
+    const near = createGroundTarget(1, 'tank', 'red', 500, 0, 0)
+    const far = createGroundTarget(2, 'atGun', 'red', 900, 0, 0)
+    const out = createGroundTarget(3, 'tank', 'red', 2000, 0, 0)
+    const list = [me, near, far, out]
+    const gb = createGroundBattle(theater as never, () => {})
+    expect(gb.aimTarget(0)).toBe(-1)
+    run(list, 0, 1.2, gb)
+    expect(gb.aimTarget(0)).toBe(1)
+    near.alive = false
+    run(list, 1.2, 2.4, gb)
+    expect(gb.aimTarget(0)).toBe(2)
+    far.alive = false
+    run(list, 2.4, 3.6, gb)
+    expect(gb.aimTarget(0)).toBe(-1)
+    gb.dispose()
+  })
+
+  it('目標還有效就不換成更近的：只有開砲會換', () => {
+    const me = createGroundTarget(0, 'tank', 'blue', 0, 0, 0)
+    const first = createGroundTarget(1, 'tank', 'red', 500, 0, 0)
+    const later = createGroundTarget(2, 'tank', 'red', 300, 0, 0)
+    later.dormant = true
+    const list = [me, first, later]
+    const gb = createGroundBattle(theater as never, () => {})
+    run(list, 0, 1.2, gb)
+    expect(gb.aimTarget(0)).toBe(1)
+    later.dormant = false
+    run(list, 1.2, 4, gb)
+    expect(gb.aimTarget(0)).toBe(1)
+    gb.dispose()
+  })
+
+  /** 【劇本補發】最近的是 A，補發打 B：砲塔要指著 B，直到 B 照劇本死掉 */
+  it('開砲打誰就指著誰，包括劇本指定的那一台', () => {
+    const me = createGroundTarget(0, 'tank', 'blue', 0, 0, 0)
+    const a = createGroundTarget(1, 'atGun', 'red', 400, 0, 0)
+    const b = createGroundTarget(2, 'tank', 'red', 900, 0, 0)
+    b.killAt = 30
+    const list = [me, a, b]
+    const gb = createGroundBattle(theater as never, () => {})
+    run(list, 0, 22, gb)
+    expect(gb.aimTarget(0)).toBe(1)
+    run(list, 22, 29.5, gb)
+    expect(gb.shots).toBe(1)
+    expect(gb.aimTarget(0)).toBe(2)
+    gb.dispose()
+  })
+
+  it('不開直射砲的（步兵、迫擊砲）沒有瞄準目標；reset 清掉', () => {
+    const inf = createGroundTarget(0, 'infantry', 'blue', 0, 0, 0)
+    const me = createGroundTarget(1, 'tank', 'blue', 10, 0, 0)
+    const foe = createGroundTarget(2, 'tank', 'red', 300, 0, 0)
+    const list = [inf, me, foe]
+    const gb = createGroundBattle({ shooters: ['tank', 'infantry'], period: 1e6, range: 1500 } as never, () => {})
+    run(list, 0, 1.2, gb)
+    expect(gb.aimTarget(0)).toBe(-1)
+    expect(gb.aimTarget(1)).toBe(2)
+    gb.reset()
+    expect(gb.aimTarget(1)).toBe(-1)
+    expect(gb.aimTarget(99)).toBe(-1)
+    gb.dispose()
+  })
+})
+
 describe('劇本打掉前的最後一發', () => {
   const theater = { shooters: ['tank'], period: 1e6, range: 1500 } as const
   const flat = (): number => 0

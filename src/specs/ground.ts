@@ -88,8 +88,8 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   {
     id: 'atGun', note: '反坦克砲 — 德 M4 勒熱夫：蘇軍支援砲（第一段的目標）與德軍的反坦克砲共用（暫代：Flak 38）',
-    realLength: 2.41, realWidth: 1.91, realHeight: 1.92,
-    hull: [groundBox([-0.95, 0.00, -0.76], [0.95, 1.59, 1.06])],
+    realLength: 2.57, realWidth: 1.91, realHeight: 1.50,
+    hull: [groundBox([-0.95, 0.00, -0.75], [0.95, 1.50, 1.06])],
   },
   {
     id: 'panzer4', note: '德軍 IV 號戰車 — 德 M4 勒熱夫（暫代：M4A3）',
@@ -123,8 +123,8 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   {
     id: 'flakLight', note: '輕型四聯防空砲 — 德 M2',
-    realLength: 2.41, realWidth: 1.91, realHeight: 1.92,
-    hull: [groundBox([-0.95, 0.00, -0.76], [0.95, 1.59, 1.06])],
+    realLength: 2.57, realWidth: 1.91, realHeight: 1.50,
+    hull: [groundBox([-0.95, 0.00, -0.75], [0.95, 1.50, 1.06])],
   },
   {
     id: 'usTank', note: '美軍戰車 — 日 M2 雷伊泰車隊',
@@ -138,7 +138,7 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   {
     id: 'usFlakTrack', note: '美軍四聯 .50 防空半履帶車 — 日 M2 雷伊泰車隊與灘頭',
-    realLength: 6.51, realWidth: 2.16, realHeight: 2.95,
+    realLength: 6.51, realWidth: 2.16, realHeight: 2.61,
     hull: [groundBox([-1.05, 0.00, -3.43], [1.05, 2.61, 2.90])],
   },
   {

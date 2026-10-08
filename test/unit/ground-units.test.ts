@@ -12,6 +12,7 @@ import {
 } from '../../src/render/geometry/ground'
 import { GROUND_UNITS, TRAIN_CONSIST, PARKED_TAIL_DOWN, type GroundUnit } from '../../src/specs/ground'
 import { GLB_MATERIALS } from '../../src/render/geometry/ground/glb'
+import { restGeometry } from '../../src/render/geometry/ground/turret'
 import { loadGlbTemplatesForNode } from '../fixtures/glb'
 import { createGroundTarget } from '../../src/world/groundTargets'
 import { createGroundModels } from '../../src/render/groundTargets'
@@ -54,15 +55,18 @@ function geometryOf(u: GroundUnit): BufferGeometry {
   return g
 }
 
-/** 整台的包圍盒。拆開的槳葉（停放的 P-51）擺回停放姿態一起算 —— 它也是看得見的外形 */
+/**
+ * 整台的包圍盒。拆開的槳葉（停放的 P-51）擺回停放姿態、拆開的砲塔擺回靜止姿勢一起算 ——
+ * 它們也是看得見的外形
+ */
 function boundsOf(u: GroundUnit): Box3 {
   const b = new Box3()
-  const g = geometryOf(u)
+  const g = restGeometry(geometryOf(u))
   const pos = g.getAttribute('position')
   for (let i = 0; i < pos.count; i++) {
     b.expandByPoint(new Vector3(pos.getX(i), pos.getY(i), pos.getZ(i)))
   }
-  const prop = g.userData[PARKED_PROP_KEY] as ParkedProp | undefined
+  const prop = geometryOf(u).userData[PARKED_PROP_KEY] as ParkedProp | undefined
   if (prop !== undefined) {
     const placed = prop.geometry.clone()
       .applyMatrix4(new Matrix4().makeRotationX(PARKED_TAIL_DOWN))
@@ -74,28 +78,42 @@ function boundsOf(u: GroundUnit): Box3 {
   return b
 }
 
+/** `o` 是不是 `anc` 本身或它的後代 */
+function under(o: Object3D, anc: Object3D | undefined): boolean {
+  for (let p: Object3D | null = o; p !== null; p = p.parent) if (p === anc) return true
+  return false
+}
+
 /**
- * 這台的網格，一個節點一筆、頂點已烘進遊戲座標，**砲管節點已排除**。
+ * 這台的網格，一個節點一筆、頂點已烘進遊戲座標，**砲管節點已排除**；有砲塔的再排除上下抬
+ * 那一組（SPEC `2026-10-08-gun-traverse-design.md` §6：比照砲管，不要求命中盒蓋住）。
+ * 水平轉那一組帶 `pivot`（水平旋轉軸的世界座標），給轉一圈的那一條用。
  * 程序化的火車只有一顆合併後的幾何，當一個節點。
  */
-async function meshesOf(u: GroundUnit): Promise<{ node: string; pos: BufferAttribute }[]> {
+async function meshesOf(u: GroundUnit): Promise<{ node: string; pos: BufferAttribute; pivot?: Vector3 }[]> {
   const { model } = GROUND_MODELS[u.id]
   if (!('glb' in model)) {
     return [{ node: u.id, pos: geometryOf(u).getAttribute('position') as BufferAttribute }]
   }
-  const { glb, barrelNodes } = model
+  const { glb, barrelNodes, turret } = model
   const scene = await new Promise<Object3D>((res, rej) => {
     readPublic(glb).then((buf) => createGltfLoader().parse(buf, '', (g) => res(g.scene), rej), rej)
   })
   scene.updateMatrixWorld(true)
-  const out: { node: string; pos: BufferAttribute }[] = []
+  const trav = turret === undefined ? undefined : scene.getObjectByName(turret.traverse)
+  const elev = turret === undefined ? undefined : scene.getObjectByName(turret.elevate)
+  const out: { node: string; pos: BufferAttribute; pivot?: Vector3 }[] = []
   scene.traverse((o: Object3D) => {
     const mesh = o as Mesh
     if (!mesh.isMesh) return
     if (barrelNodes.some((p) => mesh.name.startsWith(p))) return
+    if (under(mesh, elev)) return
     const g = mesh.geometry.clone()
     g.applyMatrix4(mesh.matrixWorld)
-    out.push({ node: mesh.name, pos: g.getAttribute('position') as BufferAttribute })
+    const pos = g.getAttribute('position') as BufferAttribute
+    out.push(under(mesh, trav)
+      ? { node: mesh.name, pos, pivot: new Vector3().setFromMatrixPosition(trav!.matrixWorld) }
+      : { node: mesh.name, pos })
   })
   return out
 }
@@ -239,6 +257,26 @@ describe('地面單位', () => {
           expect(h.center.z - h.half.z).toBeGreaterThan(b.min.z - 0.05)
           expect(h.center.z + h.half.z).toBeLessThan(b.max.z + 0.05)
         }
+      })
+
+      /** 【砲塔轉到哪裡都打得到】水平轉那一組在任何方位都要在命中盒裡，不然轉到側面就有一截打不中 */
+      it('會水平轉的零件（上下抬那一組以外）轉一圈都在命中盒裡', async () => {
+        const missed: string[] = []
+        for (const { node, pos, pivot } of await meshesOf(u)) {
+          if (pivot === undefined) continue
+          for (let deg = 0; deg < 360; deg += 15) {
+            const c = Math.cos(deg * Math.PI / 180)
+            const s = Math.sin(deg * Math.PI / 180)
+            let out = false
+            for (let i = 0; i < pos.count && !out; i++) {
+              const x = pos.getX(i) - pivot.x
+              const z = pos.getZ(i) - pivot.z
+              out = !inside(pivot.x + x * c + z * s, pos.getY(i), pivot.z - x * s + z * c, u)
+            }
+            if (out) { missed.push(`${node}@${deg}°`); break }
+          }
+        }
+        expect(missed).toEqual([])
       })
 
       it('命中盒蓋住砲管以外的全部頂點 —— 座標系換錯（(x, z, −y) 少個負號）會整批漏', async () => {

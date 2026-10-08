@@ -95,7 +95,8 @@ export function updateBattleSceneFrame(
   flareLights.update(world.flares, elapsed)
   stepEffects(worldSeconds, world.time, terrain, elapsed)
 
-  battleScenery.groundModels?.update(world.groundTargets, ctx.camera.position, worldSeconds)
+  // 【T-34 與反坦克砲的砲塔指著地面戰挑的目標】兩邊收的是同一份清單，序號對得上
+  battleScenery.groundModels?.update(world.groundTargets, ctx.camera.position, worldSeconds, battleScenery.groundBattle)
   // 【吃世界秒數】射擊排程是 `world.time` 的純函數；暫停時兩者都不走
   battleScenery.groundBattle?.update(world.groundTargets, world.time, worldSeconds, world.groundAt)
   // 【吃世界秒數】暫停時為 0，團塊停在原地

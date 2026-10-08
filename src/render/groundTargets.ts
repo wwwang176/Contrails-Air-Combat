@@ -7,6 +7,10 @@ import {
   PARKED_OFFSET_KEY, PARKED_PROP_KEY, type ParkedProp,
 } from './geometry/ground/parked'
 import { useAircraftLod } from './geometry/buildAircraft'
+import { GUN_TURRET_KEY, type GunTurretParts } from './geometry/ground/turret'
+import {
+  GUN_PITCH_MAX, GUN_PITCH_MIN, TANK_PITCH_MAX, TANK_PITCH_MIN, TANK_TRAVERSE_RATE, aimAngles, slewYaw,
+} from './gunAim'
 
 /** 停放模型烘進去的機尾下沉，與它的反向 */
 const TILT = /* @__PURE__ */ new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), PARKED_TAIL_DOWN)
@@ -14,6 +18,21 @@ const UNTILT = /* @__PURE__ */ TILT.clone().invert()
 const OFF = /* @__PURE__ */ new Vector3()
 const Z_AXIS = /* @__PURE__ */ new Vector3(0, 0, 1)
 const SPIN = /* @__PURE__ */ new Quaternion()
+/** 砲塔角度的暫存。熱路徑：不配置 */
+const ANGLES = { yaw: 0, pitch: 0 }
+const TO = /* @__PURE__ */ new Vector3()
+const INV = /* @__PURE__ */ new Quaternion()
+
+/** 砲塔（水平轉那一顆，上下抬那一顆是它的孩子）的物件名 */
+export const GROUND_TURRET_NAME = 'groundModels.turret'
+
+/**
+ * 砲塔的瞄準目標從哪來：地面戰的戲（`render/groundBattle.ts`）。序號是 `update` 收到的那一份
+ * 清單的序號，回 −1 = 沒有
+ */
+export interface GroundAimSource {
+  aimTarget(s: number): number
+}
 
 /**
  * 地上的槳轉速，rad/s（約每秒 1.3 圈）。與飛行中油門收到底時同一個數
@@ -45,9 +64,10 @@ export interface GroundModels {
   readonly object: Group
   /**
    * `cam` 是鏡頭的世界座標，距離 LOD 用。`seconds` 是這一幀的物理時間（暫停為 0），
-   * 地上的槳照它轉。
+   * 地上的槳與 T-34 的砲塔照它轉。`aim` 是沒有模擬砲位的單位（T-34、反坦克砲）的瞄準目標；
+   * 省略 = 它們的砲塔轉回正前方。
    */
-  update(targets: readonly GroundTarget[], cam: Vector3, seconds?: number): void
+  update(targets: readonly GroundTarget[], cam: Vector3, seconds?: number, aim?: GroundAimSource | null): void
   /**
    * 距離 LOD 現在切到哪裡，給 `main.ts` 的 `__lod` 出口。
    *
@@ -80,6 +100,13 @@ export function createGroundModels(targets: readonly GroundTarget[]): GroundMode
   const byId = new Map<string, Pair>()
   /** 逐台一格：拆開的槳葉（停放的 P-51），沒有就是 null */
   const props: (Mesh | null)[] = []
+  /** 逐台一格：會轉的砲塔（水平轉那一顆，上下抬那一顆是它的孩子），沒有就是 null */
+  const turrets: (Mesh | null)[] = []
+  /** 逐台一格：拆開的兩塊與轉軸，坦克算方位與仰角用 */
+  const turretParts: (GunTurretParts | null)[] = []
+  /** 逐台的砲塔角度，rad。死了停在最後那一幀 */
+  const yaws = new Float64Array(targets.length)
+  const pitches = new Float64Array(targets.length)
 
   for (const t of targets) {
     let pair = byId.get(t.unit.id)
@@ -107,13 +134,64 @@ export function createGroundModels(targets: readonly GroundTarget[]): GroundMode
       m.add(prop)
     }
     props.push(prop)
+    // 拆開的砲塔：水平轉那一顆掛在車身、上下抬那一顆掛在它底下，位置都是轉軸
+    const gt = pair.hi.userData[GUN_TURRET_KEY] as GunTurretParts | undefined
+    let trav: Mesh | null = null
+    if (gt !== undefined) {
+      trav = new Mesh(gt.traverse, live)
+      // 【命名】量測出口（`__gfx` 的 `groundTurrets`）靠名字找出這些子網格
+      trav.name = GROUND_TURRET_NAME
+      trav.position.copy(gt.traversePivot)
+      const elev = new Mesh(gt.elevate, live)
+      elev.position.copy(gt.elevatePivot)
+      trav.add(elev)
+      m.add(trav)
+    }
+    turrets.push(trav)
+    turretParts.push(gt ?? null)
+  }
+
+  /** 第 k 台砲塔這一幀的角度寫進 `yaws`／`pitches`。死了的不動 */
+  function aimTurret(list: readonly GroundTarget[], k: number, seconds: number, aim: GroundAimSource | null): void {
+    const t = list[k]!
+    if (!t.alive) return
+    const gun = t.guns[0]
+    // 【有模擬砲位的照它的瞄準方向】已經是單位本身的座標，而且已照轉速慢慢轉，畫面不再平滑
+    if (gun !== undefined) {
+      const a = gun.aim
+      aimAngles(a.x, a.y, a.z, yaws[k]!, pitches[k]!, GUN_PITCH_MIN, GUN_PITCH_MAX, ANGLES)
+      yaws[k] = ANGLES.yaw
+      pitches[k] = ANGLES.pitch
+      return
+    }
+    // 【其餘的問地面戰】指向目標的中心；沒有就轉回正前方
+    const j = aim === null ? -1 : aim.aimTarget(k)
+    const them = j >= 0 ? list[j] : undefined
+    let wantYaw = 0
+    let wantPitch = 0
+    if (them !== undefined) {
+      // 目標中心換成車身座標。【方位從水平旋轉軸量、高低從耳軸量】耳軸在旋轉軸前方，
+      // 從耳軸量方位的話近處的目標會偏一個角度
+      const g = turretParts[k]!
+      TO.set(them.position.x, them.position.y + them.unit.realHeight * 0.5, them.position.z)
+        .sub(t.position).applyQuaternion(INV.copy(t.orientation).invert())
+      const tp = g.traversePivot
+      aimAngles(
+        TO.x - tp.x, TO.y - tp.y - g.elevatePivot.y, TO.z - tp.z,
+        yaws[k]!, pitches[k]!, TANK_PITCH_MIN, TANK_PITCH_MAX, ANGLES,
+      )
+      wantYaw = ANGLES.yaw
+      wantPitch = ANGLES.pitch
+    }
+    yaws[k] = slewYaw(yaws[k]!, wantYaw, TANK_TRAVERSE_RATE, seconds)
+    pitches[k] = slewYaw(pitches[k]!, wantPitch, TANK_TRAVERSE_RATE, seconds)
   }
   /** 地上的槳一律同一個角度 —— 一台一個相位看不出差別 */
   let spin = 0
 
   return {
     object,
-    update(list, cam, seconds = 0) {
+    update(list, cam, seconds = 0, aim = null) {
       spin = (spin + seconds * PARKED_PROP_SPIN) % (Math.PI * 2)
       SPIN.setFromAxisAngle(Z_AXIS, spin)
       for (let k = 0; k < list.length && k < meshes.length; k++) {
@@ -124,6 +202,16 @@ export function createGroundModels(targets: readonly GroundTarget[]): GroundMode
           // 被打掉的停轉
           if (t.alive) prop.quaternion.multiplyQuaternions(TILT, SPIN)
           if (prop.material !== (t.alive ? live : wreck)) prop.material = t.alive ? live : wreck
+        }
+        const trav = turrets[k]!
+        if (trav !== null) {
+          aimTurret(list, k, seconds, aim)
+          const elev = trav.children[0] as Mesh
+          trav.rotation.y = yaws[k]!
+          elev.rotation.x = pitches[k]!
+          const mat = t.alive ? live : wreck
+          if (trav.material !== mat) trav.material = mat
+          if (elev.material !== mat) elev.material = mat
         }
         m.position.copy(t.position)
         m.quaternion.copy(t.orientation)

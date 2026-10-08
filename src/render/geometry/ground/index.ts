@@ -1,6 +1,7 @@
 import type { BufferGeometry } from 'three'
 import { GROUND_UNITS, type GroundUnit, type GroundUnitId } from '../../../specs/ground'
-import { groundGlb, preloadGroundGlbs } from './glb'
+import { groundGlb, preloadGroundGlbs, type GroundGlbSource } from './glb'
+import type { GroundTurretNodes } from './turret'
 import { buildBoxcar, buildFlatcar, buildLocomotive, buildTender } from './train'
 import { PLANT_BUILDERS } from './plant'
 import { buildBombDump, buildFuelDump, buildSearchlight } from './dump'
@@ -19,6 +20,11 @@ export type GroundModel =
     readonly glb: string
     /** 可轉動的砲管節點不納入命中盒，名稱須與 GLB 的節點名一致。 */
     readonly barrelNodes: readonly string[]
+    /**
+     * 會轉的砲塔：兩個轉軸節點的名字。有登記的，載入時拆成固定／水平轉／上下抬三塊
+     * （`GUN_TURRET_KEY`），畫面照瞄準方向轉。**同一支 GLB 的每一筆登記要相同**
+     */
+    readonly turret?: GroundTurretNodes
   }
   | { readonly build: () => BufferGeometry }
 
@@ -33,22 +39,32 @@ export interface GroundModelSet {
   readonly lodModel?: GroundModel
 }
 
+/** 共用同一支 GLB 的單位用同一份節點名 —— 預載時會檢查一致 */
+const T34_TURRET: GroundTurretNodes = { traverse: 'T34_Traverse', elevate: 'T34_Elevate' }
+const F38_TURRET: GroundTurretNodes = { traverse: 'F38_Traverse', elevate: 'F38_Elevate' }
+
 /** 新增單位時，型別檢查要求同時提供模型；物理規格不依賴此表。 */
 export const GROUND_MODELS: Readonly<Record<GroundUnitId, GroundModelSet>> = {
-  tank: { model: { glb: '/models/t34.glb', barrelNodes: ['T34_Gun'] } },
-  tankDug: { model: { glb: '/models/t34.glb', barrelNodes: ['T34_Gun'] } },
-  atGun: { model: { glb: '/models/flak38.glb', barrelNodes: ['F38_Barrel_'] } },
+  tank: { model: { glb: '/models/t34.glb', barrelNodes: ['T34_Gun'], turret: T34_TURRET } },
+  tankDug: { model: { glb: '/models/t34.glb', barrelNodes: ['T34_Gun'], turret: T34_TURRET } },
+  atGun: { model: { glb: '/models/flak38.glb', barrelNodes: ['F38_Barrel_'], turret: F38_TURRET } },
   panzer4: { model: { glb: '/models/m4a3.glb', barrelNodes: ['M4_Gun'] } },
   tiger: { model: { glb: '/models/m4a3.glb', barrelNodes: ['M4_Gun'] } },
   infantry: { model: { build: buildInfantrySquad } },
   mortar: { model: { build: buildMortar } },
   truck: { model: { glb: '/models/zis150.glb', barrelNodes: [] } },
-  flakHeavy: { model: { glb: '/models/flak18.glb', barrelNodes: ['F18_Barrel'] } },
-  flakLight: { model: { glb: '/models/flak38.glb', barrelNodes: ['F38_Barrel_'] } },
+  flakHeavy: {
+    model: { glb: '/models/flak18.glb', barrelNodes: ['F18_Barrel'], turret: { traverse: 'F18_Traverse', elevate: 'F18_Elevate' } },
+  },
+  flakLight: { model: { glb: '/models/flak38.glb', barrelNodes: ['F38_Barrel_'], turret: F38_TURRET } },
   usTank: { model: { glb: '/models/m4a3.glb', barrelNodes: ['M4_Gun'] } },
   usTruck: { model: { glb: '/models/cckw.glb', barrelNodes: [] } },
-  usFlakTrack: { model: { glb: '/models/m16.glb', barrelNodes: ['M16_Barrel_'] } },
-  usFlakHeavy: { model: { glb: '/models/m1_90mm.glb', barrelNodes: ['M1_Barrel_'] } },
+  usFlakTrack: {
+    model: { glb: '/models/m16.glb', barrelNodes: ['M16_Barrel_'], turret: { traverse: 'M16_Traverse', elevate: 'M16_Elevate' } },
+  },
+  usFlakHeavy: {
+    model: { glb: '/models/m1_90mm.glb', barrelNodes: ['M1_Barrel_'], turret: { traverse: 'M1_Traverse', elevate: 'M1_Elevate' } },
+  },
   locomotive: { model: { build: buildLocomotive } },
   tender: { model: { build: buildTender } },
   boxcar: { model: { build: buildBoxcar } },
@@ -86,7 +102,12 @@ export async function preloadGroundModels(
   fetcher?: (url: string) => Promise<ArrayBuffer>,
   onLoaded?: () => void,
 ): Promise<void> {
-  await preloadGroundGlbs(groundModelUrls(), fetcher, onLoaded)
+  const sources: GroundGlbSource[] = []
+  for (const u of GROUND_UNITS) {
+    const { model } = GROUND_MODELS[u.id]
+    if ('glb' in model) sources.push(model.turret === undefined ? { url: model.glb } : { url: model.glb, turret: model.turret })
+  }
+  await preloadGroundGlbs(sources, fetcher, onLoaded)
 }
 
 /** GLB 回共用幾何，程序化模型回新幾何；呼叫端不可改動共用幾何。 */

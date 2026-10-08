@@ -64,7 +64,7 @@ import { createFlakBursts, emitFlakBursts, resetFlakBurstSeed } from './render/f
 import { createFlareLights } from './render/flares'
 import { createShipModels } from './render/ships'
 import { shipModelTop } from './render/shipAssets'
-import { createGroundModels } from './render/groundTargets'
+import { createGroundModels, GROUND_TURRET_NAME } from './render/groundTargets'
 import { createSearchlights, makeGlareTexture } from './render/searchlights'
 import { createGroundBattle } from './render/groundBattle'
 import { BATTLE_FOG } from './render/heightFog'
@@ -2277,6 +2277,8 @@ Object.assign(window, createGraphicsDiagnostics({
     battleProps: () => [turretBarrels.object, orderMarkers.object, debris.object, objectiveRing.object],
     ships: () => (battleScenery.shipModels === null ? [] : [battleScenery.shipModels.object]),
     ground: () => (battleScenery.groundModels === null ? [] : [battleScenery.groundModels.object]),
+    // 拆開的砲塔（一台多兩次繪製）：關掉它量得到拆塊的成本上限
+    groundTurrets: () => battleScenery.groundModels?.object.getObjectsByProperty('name', GROUND_TURRET_NAME) ?? [],
     balloons: () => (battleScenery.balloonModels === null ? [] : [battleScenery.balloonModels.object]),
     rain: () => (sceneWeather.rain === null ? [] : [sceneWeather.rain.object]),
     clouds: () => [clouds.object],

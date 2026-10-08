@@ -9,6 +9,7 @@ import { DEG } from '../core/math'
 import { groundUnitName } from '../i18n/names'
 import { GROUND_UNITS, TRAIN_CONSIST, type GroundUnit, type GroundUnitId } from '../specs/ground'
 import { groundGeometry, preloadGroundModels } from '../render/geometry/ground'
+import { restGeometry } from '../render/geometry/ground/turret'
 import { HUE, assemble, box } from '../render/geometry/ground/parts'
 
 /**
@@ -160,7 +161,8 @@ function hitFrames(unit: GroundUnit): Group {
 
 /** 把一個單位擺進場景，附上名牌。 */
 function place(unit: GroundUnit, x: number, z: number, ry: number): Entry {
-  const geo = groundGeometry(unit)
+  // 拆開的砲塔放回靜止姿勢：展示的是整台，尺寸與三角形數也量整台
+  const geo = restGeometry(groundGeometry(unit))
   const group = new Group()
   group.position.set(x, 0, z)
   group.rotation.y = ry
