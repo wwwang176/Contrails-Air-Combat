@@ -1,7 +1,7 @@
 import { beforeAll, describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { BoxGeometry, BufferGeometry, Mesh, MeshStandardMaterial, Object3D } from 'three'
-import { bakeGroundScene, parseGroundGlb } from '../../src/render/geometry/ground/glb'
+import { bakeGroundScene, parseGroundGlb, preloadGroundGlbs } from '../../src/render/geometry/ground/glb'
 import { GROUND_MODELS, groundGeometry, preloadGroundModels } from '../../src/render/geometry/ground'
 import { GUN_TURRET_KEY, restGeometry, type GunTurretParts } from '../../src/render/geometry/ground/turret'
 import { GROUND_UNITS } from '../../src/specs/ground'
@@ -107,6 +107,15 @@ describe('拆塊：遊戲裡的 GLB', () => {
     expect(turreted.map((u) => u.id).sort()).toEqual(
       ['atGun', 'flakHeavy', 'flakLight', 'panzer4', 'tank', 'tankDug', 'tiger', 'usFlakHeavy', 'usFlakTrack', 'usTank'],
     )
+  })
+
+  /** 【跨次預載】快取以路徑為鍵：先以沒有砲塔的登記載過，之後的登記就拿不到拆塊 —— 丟錯，不靜靜不轉 */
+  it('同一支 GLB 再預載一次，砲塔登記與快取裡的不同就丟錯；相同則不重載', async () => {
+    await expect(preloadGroundGlbs([{ url: '/models/t34.glb' }], async (url) => readPublic(url))).rejects.toThrow(/砲塔/)
+    await expect(preloadGroundGlbs(
+      [{ url: '/models/t34.glb', turret: { traverse: 'T34_Traverse', elevate: 'T34_Elevate' } }],
+      async () => { throw new Error('不該重載') },
+    )).resolves.toBeUndefined()
   })
 
   for (const u of turreted) {

@@ -142,6 +142,25 @@ describe('T-34：照地面戰的瞄準目標慢慢轉', () => {
     models.dispose()
   })
 
+  /**
+   * 【仰角從耳軸量】耳軸在水平旋轉軸前方（T-34 0.98 m）。從旋轉軸量水平距離的話，近處的目標
+   * 會指低：正前方 12 m 差 0.3°
+   */
+  it('仰角的水平距離從耳軸量，不是從水平旋轉軸', () => {
+    const tank = createGroundTarget(0, 'tank', 'blue', 0, 0, 0)
+    const foe = createGroundTarget(1, 'tank', 'red', 0, -12, 0)
+    const list = [tank, foe]
+    const models = createGroundModels(list)
+    const { trav, elev } = partsOf(models, 0)
+    for (let i = 0; i < 10; i++) models.update(list, CAM, 0.5, source(1))
+    const tp = trav.position
+    const ep = elev.position
+    const dy = foe.unit.realHeight * 0.5 - (tp.y + ep.y)
+    const flat = 12 + tp.z + ep.z
+    expect(elev.rotation.x).toBeCloseTo(Math.atan2(dy, flat), 6)
+    models.dispose()
+  })
+
   it('沒有目標（或沒有來源）就慢慢轉回正前方', () => {
     const tank = createGroundTarget(0, 'tank', 'blue', 0, 0, 0)
     const foe = createGroundTarget(1, 'tank', 'red', -300, 0, 0)

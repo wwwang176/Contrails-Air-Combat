@@ -24,6 +24,9 @@ const ANGLES = { yaw: 0, pitch: 0 }
 const TO = /* @__PURE__ */ new Vector3()
 const INV = /* @__PURE__ */ new Quaternion()
 
+/** 耳軸到目標的水平距離下限，m。目標貼著車身時仰角不會翻到背後 */
+const TRUNNION_MIN_REACH = 0.5
+
 /** 砲塔（水平轉那一顆，上下抬那一顆是它的孩子）的物件名 */
 export const GROUND_TURRET_NAME = 'groundModels.turret'
 
@@ -190,18 +193,22 @@ export function createGroundModels(targets: readonly GroundTarget[], livery?: Gr
     let wantYaw = 0
     let wantPitch = 0
     if (them !== undefined) {
-      // 目標中心換成車身座標。【方位從水平旋轉軸量、高低從耳軸量】耳軸在旋轉軸前方，
-      // 從耳軸量方位的話近處的目標會偏一個角度
+      // 目標中心換成車身座標。【方位從水平旋轉軸量、仰角從耳軸量】耳軸在旋轉軸前方
+      // （`elevatePivot.z` 為負）：方位從耳軸量的話近處的目標會偏；仰角的水平距離從旋轉軸量的話
+      // 會多算那一段，近處指低（正前方 10 m 差將近 1°）
       const g = turretParts[k]!
       TO.set(them.position.x, them.position.y + them.unit.realHeight * 0.5, them.position.z)
         .sub(t.position).applyQuaternion(INV.copy(t.orientation).invert())
       const tp = g.traversePivot
-      aimAngles(
-        TO.x - tp.x, TO.y - tp.y - g.elevatePivot.y, TO.z - tp.z,
-        yaws[k]!, pitches[k]!, TANK_PITCH_MIN, TANK_PITCH_MAX, ANGLES,
-      )
+      const ep = g.elevatePivot
+      const dx = TO.x - tp.x
+      const dz = TO.z - tp.z
+      // 耳軸跟著砲塔轉到目標方向上，所以它到目標的水平距離是「旋轉軸到目標」減掉它往前伸的那一段。
+      // 目標在耳軸裡面（距離 ≤ 0）時夾一個下限，免得仰角翻到背後
+      const flat = Math.max(TRUNNION_MIN_REACH, Math.hypot(dx, dz) + ep.z)
+      aimAngles(dx, 0, dz, yaws[k]!, pitches[k]!, 0, 0, ANGLES)
       wantYaw = ANGLES.yaw
-      wantPitch = ANGLES.pitch
+      wantPitch = Math.min(TANK_PITCH_MAX, Math.max(TANK_PITCH_MIN, Math.atan2(TO.y - tp.y - ep.y, flat)))
     }
     yaws[k] = slewYaw(yaws[k]!, wantYaw, TANK_TRAVERSE_RATE, seconds)
     pitches[k] = slewYaw(pitches[k]!, wantPitch, TANK_TRAVERSE_RATE, seconds)

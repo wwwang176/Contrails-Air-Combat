@@ -164,20 +164,24 @@ export async function preloadGroundGlbs(
 ): Promise<void> {
   const byUrl = new Map<string, GroundTurretNodes | undefined>()
   for (const s of sources) {
-    if (byUrl.has(s.url)) {
-      const a = byUrl.get(s.url)
-      if (a?.traverse !== s.turret?.traverse || a?.elevate !== s.turret?.elevate) {
-        throw new Error(`${s.url} 被登記了兩種不同的砲塔節點`)
-      }
-    } else {
-      byUrl.set(s.url, s.turret)
+    // 【這一次的登記要互相一致，也要和快取裡已經拆好的一致】已經載過的不會重拆
+    const seen = byUrl.has(s.url) ? byUrl.get(s.url) : bakedTurret.has(s.url) ? bakedTurret.get(s.url) : s.turret
+    if (seen?.traverse !== s.turret?.traverse || seen?.elevate !== s.turret?.elevate) {
+      throw new Error(`${s.url} 被登記了兩種不同的砲塔節點`)
     }
+    byUrl.set(s.url, s.turret)
   }
   await Promise.all([...byUrl].map(async ([url, turret]) => {
-    if (!cache.has(url)) cache.set(url, await parseGroundGlb(await fetcher(url), turret))
+    if (!cache.has(url)) {
+      cache.set(url, await parseGroundGlb(await fetcher(url), turret))
+      bakedTurret.set(url, turret)
+    }
     onLoaded()
   }))
 }
+
+/** 快取裡每一支是照哪一份砲塔登記拆的（沒有砲塔是 undefined） */
+const bakedTurret = new Map<string, GroundTurretNodes | undefined>()
 
 /**
  * 已載入的幾何。**同一份共用**，不 clone —— 幾何是唯讀的，幾台同款各自
