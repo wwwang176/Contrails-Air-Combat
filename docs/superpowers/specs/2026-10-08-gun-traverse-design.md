@@ -17,7 +17,9 @@
 | `atGun` | `flak38.glb` | `F38_` | 地面戰的戲挑的目標（德 M4 的反坦克砲借用四聯砲的模型） |
 | `usFlakTrack` | `m16.glb` | `M16_` | 同上 |
 | `tank`、`tankDug` | `t34.glb` | `T34_` | 地面戰的戲（`render/groundBattle.ts`）挑的目標 |
-| `panzer4`、`tiger`、`usTank` | `m4a3.glb` | `M4_` | 同上（`usTank` 不在地面戰裡，砲塔朝前） |
+| `panzer4` | `panzer4.glb` | `PZ4_` | 同上 |
+| `tiger` | `tiger.glb` | `TIG_` | 同上（目前沒有任務使用） |
+| `usTank` | `m4a3.glb` | `M4_` | 不在地面戰裡，砲塔朝前 |
 
 船的砲座不在範圍內（一個砲區代表好幾座砲架，而且船的砲合成一顆網格）。
 

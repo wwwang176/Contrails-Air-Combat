@@ -92,14 +92,14 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
     hull: [groundBox([-0.95, 0.00, -0.75], [0.95, 1.50, 1.06])],
   },
   {
-    id: 'panzer4', note: '德軍 IV 號戰車 — 德 M4 勒熱夫（暫代：M4A3）',
-    realLength: 5.84, realWidth: 2.62, realHeight: 2.58,
-    hull: [groundBox([-1.30, 0.00, -2.92], [1.30, 2.58, 2.88])],
+    id: 'panzer4', note: '德軍 IV 號戰車 — 德 M4 勒熱夫',
+    realLength: 6.68, realWidth: 2.92, realHeight: 2.56,
+    hull: [groundBox([-1.46, 0.00, -2.95], [1.46, 2.56, 3.21])],
   },
   {
-    id: 'tiger', note: '德軍虎式戰車 — 目前沒有任務使用（暫代：M4A3）',
-    realLength: 5.84, realWidth: 2.62, realHeight: 2.58,
-    hull: [groundBox([-1.30, 0.00, -2.92], [1.30, 2.58, 2.88])],
+    id: 'tiger', note: '德軍虎式戰車 — 目前沒有任務使用',
+    realLength: 8.34, realWidth: 3.56, realHeight: 2.93,
+    hull: [groundBox([-1.78, 0.00, -3.15], [1.78, 2.93, 3.05])],
   },
   {
     id: 'infantry', note: '步兵一個班（五根圓柱）— 德 M4 勒熱夫，兩邊都有',

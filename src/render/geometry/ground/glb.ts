@@ -91,12 +91,12 @@ export function bakeGroundScene(scene: Object3D, turret?: GroundTurretNodes): Bu
   })
   if (fixed.length + traversing.length + elevating.length === 0) throw new Error('GLB 裡沒有任何網格')
 
-  const geo = mergeParts(fixed, '固定')
+  const geo = mergeParts(fixed, 'fixed')
   geo.userData['materials'] = [...seen]
   if (trav !== null && elev !== null) {
     const parts: GunTurretParts = {
-      traverse: mergeParts(traversing, '水平轉'),
-      elevate: mergeParts(elevating, '上下抬'),
+      traverse: mergeParts(traversing, 'traverse'),
+      elevate: mergeParts(elevating, 'elevate'),
       traversePivot: trav.at,
       elevatePivot: elev.at.clone().sub(trav.at),
     }
@@ -106,8 +106,8 @@ export function bakeGroundScene(scene: Object3D, turret?: GroundTurretNodes): Bu
 }
 
 /** 合併一組、算法線與包圍球。空的一組是登記錯了（某一塊底下沒有任何網格） */
-function mergeParts(parts: BufferGeometry[], what: string): BufferGeometry {
-  if (parts.length === 0) throw new Error(`地面單位的 GLB：${what}那一塊沒有任何網格`)
+function mergeParts(parts: BufferGeometry[], what: 'fixed' | 'traverse' | 'elevate'): BufferGeometry {
+  if (parts.length === 0) throw new Error(`地面單位的 GLB：${what} 那一塊沒有任何網格`)
   const geo = mergeGeometries(parts)
   if (geo === null) throw new Error('地面單位的 GLB 合併失敗 —— 屬性不一致')
   for (const p of parts) p.dispose()

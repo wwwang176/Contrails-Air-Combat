@@ -54,8 +54,12 @@ export const GROUND_MODELS: Readonly<Record<GroundUnitId, GroundModelSet>> = {
   tank: { model: { glb: '/models/t34.glb', barrelNodes: ['T34_Gun'], turret: T34_TURRET } },
   tankDug: { model: { glb: '/models/t34.glb', barrelNodes: ['T34_Gun'], turret: T34_TURRET } },
   atGun: { model: { glb: '/models/flak38.glb', barrelNodes: F38_LOOSE, turret: F38_TURRET } },
-  panzer4: { model: { glb: '/models/m4a3.glb', barrelNodes: ['M4_Gun'], turret: M4_TURRET } },
-  tiger: { model: { glb: '/models/m4a3.glb', barrelNodes: ['M4_Gun'], turret: M4_TURRET } },
+  panzer4: {
+    model: { glb: '/models/panzer4.glb', barrelNodes: ['PZ4_Gun'], turret: { traverse: 'PZ4_Traverse', elevate: 'PZ4_Elevate' } },
+  },
+  tiger: {
+    model: { glb: '/models/tiger.glb', barrelNodes: ['TIG_Gun'], turret: { traverse: 'TIG_Traverse', elevate: 'TIG_Elevate' } },
+  },
   infantry: { model: { build: buildInfantrySquad } },
   mortar: { model: { build: buildMortar } },
   truck: { model: { glb: '/models/zis150.glb', barrelNodes: [] } },

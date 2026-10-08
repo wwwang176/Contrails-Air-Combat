@@ -220,7 +220,7 @@ function place(unit: GroundUnit, x: number, z: number, ry: number): Entry {
  * 擺一輩子都看不出錯。接起來之後，任何一節對不上都是肉眼可見的錯位。
  */
 const VEHICLE_ROW: GroundUnitId[] = [
-  'tank', 'truck', 'flakHeavy', 'flakLight', 'usTank', 'usTruck', 'usFlakTrack', 'usFlakHeavy',
+  'tank', 'panzer4', 'tiger', 'truck', 'flakHeavy', 'flakLight', 'usTank', 'usTruck', 'usFlakTrack', 'usFlakHeavy',
 ]
 const ROW_GAP = 4.0
 /**
