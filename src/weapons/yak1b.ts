@@ -68,6 +68,8 @@ const MOUNTS: Mount[] = [
 
 export const YAK1B_BATTERY: Battery = {
   mounts: MOUNTS,
+  /** 【2.5 秒】混裝機砲，介於一般機槍機（3 秒）與 K-4（2 秒）之間 */
+  overheatSeconds: 2.5,
   /** 兩門都在機首中線附近，匯聚距離與其他戰鬥機一致 */
   convergence: 1000,
   /** 預瞄環取初速較快的那一門（UBS 814 對 ShVAK 770） */

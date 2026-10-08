@@ -46,6 +46,11 @@ export interface Battery {
    * 對準它開火時另一挺只會更靠前，不會落後。
    */
   sight: WeaponSpec
+  /**
+   * 玩家操縱這一架時，前射武器連續射擊幾秒過熱（`control/gunHeat.ts`）。省略 = 3 秒。
+   * AI 與砲塔不吃這一格。
+   */
+  overheatSeconds?: number
 }
 
 /** 理論每秒傷害（機身部位）：Σ 射速/60 × 單發傷害。 */
