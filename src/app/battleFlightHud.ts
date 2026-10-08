@@ -16,6 +16,8 @@ import { aircraftName } from '../i18n/names'
 import { extendReason } from '../ai/rules'
 import { aliveCount } from '../battle/objectiveQueries'
 import { playerFlight } from '../battle/battleRuntime'
+import type { PlayerController } from '../control/PlayerController'
+import { GUN_HEAT_BLINK_HZ, gunHeatLevel, type GunHeat } from '../control/gunHeat'
 
 export interface BattleFlightHudDependencies {
   readonly ctx: Pick<SceneContext, 'camera'>
@@ -26,9 +28,22 @@ export interface BattleFlightHudDependencies {
   readonly touch: Pick<TouchControls, 'visible'>
   readonly arena: Pick<ArenaState, 'outside' | 'remaining'>
   readonly projectDistance: number
+  /** 玩家的控制器：前機槍的熱度住在它身上 */
+  readonly playerController: Pick<PlayerController, 'gunHeat'>
 }
 
 type Aircraft = Combatant['aircraft']
+
+/**
+ * 前機槍熱度 → 十字準星的狀態。不在座位上（代飛、上帝視角）時恆為冷 —— 那時開槍的不是玩家。
+ * 閃爍吃物理時間，暫停時不閃。
+ */
+export function fillGunHeatHud(
+  hudFrame: Pick<HudFrame, 'gunHeat' | 'gunHeatBlink'>, heat: GunHeat, away: boolean, time: number,
+): void {
+  hudFrame.gunHeat = away ? 'cool' : gunHeatLevel(heat)
+  hudFrame.gunHeatBlink = Math.floor(time * 2 * GUN_HEAT_BLINK_HZ) % 2 === 0
+}
 
 /** 把飛行數據與操控狀態寫進已經配置好的 HUD 幀 */
 export function updateBattleFlightHud(
@@ -44,7 +59,8 @@ export function updateBattleFlightHud(
   attitude: { pitch: number; roll: number },
   alphaCrit: number,
 ): void {
-  const { ctx, probe, cameraShake, godCam, playerAi, touch, arena, projectDistance } = deps
+  const { ctx, probe, cameraShake, godCam, playerAi, touch, arena, projectDistance, playerController } = deps
+  fillGunHeatHud(hudFrame, playerController.gunHeat, input.playerAi || input.godView, battle.world.time)
 
   probe.copy(input.aimWorld)
     .multiplyScalar(projectDistance).add(renderPos).project(ctx.camera)

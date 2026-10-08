@@ -20,6 +20,8 @@ export const GUN_HEAT_CLEAR = 0.2
 export const GUN_HEAT_UNLOCK = 0.6
 /** 每秒冷卻多少：全熱到全冷 5 秒 */
 export const GUN_HEAT_COOL = 0.2
+/** 過熱時十字準星每秒閃幾次 */
+export const GUN_HEAT_BLINK_HZ = 4
 
 export interface GunHeat {
   heat: number

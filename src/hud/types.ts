@@ -4,6 +4,7 @@ import { ARENA_COUNTDOWN, SKIRMISH_ARENA } from '../world/arena'
 import type { OrdnanceKind } from '../weapons/stores'
 import type { ReleaseEnvelope } from '../weapons/releaseEnvelope'
 import { TORPEDO_RUN_SAMPLES } from '../world/torpedo'
+import type { GunHeatLevel } from '../control/gunHeat'
 
 /**
  * 一個接觸點（畫面上的一架他機）。
@@ -462,6 +463,10 @@ export interface HudFrame {
   messageAge: number
   /** 敵方還沒警戒（倫內爾島，`battle/alert.ts`）：敵方的框與標記用黃色 */
   enemyUnaware: boolean
+  /** 前機槍的熱度（`control/gunHeat.ts`）：十字準星綠／黃／紅。代飛與上帝視角時恆為冷 */
+  gunHeat: GunHeatLevel
+  /** 過熱閃爍的這一幀亮不亮。只有 `gunHeat === 'hot'` 時有意義 */
+  gunHeatBlink: boolean
 }
 
 export function createHudFrame(): HudFrame {
@@ -534,6 +539,8 @@ export function createHudFrame(): HudFrame {
     message: '',
     messageAge: -1,
     enemyUnaware: false,
+    gunHeat: 'cool',
+    gunHeatBlink: true,
   }
 }
 

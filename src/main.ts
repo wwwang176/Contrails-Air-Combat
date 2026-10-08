@@ -942,6 +942,7 @@ const battleFlightHudDeps: BattleFlightHudDependencies = {
   touch,
   arena,
   projectDistance: HUD_PROJECT_DISTANCE,
+  playerController,
 }
 
 /**

@@ -72,14 +72,18 @@ export function drawReticle(
     const ny = L.cy - (f.noseY * L.height) / 2
     const a = CROSS_REACH * L.scale
     const gap = CROSS_GAP * L.scale
-    ctx.strokeStyle = HUD_COLORS.primary
-    ctx.lineWidth = CROSS_WIDTH * L.scale
-    ctx.beginPath()
-    ctx.moveTo(nx - a, ny); ctx.lineTo(nx - gap, ny)
-    ctx.moveTo(nx + gap, ny); ctx.lineTo(nx + a, ny)
-    ctx.moveTo(nx, ny - a); ctx.lineTo(nx, ny - gap)
-    ctx.moveTo(nx, ny + gap); ctx.lineTo(nx, ny + a)
-    ctx.stroke()
+    // 【前機槍的熱度】綠：冷；黃：快過熱，還能開火；紅：過熱打不出去，閃爍（`control/gunHeat.ts`）
+    if (f.gunHeat !== 'hot' || f.gunHeatBlink) {
+      ctx.strokeStyle = f.gunHeat === 'hot' ? HUD_COLORS.danger
+        : f.gunHeat === 'warn' ? HUD_COLORS.warn : HUD_COLORS.primary
+      ctx.lineWidth = CROSS_WIDTH * L.scale
+      ctx.beginPath()
+      ctx.moveTo(nx - a, ny); ctx.lineTo(nx - gap, ny)
+      ctx.moveTo(nx + gap, ny); ctx.lineTo(nx + a, ny)
+      ctx.moveTo(nx, ny - a); ctx.lineTo(nx, ny - gap)
+      ctx.moveTo(nx, ny + gap); ctx.lineTo(nx, ny + a)
+      ctx.stroke()
+    }
 
     // 命中回饋：`X` 標記。血量在二戰題材上說不通——你看不出對方的結構
     // 完整度——所以回饋就是這個標記，那是這個世界裡真的存在的東西
