@@ -120,6 +120,8 @@ function put(
   m.hostile = team !== own
   m.objective = objective
   m.range = objective ? Math.hypot(x - ref.x, y - ref.y, z - ref.z) : 0
+  m.worldX = x
+  m.worldZ = z
   m.active = true
   return i + 1
 }

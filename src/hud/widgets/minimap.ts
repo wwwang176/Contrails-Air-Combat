@@ -17,6 +17,9 @@ const CELL = 2000
  */
 const SYMBOL_MARGIN = 7
 
+/** 主要目標（頭上標距離的船與地面目標）的圓點半徑，px（未乘 L.scale）。比飛機符號（4）小 */
+export const MINIMAP_OBJECTIVE_DOT = 2.5
+
 /**
  * 沿 (x, y) 推到**剛好碰到**邊長 2 × `edge` 的正方形，回傳應乘的縮放係數。
  *
@@ -122,11 +125,34 @@ function mapInterior(
     ctx.stroke()
   }
 
+  const cosH = Math.cos(f.heading)
+  const sinH = Math.sin(f.heading)
+
+  // 主要目標：頭上標距離的船與地面目標（`HudMarker.objective`），畫成小圓點。
+  // 【只畫主要目標】洛伊納一關有幾十個砲位，全畫的話地圖被點蓋滿。
+  // 【排在飛機符號之前】飛機壓在上面，經過目標上空時看得到飛機。
+  // 【超出範圍貼邊、半透明】與接觸點同一條規則：方位對、距離不對
+  for (let i = 0; i < f.markerCount; i++) {
+    const m = f.markers[i]!
+    if (!m.active || !m.objective) continue
+    let rx = (m.worldX - f.worldX) * px
+    let rz = (m.worldZ - f.worldZ) * px
+    const k = edgeClamp(rx * cosH + rz * sinH, -rx * sinH + rz * cosH, edge)
+    if (k < 1) {
+      rx *= k
+      rz *= k
+    }
+    ctx.globalAlpha = k < 1 ? 0.35 : 1
+    ctx.fillStyle = contactColor(m.hostile, false, f.enemyUnaware)
+    ctx.beginPath()
+    ctx.arc(rx, rz, MINIMAP_OBJECTIVE_DOT * L.scale, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  ctx.globalAlpha = 1
+
   // 敵我符號：高於我 = 三角、同層 = 方、低於我 = 倒三角（spec §8）。
   // 【畫在旋轉座標系裡但符號本身不轉】位置要跟著地圖轉（機首朝上），
   // 形狀不能轉——倒三角轉了就讀不出「他在我下面」。
-  const cosH = Math.cos(f.heading)
-  const sinH = Math.sin(f.heading)
   for (let i = 0; i < f.contactCount; i++) {
     const c = f.contacts[i]!
     if (!c.active) continue

@@ -226,6 +226,14 @@ describe('fillMarkers', () => {
     expect(f.markers[0]!.y).toBe(TOP)
   })
 
+  /** 【小地圖讀世界座標】螢幕座標畫不了小地圖；相機背後的目標在小地圖上照樣要有 */
+  it('每一格帶著物體的世界 x／z，相機背後的也一樣', () => {
+    const f = createHudFrame()
+    fillMarkers(f, [ship(0, 'red', 1200, -3400)], [], [], 0, BEHIND, topOf, NONE)
+    expect(f.markers[0]!.worldX).toBe(1200)
+    expect(f.markers[0]!.worldZ).toBe(-3400)
+  })
+
   it('相機背後的那一格 behind 是 true', () => {
     const f = createHudFrame()
     fillMarkers(f, [ship(0, 'red')], [], [], 0, BEHIND, topOf, NONE)

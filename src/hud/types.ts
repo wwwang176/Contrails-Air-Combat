@@ -103,6 +103,9 @@ export interface HudMarker {
   objective: boolean
   /** 與量距基準點（自機，上帝視角是鏡頭）的距離，m。`objective` 為真才填 */
   range: number
+  /** 物體的世界座標，m。小地圖用（螢幕座標畫不了小地圖，相機背後的也要畫） */
+  worldX: number
+  worldZ: number
 }
 
 /**
@@ -118,7 +121,9 @@ export interface HudMarker {
 export const HUD_MAX_MARKERS = 200
 
 export function createHudMarker(): HudMarker {
-  return { active: false, x: 0, y: 0, behind: false, hostile: true, objective: false, range: 0 }
+  return {
+    active: false, x: 0, y: 0, behind: false, hostile: true, objective: false, range: 0, worldX: 0, worldZ: 0,
+  }
 }
 
 /** 命中 X 標記的顯示時間，秒（spec §8）。 */
