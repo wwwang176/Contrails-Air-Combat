@@ -157,6 +157,20 @@ export const POOLS = {
   'volley-type99-2x2': range('volley-type99-2x2', 3),
   'volley-ho103x2': range('volley-ho103x2', 3),
   'volley-ho5x2': range('volley-ho5x2', 3),
+  /**
+   * 前機槍過熱時扣扳機的空響。**與齊射同一套分組**（武器 id ×挺數）：同一組的 N 挺各「喀」一下，
+   * 錯開 0～15 ms、音高 ±2.5%、音量 ±1.5 dB、左右照槍的位置（與齊射的左右相同）。
+   * 每個檔的 A 加權峰值對齊同一個值，六挺疊起來不會比兩挺大聲；補償 +8 dB 後與自己的引擎（−20.6 dB）
+   * 同一個量級、比自己的槍聲（−17.2 dB）小 —— 不補的話被引擎蓋掉 8 dB
+   */
+  'gun-jam-m2-50calx6': range('gun-jam-m2-50calx6', 3),
+  'gun-jam-mk108x1': range('gun-jam-mk108x1', 3),
+  'gun-jam-mg131x2': range('gun-jam-mg131x2', 3),
+  'gun-jam-mg17x2': range('gun-jam-mg17x2', 3),
+  'gun-jam-type97x2': range('gun-jam-type97x2', 3),
+  'gun-jam-type99-2x2': range('gun-jam-type99-2x2', 3),
+  'gun-jam-ho103x2': range('gun-jam-ho103x2', 3),
+  'gun-jam-ho5x2': range('gun-jam-ho5x2', 3),
 } as const satisfies Record<string, readonly string[]>
 export type Pool = keyof typeof POOLS
 
@@ -339,6 +353,12 @@ export function volleyPool(weaponId: string, guns: number): Pool | null {
   return id in POOLS ? id as Pool : null
 }
 
+/** 前機槍過熱的空響：武器 id 與挺數 → 空響庫。沒有對應的庫回 null（那一組過熱時不響） */
+export function jamPool(weaponId: string, guns: number): Pool | null {
+  const id = `gun-jam-${weaponId}x${guns}`
+  return id in POOLS ? id as Pool : null
+}
+
 /**
  * 自己駕駛時砲塔改走齊射庫（與前機槍同一個機制）的各座砲塔的庫；不符條件回 null，維持砲塔循環。
  *
@@ -363,12 +383,6 @@ export const SINGLE_FILES = {
   bayToggle: 'reload-1',
   /** 彈艙補滿：掛鉤扣上的「喀」加一下悶響 */
   reloadDone: 'reload-2',
-  /**
-   * 前機槍過熱時扣扳機的空響：機械的「喀」一聲，0.13 s。射擊間隔的 5 倍一聲（`flightAudio`）。
-   * 補償 +8 dB：一聲的 A 加權峰值約 −20.7 dB，與自己的引擎（−20.6）同一個量級、比自己的槍聲
-   * （−17.2）小 —— 不補的話被引擎蓋掉 8 dB
-   */
-  gunJam: 'gun-jam-1',
   whistle: 'whistle-1',
   warn: 'warn-1',
   wind: 'wind-1',

@@ -77,11 +77,11 @@ export function overheatSeconds(b: Pick<Battery, 'overheatSeconds'>): number {
 const DRY_CLICK_SPACING = 5
 
 /**
- * 過熱時扣扳機的空響間隔，s：最慢那一挺射擊間隔的 5 倍（M2 每分鐘 800 發 → 0.375 s 一聲）。
- * 一聲一聲分得開，聽起來是扣不下去的扳機。混裝取最慢的那一挺。沒有前射武器回 Infinity。
+ * 過熱時扣扳機的空響間隔，s：這一組射擊間隔的 5 倍（M2 每分鐘 800 發 → 0.375 s 一聲）。
+ * 一聲一聲分得開，聽起來是扣不下去的扳機。混裝的機種每一組依自己的射速。射速壞值回 Infinity。
  */
-export function dryClickInterval(b: Pick<Battery, 'mounts'>): number {
-  let rpm = Infinity
-  for (const m of b.mounts) rpm = Math.min(rpm, m.weapon.roundsPerMinute)
-  return Number.isFinite(rpm) && rpm > 0 ? (60 / rpm) * DRY_CLICK_SPACING : Infinity
+export function dryClickInterval(roundsPerMinute: number): number {
+  return Number.isFinite(roundsPerMinute) && roundsPerMinute > 0
+    ? (60 / roundsPerMinute) * DRY_CLICK_SPACING
+    : Infinity
 }

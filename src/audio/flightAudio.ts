@@ -6,7 +6,7 @@ import type { InputState } from '../input/InputState'
 import { indicatedAirspeed } from '../core/airspeed'
 import { OVERSPEED_FULL, OVERSPEED_SHAKE, overspeedShake } from '../core/overspeedFeedback'
 import type { AudioEngine } from './engine'
-import { SINGLE_FILES, engineFile, sirenFile } from './catalog'
+import { SINGLE_FILES, engineFile, jamPool, sirenFile, type Pool } from './catalog'
 import { engineRate, noseDownRad, shakeGainDb, shakeInterval, sirenParams, sirenWobble, windParams } from './curves'
 import { nearMiss } from './nearMiss'
 import { dryClickInterval } from '../control/gunHeat'
@@ -55,11 +55,36 @@ export function createFlightAudio(
 
   let lastFlyby = -Infinity
 
-  /** 到下一聲空響還有幾秒。≤ 0 = 該響了；不在空響時歸 0，下一次按下立刻響 */
-  let dryTimer = 0
+  /**
+   * 過熱空響的分組：與自己開火的齊射同一套（武器 id ×挺數），每一組依自己的射速各響各的。
+   * 換機種時重建（`jamSpec`）；每幀只讀。
+   */
+  const MAX_JAM_GROUPS = 4
+  const jamPools: (Pool | null)[] = []
+  const jamIntervals = new Float64Array(MAX_JAM_GROUPS)
+  /** 每一組到下一聲還有幾秒。≤ 0 = 該響了；不在空響時歸 0，下一次按下立刻響 */
+  const jamTimers = new Float64Array(MAX_JAM_GROUPS)
+  let jamSpec: Combatant['aircraft']['spec'] | null = null
 
   /** 一幀最多補幾聲空響：分頁在背景回來的那一幀時間很長，補不完的就丟掉 */
   const DRY_CLICK_BURST = 4
+
+  function buildJamGroups(spec: Combatant['aircraft']['spec']): void {
+    jamSpec = spec
+    jamPools.length = 0
+    const mounts = spec.battery.mounts
+    for (let i = 0; i < mounts.length && jamPools.length < MAX_JAM_GROUPS; i++) {
+      const w = mounts[i]!.weapon
+      let first = true
+      for (let k = 0; k < i; k++) if (mounts[k]!.weapon.id === w.id) first = false
+      if (!first) continue
+      let guns = 0
+      for (const m of mounts) if (m.weapon.id === w.id) guns++
+      jamIntervals[jamPools.length] = dryClickInterval(w.roundsPerMinute)
+      jamPools.push(jamPool(w.id, guns))
+    }
+    jamTimers.fill(0)
+  }
 
   function update(
     world: Pick<World, 'projectiles' | 'bombs'>, me: Combatant,
@@ -80,18 +105,22 @@ export function createFlightAudio(
     // 警告蜂鳴：飛出邊界，或速度進了紅線（與 HUD 的紅線警告同一個門檻）
     const warn = flying && (arenaWarning || vneRatio >= OVERSPEED_FULL)
     audio.selfLoop('warn', warn ? SINGLE_FILES.warn : null, 1, 0)
-    // 過熱時扣扳機的空響：射擊間隔的 5 倍一聲（`dryClickInterval`）。
+    // 過熱時扣扳機的空響：每一組依自己射擊間隔的 5 倍一聲（`dryClickInterval`）。
     // 【保留餘數】這裡每畫面幀才跑一次；每響一次就重設整個間隔的話，節奏會隨幀率變慢
+    if (spec !== jamSpec) buildJamGroups(spec)
     if (flying && gun.dryFiring) {
-      const interval = dryClickInterval(spec.battery)
-      dryTimer -= worldSeconds
-      for (let n = 0; dryTimer <= 0 && n < DRY_CLICK_BURST; n++) {
-        audio.playFile(SINGLE_FILES.gunJam, 'reload', 0, 0, 0, false)
-        dryTimer += interval
+      for (let g = 0; g < jamPools.length; g++) {
+        const pool = jamPools[g]
+        if (pool === null || pool === undefined) continue
+        let t = jamTimers[g]! - worldSeconds
+        for (let n = 0; t <= 0 && n < DRY_CLICK_BURST; n++) {
+          audio.playPool(pool, 'reload', 0, 0, 0, false)
+          t += jamIntervals[g]!
+        }
+        jamTimers[g] = t <= 0 ? jamIntervals[g]! : t
       }
-      if (dryTimer <= 0) dryTimer = interval
     } else {
-      dryTimer = 0
+      jamTimers.fill(0)
     }
 
     // 【擦過看的是聽者】`cam` 是聽者的位置（`battleAudioController` 寫入）：自己在飛
@@ -159,7 +188,7 @@ export function createFlightAudio(
     prevReloading = false
     rattleTimer = 0
     lastFlyby = -Infinity
-    dryTimer = 0
+    jamTimers.fill(0)
     prevViewMode = input.viewMode
   }
 

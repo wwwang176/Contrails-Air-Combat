@@ -53,8 +53,8 @@ export function dryClickInterval(b: Pick<Battery, 'mounts'>): number
 
 ## 任務 5：空響
 
-- 素材 `public/audio/gun-jam-1.mp3`、`manifest.json`（`loop: false`、`makeupDb: 8.0`、`envelopeDb: [0.0]`）、`SINGLE_FILES.gunJam = 'gun-jam-1'`。
-- `flightAudio`：建立時多收 `gun: Pick<PlayerController, 'dryFiring'>`。`update` 裡：`flying && gun.dryFiring` 時倒數，到 0 播 `audio.playFile(SINGLE_FILES.gunJam, 'reload', 0, 0, 0, false)`，**加上**間隔（保留餘數，一幀可以補好幾聲、上限 4）；否則倒數歸 0（下一次按下立刻響）。`reset` 也歸 0。這一段每畫面幀才跑，重設整個間隔的話節奏會隨幀率變慢。
+- 素材 `public/audio/gun-jam-<武器 id>x<挺數>-{1,2,3}.mp3`（與齊射同一套分組，8 組 24 檔）、`manifest.json`（`loop: false`、`makeupDb: 8.0`、`envelopeDb: [0.0]`）、`POOLS` 的 8 個庫與 `jamPool(weaponId, guns)`。
+- `flightAudio`：建立時多收 `gun: Pick<PlayerController, 'dryFiring'>`。換機種時依 `battery.mounts` 建分組（每組：空響庫、`dryClickInterval(射速)`）；`update` 裡 `flying && gun.dryFiring` 時每一組各自倒數，到 0 播 `audio.playPool(那一組的庫, 'reload', 0, 0, 0, false)`，**加上**間隔（保留餘數，一幀可以補好幾聲、上限 4）；否則全部歸 0（下一次按下立刻響）。`reset` 也歸 0。這一段每畫面幀才跑，重設整個間隔的話節奏會隨幀率變慢。
 - 測試：`dryFiring` 期間依間隔播放；放開就停；再按立刻響；不在飛（上帝視角）不播。素材清單、目錄的既有護欄涵蓋新檔。
 
 ## 任務 6：驗收

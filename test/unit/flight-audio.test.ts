@@ -6,6 +6,7 @@ import { SINGLE_FILES } from '../../src/audio/catalog'
 import { createInputState } from '../../src/input/InputState'
 import { P51D } from '../../src/specs/p51d'
 import { JU87 } from '../../src/specs/ju87'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { World, teamSlot } from '../../src/world/World'
 import { dryClickInterval } from '../../src/control/gunHeat'
 
@@ -25,37 +26,52 @@ function setup(spec = P51D) {
 }
 
 /**
- * 過熱時扣扳機的空響（SPEC `2026-10-08-gun-overheat-design.md`）：射擊間隔的 5 倍一聲。
+ * 過熱時扣扳機的空響（SPEC `2026-10-08-gun-overheat-design.md`）：照齊射的分組，每一組（武器 id ×挺數）
+ * 依自己射擊間隔的 5 倍各響各的。
  * 【保留餘數】音效每畫面幀才跑一次；每響一次就重設整個間隔的話，間隔會被進位到整數幀
  * （30 fps 下 0.375 s 變 0.4 s），一分鐘少十聲
  */
 describe('過熱的空響', () => {
-  const jams = (audio: { playFile: ReturnType<typeof vi.fn> }) =>
-    audio.playFile.mock.calls.filter((c) => c[0] === SINGLE_FILES.gunJam).length
+  const jams = (audio: { playPool: ReturnType<typeof vi.fn> }, pool?: string) =>
+    audio.playPool.mock.calls.filter((c) => String(c[0]).startsWith('gun-jam-') && (pool === undefined || c[0] === pool)).length
 
   it('按著的期間依間隔響，幀率不影響累積次數；放開就停', () => {
     for (const fps of [30, 50, 144]) {
-      const { audio, update, gun, me } = setup()
-      const interval = dryClickInterval(me.aircraft.spec.battery)
+      const { audio, update, gun } = setup()
+      const interval = dryClickInterval(800)
       gun.dryFiring = true
       for (let i = 0; i < fps * 60; i++) update(1 + i / fps, false, 1 / fps)
       const expected = Math.floor(60 / interval)
-      expect(jams(audio), `${fps} fps`).toBeGreaterThanOrEqual(expected)
-      expect(jams(audio), `${fps} fps`).toBeLessThanOrEqual(expected + 1)
+      expect(jams(audio, 'gun-jam-m2-50calx6'), `${fps} fps`).toBeGreaterThanOrEqual(expected)
+      expect(jams(audio, 'gun-jam-m2-50calx6'), `${fps} fps`).toBeLessThanOrEqual(expected + 1)
+      expect(jams(audio), '六挺 M2 只有一組').toBe(jams(audio, 'gun-jam-m2-50calx6'))
       gun.dryFiring = false
-      audio.playFile.mockClear()
+      audio.playPool.mockClear()
       for (let i = 0; i < fps; i++) update(20 + i / fps, false, 1 / fps)
       expect(jams(audio)).toBe(0)
     }
   })
 
-  it('一按下就響第一聲；音量類別是自己的機械聲', () => {
+  /** 【兩種武器各走各的】K-4 的 MK 108（650 發/分）與 MG 131（900 發/分）是兩組、兩條節奏 */
+  it('混裝的機種每一組依自己的射速響', () => {
+    const { audio, update, gun } = setup(BF109K4)
+    gun.dryFiring = true
+    for (let i = 0; i < 60 * 60; i++) update(1 + i / 60, false, 1 / 60)
+    for (const [pool, rpm] of [['gun-jam-mk108x1', 650], ['gun-jam-mg131x2', 900]] as const) {
+      const expected = Math.floor(60 / dryClickInterval(rpm))
+      expect(jams(audio, pool), pool).toBeGreaterThanOrEqual(expected)
+      expect(jams(audio, pool), pool).toBeLessThanOrEqual(expected + 1)
+    }
+  })
+
+  it('一按下就響第一聲；音量類別是自己的機械聲、不定位', () => {
     const { audio, update, gun } = setup()
     gun.dryFiring = true
     update(1, false, 1 / 60)
-    const call = audio.playFile.mock.calls.find((c) => c[0] === SINGLE_FILES.gunJam)
+    const call = audio.playPool.mock.calls.find((c) => String(c[0]).startsWith('gun-jam-'))
     expect(call).toBeDefined()
     expect(call![1]).toBe('reload')
+    expect(call![5]).toBe(false)
   })
 
   /** 【放開要歸零倒數】不歸零的話再按下去要等上一次剩下的倒數才響 */
@@ -66,7 +82,7 @@ describe('過熱的空響', () => {
     gun.dryFiring = false
     update(1 + 1 / 60, false, 1 / 60)
     gun.dryFiring = true
-    audio.playFile.mockClear()
+    audio.playPool.mockClear()
     update(1 + 2 / 60, false, 1 / 60)
     expect(jams(audio)).toBe(1)
   })
@@ -77,7 +93,7 @@ describe('過熱的空響', () => {
     gun.dryFiring = true
     update(1, false, 1 / 60)
     flight.reset()
-    audio.playFile.mockClear()
+    audio.playPool.mockClear()
     update(1 + 1 / 60, false, 1 / 60)
     expect(jams(audio)).toBe(1)
   })

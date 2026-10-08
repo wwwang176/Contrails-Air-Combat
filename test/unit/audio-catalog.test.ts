@@ -124,7 +124,7 @@ describe('撞擊材質', () => {
 import { existsSync, readFileSync } from 'node:fs'
 import {
   ALL_FILES, CATEGORY, POOLS, TURRET_GAIN_FILES, engineFile, fireFile, ownTurretVolleyPools, sirenFile, turretFile,
-  turretGainDb, volleyPool,
+  turretGainDb, volleyPool, jamPool,
 } from '../../src/audio/catalog'
 import { ALL_SPECS } from '../../src/battle/skirmish'
 import { JU87 } from '../../src/specs/ju87'
@@ -179,6 +179,28 @@ describe('音效目錄', () => {
     for (const f of POOLS['volley-mg17x2']) expect((manifest[f] as { loop: boolean }).loop, f).toBe(false)
     const rear = JU87.turrets.map((t) => turretFile(t.weapon.id, t.guns))
     expect(rear).toEqual(['turret-mg15x1'])
+  })
+
+  /**
+   * 【過熱空響照齊射的分組】每一種前射武器（武器 id ×挺數）各有一組空響、三個版本、非循環。
+   * 少一組的話那一組過熱時一聲都不響，也不報錯
+   */
+  it('每個機種的每一組前射武器都有空響庫', () => {
+    for (const s of ALL_SPECS) {
+      const count = new Map<string, number>()
+      for (const m of s.battery.mounts) count.set(m.weapon.id, (count.get(m.weapon.id) ?? 0) + 1)
+      for (const [id, n] of count) {
+        const pool = jamPool(id, n)
+        expect(pool, `${s.id} ${id}×${n}`).not.toBeNull()
+        expect(POOLS[pool!]).toHaveLength(3)
+        for (const f of POOLS[pool!]) {
+          expect((manifest[f] as { loop: boolean } | undefined)?.loop, f).toBe(false)
+          expect(existsSync(`public/audio/${f}.mp3`), f).toBe(true)
+        }
+      }
+    }
+    expect(jamPool('m2-50cal', 6)).toBe('gun-jam-m2-50calx6')
+    expect(jamPool('__none__', 1)).toBeNull()
   })
 
   /**

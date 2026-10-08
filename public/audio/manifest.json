@@ -1154,13 +1154,30 @@
    -60.0
   ]
  },
- "gun-jam-1": {
-  "loop": false,
-  "makeupDb": 8.0,
-  "envelopeDb": [
-   0.0
-  ]
- },
+ "gun-jam-ho103x2-1": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-ho103x2-2": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-ho103x2-3": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-ho5x2-1": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-ho5x2-2": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-ho5x2-3": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-m2-50calx6-1": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-m2-50calx6-2": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-m2-50calx6-3": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-mg131x2-1": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-mg131x2-2": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-mg131x2-3": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-mg17x2-1": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-mg17x2-2": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-mg17x2-3": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-mk108x1-1": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-mk108x1-2": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-mk108x1-3": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-type97x2-1": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-type97x2-2": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-type97x2-3": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-type99-2x2-1": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-type99-2x2-2": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
+ "gun-jam-type99-2x2-3": { "loop": false, "makeupDb": 8.0, "envelopeDb": [0.0] },
  "hit-1": {
   "loop": false,
   "makeupDb": 0.0,
