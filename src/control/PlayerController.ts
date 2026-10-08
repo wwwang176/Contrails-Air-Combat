@@ -25,6 +25,8 @@ export class PlayerController implements Controller {
   readonly gunHeat = createGunHeat()
   /** 過熱而且扳機按著：打不出去，只有空響。音效讀它 */
   dryFiring = false
+  /** 快過熱（黃色）而且還在開火：槍機聲疊在槍聲上，越熱越大聲。音效讀它 */
+  warmFiring = false
   /** 熱度是哪一架的。換了（接手僚機、新的一場）就歸零 */
   private heatOwner: Aircraft | null = null
 
@@ -34,6 +36,7 @@ export class PlayerController implements Controller {
   resetGunHeatState(): void {
     resetGunHeat(this.gunHeat)
     this.dryFiring = false
+    this.warmFiring = false
   }
 
   /**
@@ -43,6 +46,7 @@ export class PlayerController implements Controller {
   coolWhileAway(seconds: number): void {
     stepGunHeat(this.gunHeat, false, GUN_HEAT_SECONDS, seconds)
     this.dryFiring = false
+    this.warmFiring = false
   }
 
   update(self: Aircraft, dt: number, out: Command): void {
@@ -65,6 +69,7 @@ export class PlayerController implements Controller {
     stepGunHeat(this.gunHeat, trigger && hasGuns, overheatSeconds(battery), dt)
     out.firing = trigger && !this.gunHeat.locked
     this.dryFiring = trigger && hasGuns && this.gunHeat.locked
+    this.warmFiring = out.firing && hasGuns && this.gunHeat.warn
     // 【投彈與 AI 同一格】`World.releaseBombs` 讀它，彈艙的推進與投放全在物理步。
     // 兩個來源：有瞄具的轟炸機在投彈視角下按左鍵、直接投彈的機種按 B（`InputState.bombTaps`）
     const held = this.input.firing && this.input.viewMode === 'bomb'

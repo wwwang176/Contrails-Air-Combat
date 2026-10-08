@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   GUN_HEAT_CLEAR, GUN_HEAT_COOL, GUN_HEAT_SECONDS, GUN_HEAT_UNLOCK, GUN_HEAT_WARN,
   createGunHeat, dryClickInterval, gunHeatLevel, overheatSeconds, resetGunHeat, stepGunHeat,
+  WARM_JAM_FLOOR_DB, warmJamGainDb,
 } from '../../src/control/gunHeat'
 import { BF109K4_BATTERY } from '../../src/weapons/bf109k4'
 import { A6M5_BATTERY } from '../../src/weapons/a6m5'
@@ -101,6 +102,18 @@ describe('熱度', () => {
     run(h, true, 3)
     resetGunHeat(h)
     expect(h).toEqual(createGunHeat())
+  })
+})
+
+/** 【黃色時槍機聲疊在槍聲上，越來越大聲】過熱的那一刻剛好接上紅色空響的音量（0 dB） */
+describe('快過熱的槍機聲音量', () => {
+  it('熱度 0.6 時 −18 dB、0.8 時 −9 dB、1 時 0 dB；低於 0.6 停在 −18', () => {
+    expect(WARM_JAM_FLOOR_DB).toBe(-18)
+    expect(warmJamGainDb(0.6)).toBeCloseTo(-18, 9)
+    expect(warmJamGainDb(0.8)).toBeCloseTo(-9, 9)
+    expect(warmJamGainDb(1)).toBeCloseTo(0, 9)
+    expect(warmJamGainDb(0.3)).toBeCloseTo(-18, 9)
+    expect(warmJamGainDb(NaN)).toBe(-18)
   })
 })
 

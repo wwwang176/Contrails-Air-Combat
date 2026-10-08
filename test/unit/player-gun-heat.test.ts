@@ -50,6 +50,38 @@ describe('玩家前機槍過熱', () => {
     expect(s.pc.gunHeat.locked).toBe(true)
   })
 
+  /** 【快過熱】黃色而且還在開火：槍機聲疊在槍聲上（`warmFiring`）；綠色、過熱、放開都不算 */
+  it('黃色而且按著扳機時才算快過熱；過熱後換成空響', () => {
+    const s = setup()
+    s.input.firing = true
+    s.run(3)
+    expect(s.pc.warmFiring).toBe(false)
+    s.run(1)
+    expect(s.pc.gunHeat.warn).toBe(true)
+    expect(s.pc.warmFiring).toBe(true)
+    s.input.firing = false
+    s.run(DT)
+    expect(s.pc.warmFiring).toBe(false)
+    s.input.firing = true
+    s.run(2.1)
+    expect(s.pc.gunHeat.locked).toBe(true)
+    expect(s.pc.warmFiring).toBe(false)
+    expect(s.pc.dryFiring).toBe(true)
+  })
+
+  it('離手與重設都清掉快過熱', () => {
+    const s = setup()
+    s.input.firing = true
+    s.run(4)
+    expect(s.pc.warmFiring).toBe(true)
+    s.pc.coolWhileAway(1 / 60)
+    expect(s.pc.warmFiring).toBe(false)
+    s.run(DT)
+    expect(s.pc.warmFiring).toBe(true)
+    s.pc.resetGunHeatState()
+    expect(s.pc.warmFiring).toBe(false)
+  })
+
   /** 【沒有前射武器不加熱】G4M 的機首槍屬於砲塔，扣扳機打不出東西 */
   it('沒有前射武器的機種不加熱、不空響', () => {
     const s = setup(G4M)

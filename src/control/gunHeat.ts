@@ -75,6 +75,19 @@ export function overheatSeconds(b: Pick<Battery, 'overheatSeconds'>): number {
   return b.overheatSeconds ?? GUN_HEAT_SECONDS
 }
 
+/** 快過熱的槍機聲最小聲時的增益，dB（熱度剛到 `GUN_HEAT_WARN`） */
+export const WARM_JAM_FLOOR_DB = -18
+
+/**
+ * 快過熱（黃色而且還在開火）時，疊在槍聲上的槍機聲的增益，dB：熱度從 `GUN_HEAT_WARN` 到 1，
+ * 由 `WARM_JAM_FLOOR_DB` 線性升到 0 —— 過熱那一刻剛好接上紅色空響的音量。低於門檻停在最小聲。
+ */
+export function warmJamGainDb(heat: number): number {
+  if (!Number.isFinite(heat)) return WARM_JAM_FLOOR_DB
+  const t = Math.min(1, Math.max(0, (heat - GUN_HEAT_WARN) / (1 - GUN_HEAT_WARN)))
+  return WARM_JAM_FLOOR_DB * (1 - t)
+}
+
 /** 空響間隔是射擊間隔的幾倍 */
 const DRY_CLICK_SPACING = 2.5
 
