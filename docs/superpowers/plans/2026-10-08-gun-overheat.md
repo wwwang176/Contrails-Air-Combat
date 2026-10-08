@@ -38,10 +38,10 @@ export function dryClickInterval(b: Pick<Battery, 'mounts'>): number
 - `update(self, dt, out)`：
   - `self !== heatOwner` → `resetGunHeat`、記下 `self`。
   - `want = input.firing && viewMode !== 'bomb'`；`hasGuns = self.spec.battery.mounts.length > 0`。
-  - `out.firing = want && !gunHeat.locked`。
-  - `stepGunHeat(gunHeat, out.firing && hasGuns, overheatSeconds(self.spec.battery), dt)`。
-  - `dryFiring = want && hasGuns && gunHeat.locked`。
-- 方法 `resetGunHeatState()`：歸零、`dryFiring = false`。`resetBattle` 在 `b.playerController instanceof PlayerController` 時呼叫。
+  - **先推進熱度再定扳機**：`stepGunHeat(gunHeat, want && hasGuns, …)`，再 `out.firing = want && !gunHeat.locked`、`dryFiring = want && hasGuns && gunHeat.locked`。到達過熱的那一步就不開火，三者用同一步的狀態。
+- 方法 `resetGunHeatState()`：歸零、`dryFiring = false`。`resetBattle` 與接手僚機完成時（`completeTakeover`）在 `b.playerController instanceof PlayerController` 時呼叫 —— 接手那一幀的 HUD 與音效就讀新的這一架。
+- 方法 `coolWhileAway(seconds)`：照時間冷卻、`dryFiring = false`。代飛與上帝視角時 `World.step` 呼叫的是 `playerAi`，玩家控制器不會被更新；`playerControl` 在玩家控制器不在座位上的每一幀呼叫它。
+- `ai-burst.test.ts` 的「人接手沒有冷卻」改測兩個點放週期（2.1 s），短於過熱的 3 s。
 - 測試：按住 T 秒後 `firing` 變假、`dryFiring` 變真；放開冷卻到 0.6 以下恢復；沒有前射武器（G4M）不加熱；投彈視角不加熱；換一架飛機歸零；`resetBattle` 歸零（接線護欄）。
 
 ## 任務 4：HUD
@@ -54,7 +54,7 @@ export function dryClickInterval(b: Pick<Battery, 'mounts'>): number
 ## 任務 5：空響
 
 - 素材 `public/audio/gun-jam-1.mp3`、`manifest.json`（`loop: false`、`makeupDb: 8.0`、`envelopeDb: [0.0]`）、`SINGLE_FILES.gunJam = 'gun-jam-1'`。
-- `flightAudio`：建立時多收 `gun: Pick<PlayerController, 'dryFiring'>`。`update` 裡：`flying && gun.dryFiring` 時倒數，到 0 播 `audio.playFile(SINGLE_FILES.gunJam, 'reload', 0, 0, 0, false)`、重設成 `dryClickInterval(me.aircraft.spec.battery)`；否則倒數歸 0（下一次按下立刻響）。`reset` 也歸 0。
+- `flightAudio`：建立時多收 `gun: Pick<PlayerController, 'dryFiring'>`。`update` 裡：`flying && gun.dryFiring` 時倒數，到 0 播 `audio.playFile(SINGLE_FILES.gunJam, 'reload', 0, 0, 0, false)`，**加上**間隔（保留餘數，一幀可以補好幾聲、上限 4）；否則倒數歸 0（下一次按下立刻響）。`reset` 也歸 0。這一段每畫面幀才跑，重設整個間隔的話節奏會隨幀率變慢。
 - 測試：`dryFiring` 期間依間隔播放；放開就停；再按立刻響；不在飛（上帝視角）不播。素材清單、目錄的既有護欄涵蓋新檔。
 
 ## 任務 6：驗收
