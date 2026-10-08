@@ -74,10 +74,10 @@ export function overheatSeconds(b: Pick<Battery, 'overheatSeconds'>): number {
 }
 
 /** 空響間隔是射擊間隔的幾倍 */
-const DRY_CLICK_SPACING = 5
+const DRY_CLICK_SPACING = 2.5
 
 /**
- * 過熱時扣扳機的空響間隔，s：這一組射擊間隔的 5 倍（M2 每分鐘 800 發 → 0.375 s 一聲）。
+ * 過熱時扣扳機的空響間隔，s：這一組射擊間隔的 2.5 倍（M2 每分鐘 800 發 → 0.19 s 一聲）。
  * 一聲一聲分得開，聽起來是扣不下去的扳機。混裝的機種每一組依自己的射速。射速壞值回 Infinity。
  */
 export function dryClickInterval(roundsPerMinute: number): number {

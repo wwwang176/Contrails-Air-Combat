@@ -105,7 +105,7 @@ export function createFlightAudio(
     // 警告蜂鳴：飛出邊界，或速度進了紅線（與 HUD 的紅線警告同一個門檻）
     const warn = flying && (arenaWarning || vneRatio >= OVERSPEED_FULL)
     audio.selfLoop('warn', warn ? SINGLE_FILES.warn : null, 1, 0)
-    // 過熱時扣扳機的空響：每一組依自己射擊間隔的 5 倍一聲（`dryClickInterval`）。
+    // 過熱時扣扳機的空響：每一組依自己射擊間隔的 2.5 倍一聲（`dryClickInterval`）。
     // 【保留餘數】這裡每畫面幀才跑一次；每響一次就重設整個間隔的話，節奏會隨幀率變慢
     if (spec !== jamSpec) buildJamGroups(spec)
     if (flying && gun.dryFiring) {
