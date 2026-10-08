@@ -25,20 +25,23 @@ function setup(spec = P51D) {
 }
 
 /**
- * 過熱時扣扳機的空響（SPEC `2026-10-08-gun-overheat-design.md`）：射速的兩倍。
- * 【保留餘數】音效每畫面幀才跑一次；每響一次就重設整個間隔的話，60 fps 下 21.7 次／秒會掉到 20 次
+ * 過熱時扣扳機的空響（SPEC `2026-10-08-gun-overheat-design.md`）：射擊間隔的 10 倍一聲。
+ * 【保留餘數】音效每畫面幀才跑一次；每響一次就重設整個間隔的話，間隔會被進位到整數幀
+ * （30 fps 下 0.75 s 變 0.767 s），一分鐘少一聲
  */
 describe('過熱的空響', () => {
   const jams = (audio: { playFile: ReturnType<typeof vi.fn> }) =>
     audio.playFile.mock.calls.filter((c) => c[0] === SINGLE_FILES.gunJam).length
 
-  it('按著的期間依射速兩倍響，幀率不影響累積次數；放開就停', () => {
-    for (const fps of [30, 60, 144]) {
+  it('按著的期間依間隔響，幀率不影響累積次數；放開就停', () => {
+    for (const fps of [30, 50, 144]) {
       const { audio, update, gun, me } = setup()
       const interval = dryClickInterval(me.aircraft.spec.battery)
       gun.dryFiring = true
-      for (let i = 0; i < fps * 10; i++) update(1 + i / fps, false, 1 / fps)
-      expect(Math.abs(jams(audio) - 10 / interval), `${fps} fps`).toBeLessThanOrEqual(2)
+      for (let i = 0; i < fps * 60; i++) update(1 + i / fps, false, 1 / fps)
+      const expected = Math.floor(60 / interval)
+      expect(jams(audio), `${fps} fps`).toBeGreaterThanOrEqual(expected)
+      expect(jams(audio), `${fps} fps`).toBeLessThanOrEqual(expected + 1)
       gun.dryFiring = false
       audio.playFile.mockClear()
       for (let i = 0; i < fps; i++) update(20 + i / fps, false, 1 / fps)

@@ -106,11 +106,11 @@ describe('各機的秒數與空響間隔', () => {
     expect(overheatSeconds({ overheatSeconds: 2 })).toBe(2)
   })
 
-  /** 射速的兩倍 = 射擊間隔的一半；混裝取最慢那一挺 */
-  it('空響間隔是最慢那一挺射擊間隔的一半；沒有前射武器回 Infinity', () => {
+  /** 射擊間隔的 10 倍（射速的十分之一）；混裝取最慢那一挺 */
+  it('空響間隔是最慢那一挺射擊間隔的 10 倍；沒有前射武器回 Infinity', () => {
     const m = (rpm: number) => ({ weapon: { roundsPerMinute: rpm } }) as never
-    expect(dryClickInterval({ mounts: [m(800), m(800)] })).toBeCloseTo(60 / 800 / 2, 9)
-    expect(dryClickInterval({ mounts: [m(900), m(620)] })).toBeCloseTo(60 / 620 / 2, 9)
+    expect(dryClickInterval({ mounts: [m(800), m(800)] })).toBeCloseTo(60 / 800 * 10, 9)
+    expect(dryClickInterval({ mounts: [m(900), m(620)] })).toBeCloseTo(60 / 620 * 10, 9)
     expect(dryClickInterval({ mounts: [] })).toBe(Infinity)
   })
 })
