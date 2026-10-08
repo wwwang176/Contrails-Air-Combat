@@ -5,12 +5,14 @@ import type { AudioEngine } from '../audio/engine'
 import type { HudFrame } from './types'
 
 type MissionDisplay = Pick<Battle, 'mission' | 'objectiveKey' | 'message' | 'rules'>
+  & { alert: Pick<NonNullable<Battle['alert']>, 'alerted'> | null }
 type MissionCardText = { readonly battle: Pick<ReadyMissionCard['battle'], 'objectiveKey' | 'bannerKey'> }
 type MissionFrame = Pick<HudFrame,
   'message' | 'messageAge' | 'objectiveActive' | 'objectiveArrived' | 'objectiveBanner'
   | 'objectiveBannerAge' | 'objectiveBannerTypeAge' | 'objectiveHasTarget'
   | 'objectiveMetric' | 'objectiveMetricKind' | 'objectiveMetricTotal' | 'objectiveNeed'
-  | 'objectiveRemaining' | 'objectiveSeconds' | 'objectiveText' | 'objectiveWorldX' | 'objectiveWorldZ'>
+  | 'objectiveRemaining' | 'objectiveSeconds' | 'objectiveText' | 'objectiveWorldX' | 'objectiveWorldZ'
+  | 'enemyUnaware'>
 
 /** 任務 HUD 的資料組裝與訊息時鐘；只讀戰局，輸出寫入既有的 HUD 緩衝。 */
 export function createMissionHud(
@@ -86,6 +88,8 @@ export function createMissionHud(
       if (messageKey !== null) audio.playPool('radio', 'radio', 0, 0, 0, false)
     }
     hudFrame.messageAge = messageKey === null || messageStart <= langChangedAt ? -1 : elapsed - messageStart
+    // 【敵方還沒警戒】敵方的框與標記用黃色；沒有警戒的關卡恆為假
+    hudFrame.enemyUnaware = battle.alert !== null && !battle.alert.alerted
   }
 
   function resetMissionBanner(): void {

@@ -15,11 +15,27 @@ function fixture() {
   const feed = createMissionHud(frame, { playPool }, key => language + ':' + key)
   const battle: Parameters<typeof feed.fillMissionHud>[0] = {
     mission: createMissionState({ kind: 'annihilate' }), rules: { kind: 'annihilate' },
-    objectiveKey: null, message: null,
+    objectiveKey: null, message: null, alert: null,
   }
   const card = { battle: { objectiveKey: OBJECTIVE, bannerKey: BANNER } }
   return { frame, playPool, feed, battle, card, setLanguage(value: string) { language = value } }
 }
+
+/** 倫內爾島：敵方還沒警戒時，敵方的框與標記改用黃色（`contactColor` 的第三個參數） */
+describe('任務 HUD：敵方還沒警戒', () => {
+  it('有警戒而且還沒觸發時為真；觸發之後、沒有警戒的關卡都為假', () => {
+    const f = fixture()
+    f.feed.fillMissionHud(f.battle, 'mission', f.card, 0)
+    expect(f.frame.enemyUnaware).toBe(false)
+    const alert = { alerted: false } as NonNullable<typeof f.battle.alert>
+    f.battle.alert = alert
+    f.feed.fillMissionHud(f.battle, 'mission', f.card, 1)
+    expect(f.frame.enemyUnaware).toBe(true)
+    alert.alerted = true
+    f.feed.fillMissionHud(f.battle, 'mission', f.card, 2)
+    expect(f.frame.enemyUnaware).toBe(false)
+  })
+})
 
 describe('任務 HUD 的資料', () => {
   it('橫幅／訊息換了新的鍵才播無線電；沒有時把經過時間清成 -1', () => {

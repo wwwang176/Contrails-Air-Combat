@@ -37,8 +37,8 @@ export function flightStrengthLabel(alive: number, size: number): string {
  * 標的是玩家自己的 Schwarm，意思是「誰會在你被咬時回頭掩護你」。上帝視角是
  * 旁觀全場，那個區別沒有意義。
  */
-export function godMarkerColor(hostile: boolean): string {
-  return contactColor(hostile, false)
+export function godMarkerColor(hostile: boolean, enemyUnaware = false): string {
+  return contactColor(hostile, false, enemyUnaware)
 }
 
 /**
@@ -66,7 +66,7 @@ export function drawGodMarkers(
     const x = L.cx + c.x * L.unit
     const y = L.cy - c.y * L.unit
     const r = contactBoxRadius(c.radius, L.unit, L.scale)
-    const color = godMarkerColor(c.hostile)
+    const color = godMarkerColor(c.hostile, f.enemyUnaware)
 
     ctx.strokeStyle = color
     ctx.lineWidth = 1.5 * L.scale

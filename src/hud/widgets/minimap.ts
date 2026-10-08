@@ -156,7 +156,7 @@ function mapInterior(
     ctx.globalAlpha = beyond ? 0.35 : 1
     ctx.translate(rx, rz)
     ctx.rotate(f.heading)
-    ctx.fillStyle = contactColor(c.hostile, c.flightMate)
+    ctx.fillStyle = contactColor(c.hostile, c.flightMate, f.enemyUnaware)
     const s = 4 * L.scale
     ctx.beginPath()
     switch (minimapSymbol(c.deltaY)) {

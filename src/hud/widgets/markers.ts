@@ -62,7 +62,7 @@ export function drawMarkers(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
     if (Math.abs(m.x) > aspect || Math.abs(m.y) > 1) continue
 
     markerPath(L.cx + m.x * L.unit, L.cy - m.y * L.unit, L.scale, P)
-    const color = contactColor(m.hostile, false)
+    const color = contactColor(m.hostile, false, f.enemyUnaware)
     ctx.fillStyle = color
     ctx.beginPath()
     ctx.moveTo(P[0]!, P[1]!)

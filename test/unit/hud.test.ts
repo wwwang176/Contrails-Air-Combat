@@ -395,6 +395,15 @@ describe('contactColor —— 自己的分隊要認得出來（M6 spec §10）',
   it('敵機不會因為 flightMate 旗標而變色 —— 那是不可能的狀態，但顏色要可預測', () => {
     expect(contactColor(true, true)).toBe(HUD_COLORS.danger)
   })
+
+  /** 【倫內爾島】敵方還沒警戒時是黃色；要與危險色、僚機的琥珀色都分得開 */
+  it('敵方還沒警戒時敵機是黃色；友機不受影響', () => {
+    expect(contactColor(true, false, true)).toBe(HUD_COLORS.unaware)
+    expect(HUD_COLORS.unaware).not.toBe(HUD_COLORS.danger)
+    expect(HUD_COLORS.unaware).not.toBe(HUD_COLORS.warn)
+    expect(contactColor(false, false, true)).toBe(HUD_COLORS.friendly)
+    expect(contactColor(false, true, true)).toBe(HUD_COLORS.warn)
+  })
 })
 
 describe('flightLabel —— 分隊存活（M6 spec §10）', () => {

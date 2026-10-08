@@ -455,6 +455,8 @@ export interface HudFrame {
   message: string
   /** 訊息出現到現在幾秒，打字機用；−1 = 整句直接印 */
   messageAge: number
+  /** 敵方還沒警戒（倫內爾島，`battle/alert.ts`）：敵方的框與標記用黃色 */
+  enemyUnaware: boolean
 }
 
 export function createHudFrame(): HudFrame {
@@ -526,6 +528,7 @@ export function createHudFrame(): HudFrame {
     objectiveWorldZ: 0,
     message: '',
     messageAge: -1,
+    enemyUnaware: false,
   }
 }
 

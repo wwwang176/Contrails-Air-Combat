@@ -3,6 +3,8 @@ export const HUD_COLORS = {
   dim: 'rgba(125, 251, 168, 0.45)',
   warn: '#ffcc44',
   danger: '#ff5a4d',
+  /** 還沒警戒的敵方（倫內爾島）。要與 `warn`（僚機、警告的琥珀色）分得開 */
+  unaware: '#ffee33',
   friendly: '#5aa9ff',
   panel: 'rgba(0, 0, 0, 0.35)',
 } as const
@@ -19,8 +21,9 @@ export const HUD_COLORS = {
  * 一條有實際行為的規則 —— 與 `minimapSymbol`、`edgeIndicatorPosition`
  * 是同一個做法。
  */
-export function contactColor(hostile: boolean, flightMate: boolean): string {
-  if (hostile) return HUD_COLORS.danger
+export function contactColor(hostile: boolean, flightMate: boolean, enemyUnaware = false): string {
+  // 【敵方還沒警戒用黃色】倫內爾島警戒前的野貓與艦隊（`battle/alert.ts`）：看得出「還沒發現你」
+  if (hostile) return enemyUnaware ? HUD_COLORS.unaware : HUD_COLORS.danger
   return flightMate ? HUD_COLORS.warn : HUD_COLORS.friendly
 }
 

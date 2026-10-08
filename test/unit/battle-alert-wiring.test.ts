@@ -25,6 +25,16 @@ describe('警戒接進戰鬥', () => {
   })
 })
 
+describe('還沒警戒的敵方在 HUD 上是黃色', () => {
+  /** 【四處都要傳】少傳一處，那一種標示仍然是紅的，而 `contactColor` 自己的測試照樣綠 */
+  it('目標框、船的標記、小地圖、上帝視角的標記都把 enemyUnaware 傳給顏色', () => {
+    expect(read('src/hud/widgets/contacts.ts')).toContain('contactColor(c.hostile, c.flightMate, f.enemyUnaware)')
+    expect(read('src/hud/widgets/markers.ts')).toContain('contactColor(m.hostile, false, f.enemyUnaware)')
+    expect(read('src/hud/widgets/minimap.ts')).toContain('contactColor(c.hostile, c.flightMate, f.enemyUnaware)')
+    expect(read('src/hud/widgets/godMarkers.ts')).toContain('godMarkerColor(c.hostile, f.enemyUnaware)')
+  })
+})
+
 describe('停火旗標接進 World.step', () => {
   /**
    * 【三個呼叫點都要傳】參數省略時預設不停火 —— 少傳任何一處，那一種武器會靜靜地照常開火，

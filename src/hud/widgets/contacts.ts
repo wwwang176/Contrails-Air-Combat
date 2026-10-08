@@ -50,7 +50,7 @@ export function drawContacts(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hud
     const c = f.contacts[i]!
     if (!c.active) continue
 
-    const color = contactColor(c.hostile, c.flightMate)
+    const color = contactColor(c.hostile, c.flightMate, f.enemyUnaware)
     const aspect = L.width / L.height
     const onScreen = !c.behind && Math.abs(c.x) <= aspect && Math.abs(c.y) <= 1
 
