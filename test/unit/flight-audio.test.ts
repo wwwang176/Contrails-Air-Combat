@@ -25,9 +25,9 @@ function setup(spec = P51D) {
 }
 
 /**
- * 過熱時扣扳機的空響（SPEC `2026-10-08-gun-overheat-design.md`）：射擊間隔的 10 倍一聲。
+ * 過熱時扣扳機的空響（SPEC `2026-10-08-gun-overheat-design.md`）：射擊間隔的 5 倍一聲。
  * 【保留餘數】音效每畫面幀才跑一次；每響一次就重設整個間隔的話，間隔會被進位到整數幀
- * （30 fps 下 0.75 s 變 0.767 s），一分鐘少一聲
+ * （30 fps 下 0.375 s 變 0.4 s），一分鐘少十聲
  */
 describe('過熱的空響', () => {
   const jams = (audio: { playFile: ReturnType<typeof vi.fn> }) =>
