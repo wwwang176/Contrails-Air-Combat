@@ -42,7 +42,7 @@ describe('戰場高度霧的接線', () => {
 
   /** 每一場依卡片開、離場與換場都關：只在換場時關的話，放棄任務回到選單後霧會留在選單的背景裡 */
   it('每一場依卡片開霧；離場與換場跟地面戰的戲一起關', () => {
-    expect(MAIN).toContain('battleScenery.rebuild(world, pendingMission?.battle.theater)')
+    expect(MAIN).toContain('battleScenery.rebuild(world, pendingMission?.battle.theater, battle.cfg.groundLivery)')
     expect(MAIN).toContain('battleScenery.releaseGroundBattle()')
     expect(SCENERY).toContain('setBattleFog(')
     expect(SCENERY).toContain('theater.haze')

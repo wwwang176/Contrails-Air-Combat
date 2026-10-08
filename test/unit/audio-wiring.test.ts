@@ -223,7 +223,7 @@ describe('音效的戰鬥事件接線', () => {
    */
   it('地面戰的砲口聲：回呼記下最近的一發，playCannons 播完才清', () => {
     expect(ALL).toContain('burn: emitFirePuff, impact: onGroundImpact, fired: noteGroundShot')
-    expect(ALL).toContain('battleScenery.rebuild(world, pendingMission?.battle.theater)')
+    expect(ALL).toContain('battleScenery.rebuild(world, pendingMission?.battle.theater, battle.cfg.groundLivery)')
     expect(SCENERY).toContain('createGroundBattle(theater, assets.burn, assets.smokeTexture, assets.impact, assets.fired)')
     expect(ALL).toContain('const cannonAudio = createCannonAudio(audio, audioEar)')
     expect(ALL).toContain('const noteGroundShot = cannonAudio.noteGroundShot')
