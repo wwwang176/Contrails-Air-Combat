@@ -110,6 +110,7 @@ export const zh = {
   'name.ground.usTank': 'M4A3 雪曼',
   'name.ground.usTruck': 'GMC CCKW 卡車',
   'name.ground.usFlakTrack': 'M16 多管機槍運輸車',
+  'name.ground.usFlakHeavy': '90 mm M1A1 高射砲',
   'name.ground.locomotive': 'BR 52 機車',
   'name.ground.tender': '煤水車',
   'name.ground.boxcar': '棚車',

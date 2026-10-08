@@ -130,7 +130,7 @@ describe('輕型陸砲', () => {
     expect(g[0]!.spec).toBe(GROUND_FLAK_SPEC)
   })
 
-  it('placeGround 對 flakLight 掛輕砲、對 flakHeavy 掛重砲、其餘不掛', () => {
+  it('placeGround 對 flakLight 掛輕砲、對 flakHeavy／usFlakHeavy 掛重砲、其餘不掛', () => {
     const IDLE: Controller = { update() {} }
     const cfg: BattleConfig = {
       ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, B17G, 1, P51D, 1),
@@ -139,10 +139,14 @@ describe('輕型陸砲', () => {
         { unit: 'flakHeavy', team: 'red', x: 100, z: -6000, heading: 0 },
         { unit: 'truck', team: 'red', x: 200, z: -6000, heading: 0 },
         { unit: 'usFlakTrack', team: 'red', x: 300, z: -6000, heading: 0 },
+        { unit: 'usFlakHeavy', team: 'red', x: 400, z: -6000, heading: 0 },
       ],
     }
     const b = createBattle(IDLE, cfg, 1)
-    const [light, heavy, truck, m16] = b.world.groundTargets
+    const [light, heavy, truck, m16, us90] = b.world.groundTargets
+    // 【美軍 90 mm 與 Flak 18 同一條重砲路徑】吃同一份逐關複寫的 `flakSpec`
+    expect(us90!.guns[0]!.zone.tier).toBe('flak')
+    expect(us90!.guns[0]!.spec).toBe(heavy!.guns[0]!.spec)
     expect(light!.guns[0]!.spec).toBe(GROUND_LIGHT_FLAK_SPEC)
     expect(light!.guns[0]!.zone.tier).toBe('autocannon')
     expect(m16!.guns[0]!.spec).toBe(GROUND_M16_SPEC)

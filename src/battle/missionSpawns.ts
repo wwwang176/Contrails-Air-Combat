@@ -103,7 +103,7 @@ export function placeGround(
     }
     // 【重高砲位會還手】掛上砲之後它就是一座 `GunPlatform`，與艦砲走同一支
     // `stepGunPlatform`。其餘的地面單位（戰車、卡車、火車、廠房）不掛
-    if (e.unit === 'flakHeavy') t.guns = createGroundBattery(flakSpec)
+    if (e.unit === 'flakHeavy' || e.unit === 'usFlakHeavy') t.guns = createGroundBattery(flakSpec)
     // 【輕型砲也還手】走直射彈那一層，曳光看得見。規格不逐關複寫 —— 試玩改
     // 規格本身。M16 半履帶車與輕砲同一個火力，射界壓得比較低（`GROUND_M16_SPEC`）
     else if (e.unit === 'flakLight') {

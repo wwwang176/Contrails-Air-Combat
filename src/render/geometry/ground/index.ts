@@ -48,6 +48,7 @@ export const GROUND_MODELS: Readonly<Record<GroundUnitId, GroundModelSet>> = {
   usTank: { model: { glb: '/models/m4a3.glb', barrelNodes: ['M4_Gun'] } },
   usTruck: { model: { glb: '/models/cckw.glb', barrelNodes: [] } },
   usFlakTrack: { model: { glb: '/models/m16.glb', barrelNodes: ['M16_Barrel_'] } },
+  usFlakHeavy: { model: { glb: '/models/m1_90mm.glb', barrelNodes: ['M1_Barrel_'] } },
   locomotive: { model: { build: buildLocomotive } },
   tender: { model: { build: buildTender } },
   boxcar: { model: { build: buildBoxcar } },

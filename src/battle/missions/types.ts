@@ -679,7 +679,8 @@ export interface GroundEntry {
    */
   readonly motion?: GroundMotion
   /**
-   * 身上的武裝。**省略 = 看單位**：`flakLight`／`flakHeavy` 是砲位，其餘不還手。
+   * 身上的武裝。**省略 = 看單位**：`flakLight`／`flakHeavy`／`usFlakTrack`／`usFlakHeavy`
+   * 是砲位，其餘不還手。
    * `'mg'` = 車頂一挺 .50 機槍（`GROUND_MG_SPEC`）。
    */
   readonly guns?: 'mg'

@@ -60,6 +60,7 @@ const GROUND: Readonly<Record<GroundUnitId, MessageKey>> = {
   usTank: 'name.ground.usTank',
   usTruck: 'name.ground.usTruck',
   usFlakTrack: 'name.ground.usFlakTrack',
+  usFlakHeavy: 'name.ground.usFlakHeavy',
   locomotive: 'name.ground.locomotive',
   tender: 'name.ground.tender',
   boxcar: 'name.ground.boxcar',

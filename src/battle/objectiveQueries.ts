@@ -38,7 +38,7 @@ export function inDestroyPool(t: GroundTarget, rules: MissionRules): boolean {
 
 /** 防空單位。在炸毀的池裡也不算主要目標 —— 它們擋路，不是任務要炸的東西 */
 const AIR_DEFENCE: ReadonlySet<GroundUnitId> = new Set<GroundUnitId>([
-  'flakHeavy', 'flakLight', 'usFlakTrack', 'searchlight',
+  'flakHeavy', 'flakLight', 'usFlakTrack', 'usFlakHeavy', 'searchlight',
 ])
 
 /**

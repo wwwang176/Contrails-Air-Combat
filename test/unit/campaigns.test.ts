@@ -545,7 +545,9 @@ describe('日 M2 雷伊泰前線', () => {
   it('灘頭與前線有固定防空砲位（不動）', () => {
     const fixed = (missionConfigFrom(card).ground ?? []).filter((g) => g.motion === undefined)
     expect(fixed.length).toBeGreaterThan(0)
-    for (const g of fixed) expect(['usFlakTrack', 'flakHeavy']).toContain(g.unit)
+    // 美軍的灘頭：重高砲是 90 mm，不是德軍的 Flak 18
+    for (const g of fixed) expect(['usFlakTrack', 'usFlakHeavy']).toContain(g.unit)
+    expect(fixed.some((g) => g.unit === 'usFlakHeavy')).toBe(true)
   })
 })
 

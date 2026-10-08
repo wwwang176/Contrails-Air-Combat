@@ -58,6 +58,8 @@ export const GROUND_HP: Readonly<Record<GroundUnitId, number>> = {
   usTank: 1_200,
   usTruck: 120,
   usFlakTrack: 160,
+  // 與 Flak 18 同一個量級的露天砲座
+  usFlakHeavy: 400,
   locomotive: 800,
   tender: 300,
   boxcar: 200,
@@ -105,6 +107,7 @@ export const GROUND_ARMOUR: Readonly<Record<GroundUnitId, number>> = {
   usTruck: 0,
   // 半履帶車的 6 mm 裝甲鋼板：擋不住任何一種機槍，只是照實填
   usFlakTrack: 6,
+  usFlakHeavy: 0,
   locomotive: 0,
   tender: 0,
   boxcar: 0,

@@ -21,7 +21,7 @@ export type GroundUnitId =
   | 'tank' | 'tankDug' | 'truck' | 'atGun'
   | 'panzer4' | 'tiger' | 'infantry' | 'mortar'
   | 'flakHeavy' | 'flakLight'
-  | 'usTank' | 'usTruck' | 'usFlakTrack'
+  | 'usTank' | 'usTruck' | 'usFlakTrack' | 'usFlakHeavy'
   | 'locomotive' | 'tender' | 'boxcar' | 'flatcar'
   | PlantKind
   | 'parkedB17' | 'fuelDump' | 'bombDump' | 'searchlight'
@@ -140,6 +140,11 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
     id: 'usFlakTrack', note: '美軍四聯 .50 防空半履帶車 — 日 M2 雷伊泰車隊與灘頭',
     realLength: 6.51, realWidth: 2.16, realHeight: 2.95,
     hull: [groundBox([-1.05, 0.00, -3.43], [1.05, 2.61, 2.90])],
+  },
+  {
+    id: 'usFlakHeavy', note: '美軍 90 mm M1A1 重高砲 — 日 M2 雷伊泰灘頭',
+    realLength: 7.70, realWidth: 7.10, realHeight: 2.11,
+    hull: [groundBox([-3.55, 0.00, -3.55], [3.55, 2.11, 3.55])],
   },
   {
     id: 'locomotive', note: '蒸汽機車 — 盟 M3 諾曼第斷軌',

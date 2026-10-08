@@ -108,6 +108,7 @@ export const en: Record<MessageKey, string> = {
   'name.ground.usTank': 'M4A3 Sherman',
   'name.ground.usTruck': 'GMC CCKW truck',
   'name.ground.usFlakTrack': 'M16 half-track',
+  'name.ground.usFlakHeavy': '90 mm M1A1',
   'name.ground.locomotive': 'BR 52 locomotive',
   'name.ground.tender': 'Tender',
   'name.ground.boxcar': 'Boxcar',

@@ -76,7 +76,7 @@ export interface BattleConfig {
   /** 這一關的防空氣球。省略 = 一顆都不放。透傳的約定與 `fleet` 相同。 */
   readonly balloons?: readonly BalloonEntry[]
   /**
-   * 複寫這一關陸上重高砲的規格。**省略 = `GROUND_FLAK_SPEC`。**
+   * 複寫這一關陸上重高砲（`flakHeavy`、`usFlakHeavy`）的規格。**省略 = `GROUND_FLAK_SPEC`。**
    *
    * 【為什麼要逐關複寫】`flakHeavy` 在盟 M2、德 M2、日 M3 都出現。洛伊納是
    * 德國本土最密的火網，那一關的彈幕該比路邊的一座砲位猛得多 —— 直接改
