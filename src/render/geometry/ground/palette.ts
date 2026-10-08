@@ -29,7 +29,7 @@ export const HUE = {
    * 冬季白漆。帶一點灰：純白在平面著色下與雪地融成一片，車身的稜線都看不出來。
    * **起始值，由試玩裁定。**
    */
-  winterWhite: 0xc8c8c0,
+  winterWhite: 0xb4b4ac,
 } as const
 
 
