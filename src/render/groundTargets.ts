@@ -118,6 +118,8 @@ export function createGroundModels(targets: readonly GroundTarget[], livery?: Gr
   const turrets: (Mesh | null)[] = []
   /** 逐台一格：拆開的兩塊與轉軸，坦克算方位與仰角用 */
   const turretParts: (GunTurretParts | null)[] = []
+  /** 逐台一格：左右射界的半角，rad；轉得了一整圈是 Infinity */
+  const yawLimits: number[] = []
   /** 逐台的砲塔角度，rad。死了停在最後那一幀 */
   const yaws = new Float64Array(targets.length)
   const pitches = new Float64Array(targets.length)
@@ -172,6 +174,8 @@ export function createGroundModels(targets: readonly GroundTarget[], livery?: Gr
     }
     turrets.push(trav)
     turretParts.push(gt ?? null)
+    const reg = GROUND_MODELS[t.unit.id].model
+    yawLimits.push('glb' in reg ? reg.turret?.yawLimit ?? Infinity : Infinity)
   }
 
   /** 第 k 台砲塔這一幀的角度寫進 `yaws`／`pitches`。死了的不動 */
@@ -207,7 +211,9 @@ export function createGroundModels(targets: readonly GroundTarget[], livery?: Gr
       // 目標在耳軸裡面（距離 ≤ 0）時夾一個下限，免得仰角翻到背後
       const flat = Math.max(TRUNNION_MIN_REACH, Math.hypot(dx, dz) + ep.z)
       aimAngles(dx, 0, dz, yaws[k]!, pitches[k]!, 0, 0, ANGLES)
-      wantYaw = ANGLES.yaw
+      // 【射界】開腳式砲架只能在架腳之間轉；射界外的目標停在邊上
+      const lim = yawLimits[k]!
+      wantYaw = Math.min(lim, Math.max(-lim, ANGLES.yaw))
       wantPitch = Math.min(TANK_PITCH_MAX, Math.max(TANK_PITCH_MIN, Math.atan2(TO.y - tp.y - ep.y, flat)))
     }
     yaws[k] = slewYaw(yaws[k]!, wantYaw, TANK_TRAVERSE_RATE, seconds)

@@ -2,6 +2,7 @@ import type { BufferGeometry } from 'three'
 import { GROUND_UNITS, type GroundUnit, type GroundUnitId } from '../../../specs/ground'
 import { groundGlb, preloadGroundGlbs, type GroundGlbSource } from './glb'
 import type { GroundTurretNodes } from './turret'
+import { DEG } from '../../../core/math'
 import { buildBoxcar, buildFlatcar, buildLocomotive, buildTender } from './train'
 import { PLANT_BUILDERS } from './plant'
 import { buildBombDump, buildFuelDump, buildSearchlight } from './dump'
@@ -52,7 +53,13 @@ const F38_LOOSE = ['F38_Barrel_', 'F38_Seat_', 'F38_Shield', 'F38_Wing_']
 export const GROUND_MODELS: Readonly<Record<GroundUnitId, GroundModelSet>> = {
   tank: { model: { glb: '/models/t34.glb', barrelNodes: ['T34_Gun'], turret: T34_TURRET } },
   tankDug: { model: { glb: '/models/t34.glb', barrelNodes: ['T34_Gun'], turret: T34_TURRET } },
-  atGun: { model: { glb: '/models/flak38.glb', barrelNodes: F38_LOOSE, turret: F38_TURRET } },
+  // 蘇軍支援砲與德軍反坦克砲共用 ZiS-3 的模型
+  atGun: {
+    model: {
+      glb: '/models/zis3.glb', barrelNodes: ['ZIS3_Barrel'],
+      turret: { traverse: 'ZIS3_Traverse', elevate: 'ZIS3_Elevate', yawLimit: 27 * DEG },
+    },
+  },
   panzer4: {
     model: { glb: '/models/panzer4.glb', barrelNodes: ['PZ4_Gun'], turret: { traverse: 'PZ4_Traverse', elevate: 'PZ4_Elevate' } },
   },

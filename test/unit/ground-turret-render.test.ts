@@ -161,6 +161,18 @@ describe('T-34：照地面戰的瞄準目標慢慢轉', () => {
     models.dispose()
   })
 
+  /** 【開腳式砲架只能在架腳之間轉】ZiS-3 ±27°：目標在正左方時停在 +27°，不整座轉過去 */
+  it('有射界的砲（反坦克砲）方位夾在射界裡', () => {
+    const gun = createGroundTarget(0, 'atGun', 'blue', 0, 0, 0)
+    const foe = createGroundTarget(1, 'tank', 'red', -300, 0, 0)
+    const list = [gun, foe]
+    const models = createGroundModels(list)
+    const { trav } = partsOf(models, 0)
+    for (let i = 0; i < 20; i++) models.update(list, CAM, 0.5, source(1))
+    expect(trav.rotation.y / DEG).toBeCloseTo(27, 6)
+    models.dispose()
+  })
+
   it('沒有目標（或沒有來源）就慢慢轉回正前方', () => {
     const tank = createGroundTarget(0, 'tank', 'blue', 0, 0, 0)
     const foe = createGroundTarget(1, 'tank', 'red', -300, 0, 0)

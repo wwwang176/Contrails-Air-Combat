@@ -8,7 +8,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { DEG } from '../core/math'
 import { groundUnitName } from '../i18n/names'
 import { GROUND_UNITS, TRAIN_CONSIST, type GroundUnit, type GroundUnitId } from '../specs/ground'
-import { groundGeometry, preloadGroundModels } from '../render/geometry/ground'
+import { GROUND_MODELS, groundGeometry, preloadGroundModels } from '../render/geometry/ground'
 import { GUN_TURRET_KEY, type GunTurretParts } from '../render/geometry/ground/turret'
 import { GUN_PITCH_MAX, GUN_PITCH_MIN, TANK_PITCH_MAX, TANK_PITCH_MIN } from '../render/gunAim'
 import { HUE, assemble, box } from '../render/geometry/ground/parts'
@@ -139,7 +139,7 @@ interface Entry {
   /** 這一份幾何的三角形數。 */
   triangles: number
   /** 會轉的砲塔：水平轉與上下抬兩顆，與仰角範圍。沒有砲塔是 null */
-  turret: { trav: Mesh; elev: Mesh; pitchMin: number; pitchMax: number } | null
+  turret: { trav: Mesh; elev: Mesh; pitchMin: number; pitchMax: number; yawLimit: number } | null
 }
 
 const entries: Entry[] = []
@@ -190,6 +190,7 @@ function place(unit: GroundUnit, x: number, z: number, ry: number): Entry {
     const aa = AA_UNITS.has(unit.id)
     turret = {
       trav, elev,
+      yawLimit: (() => { const m = GROUND_MODELS[unit.id].model; return 'glb' in m ? m.turret?.yawLimit ?? Infinity : Infinity })(),
       pitchMin: aa ? GUN_PITCH_MIN : TANK_PITCH_MIN,
       pitchMax: aa ? GUN_PITCH_MAX : TANK_PITCH_MAX,
     }
@@ -220,7 +221,7 @@ function place(unit: GroundUnit, x: number, z: number, ry: number): Entry {
  * 擺一輩子都看不出錯。接起來之後，任何一節對不上都是肉眼可見的錯位。
  */
 const VEHICLE_ROW: GroundUnitId[] = [
-  'tank', 'panzer4', 'tiger', 'truck', 'flakHeavy', 'flakLight', 'usTank', 'usTruck', 'usFlakTrack', 'usFlakHeavy',
+  'tank', 'panzer4', 'tiger', 'atGun', 'truck', 'flakHeavy', 'flakLight', 'usTank', 'usTruck', 'usFlakTrack', 'usFlakHeavy',
 ]
 const ROW_GAP = 4.0
 /**
@@ -490,7 +491,8 @@ resize()
 focus(null)
 
 /**
- * 【砲塔】水平轉一圈 `TURRET_TURN` 秒、仰角在上下限之間來回一趟 `TURRET_NOD` 秒。檢查轉軸
+ * 【砲塔】水平轉一圈 `TURRET_TURN` 秒（有射界的在兩邊之間來回一趟）、仰角在上下限之間來回一趟
+ * `TURRET_NOD` 秒。檢查轉軸
  * 位置與零件分組：轉軸偏了砲塔會晃出座圈，零件分錯組會留在原地不動
  */
 let turretOn = false
@@ -507,7 +509,8 @@ renderer.setAnimationLoop(() => {
     for (const e of entries) {
       const t = e.turret
       if (t === null) continue
-      t.trav.rotation.y = yaw
+      // 有射界的（反坦克砲）在射界的兩個邊之間來回，其餘轉一整圈
+      t.trav.rotation.y = Number.isFinite(t.yawLimit) ? t.yawLimit * Math.sin(yaw) : yaw
       t.elev.rotation.x = t.pitchMin + (t.pitchMax - t.pitchMin) * nod
     }
   }

@@ -90,9 +90,10 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
     hull: [groundBox([-1.50, 0.00, -2.61], [1.50, 2.63, 3.54])],
   },
   {
-    id: 'atGun', note: '反坦克砲 — 德 M4 勒熱夫：蘇軍支援砲（第一段的目標）與德軍的反坦克砲共用（暫代：Flak 38）',
-    realLength: 2.57, realWidth: 1.91, realHeight: 1.50,
-    hull: [groundBox([-0.95, 0.00, -0.75], [0.95, 1.50, 1.06])],
+    id: 'atGun', note: 'ZiS-3 76 mm 加農砲 — 德 M4 勒熱夫：蘇軍支援砲（第一段的目標）與德軍的反坦克砲共用',
+    // 寬是兩根架腳張開的跨距。盒子前緣 −0.41：防盾上角在 ±27° 射界內會伸到 −0.41
+    realLength: 5.56, realWidth: 3.36, realHeight: 1.37,
+    hull: [groundBox([-1.68, 0.00, -0.41], [1.68, 1.37, 2.66])],
   },
   {
     id: 'panzer4', note: '德軍 IV 號戰車 — 德 M4 勒熱夫',

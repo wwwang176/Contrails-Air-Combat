@@ -8,6 +8,11 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 export interface GroundTurretNodes {
   readonly traverse: string
   readonly elevate: string
+  /**
+   * 左右射界的半角，rad。**省略 = 轉得了一整圈**（防空砲、戰車）。開腳式砲架的野戰砲、反坦克砲
+   * 只能在架腳之間轉（ZiS-3 ±27°）—— 不夾的話防盾會轉到架腳上、整座砲朝後
+   */
+  readonly yawLimit?: number
 }
 
 /** 拆開的砲塔掛在固定那一塊幾何的 `userData` 上的鍵 */

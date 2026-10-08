@@ -260,11 +260,17 @@ describe('地面單位', () => {
       })
 
       /** 【砲塔轉到哪裡都打得到】水平轉那一組在任何方位都要在命中盒裡，不然轉到側面就有一截打不中 */
-      it('會水平轉的零件（上下抬那一組以外）轉一圈都在命中盒裡', async () => {
+      it('會水平轉的零件（上下抬那一組以外）在射界裡轉都在命中盒裡（沒有射界的轉一圈）', async () => {
+        const reg = GROUND_MODELS[u.id].model
+        const lim = 'glb' in reg && reg.turret?.yawLimit !== undefined ? reg.turret.yawLimit * 180 / Math.PI : 180
+        // 每 15° 一格，射界的兩個邊也量
+        const degs: number[] = []
+        for (let d = -lim; d < lim; d += 15) degs.push(d)
+        degs.push(lim)
         const missed: string[] = []
         for (const { node, pos, pivot } of await meshesOf(u)) {
           if (pivot === undefined) continue
-          for (let deg = 0; deg < 360; deg += 15) {
+          for (const deg of degs) {
             const c = Math.cos(deg * Math.PI / 180)
             const s = Math.sin(deg * Math.PI / 180)
             let out = false
