@@ -19,12 +19,12 @@ const run = (h: ReturnType<typeof createGunHeat>, firing: boolean, seconds: numb
 }
 
 describe('熱度', () => {
-  it('門檻：黃 0.6 進、0.2 出；過熱冷到 0.6 解除；每秒冷 0.2；預設 3 秒', () => {
+  it('門檻：黃 0.6 進、0.2 出；過熱冷到 0.6 解除；每秒冷 0.2；預設 6 秒', () => {
     expect(GUN_HEAT_WARN).toBe(0.6)
     expect(GUN_HEAT_CLEAR).toBe(0.2)
     expect(GUN_HEAT_UNLOCK).toBe(0.6)
     expect(GUN_HEAT_COOL).toBe(0.2)
-    expect(GUN_HEAT_SECONDS).toBe(3)
+    expect(GUN_HEAT_SECONDS).toBe(6)
   })
 
   it('連續射擊 T 秒剛好過熱，差一步還沒', () => {
@@ -51,11 +51,22 @@ describe('熱度', () => {
     expect(gunHeatLevel(h)).toBe('warn')
   })
 
-  it('過熱時扳機按著也不加熱（打不出去）；冷卻約 2 秒回黃、再約 2 秒回綠', () => {
+  /** 【紅色時壓著扳機就不冷卻】要放開才開始恢復 —— 逼玩家鬆手，而不是按著等它自己解除 */
+  it('過熱時扳機一直按著：停在過熱、不冷卻；放開才開始冷', () => {
     const h = createGunHeat()
     run(h, true, 3)
+    run(h, true, 5)
+    expect(h.heat).toBe(1)
+    expect(h.locked).toBe(true)
+    run(h, false, 0.5)
+    expect(h.heat).toBeCloseTo(0.9, 6)
+    // 冷到一半又按下去：仍在過熱，冷卻再暫停
     run(h, true, 1)
-    expect(h.heat).toBeLessThan(1)
+    expect(h.heat).toBeCloseTo(0.9, 6)
+    expect(h.locked).toBe(true)
+  })
+
+  it('放開之後冷卻約 2 秒回黃、再約 2 秒回綠', () => {
     const h2 = createGunHeat()
     run(h2, true, 3)
     run(h2, false, 1.9)
@@ -75,10 +86,10 @@ describe('熱度', () => {
     expect(h.heat).toBe(0)
   })
 
-  it('秒數壞值當預設', () => {
+  it('秒數壞值當預設（6 秒）', () => {
     for (const bad of [0, -1, NaN, Infinity]) {
       const h = createGunHeat()
-      run(h, true, 3 - DT, bad)
+      run(h, true, 6 - DT, bad)
       expect(h.locked, String(bad)).toBe(false)
       run(h, true, DT, bad)
       expect(h.locked, String(bad)).toBe(true)
@@ -94,15 +105,15 @@ describe('熱度', () => {
 })
 
 describe('各機的秒數與空響間隔', () => {
-  /** 機砲連射比較吃：K-4（MK 108）2 秒；混裝機砲的零戰、疾風、Yak 2.5 秒；其餘 3 秒 */
+  /** 機砲連射比較吃：K-4（MK 108）4 秒；混裝機砲的零戰、疾風、Yak 5 秒；其餘 6 秒 */
   it('各機型的過熱秒數', () => {
-    expect(overheatSeconds(BF109K4_BATTERY)).toBe(2)
-    for (const b of [A6M5_BATTERY, KI84_BATTERY, YAK1B_BATTERY]) expect(overheatSeconds(b)).toBe(2.5)
-    for (const b of [P51D_BATTERY, F4F4_BATTERY, F6F5_BATTERY, JU87_BATTERY]) expect(overheatSeconds(b)).toBe(3)
+    expect(overheatSeconds(BF109K4_BATTERY)).toBe(4)
+    for (const b of [A6M5_BATTERY, KI84_BATTERY, YAK1B_BATTERY]) expect(overheatSeconds(b)).toBe(5)
+    for (const b of [P51D_BATTERY, F4F4_BATTERY, F6F5_BATTERY, JU87_BATTERY]) expect(overheatSeconds(b)).toBe(6)
   })
 
-  it('Battery 沒寫秒數時是 3', () => {
-    expect(overheatSeconds({})).toBe(3)
+  it('Battery 沒寫秒數時是 6', () => {
+    expect(overheatSeconds({})).toBe(6)
     expect(overheatSeconds({ overheatSeconds: 2 })).toBe(2)
   })
 

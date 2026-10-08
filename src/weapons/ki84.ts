@@ -141,8 +141,8 @@ export const KI84_BATTERY: Battery = {
    */
   mounts: MOUNTS,
   convergence: 1000,
-  /** 【2.5 秒】混裝機砲，介於一般機槍機（3 秒）與 K-4（2 秒）之間 */
-  overheatSeconds: 2.5,
+  /** 【5 秒】混裝機砲，介於一般機槍機（6 秒）與 K-4（4 秒）之間 */
+  overheatSeconds: 5,
   /**
    * 預瞄環取**初速最快**的那挺（ホ103，780 對 ホ5 的 741）。寫成從 `mounts`
    * 挑最大值而不是硬指 `HO103`，是為了讓它跟著資料走 —— 日後換槍，基準自動

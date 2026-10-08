@@ -47,7 +47,7 @@ export interface Battery {
    */
   sight: WeaponSpec
   /**
-   * 玩家操縱這一架時，前射武器連續射擊幾秒過熱（`control/gunHeat.ts`）。省略 = 3 秒。
+   * 玩家操縱這一架時，前射武器連續射擊幾秒過熱（`control/gunHeat.ts`）。省略 = 6 秒。
    * AI 與砲塔不吃這一格。
    */
   overheatSeconds?: number

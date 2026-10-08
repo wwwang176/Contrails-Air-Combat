@@ -11,7 +11,7 @@ import type { Battery } from '../weapons/types'
  */
 
 /** `Battery.overheatSeconds` 省略時打到過熱的秒數 */
-export const GUN_HEAT_SECONDS = 3
+export const GUN_HEAT_SECONDS = 6
 /** 加熱中到這裡變黃（提醒快過熱） */
 export const GUN_HEAT_WARN = 0.6
 /** 冷卻到這裡才回綠。與 `GUN_HEAT_WARN` 拉開，黃色不會在門檻附近一閃一閃 */
@@ -42,12 +42,14 @@ export function resetGunHeat(h: GunHeat): void {
 }
 
 /**
- * 推進一步。`firing` 是這一步扳機按著；過熱時按著也不加熱（打不出去）。
+ * 推進一步。`firing` 是這一步扳機按著。
+ * 【過熱時按著扳機：不加熱也不冷卻】打不出去，但要放開才開始恢復 —— 逼玩家鬆手。
  * `seconds` 非正或非有限時當 `GUN_HEAT_SECONDS`。
  */
 export function stepGunHeat(h: GunHeat, firing: boolean, seconds: number, dt: number): void {
   const T = Number.isFinite(seconds) && seconds > 0 ? seconds : GUN_HEAT_SECONDS
-  if (firing && !h.locked) {
+  if (firing && h.locked) return
+  if (firing) {
     h.heat = Math.min(1, h.heat + dt / T)
     // 【浮點的最後一步】T / dt 步加完可能差 1e-15 到不了 1
     if (h.heat >= 1 - 1e-9) {

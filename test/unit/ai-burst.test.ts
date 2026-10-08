@@ -114,7 +114,7 @@ describe('AI 戰鬥機的點放', () => {
     const input = createInputState()
     input.firing = true
     const pc = new PlayerController(input)
-    // 【兩個週期，要短於過熱】玩家的前機槍連射 3 秒過熱（`control/gunHeat.ts`），那是另一條規則；
+    // 【兩個週期，要短於過熱】玩家的前機槍連射 6 秒過熱（`control/gunHeat.ts`），那是另一條規則；
     // 這一條只問 AI 的點放停頓有沒有漏到人身上，兩個週期（2.1 s）就涵蓋了兩段停頓
     const steps = Math.round((AI_BURST.on + AI_BURST.off) * 2 / DT)
     expect(steps * DT).toBeLessThan(overheatSeconds(P51D.battery))

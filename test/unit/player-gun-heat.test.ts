@@ -22,16 +22,18 @@ function setup(spec = P51D) {
 }
 
 describe('玩家前機槍過熱', () => {
-  it('按住 3 秒過熱：打不出去、而且算在空響；放開冷卻約 2 秒回到能開火', () => {
+  it('按住 6 秒過熱：打不出去、而且算在空響；一直按著不恢復；放開冷卻約 2 秒回到能開火', () => {
     const s = setup()
     s.input.firing = true
-    s.run(2.9)
+    s.run(5.9)
     expect(s.out.firing).toBe(true)
     expect(s.pc.dryFiring).toBe(false)
     s.run(0.2)
     expect(s.pc.gunHeat.locked).toBe(true)
     expect(s.out.firing).toBe(false)
     expect(s.pc.dryFiring).toBe(true)
+    s.run(5)
+    expect(s.pc.gunHeat.heat).toBe(1)
     s.input.firing = false
     s.run(0.5)
     expect(s.pc.dryFiring).toBe(false)
@@ -41,10 +43,10 @@ describe('玩家前機槍過熱', () => {
     expect(s.out.firing).toBe(true)
   })
 
-  it('秒數看機型：K-4 兩秒就過熱', () => {
+  it('秒數看機型：K-4 四秒就過熱', () => {
     const s = setup(BF109K4)
     s.input.firing = true
-    s.run(2.05)
+    s.run(4.05)
     expect(s.pc.gunHeat.locked).toBe(true)
   })
 
@@ -69,7 +71,7 @@ describe('玩家前機槍過熱', () => {
   it('換了一架飛機就歸零', () => {
     const s = setup()
     s.input.firing = true
-    s.run(3.1)
+    s.run(6.1)
     expect(s.pc.gunHeat.locked).toBe(true)
     s.run(DT, new Aircraft(P51D))
     expect(s.pc.gunHeat.locked).toBe(false)
@@ -97,7 +99,7 @@ describe('玩家前機槍過熱', () => {
   it('離手時照時間冷卻、空響停掉', () => {
     const s = setup()
     s.input.firing = true
-    s.run(3.1)
+    s.run(6.1)
     expect(s.pc.dryFiring).toBe(true)
     s.pc.coolWhileAway(1)
     expect(s.pc.dryFiring).toBe(false)
@@ -109,7 +111,7 @@ describe('玩家前機槍過熱', () => {
   it('resetGunHeatState 歸零', () => {
     const s = setup()
     s.input.firing = true
-    s.run(3.1)
+    s.run(6.1)
     s.pc.resetGunHeatState()
     expect(s.pc.gunHeat.heat).toBe(0)
     expect(s.pc.gunHeat.locked).toBe(false)

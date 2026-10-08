@@ -14,7 +14,7 @@ function overheat(pc: PlayerController, b: ReturnType<typeof createBattle>): voi
   const input = (pc as unknown as { input: ReturnType<typeof createInputState> }).input
   input.firing = true
   const out = createCommand()
-  for (let i = 0; i < 240 * 4; i++) pc.update(b.player.aircraft, 1 / 240, out)
+  for (let i = 0; i < 240 * 7; i++) pc.update(b.player.aircraft, 1 / 240, out)
   input.firing = false
 }
 

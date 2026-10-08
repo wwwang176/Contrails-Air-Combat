@@ -63,8 +63,8 @@ const MOUNTS = [
 
 export const BF109K4_BATTERY: Battery = {
   mounts: MOUNTS,
-  /** 【2 秒】MK 108 機砲連射最吃，比一般機槍機（3 秒）早過熱 */
-  overheatSeconds: 2,
+  /** 【4 秒】MK 108 機砲連射最吃，比一般機槍機（6 秒）早過熱 */
+  overheatSeconds: 4,
   convergence: 300,
   /**
    * 預瞄環的基準槍：取所有掛架中**初速最快**的那一挺（此處是 MG 131，

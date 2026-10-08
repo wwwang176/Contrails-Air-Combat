@@ -61,7 +61,8 @@ async function main(): Promise<void> {
     await page.waitForTimeout(300)
     await page.mouse.down()
     const t0 = (await probe(page))!.t
-    const shots: [number, string][] = [[0.5, '1-cool'], [2.2, '2-warn'], [3.2, '3-hot-a'], [3.32, '4-hot-b']]
+    // P-51D：6 秒過熱、3.6 秒變黃；過熱後一直按著停在紅色
+    const shots: [number, string][] = [[0.5, '1-cool'], [4.2, '2-warn'], [6.2, '3-hot-a'], [6.32, '4-hot-b'], [8.5, '5-hot-held']]
     for (const [dt, name] of shots) {
       for (let i = 0; i < 600; i++) {
         p = await probe(page)

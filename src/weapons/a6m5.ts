@@ -113,8 +113,8 @@ const MOUNTS: Mount[] = [
 
 export const A6M5_BATTERY: Battery = {
   mounts: MOUNTS,
-  /** 【2.5 秒】混裝機砲，介於一般機槍機（3 秒）與 K-4（2 秒）之間 */
-  overheatSeconds: 2.5,
+  /** 【5 秒】混裝機砲，介於一般機槍機（6 秒）與 K-4（4 秒）之間 */
+  overheatSeconds: 5,
   /** 【1,000 m】翼槍一律 1,000 m，與 P-51D、F6F-5、Ki-84 一致。 */
   convergence: 1000,
   /**
