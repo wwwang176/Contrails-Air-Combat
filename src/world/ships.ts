@@ -109,6 +109,11 @@ export interface ShipGun extends RandomBurstCycle {
   searchCooldown: number
   /** 累計發射的引信砲彈數。引信誤差的種子：逐發不同、同一場可重現。 */
   fired: number
+  /**
+   * 累計開了幾發，每一層都算。**開火聲看它有沒有增加**（`audio/cannonAudio.ts`）—— 槍焰只亮
+   * 0.03 s，低幀率時會在兩幀之間亮了又滅，看槍焰的話那一發就沒有聲音
+   */
+  shots: number
   /** 槍焰剩餘秒數。 */
   flash: number
   hp: number

@@ -21,8 +21,13 @@ export function createCannonAudio(audio: Pick<AudioEngine, 'playPool'>, cam: Vec
 
   const GUN_POS = new Vector3()
 
-  /** 上一幀每一門砲的 flash —— 由 0 變正就是剛開火。依平台、砲位的順序排 */
-  const prevGunFlash = new Float32Array(1024)
+  /**
+   * 上一幀每一門砲的開火計數（`ShipGun.shots`）—— 增加了就是這兩幀之間開過火。依平台、砲位的順序排。
+   *
+   * 【不看槍焰】槍焰只亮 0.03 s，低於約 33 幀時會在兩幀之間亮了又滅，那一發就沒有聲音。
+   * 【變小不算】世界重設會把計數歸零
+   */
+  const prevGunShots = new Float64Array(1024)
 
   /** 每一種砲聲上一次出聲的時間（`elapsed`）。種類見 `catalog.ts` 的 `gunSound` */
   const lastGunKind = new Map<string, number>()
@@ -34,7 +39,7 @@ export function createCannonAudio(audio: Pick<AudioEngine, 'playPool'>, cam: Vec
   const gunPick = new Map<string, { dist: number; x: number; y: number; z: number }>()
 
   /**
-   * 高射砲、艦砲開火：flash 由 0 變正的那一幀響一下。
+   * 高射砲、艦砲開火：開火計數增加的那一幀響一下（一幀內開了好幾發也只響一下）。
    *
    * 【每一種各自限頻率，而且只響最近的那一座】20 mm 一座每秒八發、一艘船八個
    * 砲位 —— 不限的話光它就把聲道吃光，五吋砲與爆炸反而聽不見。但那個時段是
@@ -52,10 +57,10 @@ export function createCannonAudio(audio: Pick<AudioEngine, 'playPool'>, cam: Vec
       for (const p of list) {
         for (const gun of p.guns) {
           // 【滿了只停止記錄，不能整支返回】第二趟還沒跑，返回等於這一幀全啞
-          if (slot >= prevGunFlash.length) break
-          const was = prevGunFlash[slot]!
-          prevGunFlash[slot++] = gun.flash
-          if (!(gun.flash > 0 && was <= 0) || !p.alive) continue
+          if (slot >= prevGunShots.length) break
+          const was = prevGunShots[slot]!
+          prevGunShots[slot++] = gun.shots
+          if (!(gun.shots > was) || !p.alive) continue
           GUN_POS.copy(gun.zone.position).applyQuaternion(p.orientation).add(p.position)
           const d = GUN_POS.distanceTo(cam)
           if (d >= CANNON_AUDIO_RANGE) continue
@@ -111,7 +116,7 @@ export function createCannonAudio(audio: Pick<AudioEngine, 'playPool'>, cam: Vec
   }
 
   function reset(): void {
-    prevGunFlash.fill(0)
+    prevGunShots.fill(0)
     lastGunKind.clear()
     gunPick.clear()
   }

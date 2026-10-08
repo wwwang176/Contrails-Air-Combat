@@ -219,8 +219,8 @@ describe('音效的戰鬥事件接線', () => {
     // 第二趟才播，位置用挑到的那一座
     expect(fn).toContain("audio.playPool(g.pool, 'cannon', best.x, best.y, best.z, true,")
     // 【滿了只停止記錄】返回的話第二趟不會跑，那一幀整個啞掉
-    expect(fn).toContain('if (slot >= prevGunFlash.length) break')
-    expect(fn).not.toContain('if (slot >= prevGunFlash.length) return')
+    expect(fn).toContain('if (slot >= prevGunShots.length) break')
+    expect(fn).not.toContain('if (slot >= prevGunShots.length) return')
     expect(body('function reset(', CANNONS)).toContain('gunPick.clear()')
   })
 

@@ -100,6 +100,21 @@ describe('stepGunPlatform', () => {
     expect(run(shipWith('mg'), [target(0, 0, 600, 0)], 3).live).toBeGreaterThan(0)
   })
 
+  /**
+   * 【開火計數】開火聲比這個數字有沒有增加（`audio/cannonAudio.ts`）。槍焰只亮 0.03 s，
+   * 低幀率時會在兩幀之間亮了又滅，看槍焰的話那一發就沒有聲音
+   */
+  it('每門砲累計開了幾發：沒目標是 0，開火後增加；每一層都算', () => {
+    const idle = shipWith('mg')
+    run(idle, [], 3)
+    expect(idle.guns.every((g) => g.shots === 0)).toBe(true)
+    for (const tier of ['mg', 'autocannon', 'flak'] as const) {
+      const s = shipWith(tier)
+      run(s, [target(0, 0, tier === 'flak' ? 2500 : 600, 0)], 6)
+      expect(s.guns.reduce((n, g) => n + g.shots, 0), tier).toBeGreaterThan(0)
+    }
+  })
+
   /** 【射程】20 mm 是 830 × 1.6 ≈ 1,330 m。3,000 m 外它不該有解。 */
   it('20 mm 打不到 3,000 m 外的目標', () => {
     expect(run(shipWith('mg'), [target(0, 0, 3000, 0)], 3).live).toBe(0)

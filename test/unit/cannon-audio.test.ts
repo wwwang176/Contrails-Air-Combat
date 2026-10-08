@@ -11,7 +11,8 @@ import type { World } from '../../src/world/World'
 function ship(x: number, tier: ShipAATier = 'flak') {
   const p = createShip(0, SHIP_CLASSES.fletcher, 'red', x, 0, 0, 0)
   const gun = createGroundBattery()[0]!
-  p.guns = [{ ...gun, flash: 1, zone: { ...gun.zone, tier, position: new Vector3() } }]
+  // 開過一發：開火聲看的是開火計數（`shots`），不是槍焰
+  p.guns = [{ ...gun, shots: 1, zone: { ...gun.zone, tier, position: new Vector3() } }]
   return p
 }
 
@@ -30,15 +31,43 @@ describe('砲聲候選與生命週期', () => {
     const { audio, world, playPool } = setup()
     const ground = createGroundTarget(0, 'flakHeavy', 'red', 10, 0, 0)
     ground.guns = createGroundBattery(undefined, undefined, undefined, 'heavyFlak')
-    ground.guns[0]!.flash = 1
+    ground.guns[0]!.shots = 1
     world.groundTargets.push(ground)
     world.ships.push(ship(500))
     audio.playCannons(world, 1)
     expect(playPool.mock.calls.map((c) => [c[0], c[2]])).toEqual([['gun-5in', 500], ['gun-heavy-flak', 10]])
-    ground.guns[0]!.flash = 0
     audio.playCannons(world, 1.01)
-    ground.guns[0]!.flash = 1
+    ground.guns[0]!.shots++
     audio.playCannons(world, 1.02)
+    expect(playPool).toHaveBeenCalledTimes(2)
+  })
+
+  /** 【不看槍焰】槍焰 0.03 s，低幀率時在兩幀之間亮了又滅；開火計數增加了就算開了一發 */
+  it('兩幀之間開了火而槍焰已經熄掉，照樣出聲；一幀之內開了好幾發只出一聲', () => {
+    const { audio, world, playPool } = setup()
+    const p = ship(20)
+    world.ships.push(p)
+    audio.playCannons(world, 1)
+    p.guns[0]!.flash = 0
+    p.guns[0]!.shots += 3
+    audio.playCannons(world, 2)
+    expect(playPool).toHaveBeenCalledTimes(2)
+    audio.playCannons(world, 3)
+    expect(playPool).toHaveBeenCalledTimes(2)
+  })
+
+  /** 【世界重設把計數歸零】變小不是開火；之後再增加才響 */
+  it('開火計數變小不出聲，之後增加照樣出聲', () => {
+    const { audio, world, playPool } = setup()
+    const p = ship(20)
+    p.guns[0]!.shots = 5
+    world.ships.push(p)
+    audio.playCannons(world, 1)
+    p.guns[0]!.shots = 0
+    audio.playCannons(world, 2)
+    expect(playPool).toHaveBeenCalledTimes(1)
+    p.guns[0]!.shots = 1
+    audio.playCannons(world, 3)
     expect(playPool).toHaveBeenCalledTimes(2)
   })
   it('每一種選最近的砲，保留第一個等距候選，播那一種的池與音量', () => {

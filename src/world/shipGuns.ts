@@ -345,7 +345,7 @@ export function createShipGuns(cls: ShipClass): ShipGun[] {
       spec,
       aim: axis.clone(),
       axis,
-      phase: 0, targetIndex: -1, searchCooldown: 0, fired: 0,
+      phase: 0, targetIndex: -1, searchCooldown: 0, fired: 0, shots: 0,
       burstFiring: true, burstTimer: BURST_ON, burstScale: 1, burstDraw: 0, burstLength: BURST_ON,
       flash: 0,
       hp: spec.hp,
@@ -403,7 +403,7 @@ export function createGroundBattery(
     spec,
     aim: axis.clone(),
     axis,
-    phase: 0, targetIndex: -1, searchCooldown: 0, fired: 0,
+    phase: 0, targetIndex: -1, searchCooldown: 0, fired: 0, shots: 0,
     burstFiring: true, burstTimer: BURST_ON, burstScale: 1, burstDraw: 0, burstLength: BURST_ON,
     flash: 0,
     hp: spec.hp,
@@ -444,6 +444,7 @@ function resetGuns(guns: ShipGun[], shipIndex = 0): void {
     g.aim.copy(g.axis)
     g.targetIndex = -1
     g.fired = 0
+    g.shots = 0
     g.flash = 0
     // 【讀自己的規格】船的 `spec` 就是表裡那一份；陸砲帶自己的，重設之後
     // 才不會變回艦砲的血量
@@ -557,6 +558,7 @@ export function stepGunPlatform(
     const shots = stepCadence(ship.gunCooldowns, i, spec.roundsPerMinute, trigger, dt)
     if (shots === 0) continue
     g.flash = TURRET_FLASH_SECONDS
+    g.shots += shots
 
     // 【5 吋砲走近炸引信】它不進彈丸池，見 flak.ts
     if (g.zone.tier === 'flak') {
