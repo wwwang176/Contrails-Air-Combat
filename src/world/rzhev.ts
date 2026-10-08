@@ -249,7 +249,7 @@ export const SOVIET_SUPPORT_GUNS: readonly Spot[] = ([
 ] as const).map(([lx, lz]) => spot(lx, lz, 0))
 
 /**
- * 德軍迫擊砲（暫代：立方體）：6 門，兩個排各三門，在第二線壕溝後方、反坦克砲北側（村的兩翼）。
+ * 德軍迫擊砲（模型用步兵班）：6 門，兩個排各三門，在第二線壕溝後方、反坦克砲北側（村的兩翼）。
  * 打高拋物線，射程裡的蘇軍步兵與縱隊都挨得到。位置由佈局限制篩出來（離單位 ≥ 60 m、離路 ≥ 70 m、
  * 不在雷區、壕溝與障礙物上、離縱隊路線 ≥ 100 m、不進村）
  */
@@ -258,7 +258,7 @@ export const GERMAN_MORTARS: readonly Spot[] = ([
 ] as const).map(([lx, lz]) => spot(lx, lz, 180))
 
 /**
- * 蘇軍迫擊砲（暫代：立方體）：4 門，兩個排各兩門，在步兵與縱隊集結位置的後面（lz +640 …
+ * 蘇軍迫擊砲（模型用步兵班）：4 門，兩個排各兩門，在步兵與縱隊集結位置的後面（lz +640 …
  * +680）
  */
 export const SOVIET_MORTARS: readonly Spot[] = ([

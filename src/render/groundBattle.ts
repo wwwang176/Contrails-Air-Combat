@@ -109,7 +109,7 @@ export const MORTAR_PERIOD = 12
 export const MORTAR_OPENING = 32
 /** 落點在目標周圍散佈的半徑，m。純畫面，不改任何單位的血量 */
 export const MORTAR_SCATTER = 35
-/** 砲口離地的高度，m。立方體的高 */
+/** 砲口離地的高度，m。迫擊砲班（步兵班的模型）大約胸口高 */
 const MORTAR_MUZZLE_HEIGHT = 1.2
 
 /** 打間接射擊的單位 */

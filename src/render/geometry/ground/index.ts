@@ -7,7 +7,6 @@ import { PLANT_BUILDERS } from './plant'
 import { buildBombDump, buildFuelDump, buildSearchlight } from './dump'
 import { bakeParkedAircraft } from './parked'
 import { buildInfantrySquad } from './infantry'
-import { buildMortar } from './mortar'
 
 /**
  * 地面單位的幾何來源：GLB 的路徑，或程式化的建構函數。兩條路的產物相同（一顆
@@ -61,7 +60,8 @@ export const GROUND_MODELS: Readonly<Record<GroundUnitId, GroundModelSet>> = {
     model: { glb: '/models/tiger.glb', barrelNodes: ['TIG_Gun'], turret: { traverse: 'TIG_Traverse', elevate: 'TIG_Elevate' } },
   },
   infantry: { model: { build: buildInfantrySquad } },
-  mortar: { model: { build: buildMortar } },
+  // 迫擊砲班：遠處看是一群人，與步兵班同一個模型
+  mortar: { model: { build: buildInfantrySquad } },
   truck: { model: { glb: '/models/zis150.glb', barrelNodes: [] } },
   flakHeavy: {
     model: { glb: '/models/flak18.glb', barrelNodes: ['F18_Barrel'], turret: { traverse: 'F18_Traverse', elevate: 'F18_Elevate' } },

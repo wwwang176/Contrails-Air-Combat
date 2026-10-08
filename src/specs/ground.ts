@@ -110,9 +110,9 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
     hull: [measuredBox([0, 0.6999999940395356, -0.19999998807907104], [3.1732051372528076, 0.6999999821186065, 1.199999988079071])],
   },
   {
-    id: 'mortar', note: '迫擊砲（暫代：立方體）— 德 M4 勒熱夫，兩邊都有',
-    realLength: 1.4, realWidth: 1.4, realHeight: 1.2, personnel: true,
-    hull: [measuredBox([0, 0.6000000119209288, 0], [0.699999988079071, 0.600000035762787, 0.699999988079071])],
+    id: 'mortar', note: '迫擊砲班（用步兵班的模型）— 德 M4 勒熱夫，兩邊都有',
+    realLength: 2.4, realWidth: 6.4, realHeight: 1.4, personnel: true,
+    hull: [measuredBox([0, 0.6999999940395356, -0.19999998807907104], [3.1732051372528076, 0.6999999821186065, 1.199999988079071])],
   },
   {
     id: 'truck', note: '蘇軍 4 噸卡車 — 德 M4 勒熱夫的德軍後勤也借用它（暫代）',
