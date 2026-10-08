@@ -123,6 +123,9 @@ export const DIRT_COLORS: Record<DirtSurface, SurfaceColors> = {
  */
 export const DIRT_CULL = 1500
 
+/** 戰車與反坦克砲的砲彈打偏落地，土柱比機槍大幾倍（地面戰的 `landed`）。負責人定的 */
+export const SHELL_DIRT_SCALE = 2
+
 /**
  * 池的容量。一架六挺掃射每秒約 80 發落地，存活數是土塊約 520（雪地上其中約
  * 180 顆在夾土池）、土柱約 180、煙塵約 140。
@@ -159,10 +162,11 @@ export interface DirtImpacts {
    *
    * @param waterAt       水面高度（`Terrain.waterAt`），沒有水是 −Infinity
    * @param riverSplashes 落點在河面以下的推到這裡，高度是水面，交給水柱
+   * @param scale         整發放大幾倍。省略 = 1（機槍）；戰車與反坦克砲的砲彈是 `SHELL_DIRT_SCALE`
    */
   emit(
     events: ImpactEvents, cameraX: number, cameraY: number, cameraZ: number,
-    waterAt: (x: number, z: number) => number, riverSplashes: ImpactEvents,
+    waterAt: (x: number, z: number) => number, riverSplashes: ImpactEvents, scale?: number,
   ): void
   /** 積分一幀。**在渲染幀率呼叫，不在物理步** */
   step(dt: number): void
@@ -251,7 +255,7 @@ export function createDirtImpacts(
     pools,
     params,
     setSurface,
-    emit(events, cx, cy, cz, waterAt, riverSplashes) {
+    emit(events, cx, cy, cz, waterAt, riverSplashes, scale = 1) {
       const d = events.data
       for (let e = 0; e < events.count; e++) {
         const o = e * IMPACT_STRIDE
@@ -264,7 +268,7 @@ export function createDirtImpacts(
           pushImpact(riverSplashes, x, w, z, 0, 1, 0)
           continue
         }
-        emitDirtImpact(pools, params, surface === 'snow', x, y, z, seed++)
+        emitDirtImpact(pools, params, surface === 'snow', x, y, z, seed++, scale)
       }
     },
     step(dt) {
@@ -285,28 +289,30 @@ const DIR = new Vector3()
 /** 一發打進地面。熱路徑：不配置。`mix` = 這裡是雪地，土塊要夾泥土 */
 function emitDirtImpact(
   pools: DirtPools, p: DirtImpactParams, mix: boolean,
-  x: number, y: number, z: number, seed: number,
+  x: number, y: number, z: number, seed: number, scale: number,
 ): void {
   const base = seed * 37
+  // 【放大 `scale` 倍】尺寸照倍率。土柱被阻尼拖住、高度跟初速成正比，初速照倍率；土塊與煙塵是
+  // 拋體、高度跟初速平方成正比，初速乘倍率的平方根 —— 長高的倍數都是 `scale`
+  const lob = Math.sqrt(scale)
   for (let k = 0; k < p.clodCount; k++) {
     coneDirection(0, 1, 0, p.clodCone, base + k, DIR)
-    const v = p.clodSpeed * (0.6 + 0.4 * hash01(base + k + 0x51))
+    const v = p.clodSpeed * lob * (0.6 + 0.4 * hash01(base + k + 0x51))
     const mixed = mix && hash01(base + k + 0x9e3) < p.mixRatio
     ;(mixed ? pools.mixClods : pools.clods).emit(
-      x, y, z, DIR.x * v, DIR.y * v, DIR.z * v, p.clodSize,
+      x, y, z, DIR.x * v, DIR.y * v, DIR.z * v, p.clodSize * scale,
     )
   }
   for (let k = 0; k < p.spoutCount; k++) {
     coneDirection(0, 1, 0, p.spoutCone, base + 11 + k, DIR)
     // 【一柱裡快慢不一】同速的話全部停在同一個高度，是一團而不是一柱
     const s = p.spoutCount > 1 ? k / (p.spoutCount - 1) : 1
-    const v = p.spoutSpeed * (SPOUT_SPEED_MIN + (1 - SPOUT_SPEED_MIN) * s)
-    pools.spout.emit(x, y, z, DIR.x * v, DIR.y * v, DIR.z * v, p.spoutSize)
+    const v = p.spoutSpeed * scale * (SPOUT_SPEED_MIN + (1 - SPOUT_SPEED_MIN) * s)
+    pools.spout.emit(x, y, z, DIR.x * v, DIR.y * v, DIR.z * v, p.spoutSize * scale)
   }
+  const dv = p.dustSpeed * lob
   for (let k = 0; k < p.dustCount; k++) {
     coneDirection(0, 1, 0, p.dustCone, base + 23 + k, DIR)
-    pools.dust.emit(
-      x, y + 0.5, z, DIR.x * p.dustSpeed, DIR.y * p.dustSpeed, DIR.z * p.dustSpeed, p.dustSize,
-    )
+    pools.dust.emit(x, y + 0.5, z, DIR.x * dv, DIR.y * dv, DIR.z * dv, p.dustSize * scale)
   }
 }

@@ -44,7 +44,7 @@ import { createTracers } from './render/tracers'
 import { createMuzzles, createTurretMuzzles } from './render/muzzle'
 import { createTurretBarrels } from './render/turretBarrels'
 import { createSparks } from './render/sparks'
-import { createDirtImpacts, dirtSurfaceOf } from './render/dirtImpact'
+import { SHELL_DIRT_SCALE, createDirtImpacts, dirtSurfaceOf } from './render/dirtImpact'
 import { createBlastSparks } from './render/blastSparks'
 import { createSplashes } from './render/splash'
 import { TextureLoader } from 'three'
@@ -94,7 +94,7 @@ import {
   WRECK_FIRE_SMOKE_SCALE,
 } from './render/wrecks'
 import { bodyColorOf } from './render/geometry/buildAircraft'
-import { createImpacts } from './world/events'
+import { clearImpacts, createImpacts, pushImpact } from './world/events'
 import { preloadLiveryVariants } from './render/geometry/buildAircraft'
 import { createAircraftVisuals } from './render/aircraftVisuals'
 import { Hud } from './hud/Hud'
@@ -759,6 +759,22 @@ const onGroundImpact = (x: number, y: number, z: number): void => {
   battleAudioCues.queueExplosion(x, y, z, MORTAR_BLAST_SCALE)
 }
 
+/** 砲彈落地的暫存：一次一發，`dirt.emit` 吃事件表。模組層建一次，熱路徑不配置 */
+const shellLanding = createImpacts(1)
+const shellRiverSplash = createImpacts(1)
+/**
+ * 地面戰的戰車與反坦克砲打偏、砲彈落地：與戰鬥機機槍打到地面**同一套**土柱（`dirt.emit`）——
+ * 同一個剔除距離、同一個雪地顏色，落在河面以下就是水柱。大小是機槍的 `SHELL_DIRT_SCALE` 倍
+ */
+const onShellLanded = (x: number, y: number, z: number): void => {
+  pushImpact(shellLanding, x, y, z, 0, 1, 0)
+  const c = ctx.camera.position
+  dirt.emit(shellLanding, c.x, c.y, c.z, terrain.waterAt, shellRiverSplash, SHELL_DIRT_SCALE)
+  splashes.emit(shellRiverSplash, terrain.waterAt, elapsed)
+  clearImpacts(shellLanding)
+  clearImpacts(shellRiverSplash)
+}
+
 /**
  * 一朵火災的迷你爆炸。**船火與地面火共用這一支** —— 配方在
  * `render/firePuff.ts`，靶場（`tools/range.ts`）接的也是它。
@@ -768,6 +784,7 @@ const onGroundImpact = (x: number, y: number, z: number): void => {
 const emitFirePuff = createFirePuff(BLAST_POOLS, shipFireSmoke)
 const battleScenery = createBattleScenery(ctx.scene, {
   glareTexture, smokeTexture, burn: emitFirePuff, impact: onGroundImpact, fired: noteGroundShot,
+  landed: onShellLanded,
 }, {
   createShipModels, createShipWakes, shipFoamTexture, createGroundModels,
   createSearchlights, createGroundBattle, createBalloonModels,

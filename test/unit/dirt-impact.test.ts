@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   DIRT_CULL, DIRT_IMPACT, createDirtImpacts, dirtSurfaceOf, type DirtImpacts,
 } from '../../src/render/dirtImpact'
@@ -41,6 +41,47 @@ describe('一發的組成', () => {
     expect(all).toBe(80 * DIRT_IMPACT.clodCount)
     expect(mix / all).toBeGreaterThan(DIRT_IMPACT.mixRatio - 0.08)
     expect(mix / all).toBeLessThan(DIRT_IMPACT.mixRatio + 0.08)
+  })
+})
+
+/**
+ * 【大小倍率】戰車與反坦克砲的砲彈落地用 2 倍（`main.ts` 的 `onShellLanded`）。尺寸照倍率；土柱
+ * 被阻尼拖住、高度跟初速成正比，所以初速也照倍率；土塊是拋體、高度跟初速平方成正比，初速乘倍率
+ * 的平方根 —— 兩者都長高成倍率倍
+ */
+describe('大小倍率', () => {
+  type Call = { speed: number; size: number }
+  /** 一發，記下每一顆的初速與尺寸 */
+  function one(scale?: number): { clods: Call[]; spout: Call[]; dust: Call[] } {
+    const d = createDirtImpacts()
+    const rec = { clods: [] as Call[], spout: [] as Call[], dust: [] as Call[] }
+    for (const k of ['clods', 'spout', 'dust'] as const) {
+      vi.spyOn(d.pools[k], 'emit').mockImplementation((_x, _y, _z, vx, vy, vz, size) => {
+        rec[k].push({ speed: Math.hypot(vx, vy, vz), size: size ?? 1 })
+      })
+    }
+    const ev = createImpacts(1)
+    pushImpact(ev, 0, 0, 0, 0, 1, 0)
+    d.emit(ev, 0, 10, 0, NO_WATER, createImpacts(), scale)
+    return rec
+  }
+
+  it('2 倍：數量不變、尺寸 2 倍、土柱初速 2 倍、土塊初速 √2 倍、煙塵初速 √2 倍', () => {
+    const a = one()
+    const b = one(2)
+    for (const k of ['clods', 'spout', 'dust'] as const) {
+      expect(b[k]).toHaveLength(a[k].length)
+      for (let i = 0; i < a[k].length; i++) expect(b[k][i]!.size, k).toBeCloseTo(a[k][i]!.size * 2, 9)
+    }
+    for (let i = 0; i < a.spout.length; i++) expect(b.spout[i]!.speed).toBeCloseTo(a.spout[i]!.speed * 2, 6)
+    for (let i = 0; i < a.clods.length; i++) expect(b.clods[i]!.speed).toBeCloseTo(a.clods[i]!.speed * Math.SQRT2, 6)
+    for (let i = 0; i < a.dust.length; i++) expect(b.dust[i]!.speed).toBeCloseTo(a.dust[i]!.speed * Math.SQRT2, 6)
+  })
+
+  it('省略 = 1 倍（戰鬥機機槍打地面不變）', () => {
+    const a = one()
+    const b = one(1)
+    expect(b).toEqual(a)
   })
 })
 

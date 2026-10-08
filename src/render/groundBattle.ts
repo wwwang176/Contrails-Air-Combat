@@ -222,11 +222,14 @@ function gunSmokeColor(_t: number, out: Color): void {
  *   火球與粒子的配方，只是縮小**（`main.ts` 的 `emitMortarBlast`）；省略 = 沒有表現
  * @param fired 開一發時呼叫：開砲的單位 id 與砲口的世界座標。劇本打掉前的最後一發也算；迫擊砲只算
  *   現在發射的，開場前就已經在天上的不算。省略 = 不通報。**熱路徑：呼叫端不配置**
+ * @param landed 戰車與反坦克砲打偏、砲彈落地時呼叫，落點在地面上。遊戲接的是戰鬥機機槍打到地面
+ *   那一套土柱（`render/dirtImpact.ts`）。省略 = 一小團塵土。**熱路徑：呼叫端不配置**
  */
 export function createGroundBattle(
   theater: MissionTheater, burn: FirePuffFn, smokeTexture?: Texture,
   impact: (x: number, y: number, z: number) => void = () => {},
   fired: (unit: GroundUnitId, x: number, y: number, z: number) => void = () => {},
+  landed?: (x: number, y: number, z: number) => void,
 ): GroundBattle {
   const shooters = new Set<GroundUnitId>(theater.shooters)
   const isTarget = (id: GroundUnitId): boolean => shooters.has(id)
@@ -245,7 +248,7 @@ export function createGroundBattle(
   const dust = createDust(1024, 1, smokeTexture)
   const clouds = createGroundDustClouds(theater.dusts ?? [], smokeTexture)
   const stepClouds = clouds.step
-  const shells = createGroundShellPool(SHELL_CAPACITY, false, flash, dust, impact)
+  const shells = createGroundShellPool(SHELL_CAPACITY, false, flash, dust, impact, landed)
   const bullets = createGroundShellPool(BULLET_CAPACITY, true, flash, dust, impact)
   const shellTracers = createTracers(SHELL_CAPACITY)
   const bulletTracers = createTracers(BULLET_CAPACITY, 0.5)

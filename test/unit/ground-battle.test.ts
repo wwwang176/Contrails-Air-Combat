@@ -315,6 +315,50 @@ describe('砲塔的瞄準目標', () => {
   })
 })
 
+/**
+ * 【砲彈打偏落地】戰車與反坦克砲打偏的那一發，落地交給 `landed`（遊戲接的是戰鬥機機槍打到地面
+ * 那一套土柱）；打中的照舊是小爆炸（`impact`）。步兵的槍彈與迫擊砲不走這裡
+ */
+describe('砲彈打偏落地', () => {
+  const flat = (): number => 0
+  it('打偏的每一發都交給 landed、落點在地上；打中的交給 impact', () => {
+    const landed: { x: number; y: number; z: number }[] = []
+    let impacts = 0
+    const gb = createGroundBattle(
+      { shooters: ['tank', 'atGun'], period: 1, range: 1500 } as never, () => {}, undefined,
+      () => { impacts++ }, undefined, (x, y, z) => { landed.push({ x, y, z }) },
+    )
+    const a = createGroundTarget(0, 'tank', 'blue', 0, 0, 0)
+    const b = createGroundTarget(1, 'atGun', 'red', 900, 0, 0)
+    for (let t = 0; t < 60; t += 0.1) gb.update([a, b], t, 0.1, flat)
+    // 最後幾發可能還在飛：停火（兩台都不在場上就不開砲），多走幾秒讓它們落地
+    a.alive = false
+    b.alive = false
+    for (let t = 60; t < 66; t += 0.1) gb.update([a, b], t, 0.1, flat)
+    expect(gb.shots).toBeGreaterThan(20)
+    expect(gb.hitShots).toBeGreaterThan(0)
+    expect(landed.length).toBeGreaterThan(0)
+    expect(landed.length + impacts).toBe(gb.shots)
+    expect(impacts).toBe(gb.hitShots)
+    for (const p of landed) expect(p.y).toBe(0)
+    gb.dispose()
+  })
+
+  it('步兵的槍彈打偏不交給 landed', () => {
+    let landed = 0
+    const gb = createGroundBattle(
+      { shooters: ['infantry'], period: 1e6, range: 1500 } as never, () => {}, undefined,
+      undefined, undefined, () => { landed++ },
+    )
+    const a = createGroundTarget(0, 'infantry', 'blue', 0, 0, 0)
+    const b = createGroundTarget(1, 'infantry', 'red', 300, 0, 0)
+    for (let t = 0; t < 30; t += 0.1) gb.update([a, b], t, 0.1, flat)
+    expect(gb.shots).toBeGreaterThan(0)
+    expect(landed).toBe(0)
+    gb.dispose()
+  })
+})
+
 describe('劇本打掉前的最後一發', () => {
   const theater = { shooters: ['tank'], period: 1e6, range: 1500 } as const
   const flat = (): number => 0

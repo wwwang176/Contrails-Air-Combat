@@ -15,11 +15,24 @@ describe('迫擊砲彈落地的爆炸', () => {
     expect(MAIN).toContain("import { MORTAR_BLAST_SCALE } from './render/mortarBlast'")
     expect(MAIN).toContain('burn: emitFirePuff, impact: onGroundImpact, fired: noteGroundShot')
     expect(MAIN).toContain('battleScenery.rebuild(world, pendingMission?.battle.theater, battle.cfg.groundLivery)')
-    expect(SCENERY).toContain('createGroundBattle(theater, assets.burn, assets.smokeTexture, assets.impact, assets.fired)')
+    expect(SCENERY).toContain('createGroundBattle(theater, assets.burn, assets.smokeTexture, assets.impact, assets.fired, assets.landed)')
     const at = PRESENTATION.indexOf('const emitMortarBlast')
     expect(at).toBeGreaterThan(0)
     const body = PRESENTATION.slice(at, PRESENTATION.indexOf('\n}\n', at))
     expect(body).toContain('emitBlast(BLAST_POOLS, MORTAR_BLAST,')
+  })
+
+  /**
+   * 【砲彈打偏落地是土柱】戰車與反坦克砲打偏的那一發，與戰鬥機機槍打到地面同一套（`dirt.emit`：
+   * 剔除距離、雪地顏色、河面水柱）。漏接的話落地只剩一小團灰塵，不報錯
+   */
+  it('砲彈打偏落地接到機槍打地面的那一套土柱', () => {
+    expect(MAIN).toContain('landed: onShellLanded')
+    const at = MAIN.indexOf('const onShellLanded')
+    expect(at).toBeGreaterThan(0)
+    const body = MAIN.slice(at, MAIN.indexOf('\n}\n', at))
+    expect(body).toContain('dirt.emit(shellLanding, c.x, c.y, c.z, terrain.waterAt, shellRiverSplash, SHELL_DIRT_SCALE)')
+    expect(body).toContain('splashes.emit(shellRiverSplash, terrain.waterAt, elapsed)')
   })
 
   /**

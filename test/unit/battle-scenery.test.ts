@@ -24,7 +24,7 @@ function fixture() {
   }
   const assets = {
     glareTexture: new Texture(), smokeTexture: new Texture(),
-    burn: vi.fn(), impact: vi.fn(), fired: vi.fn(),
+    burn: vi.fn(), impact: vi.fn(), fired: vi.fn(), landed: vi.fn(),
   }
   const foam = new Texture()
   const builders = {
@@ -68,7 +68,9 @@ describe('戰場佈景的所有權', () => {
     expect(builders.createGroundModels).toHaveBeenCalledWith(world.groundTargets, 'winter')
     expect(builders.createSearchlights).toHaveBeenCalledWith(world.groundTargets, assets.glareTexture)
     expect(builders.createBalloonModels).toHaveBeenCalledWith(world.balloons)
-    expect(builders.createGroundBattle).toHaveBeenCalledWith(theater, assets.burn, assets.smokeTexture, assets.impact, assets.fired)
+    expect(builders.createGroundBattle).toHaveBeenCalledWith(
+      theater, assets.burn, assets.smokeTexture, assets.impact, assets.fired, assets.landed,
+    )
     expect(scenery.battleFogOn).toBe(true)
     expect(BATTLE_FOG.a.w).toBeGreaterThan(0)
     const tint = battleFogTint(scene.fog!.color, theater.fogColor)

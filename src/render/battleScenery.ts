@@ -21,6 +21,8 @@ export interface BattleSceneryAssets {
   burn: FirePuffFn
   impact(x: number, y: number, z: number): void
   fired(unit: GroundUnitId, x: number, y: number, z: number): void
+  /** 戰車與反坦克砲打偏、砲彈落地（`createGroundBattle` 的 `landed`） */
+  landed(x: number, y: number, z: number): void
 }
 
 export interface BattleSceneryBuilders {
@@ -86,7 +88,7 @@ export function createBattleScenery(
     // 地面戰的戲：純畫面，從卡片讀（不進 `BattleConfig`）。每一場重建
     releaseGroundBattle()
     if (theater !== undefined && world.groundTargets.length > 0) {
-      state.groundBattle = builders.createGroundBattle(theater, assets.burn, assets.smokeTexture, assets.impact, assets.fired)
+      state.groundBattle = builders.createGroundBattle(theater, assets.burn, assets.smokeTexture, assets.impact, assets.fired, assets.landed)
       for (const o of state.groundBattle.objects) scene.add(o)
       if (theater.haze !== undefined) {
         setBattleFog({ ...theater.haze, tint: battleFogTint((scene.fog as FogExp2).color, theater.fogColor) })
