@@ -1,4 +1,5 @@
 import { AiController } from '../ai/AiController'
+import { PlayerController } from '../control/PlayerController'
 import { resetShip } from '../world/ships'
 import { resetShipGuns } from '../world/shipGuns'
 import { resetGroundTarget } from '../world/groundTargets'
@@ -44,6 +45,9 @@ function completeTakeover(b: Battle): void {
   if (next === undefined || !next.alive) return
   next.controller = b.playerController
   b.player = next
+  // 【熱度當場歸零】接手那一幀的 HUD 與音效就讀新的這一架；等下一次控制器更新才歸零的話，
+  // 會讀到上一架的過熱與空響
+  if (b.playerController instanceof PlayerController) b.playerController.resetGunHeatState()
   // 站位由 wireStations 依 `instanceof AiController` 自動跟上
   b.flights.pinned = seat
 }
@@ -247,6 +251,8 @@ export function resetBattle(
   // 沒警戒卻寫著「進入警戒狀態」，而再觸發時鍵沒有變化、畫面不會重播
   b.message = null
   b.messageUntil = 0
+  // 【前機槍的熱度也要歸零】同一架原地重開，控制器認不出「換了一架」
+  if (b.playerController instanceof PlayerController) b.playerController.resetGunHeatState()
   // 【排在最後】要在控制器換回 AI 之後才發巡邏令
   resetAlert(b)
 }

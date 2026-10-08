@@ -1,6 +1,7 @@
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { InputState } from '../input/InputState'
 import type { Command, Controller } from './Controller'
+import { GUN_HEAT_SECONDS, createGunHeat, overheatSeconds, resetGunHeat, stepGunHeat } from './gunHeat'
 
 type PlayerInput = Pick<InputState, 'aimWorld' | 'throttle' | 'braking' | 'firing' | 'viewMode' | 'bombTaps'>
 
@@ -20,10 +21,35 @@ export class PlayerController implements Controller {
   private bombHeld = false
   /** 上次看到的 `InputState.bombTaps`。多出來就投一次 */
   private bombTapsSeen = 0
+  /** 前機槍的熱度（`gunHeat.ts`）。HUD 的十字讀它 */
+  readonly gunHeat = createGunHeat()
+  /** 過熱而且扳機按著：打不出去，只有空響。音效讀它 */
+  dryFiring = false
+  /** 熱度是哪一架的。換了（接手僚機、新的一場）就歸零 */
+  private heatOwner: Aircraft | null = null
 
   constructor(private readonly input: PlayerInput) {}
 
-  update(_self: Aircraft, _dt: number, out: Command): void {
+  /** 熱度歸零。重開一場、接手僚機時呼叫 */
+  resetGunHeatState(): void {
+    resetGunHeat(this.gunHeat)
+    this.dryFiring = false
+  }
+
+  /**
+   * 不在座位上的這段時間照實際時間冷卻（代飛、上帝視角時控制器被換掉，`update` 不會被呼叫）。
+   * 每幀由換控制器的那一層呼叫；空響停掉。
+   */
+  coolWhileAway(seconds: number): void {
+    stepGunHeat(this.gunHeat, false, GUN_HEAT_SECONDS, seconds)
+    this.dryFiring = false
+  }
+
+  update(self: Aircraft, dt: number, out: Command): void {
+    if (self !== this.heatOwner) {
+      this.resetGunHeatState()
+      this.heatOwner = self
+    }
     // copy 而不是換參考：Command 是 World 持有的緩衝，指向 InputState
     // 的話會讓下游任何一次寫入都改到玩家的瞄準點。
     out.aimWorld.copy(this.input.aimWorld)
@@ -31,7 +57,14 @@ export class PlayerController implements Controller {
     out.brake = this.input.braking ? 1 : 0
     // 【投彈模式下左鍵是投彈，不是扳機】機砲朝前、鏡頭朝下 —— 開出去的
     // 子彈玩家根本看不到，而彈藥是真的在消耗
-    out.firing = this.input.firing && this.input.viewMode !== 'bomb'
+    const trigger = this.input.firing && this.input.viewMode !== 'bomb'
+    // 【過熱打不出去】只管前射武器；沒有前射武器的機種（機首槍屬於砲塔）不加熱
+    const battery = self.spec.battery
+    const hasGuns = battery.mounts.length > 0
+    // 【先推進熱度再定扳機】開火、鎖住、空響用同一步的狀態：鎖住的那一步就不開火
+    stepGunHeat(this.gunHeat, trigger && hasGuns, overheatSeconds(battery), dt)
+    out.firing = trigger && !this.gunHeat.locked
+    this.dryFiring = trigger && hasGuns && this.gunHeat.locked
     // 【投彈與 AI 同一格】`World.releaseBombs` 讀它，彈艙的推進與投放全在物理步。
     // 兩個來源：有瞄具的轟炸機在投彈視角下按左鍵、直接投彈的機種按 B（`InputState.bombTaps`）
     const held = this.input.firing && this.input.viewMode === 'bomb'

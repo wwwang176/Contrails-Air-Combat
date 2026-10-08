@@ -20,7 +20,8 @@ interface PlayerControlDependencies {
   camera: PerspectiveCamera
   rig: Pick<CameraRig, 'viewBase' | 'snapTo'>
   playerAi: Controller
-  playerController: Controller
+  /** 玩家的控制器；不在座位上（代飛、上帝視角）的期間由這裡替它的前機槍冷卻 */
+  playerController: Controller & { coolWhileAway(seconds: number): void }
   aimAssist: Pick<AimAssist, 'step' | 'reset'>
   visuals: { get(player: Combatant): { readonly position: Vector3 } | undefined }
   godCam: GodCameraState
@@ -167,6 +168,9 @@ export function createPlayerControl({
       // 【跟瞄歷史一起清】瞄準方向剛被一步重設，那一步不是角速度（`resetTrack`）
       player.aircraft.director.resetTrack()
     }
+    // 【不在座位上照樣冷卻】代飛時 `World.step` 呼叫的是 `playerAi`，玩家控制器的熱度會凍結；
+    // 不在這裡冷卻的話，過熱時按 I、等十秒再接回來仍然是鎖住的，空響也停不下來
+    if (player.controller !== playerController) playerController.coolWhileAway(worldSeconds)
 
     return dying
   }

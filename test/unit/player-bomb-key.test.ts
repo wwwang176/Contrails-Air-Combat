@@ -10,7 +10,8 @@ import type { Aircraft } from '../../src/aircraft/Aircraft'
  * 每按一下 B 投一次。按下與放開落在同一幀之間也不會漏 —— 讀的是累計次數。
  */
 
-const self = {} as Aircraft
+/** 只填 `PlayerController` 讀得到的：前射武器清單（過熱要看）。空的 = 不加熱 */
+const self = { spec: { battery: { mounts: [] } } } as unknown as Aircraft
 
 describe('PlayerController：B 投彈', () => {
   it('多按一下就投一次，下一步不再投', () => {

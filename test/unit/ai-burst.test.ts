@@ -4,6 +4,7 @@ import { Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createCommand } from '../../src/control/Controller'
 import { PlayerController } from '../../src/control/PlayerController'
+import { overheatSeconds } from '../../src/control/gunHeat'
 import { AiController } from '../../src/ai/AiController'
 import {
   DEFAULT_AI_BURST as AI_BURST, DEFAULT_FIRE, BURST_DUTY_EDGE, BURST_LENGTH_MAX, BURST_LENGTH_MIN, burstDuty,
@@ -113,7 +114,10 @@ describe('AI 戰鬥機的點放', () => {
     const input = createInputState()
     input.firing = true
     const pc = new PlayerController(input)
-    const steps = Math.round((AI_BURST.on + AI_BURST.off) * 3 / DT)
+    // 【兩個週期，要短於過熱】玩家的前機槍連射 3 秒過熱（`control/gunHeat.ts`），那是另一條規則；
+    // 這一條只問 AI 的點放停頓有沒有漏到人身上，兩個週期（2.1 s）就涵蓋了兩段停頓
+    const steps = Math.round((AI_BURST.on + AI_BURST.off) * 2 / DT)
+    expect(steps * DT).toBeLessThan(overheatSeconds(P51D.battery))
     for (let k = 0; k < steps; k++) {
       pc.update(self, DT, cmd)
       expect(cmd.firing).toBe(true)

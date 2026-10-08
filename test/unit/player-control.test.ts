@@ -11,7 +11,7 @@ import { P51D } from '../../src/specs/p51d'
 
 function setup() {
   const world = new World()
-  const playerController = { update() {} }
+  const playerController = { update() {}, coolWhileAway: vi.fn() }
   const playerAi = { update() {} }
   const player = world.add(new Aircraft(P51D), playerController, 'blue', new Vector3())
   const input = createInputState()
@@ -54,6 +54,20 @@ describe('玩家操控的切換', () => {
     expect(deps.godInput).toEqual({ lookX: 0, lookY: 0 })
     step()
     expect(resetTrack).toHaveBeenCalledTimes(1)
+  })
+
+  /** 【代飛時前機槍照樣冷卻】那時 `World.step` 不呼叫玩家控制器，熱度會凍結 */
+  it('代飛的每一幀替玩家控制器冷卻，手動操控時不另外冷卻', () => {
+    const { input, deps, step } = setup()
+    step()
+    expect(deps.playerController.coolWhileAway).not.toHaveBeenCalled()
+    input.playerAi = true
+    step()
+    expect(deps.playerController.coolWhileAway).toHaveBeenCalledTimes(1)
+    expect(deps.playerController.coolWhileAway).toHaveBeenCalledWith(1 / 60)
+    input.playerAi = false
+    step()
+    expect(deps.playerController.coolWhileAway).toHaveBeenCalledTimes(1)
   })
 
   it('死亡效果只在剛死時清一次；死亡中照樣吃上帝鏡頭的輸入', () => {
