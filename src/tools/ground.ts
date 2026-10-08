@@ -9,7 +9,8 @@ import { DEG } from '../core/math'
 import { groundUnitName } from '../i18n/names'
 import { GROUND_UNITS, TRAIN_CONSIST, type GroundUnit, type GroundUnitId } from '../specs/ground'
 import { groundGeometry, preloadGroundModels } from '../render/geometry/ground'
-import { restGeometry } from '../render/geometry/ground/turret'
+import { GUN_TURRET_KEY, type GunTurretParts } from '../render/geometry/ground/turret'
+import { GUN_PITCH_MAX, GUN_PITCH_MIN, TANK_PITCH_MAX, TANK_PITCH_MIN } from '../render/gunAim'
 import { HUE, assemble, box } from '../render/geometry/ground/parts'
 
 /**
@@ -137,6 +138,8 @@ interface Entry {
   hits: Group
   /** 這一份幾何的三角形數。 */
   triangles: number
+  /** 會轉的砲塔：水平轉與上下抬兩顆，與仰角範圍。沒有砲塔是 null */
+  turret: { trav: Mesh; elev: Mesh; pitchMin: number; pitchMax: number } | null
 }
 
 const entries: Entry[] = []
@@ -161,14 +164,34 @@ function hitFrames(unit: GroundUnit): Group {
 
 /** 把一個單位擺進場景，附上名牌。 */
 function place(unit: GroundUnit, x: number, z: number, ry: number): Entry {
-  // 拆開的砲塔放回靜止姿勢：展示的是整台，尺寸與三角形數也量整台
-  const geo = restGeometry(groundGeometry(unit))
+  const geo = groundGeometry(unit)
   const group = new Group()
   group.position.set(x, 0, z)
   group.rotation.y = ry
 
   const mesh = new Mesh(geo, material)
   group.add(mesh)
+  // 拆開的砲塔照遊戲的掛法：水平轉那一顆掛在車身、上下抬那一顆掛在它底下，位置都是轉軸。
+  // 靜止姿勢就是整台；包圍盒與三角形數把兩顆算進去
+  const gt = geo.userData[GUN_TURRET_KEY] as GunTurretParts | undefined
+  let turret: Entry['turret'] = null
+  let tri = geo.getAttribute('position').count / 3
+  if (gt !== undefined) {
+    const trav = new Mesh(gt.traverse, material)
+    trav.position.copy(gt.traversePivot)
+    const elev = new Mesh(gt.elevate, material)
+    elev.position.copy(gt.elevatePivot)
+    trav.add(elev)
+    mesh.add(trav)
+    // T-34 照地面戰的仰角範圍，其餘是防空砲
+    const tank = unit.id === 'tank' || unit.id === 'tankDug'
+    turret = {
+      trav, elev,
+      pitchMin: tank ? TANK_PITCH_MIN : GUN_PITCH_MIN,
+      pitchMax: tank ? TANK_PITCH_MAX : GUN_PITCH_MAX,
+    }
+    tri += (gt.traverse.getAttribute('position').count + gt.elevate.getAttribute('position').count) / 3
+  }
   const hits = hitFrames(unit)
   group.add(hits)
 
@@ -184,8 +207,7 @@ function place(unit: GroundUnit, x: number, z: number, ry: number): Entry {
   // 把它算進去之後，相機會為了裝下一塊看板而退到三倍遠。
   const bounds = new Box3().setFromObject(mesh)
 
-  const tri = geo.getAttribute('position').count / 3
-  return { unit, group, bounds, local, hits, triangles: tri }
+  return { unit, group, bounds, local, hits, triangles: tri, turret }
 }
 
 /**
@@ -418,6 +440,16 @@ toggle('lit', (on) => { studio = on; syncLight() })
 toggle('axes', (on) => { axes.visible = on })
 toggle('grid', (on) => { grid.visible = !on })
 toggle('hit', (on) => { for (const e of entries) e.hits.visible = on })
+toggle('turret', (on) => {
+  turretOn = on
+  turretSince = performance.now()
+  if (on) return
+  for (const e of entries) {
+    if (e.turret === null) continue
+    e.turret.trav.rotation.y = 0
+    e.turret.elev.rotation.x = 0
+  }
+})
 
 for (const [id, view] of [['vSide', 'side'], ['vTop', 'top'], ['vFront', 'front']] as const) {
   const b = document.getElementById(id) as HTMLButtonElement
@@ -454,8 +486,28 @@ function resize(): void {
 resize()
 focus(null)
 
+/**
+ * 【砲塔】水平轉一圈 `TURRET_TURN` 秒、仰角在上下限之間來回一趟 `TURRET_NOD` 秒。檢查轉軸
+ * 位置與零件分組：轉軸偏了砲塔會晃出座圈，零件分錯組會留在原地不動
+ */
+let turretOn = false
+let turretSince = 0
+const TURRET_TURN = 12
+const TURRET_NOD = 5
+
 renderer.setAnimationLoop(() => {
   resize()
+  if (turretOn) {
+    const s = (performance.now() - turretSince) / 1000
+    const yaw = (s / TURRET_TURN) * Math.PI * 2
+    const nod = 0.5 - 0.5 * Math.cos((s / TURRET_NOD) * Math.PI * 2)
+    for (const e of entries) {
+      const t = e.turret
+      if (t === null) continue
+      t.trav.rotation.y = yaw
+      t.elev.rotation.x = t.pitchMin + (t.pitchMax - t.pitchMin) * nod
+    }
+  }
   if (spin && orthoView === null) {
     const t = target
     const dx = camera.position.x - t.x

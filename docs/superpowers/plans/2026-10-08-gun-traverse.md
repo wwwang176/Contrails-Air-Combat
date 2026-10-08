@@ -37,7 +37,7 @@ SPEC：`docs/superpowers/specs/2026-10-08-gun-traverse-design.md`。分支 `feat
 - 「命中盒蓋住砲管以外」：有 `turret` 的單位改成排除 Elevate 的後代（沒有的照舊用 `barrelNodes`）
 - 新增：固定組＋水平轉組（Elevate 以外）在 yaw 每 15° 一次都在盒子裡。**實測 Flak 38 的
   `F38_Wing_R`（yaw 135° 超出 0.65 m）與 M16 的 `M45Shield_L`（yaw 120° 超出 0.13 m）過不了**，
-  處理方式待負責人裁定（盒子放大或 Flak 38／M16 的旋轉零件比照 Elevate 不要求蓋住）
+  負責人裁定比照砲管：那幾個零件列進 `barrelNodes`（SPEC §6）
 
 ## T4 角度計算（新檔 `render/gunAim.ts`，純函式、不配置）
 

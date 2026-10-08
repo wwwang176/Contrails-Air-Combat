@@ -18,7 +18,10 @@ import { buildMortar } from './mortar'
 export type GroundModel =
   | {
     readonly glb: string
-    /** 可轉動的砲管節點不納入命中盒，名稱須與 GLB 的節點名一致。 */
+    /**
+     * 不納入命中盒的節點（名稱開頭，須與 GLB 的節點名一致）：砲管，以及砲塔轉到側面會伸出
+     * 盒子的薄零件（座椅、防盾、側翼）。上下抬那一組（`turret.elevate` 的後代）本來就不算
+     */
     readonly barrelNodes: readonly string[]
     /**
      * 會轉的砲塔：兩個轉軸節點的名字。有登記的，載入時拆成固定／水平轉／上下抬三塊
@@ -42,12 +45,14 @@ export interface GroundModelSet {
 /** 共用同一支 GLB 的單位用同一份節點名 —— 預載時會檢查一致 */
 const T34_TURRET: GroundTurretNodes = { traverse: 'T34_Traverse', elevate: 'T34_Elevate' }
 const F38_TURRET: GroundTurretNodes = { traverse: 'F38_Traverse', elevate: 'F38_Elevate' }
+/** Flak 38 的座椅、防盾、側翼跟著砲塔轉，轉到側面會伸出盒子 —— 比照砲管不算命中 */
+const F38_LOOSE = ['F38_Barrel_', 'F38_Seat_', 'F38_Shield', 'F38_Wing_']
 
 /** 新增單位時，型別檢查要求同時提供模型；物理規格不依賴此表。 */
 export const GROUND_MODELS: Readonly<Record<GroundUnitId, GroundModelSet>> = {
   tank: { model: { glb: '/models/t34.glb', barrelNodes: ['T34_Gun'], turret: T34_TURRET } },
   tankDug: { model: { glb: '/models/t34.glb', barrelNodes: ['T34_Gun'], turret: T34_TURRET } },
-  atGun: { model: { glb: '/models/flak38.glb', barrelNodes: ['F38_Barrel_'], turret: F38_TURRET } },
+  atGun: { model: { glb: '/models/flak38.glb', barrelNodes: F38_LOOSE, turret: F38_TURRET } },
   panzer4: { model: { glb: '/models/m4a3.glb', barrelNodes: ['M4_Gun'] } },
   tiger: { model: { glb: '/models/m4a3.glb', barrelNodes: ['M4_Gun'] } },
   infantry: { model: { build: buildInfantrySquad } },
@@ -56,11 +61,14 @@ export const GROUND_MODELS: Readonly<Record<GroundUnitId, GroundModelSet>> = {
   flakHeavy: {
     model: { glb: '/models/flak18.glb', barrelNodes: ['F18_Barrel'], turret: { traverse: 'F18_Traverse', elevate: 'F18_Elevate' } },
   },
-  flakLight: { model: { glb: '/models/flak38.glb', barrelNodes: ['F38_Barrel_'], turret: F38_TURRET } },
+  flakLight: { model: { glb: '/models/flak38.glb', barrelNodes: F38_LOOSE, turret: F38_TURRET } },
   usTank: { model: { glb: '/models/m4a3.glb', barrelNodes: ['M4_Gun'] } },
   usTruck: { model: { glb: '/models/cckw.glb', barrelNodes: [] } },
   usFlakTrack: {
-    model: { glb: '/models/m16.glb', barrelNodes: ['M16_Barrel_'], turret: { traverse: 'M16_Traverse', elevate: 'M16_Elevate' } },
+    model: {
+      glb: '/models/m16.glb', barrelNodes: ['M16_Barrel_', 'M16_M45Shield_'],
+      turret: { traverse: 'M16_Traverse', elevate: 'M16_Elevate' },
+    },
   },
   usFlakHeavy: {
     model: { glb: '/models/m1_90mm.glb', barrelNodes: ['M1_Barrel_'], turret: { traverse: 'M1_Traverse', elevate: 'M1_Elevate' } },
