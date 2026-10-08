@@ -382,9 +382,10 @@ export const GROUND_FLAK_MUZZLE_Y = 2.2
  * @param tier 走哪一層射控：`flak` 是時間引信（不進彈丸池）、`autocannon`／
  *   `mg` 是直射彈（進池、有曳光）。射界錐照 `SHIP_AA_ARC_DEFAULTS[tier]`
  * @param calibreMm 口徑，只進 `ShipAAZone`（穿甲門檻在 `spec.caliber`）
+ * @param sound 開火聲的種類（`ShipAAZone.sound`）。省略 = 依 `tier` 用艦砲的那三種
  */
 export function createGroundBattery(
-  spec: ShipGunSpec = GROUND_FLAK_SPEC, tier: ShipAATier = 'flak', calibreMm = 88,
+  spec: ShipGunSpec = GROUND_FLAK_SPEC, tier: ShipAATier = 'flak', calibreMm = 88, sound?: string,
 ): ShipGun[] {
   const zone: ShipAAZone = {
     id: 'flak_c1',
@@ -394,6 +395,7 @@ export function createGroundBattery(
     guns: 1,
     mountsInZone: 1,
     representative: 'flak_c1',
+    ...(sound === undefined ? {} : { sound }),
   }
   const axis = axisOf(zone.position.x, zone.tier, new Vector3())
   const out: ShipGun[] = [{

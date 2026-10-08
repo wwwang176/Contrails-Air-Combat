@@ -70,7 +70,7 @@ export interface AudioEngine {
   /**
    * `extraDelay` 加在音速延遲之上，s；`cutoffHz` 是這個聲音自己的音色上限，
    * 定位的取它與距離算出來的較低者。
-   * `rate` 是播放速度的倍率，疊在每次播放的 ±8% 隨機之上 —— 慢的同時變低沉、變長。
+   * `rate` 是播放速度的倍率，疊在每次播放的隨機之上（±8%，類別的 `pitchJitter` 可以改）—— 慢的同時變低沉、變長。
    */
   playFile(file: string, cat: Category, x: number, y: number, z: number, positioned: boolean,
     extraDb?: number, extraDelay?: number, rate?: number, cutoffHz?: number): void
@@ -456,7 +456,7 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
     const since = ctx.currentTime - (lastPlayed.get(file) ?? -Infinity)
     const delay = extraDelay + (since < DECORRELATE_WINDOW ? decorrelateDelay(Math.random) : 0)
     lastPlayed.set(file, ctx.currentTime)
-    const rate = randomRate(Math.random) * rateScale
+    const rate = randomRate(Math.random, CATEGORY[cat].pitchJitter) * rateScale
     a.setPlaybackRate(rate * playback.timeScale)
     // 【定位的先等音波】`start()` 排下去就改不了了，等待期間要能依聽者移動提前或延後
     if (loc && d > 0) {

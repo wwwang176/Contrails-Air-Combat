@@ -2,10 +2,20 @@ import { Vector3 } from 'three'
 import type { World } from '../world/World'
 import type { GroundUnitId } from '../specs/ground'
 import type { AudioEngine } from './engine'
-import { groundGunTier, gunSound } from './catalog'
+import { groundGunTier, gunSound, shipGunSound } from './catalog'
 
-/** 艦砲、高射砲與地面砲聲共用的候選、邊緣偵測與限頻狀態。 */
-export function createCannonAudio(audio: Pick<AudioEngine, 'playPool'>, cam: Vector3) {
+/**
+ * 每發開火聲的音量小變化，±dB。音高的小變化在引擎（`cannon` 類別的 `pitchJitter`），這裡不再乘 ——
+ * 兩邊都乘的話幅度會疊成兩倍
+ */
+export const GUN_GAIN_JITTER_DB = 1
+
+/**
+ * 艦砲、高射砲與地面砲聲共用的候選、邊緣偵測與限頻狀態。
+ *
+ * @param rand 每發音量亂數的來源。測試注入固定值
+ */
+export function createCannonAudio(audio: Pick<AudioEngine, 'playPool'>, cam: Vector3, rand: () => number = Math.random) {
   /** 高射砲、艦砲開火聲的距離上限，m */
   const CANNON_AUDIO_RANGE = 6000
 
@@ -14,25 +24,25 @@ export function createCannonAudio(audio: Pick<AudioEngine, 'playPool'>, cam: Vec
   /** 上一幀每一門砲的 flash —— 由 0 變正就是剛開火。依平台、砲位的順序排 */
   const prevGunFlash = new Float32Array(1024)
 
-  /** 每一層砲上一次開火出聲的時間（`elapsed`）。層的名字見 `world/shipAA.ts` */
-  const lastGunTier = new Map<string, number>()
+  /** 每一種砲聲上一次出聲的時間（`elapsed`）。種類見 `catalog.ts` 的 `gunSound` */
+  const lastGunKind = new Map<string, number>()
 
   /**
-   * 這一幀每一層最近的那一座剛開火的砲。**值就地改寫，不在幀迴圈裡配置** ——
-   * 只有第一次見到某一層時才建一個。
+   * 這一幀每一種砲聲最近的那一座剛開火的砲。**值就地改寫，不在幀迴圈裡配置** ——
+   * 只有第一次見到某一種時才建一個。
    */
   const gunPick = new Map<string, { dist: number; x: number; y: number; z: number }>()
 
   /**
    * 高射砲、艦砲開火：flash 由 0 變正的那一幀響一下。
    *
-   * 【每一層各自限頻率，而且只響最近的那一座】20 mm 一座每秒八發、一艘船八個
+   * 【每一種各自限頻率，而且只響最近的那一座】20 mm 一座每秒八發、一艘船八個
    * 砲位 —— 不限的話光它就把聲道吃光，五吋砲與爆炸反而聽不見。但那個時段是
    * **整個戰場共用一個**，取第一個輪到的等於隨機挑：貼著一座砲飛時，聽到的
    * 常常是八百公尺外那一門在響，而旁邊這門悶不吭聲。所以先掃一趟挑最近的。
    */
   function playCannons(world: Pick<World, 'ships' | 'groundTargets'>, elapsed: number): void {
-    // 第一趟：邊緣偵測，每一層留下離鏡頭最近的那一座。
+    // 第一趟：邊緣偵測，每一種留下離鏡頭最近的那一座。
     // 【候選不在這裡清】地面戰的砲口聲（`noteGroundShot`）在 `updateAudio` 之後才寫進來，要留到
     // 下一幀的這支函式；清除放在第二趟播完之後
     let slot = 0
@@ -49,10 +59,12 @@ export function createCannonAudio(audio: Pick<AudioEngine, 'playPool'>, cam: Vec
           GUN_POS.copy(gun.zone.position).applyQuaternion(p.orientation).add(p.position)
           const d = GUN_POS.distanceTo(cam)
           if (d >= CANNON_AUDIO_RANGE) continue
-          let best = gunPick.get(gun.zone.tier)
+          // 陸上砲位帶自己的種類；船依層對到艦砲的三種
+          const kind = gun.zone.sound ?? shipGunSound(gun.zone.tier)
+          let best = gunPick.get(kind)
           if (best === undefined) {
             best = { dist: Infinity, x: 0, y: 0, z: 0 }
-            gunPick.set(gun.zone.tier, best)
+            gunPick.set(kind, best)
           }
           if (d >= best.dist) continue
           best.dist = d
@@ -63,33 +75,33 @@ export function createCannonAudio(audio: Pick<AudioEngine, 'playPool'>, cam: Vec
       }
     }
 
-    // 第二趟：每一層在自己的時段裡響一次，位置取剛才挑到的那一座
-    for (const [tier, best] of gunPick) {
+    // 第二趟：每一種在自己的時段裡響一次，位置取剛才挑到的那一座
+    for (const [kind, best] of gunPick) {
       if (best.dist === Infinity) continue
-      const g = gunSound(tier)
+      const g = gunSound(kind)
       // 【不論響不響都清掉】被時段擋下的候選留到下一幀，會把一個過時的位置播出來
       best.dist = Infinity
-      if (elapsed - (lastGunTier.get(tier) ?? -Infinity) < g.gap) continue
-      lastGunTier.set(tier, elapsed)
-      audio.playPool('cannon', 'cannon', best.x, best.y, best.z, true,
-        g.gainDb, false, g.rate, g.cutoffHz)
+      if (elapsed - (lastGunKind.get(kind) ?? -Infinity) < g.gap) continue
+      lastGunKind.set(kind, elapsed)
+      audio.playPool(g.pool, 'cannon', best.x, best.y, best.z, true,
+        g.gainDb + (rand() * 2 - 1) * GUN_GAIN_JITTER_DB, false)
     }
   }
 
   /**
-   * 地面戰的戰車砲、反坦克砲開一發：記下這一層離鏡頭最近的一發，下一幀的 `playCannons` 播。
-   * 聲音庫與限頻率都與艦砲、重高砲同一套，層名由 `groundGunTier` 查；沒有層的單位（卡車、建物）
-   * 不出聲。熱路徑：只有第一次見到某一層時才配置。
+   * 地面戰的戰車砲、反坦克砲開一發：記下這一種離鏡頭最近的一發，下一幀的 `playCannons` 播。
+   * 限頻率與艦砲、重高砲同一套，種類由 `groundGunTier` 查；沒有種類的單位（卡車、建物）
+   * 不出聲。熱路徑：只有第一次見到某一種時才配置。
    */
   function noteGroundShot(unit: GroundUnitId, x: number, y: number, z: number): void {
-    const tier = groundGunTier(unit)
-    if (tier === null) return
+    const kind = groundGunTier(unit)
+    if (kind === null) return
     const d = Math.hypot(x - cam.x, y - cam.y, z - cam.z)
     if (d >= CANNON_AUDIO_RANGE) return
-    let best = gunPick.get(tier)
+    let best = gunPick.get(kind)
     if (best === undefined) {
       best = { dist: Infinity, x: 0, y: 0, z: 0 }
-      gunPick.set(tier, best)
+      gunPick.set(kind, best)
     }
     if (d >= best.dist) return
     best.dist = d
@@ -100,7 +112,7 @@ export function createCannonAudio(audio: Pick<AudioEngine, 'playPool'>, cam: Vec
 
   function reset(): void {
     prevGunFlash.fill(0)
-    lastGunTier.clear()
+    lastGunKind.clear()
     gunPick.clear()
   }
 

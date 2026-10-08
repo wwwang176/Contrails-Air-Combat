@@ -1,38 +1,49 @@
 import { describe, it, expect } from 'vitest'
-import { groundGunTier, gunSound, impactSound } from '../../src/audio/catalog'
+import { groundGunTier, gunSound, impactSound, shipGunSound } from '../../src/audio/catalog'
 import { INFANTRY_ROUNDS_PER_SECOND } from '../../src/render/groundBattle'
 import { SHIP_AA_TIERS } from '../../src/world/shipAA'
 
 /**
- * 【每一層砲要分得出來】五吋砲、40 mm、20 mm 的射速差 24 倍，
- * 聲音一樣的話聽起來就是一片砲火，分不出船上發生什麼事。
+ * 各砲種的開火聲（SPEC `2026-10-09-gun-sounds-design.md`）：**每一種固定一個檔**，每發只在音高
+ * （引擎的 `cannon` 類別 ±4%）與音量（±1 dB）上小變化。檔與音量是負責人在試聽頁定的。
  */
-describe('艦砲各層的聲音', () => {
-  it('每一層都有定義', () => {
-    for (const tier of SHIP_AA_TIERS) expect(gunSound(tier).gap, tier).toBeGreaterThan(0)
+const GUN_TABLE: Record<string, [string, number]> = {
+  naval5in: ['gun-5in', 2.8], heavyFlak: ['gun-heavy-flak', 3.3],
+  tankGun: ['gun-tank', -6.0], atGun: ['gun-at', -5.9], mortar: ['gun-mortar', -7.4],
+  naval40: ['gun-40mm', -6.4], naval20: ['gun-20mm', -10.4], lightFlak20: ['gun-20mm', -6.4],
+  quad50: ['gun-50cal', -8.7], roof50: ['gun-50cal', -10.7], infantry: ['gun-rifle', -14.7],
+}
+
+describe('各砲種的開火聲', () => {
+  it('每一種對到自己的池與音量（A 加權校正後的值）', () => {
+    for (const [kind, [pool, db]] of Object.entries(GUN_TABLE)) {
+      const g = gunSound(kind)
+      expect(g.pool, kind).toBe(pool)
+      expect(g.gainDb, kind).toBeCloseTo(db, 6)
+      expect(g.gap, kind).toBeGreaterThan(0)
+    }
   })
 
-  /** 口徑越小越短越脆、越小聲，而且限頻率限得越緊 */
-  it('口徑越小音高越高、越小聲、限得越緊', () => {
-    const flak = gunSound('flak'), auto = gunSound('autocannon'), mg = gunSound('mg')
-    expect(flak.rate).toBeLessThan(auto.rate)
-    expect(auto.rate).toBeLessThan(mg.rate)
-    expect(flak.gainDb).toBeGreaterThan(auto.gainDb)
-    expect(auto.gainDb).toBeGreaterThan(mg.gainDb)
-    expect(mg.gap).toBeLessThan(flak.gap)
+  it('每一個池是一個檔，檔在 public/audio 也在清單裡', () => {
+    for (const [pool] of Object.values(GUN_TABLE)) {
+      expect(POOLS[pool as keyof typeof POOLS], pool).toEqual([pool])
+      expect(existsSync(`public/audio/${pool}.mp3`), pool).toBe(true)
+      expect(manifest[pool], pool).toBeDefined()
+    }
   })
 
-  it('沒定義的層走預設，不是沒聲音', () => {
-    expect(gunSound('what').gap).toBeGreaterThan(0)
+  /** 【共用的砲擊庫拿掉】每發隨機挑三個不同錄音之一，同一門砲聽起來像三種武器輪流打 */
+  it('沒有 cannon 這個池', () => {
+    expect('cannon' in POOLS).toBe(false)
   })
-})
 
-/**
- * 【地面戰的砲共用五吋砲的庫，只改音高與音量】戰車砲與反坦克砲（75～88 mm）介於五吋砲
- * 與 40 mm 機砲之間：比五吋砲高、小聲，比 40 mm 低、大聲。
- */
-describe('地面戰的砲聲', () => {
-  it('戰車、反坦克砲、步兵、迫擊砲各歸一層，卡車、重高砲不走這條路', () => {
+  it('船的三層對到艦砲的三種', () => {
+    expect(SHIP_AA_TIERS.map(shipGunSound)).toEqual(
+      SHIP_AA_TIERS.map((t) => ({ flak: 'naval5in', autocannon: 'naval40', mg: 'naval20' })[t]),
+    )
+  })
+
+  it('地面戰：戰車、反坦克砲、步兵、迫擊砲各歸一種，卡車、重高砲不走這條路', () => {
     for (const id of ['tank', 'tankDug', 'panzer4', 'tiger', 'usTank']) expect(groundGunTier(id), id).toBe('tankGun')
     expect(groundGunTier('atGun')).toBe('atGun')
     expect(groundGunTier('infantry')).toBe('infantry')
@@ -40,48 +51,21 @@ describe('地面戰的砲聲', () => {
     for (const id of ['truck', 'flakHeavy', 'constructor']) expect(groundGunTier(id), id).toBeNull()
   })
 
-  it('這四層都有自己的定義，不是走預設', () => {
-    const fallback = gunSound('no-such-tier')
-    for (const tier of ['tankGun', 'atGun', 'infantry', 'mortar']) expect(gunSound(tier), tier).not.toEqual(fallback)
-  })
-
-  it('音高與音量介於五吋砲與 40 mm 機砲之間', () => {
-    const flak = gunSound('flak'), auto = gunSound('autocannon')
-    for (const tier of ['tankGun', 'atGun']) {
-      const g = gunSound(tier)
-      expect(g.rate, tier).toBeGreaterThan(flak.rate)
-      expect(g.rate, tier).toBeLessThan(auto.rate)
-      expect(g.gainDb, tier).toBeLessThan(flak.gainDb)
-      expect(g.gainDb, tier).toBeGreaterThan(auto.gainDb)
-      expect(g.gap, tier).toBeGreaterThan(0)
-    }
-  })
-
-  it('反坦克砲比戰車砲乾脆：音高不低於戰車砲、音色上限不低於戰車砲', () => {
-    const tank = gunSound('tankGun'), at = gunSound('atGun')
-    expect(at.rate).toBeGreaterThanOrEqual(tank.rate)
-    expect(at.cutoffHz).toBeGreaterThanOrEqual(tank.cutoffHz)
-  })
-
-  /** 步兵的槍是五吋砲拉到最高、最小聲的那一端：比 20 mm 機砲還高、還小聲 */
-  it('步兵槍聲比 20 mm 機砲音高更高、更小聲', () => {
-    const inf = gunSound('infantry'), mg = gunSound('mg')
-    expect(inf.rate).toBeGreaterThanOrEqual(mg.rate)
-    expect(inf.gainDb).toBeLessThanOrEqual(mg.gainDb)
-    expect(inf.gap).toBeGreaterThan(0)
-  })
-
   /** 一串裡每一發相隔 1 / 射速：限頻率的 `gap` 不比它短，一串的槍聲會被吃掉一半 */
   it('步兵的限頻率比連發的間隔短：一串裡每一發都響得出來', () => {
     expect(gunSound('infantry').gap).toBeLessThan(1 / INFANTRY_ROUNDS_PER_SECOND)
   })
 
-  /** 迫擊砲發射是管口悶悶的一聲：音高不高於戰車砲、音色上限壓低 */
-  it('迫擊砲發射聲比戰車砲悶：音高不高、音色上限更低', () => {
-    const mortar = gunSound('mortar'), tank = gunSound('tankGun')
-    expect(mortar.rate).toBeLessThanOrEqual(tank.rate)
-    expect(mortar.cutoffHz).toBeLessThan(tank.cutoffHz)
-    expect(mortar.gap).toBeGreaterThan(0)
+  it('沒定義的種類走預設，不是沒聲音', () => {
+    const g = gunSound('what')
+    expect(g.gap).toBeGreaterThan(0)
+    expect(POOLS[g.pool]).toBeDefined()
+  })
+
+  /** 【音高亂數只有一個來源】引擎每次播放乘 `randomRate`；砲聲那一類縮到 ±4%，其他類別照舊 ±8% */
+  it('砲聲類別的音高亂數 ±4%，其他類別沒設（照舊 ±8%）', () => {
+    expect(CATEGORY.cannon.pitchJitter).toBe(0.04)
+    expect(CATEGORY.explosion.pitchJitter).toBeUndefined()
   })
 })
 

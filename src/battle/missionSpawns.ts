@@ -103,17 +103,20 @@ export function placeGround(
     }
     // 【重高砲位會還手】掛上砲之後它就是一座 `GunPlatform`，與艦砲走同一支
     // `stepGunPlatform`。其餘的地面單位（戰車、卡車、火車、廠房）不掛
-    if (e.unit === 'flakHeavy' || e.unit === 'usFlakHeavy') t.guns = createGroundBattery(flakSpec)
+    // 【開火聲的種類】與射控的層分開：重高砲不是五吋艦砲、Flak 38 不是 40 mm、M16 與車頂機槍是 .50
+    if (e.unit === 'flakHeavy' || e.unit === 'usFlakHeavy') {
+      t.guns = createGroundBattery(flakSpec, 'flak', 88, 'heavyFlak')
+    }
     // 【輕型砲也還手】走直射彈那一層，曳光看得見。規格不逐關複寫 —— 試玩改
     // 規格本身。M16 半履帶車與輕砲同一個火力，射界壓得比較低（`GROUND_M16_SPEC`）
     else if (e.unit === 'flakLight') {
-      t.guns = createGroundBattery(GROUND_LIGHT_FLAK_SPEC, 'autocannon', GROUND_LIGHT_FLAK_SPEC.caliber)
+      t.guns = createGroundBattery(GROUND_LIGHT_FLAK_SPEC, 'autocannon', GROUND_LIGHT_FLAK_SPEC.caliber, 'lightFlak20')
     } else if (e.unit === 'usFlakTrack') {
-      t.guns = createGroundBattery(GROUND_M16_SPEC, 'autocannon', GROUND_M16_SPEC.caliber)
+      t.guns = createGroundBattery(GROUND_M16_SPEC, 'autocannon', GROUND_M16_SPEC.caliber, 'quad50')
     }
     // 【車頂的機槍由條目指定】同一種卡車在別的關可以只是靶
     else if (e.guns === 'mg') {
-      t.guns = createGroundBattery(GROUND_MG_SPEC, 'mg', GROUND_MG_SPEC.caliber)
+      t.guns = createGroundBattery(GROUND_MG_SPEC, 'mg', GROUND_MG_SPEC.caliber, 'roof50')
     }
     world.groundTargets.push(t)
   }

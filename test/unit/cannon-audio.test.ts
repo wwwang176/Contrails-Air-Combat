@@ -15,41 +15,54 @@ function ship(x: number, tier: ShipAATier = 'flak') {
   return p
 }
 
-function setup() {
+/** 亂數 0.5 = 音量亂數 0 dB，呼叫參數可以直接比 */
+function setup(rand: () => number = () => 0.5) {
   const playPool = vi.fn()
   const cam = new Vector3()
-  const audio = createCannonAudio({ playPool }, cam)
+  const audio = createCannonAudio({ playPool }, cam, rand)
   const world: Pick<World, 'ships' | 'groundTargets'> = { ships: [], groundTargets: [] }
   return { audio, cam, world, playPool }
 }
 
 describe('砲聲候選與生命週期', () => {
-  it('艦砲與地面高射砲共用同層最近候選與限頻', () => {
+  /** 【五吋艦砲與陸上重高砲各是一種聲音】各自挑最近、各自限頻率 */
+  it('陸上砲位照自己的聲音種類，與艦砲分開限頻', () => {
     const { audio, world, playPool } = setup()
     const ground = createGroundTarget(0, 'flakHeavy', 'red', 10, 0, 0)
-    ground.guns = createGroundBattery()
+    ground.guns = createGroundBattery(undefined, undefined, undefined, 'heavyFlak')
     ground.guns[0]!.flash = 1
     world.groundTargets.push(ground)
     world.ships.push(ship(500))
     audio.playCannons(world, 1)
-    expect(playPool).toHaveBeenCalledTimes(1)
-    expect(playPool.mock.calls[0]![2]).toBe(10)
+    expect(playPool.mock.calls.map((c) => [c[0], c[2]])).toEqual([['gun-5in', 500], ['gun-heavy-flak', 10]])
     ground.guns[0]!.flash = 0
     audio.playCannons(world, 1.01)
     ground.guns[0]!.flash = 1
     audio.playCannons(world, 1.02)
-    expect(playPool).toHaveBeenCalledTimes(1)
+    expect(playPool).toHaveBeenCalledTimes(2)
   })
-  it('每層選最近的砲，保留第一個等距候選與各層音色', () => {
+  it('每一種選最近的砲，保留第一個等距候選，播那一種的池與音量', () => {
     const { audio, world, playPool } = setup()
     world.ships.push(ship(500), ship(20), ship(-20), ship(40, 'mg'), ship(60, 'autocannon'))
     audio.playCannons(world, 1)
-    expect(playPool.mock.calls).toEqual(['flak', 'mg', 'autocannon'].map((tier, i) => {
-      const g = gunSound(tier)
-      return ['cannon', 'cannon', [20, 40, 60][i], 0, 0, true, g.gainDb, false, g.rate, g.cutoffHz]
+    expect(playPool.mock.calls).toEqual(['naval5in', 'naval20', 'naval40'].map((kind, i) => {
+      const g = gunSound(kind)
+      return [g.pool, 'cannon', [20, 40, 60][i], 0, 0, true, g.gainDb, false]
     }))
     audio.playCannons(world, 2)
     expect(playPool).toHaveBeenCalledTimes(3)
+  })
+
+  /** 每發的音量小變化 ±1 dB；音高的小變化在引擎（`cannon` 類別的 `pitchJitter`），這裡不再乘 */
+  it('每發音量 ±1 dB：亂數 0 是 −1、接近 1 是 +1', () => {
+    const g = gunSound('naval5in')
+    for (const [r, d] of [[0, -1], [0.999999, 1]] as const) {
+      const { audio, world, playPool } = setup(() => r)
+      world.ships.push(ship(20))
+      audio.playCannons(world, 1)
+      expect(playPool.mock.calls[0]![6]).toBeCloseTo(g.gainDb + d, 4)
+      expect(playPool.mock.calls[0]).toHaveLength(8)
+    }
   })
 
   it('使用旋轉後的世界砲口與更新後的鏡頭位置，忽略死亡及範圍外砲位', () => {

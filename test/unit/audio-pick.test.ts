@@ -48,4 +48,11 @@ describe('音效庫挑選', () => {
     expect(randomRate(() => 0)).toBeCloseTo(0.92)
     expect(randomRate(() => 0.999999)).toBeCloseTo(1.08, 4)
   })
+
+  /** 類別自己定幅度（砲聲 ±4%）：亂數 0 與 1 落在兩個邊上，0.5 在正中 */
+  it('給幅度時照幅度：±4% 是 0.96～1.04', () => {
+    expect(randomRate(() => 0, 0.04)).toBeCloseTo(0.96, 9)
+    expect(randomRate(() => 0.5, 0.04)).toBeCloseTo(1, 9)
+    expect(randomRate(() => 0.999999, 0.04)).toBeCloseTo(1.04, 4)
+  })
 })

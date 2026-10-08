@@ -90,6 +90,11 @@ export interface ShipAAZone extends ShipEmplacement {
   mountsInZone: number
   /** 代表的是逐門清單裡的哪一門（對得回 `*_AA`）。 */
   representative: string
+  /**
+   * 開火聲的種類（`audio/catalog.ts` 的 `gunSound` 的鍵）。**省略 = 依 `tier` 用艦砲的那三種** ——
+   * 陸上砲位要填（重高砲、Flak 38、M16、車頂機槍的聲音與艦砲不同）
+   */
+  sound?: string
 }
 
 /**

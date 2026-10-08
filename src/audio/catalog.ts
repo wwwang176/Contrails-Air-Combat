@@ -1,3 +1,5 @@
+import type { ShipAATier } from '../world/shipAA'
+
 /**
  * 音效目錄：哪一類用哪些檔、多大聲、多遠聽得到。
  *
@@ -24,6 +26,11 @@ export interface CategorySpec {
    * 遠近了。改衰減率只讓尾巴拖長，近處的層次不變。
    */
   rolloff?: number
+  /**
+   * 每次播放的隨機音高幅度（±），省略 = 0.08。**引擎是唯一乘這個亂數的地方**（`randomRate`）——
+   * 呼叫端再乘一次，兩個疊起來就超出這個幅度
+   */
+  pitchJitter?: number
 }
 
 /**
@@ -58,8 +65,7 @@ export const CATEGORY: Record<Category, CategorySpec> = {
    */
   fireSelf: { gainDb: -4, ref: 0, max: 0 },
   /**
-   * 別人的槍。**循環音**，而且再吃各口徑的差異（`GUN_BY_TIER`）——
-   * 機槍那一層還要再減 10 dB。
+   * 別人的槍。**循環音**。
    *
    * 【為什麼比自己的槍高】循環在同一個數字下比 one-shot 小約 5.7 dB。
    * 兩邊設成同一個數字時，敵機的機槍實測**聽不到**。
@@ -83,9 +89,11 @@ export const CATEGORY: Record<Category, CategorySpec> = {
   splash: { gainDb: 2, ref: 80, max: 3000 },
   /**
    * 艦砲、陸砲開火。**這一類已經比爆炸低不了多少** —— 要再大聲的話得先把
-   * 別的往下壓，見上面那段。各口徑之間的差距在 `GUN_BY_TIER`。
+   * 別的往下壓，見上面那段。各砲種之間的差距在 `GUN_BY_KIND`。
+   *
+   * 【音高只差 ±4%】每一種砲只有一個檔：差到 ±8% 聽起來像換了一門不同口徑的砲
    */
-  cannon: { gainDb: 5, ref: 150, max: 6000 },
+  cannon: { gainDb: 5, ref: 150, max: 6000, pitchJitter: 0.04 },
   // 5 吋艦砲、88 砲在空中炸開：就在你附近，要聽得出壓力
   flakBurst: { gainDb: 2, ref: 120, max: 8000, rolloff: 0.45 },
   // 自己被打中的金屬聲。**單獨響（機槍命中）與疊在受創悶響上都是這一類**；
@@ -136,7 +144,16 @@ export const POOLS = {
    */
   flakBurst: ['flak-burst-1', 'flak-burst-2', 'flak-burst-3'],
   splash: range('splash', 4),
-  cannon: range('cannon', 3),
+  // 各砲種的開火聲，每一種一個檔（`GUN_BY_KIND`）。20 mm 與 .50 各有兩種砲共用一個檔
+  'gun-5in': ['gun-5in'],
+  'gun-heavy-flak': ['gun-heavy-flak'],
+  'gun-tank': ['gun-tank'],
+  'gun-at': ['gun-at'],
+  'gun-mortar': ['gun-mortar'],
+  'gun-40mm': ['gun-40mm'],
+  'gun-20mm': ['gun-20mm'],
+  'gun-50cal': ['gun-50cal'],
+  'gun-rifle': ['gun-rifle'],
   /** 雷雨的雷聲。長短、遠近各不同，每一聲再隨機播放速度與低通 */
   thunder: range('thunder', 7),
   hit: range('hit', 16),
@@ -286,49 +303,66 @@ export function impactSound(material: number): ImpactSound {
 }
 
 /**
- * 艦砲、陸砲開火：**每一層各有自己的聲音。**
+ * 艦砲、陸砲開火：**每一種砲固定一個聲音**（SPEC `2026-10-09-gun-sounds-design.md`）。
  *
  * ```
- *   flak        127 mm 五吋砲     20 發/分    一聲大砲
- *   tankGun     75～88 mm 戰車砲   15 發/分    地面戰，比五吋砲高一截、小一截
- *   atGun       75 mm 反坦克砲     15 發/分    地面戰，同上、更乾脆
- *   autocannon   40 mm 機砲      220 發/分    砰、砰、砰
- *   mg           20 mm 機砲      480 發/分    急促的噠噠
- *   infantry    步槍、機槍      10 發/秒一串    地面戰，最高最小聲的一端：一串細碎的啪，停一陣再來
- *   mortar      迫擊砲發射      5 發/分       地面戰，管口悶悶的一聲
+ *   naval5in     艦艇 127 mm                    gun-5in
+ *   heavyFlak    陸上 Flak 18、90 mm M1A1       gun-heavy-flak
+ *   tankGun      戰車砲（地面戰）                gun-tank
+ *   atGun        反坦克砲（地面戰）              gun-at
+ *   mortar       迫擊砲發射（地面戰）            gun-mortar
+ *   naval40      艦艇 40 mm                     gun-40mm
+ *   naval20      艦艇 20 mm                     gun-20mm
+ *   lightFlak20  陸上 Flak 38 四聯 20 mm        gun-20mm
+ *   quad50       M16 四聯 .50                   gun-50cal（低音 +6 dB 烘進檔案）
+ *   roof50       卡車車頂 .50                   gun-50cal
+ *   infantry     步兵（地面戰）                  gun-rifle（高音 +6 dB 烘進檔案）
  * ```
  *
- * 【共用砲擊庫、只改音高與音色】口徑越小聲音越短越脆。沒有各口徑的獨立素材，
- * 要換成獨立的庫時改這張表就好。地面戰的四層（`groundGunTier`）用的也是五吋砲那一庫。
+ * 【不再共用一庫、隨機挑】同一門砲每發換一段不同的錄音，聽起來像幾種武器輪流打。每發的小變化只有
+ * 音高（`cannon` 類別的 `pitchJitter`）與音量（`cannonAudio.ts` 的 `GUN_GAIN_JITTER_DB`）。
  *
- * 【`gap` 是每一層各自的上限】20 mm 一座每秒八發，一艘船八個砲位 —— 不限的話
- * 光它就把聲道吃光。同一層在 `gap` 秒內只播一次，聽起來仍然是連續的。
+ * 【`gainDb` 含 A 加權校正】檔案照素材慣例都在 −16 LUFS，但人耳聽感（A 加權、最響 0.4 s）各不相同。
+ * 這裡的值 = 負責人在試聽頁定的砲種音量 + 把該檔校正到舊砲擊庫平均 −24.1 dB(A) 的差。改檔要重量。
+ *
+ * 【`gap` 是每一種各自的上限】20 mm 一座每秒八發，一艘船八個砲位 —— 不限的話
+ * 光它就把聲道吃光。同一種在 `gap` 秒內只播一次，聽起來仍然是連續的。
  */
 export interface GunSound {
+  pool: Pool
   gainDb: number
-  rate: number
-  cutoffHz: number
   gap: number
 }
 
-const GUN_BY_TIER: Record<string, GunSound> = {
-  flak: { gainDb: 0, rate: 1, cutoffHz: 22000, gap: 0.12 },
-  tankGun: { gainDb: -3, rate: 1.3, cutoffHz: 14000, gap: 0.15 },
-  atGun: { gainDb: -3, rate: 1.4, cutoffHz: 22000, gap: 0.15 },
-  autocannon: { gainDb: -6, rate: 1.6, cutoffHz: 7000, gap: 0.1 },
-  mg: { gainDb: -10, rate: 2.2, cutoffHz: 9000, gap: 0.07 },
-  infantry: { gainDb: -12, rate: 2.4, cutoffHz: 9000, gap: 0.08 },
-  mortar: { gainDb: -6, rate: 1, cutoffHz: 4000, gap: 0.3 },
+const GUN_BY_KIND: Readonly<Record<string, GunSound>> = {
+  naval5in: { pool: 'gun-5in', gainDb: 2.8, gap: 0.12 },
+  heavyFlak: { pool: 'gun-heavy-flak', gainDb: 3.3, gap: 0.12 },
+  tankGun: { pool: 'gun-tank', gainDb: -6.0, gap: 0.15 },
+  atGun: { pool: 'gun-at', gainDb: -5.9, gap: 0.15 },
+  mortar: { pool: 'gun-mortar', gainDb: -7.4, gap: 0.3 },
+  naval40: { pool: 'gun-40mm', gainDb: -6.4, gap: 0.1 },
+  naval20: { pool: 'gun-20mm', gainDb: -10.4, gap: 0.07 },
+  lightFlak20: { pool: 'gun-20mm', gainDb: -6.4, gap: 0.1 },
+  quad50: { pool: 'gun-50cal', gainDb: -8.7, gap: 0.1 },
+  roof50: { pool: 'gun-50cal', gainDb: -10.7, gap: 0.07 },
+  infantry: { pool: 'gun-rifle', gainDb: -14.7, gap: 0.08 },
 }
 
-const GUN_DEFAULT: GunSound = { gainDb: -6, rate: 1.3, cutoffHz: 22000, gap: 0.1 }
+const GUN_DEFAULT: GunSound = { pool: 'gun-40mm', gainDb: -6.4, gap: 0.1 }
 
-export function gunSound(tier: string): GunSound {
-  return GUN_BY_TIER[tier] ?? GUN_DEFAULT
+export function gunSound(kind: string): GunSound {
+  return Object.hasOwn(GUN_BY_KIND, kind) ? GUN_BY_KIND[kind]! : GUN_DEFAULT
+}
+
+/** 船的砲區沒有自己的 `sound`：三層對到艦砲的三種 */
+const SHIP_GUN_SOUND: Readonly<Record<ShipAATier, string>> = { flak: 'naval5in', autocannon: 'naval40', mg: 'naval20' }
+
+export function shipGunSound(tier: ShipAATier): string {
+  return SHIP_GUN_SOUND[tier]
 }
 
 /**
- * 地面戰的單位 id → 砲聲的層（`gunSound` 的鍵）。**不在表裡的單位沒有砲口聲** ——
+ * 地面戰的單位 id → 砲聲的種類（`gunSound` 的鍵）。**不在表裡的單位沒有砲口聲** ——
  * 卡車、建物，以及不走地面戰的戲的重高砲（它們走 `playCannons` 的砲位閃光）。
  *
  * 【用 Map】單位 id 是任意字串，物件查表會撈到 `constructor` 之類原型上的成員。

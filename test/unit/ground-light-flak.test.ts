@@ -140,10 +140,14 @@ describe('輕型陸砲', () => {
         { unit: 'truck', team: 'red', x: 200, z: -6000, heading: 0 },
         { unit: 'usFlakTrack', team: 'red', x: 300, z: -6000, heading: 0 },
         { unit: 'usFlakHeavy', team: 'red', x: 400, z: -6000, heading: 0 },
+        { unit: 'truck', team: 'red', x: 500, z: -6000, heading: 0, guns: 'mg' },
       ],
     }
     const b = createBattle(IDLE, cfg, 1)
-    const [light, heavy, truck, m16, us90] = b.world.groundTargets
+    const [light, heavy, truck, m16, us90, roof] = b.world.groundTargets
+    // 【開火聲各是一種】SPEC `2026-10-09-gun-sounds-design.md`：重高砲、陸上四聯 20 mm、M16、車頂 .50
+    expect([heavy, us90, light, m16, roof].map((t) => t!.guns[0]!.zone.sound))
+      .toEqual(['heavyFlak', 'heavyFlak', 'lightFlak20', 'quad50', 'roof50'])
     // 【美軍 90 mm 與 Flak 18 同一條重砲路徑】吃同一份逐關複寫的 `flakSpec`
     expect(us90!.guns[0]!.zone.tier).toBe('flak')
     expect(us90!.guns[0]!.spec).toBe(heavy!.guns[0]!.spec)

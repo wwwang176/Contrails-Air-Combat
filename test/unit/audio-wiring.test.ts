@@ -189,14 +189,22 @@ describe('音效的戰鬥事件接線', () => {
    * 【三層砲都要響】原本只有五吋砲出聲，40 mm 與 20 mm 完全沒聲音。
    * 而三層的射速差 24 倍，不各自限頻率的話 20 mm 會把聲道吃光。
    */
+  /**
+   * 【音高亂數吃類別的幅度】砲聲每種只有一個檔，`cannon` 類別縮到 ±4%。引擎沒讀類別的話
+   * 照舊是 ±8%，聽起來像換了一門砲，而且不報錯
+   */
+  it('引擎每次播放的隨機音高吃類別的 pitchJitter', () => {
+    expect(ENGINE.join('\n')).toContain('const rate = randomRate(Math.random, CATEGORY[cat].pitchJitter) * rateScale')
+  })
+
   it('艦砲三層都出聲，各層各自限頻率', () => {
     const fn = body('function playCannons(', CANNONS)
     expect(fn).not.toContain("gun.zone.tier !== 'flak'")
-    expect(fn).toContain('const g = gunSound(tier)')
-    expect(fn).toContain('lastGunTier.get(tier)')
-    expect(fn).toContain('g.gainDb, false, g.rate, g.cutoffHz')
+    expect(fn).toContain('const g = gunSound(kind)')
+    expect(fn).toContain('lastGunKind.get(kind)')
+    expect(fn).toContain('g.gainDb + (rand() * 2 - 1) * GUN_GAIN_JITTER_DB, false)')
     expect(body('function reset(', CONTROLLER)).toContain('cannonAudio.reset()')
-    expect(body('function reset(', CANNONS)).toContain('lastGunTier.clear()')
+    expect(body('function reset(', CANNONS)).toContain('lastGunKind.clear()')
   })
 
   /**
@@ -209,7 +217,7 @@ describe('音效的戰鬥事件接線', () => {
     expect(fn).toContain('if (d >= best.dist) continue')
     expect(fn).toContain('best.dist = d')
     // 第二趟才播，位置用挑到的那一座
-    expect(fn).toContain("audio.playPool('cannon', 'cannon', best.x, best.y, best.z, true,")
+    expect(fn).toContain("audio.playPool(g.pool, 'cannon', best.x, best.y, best.z, true,")
     // 【滿了只停止記錄】返回的話第二趟不會跑，那一幀整個啞掉
     expect(fn).toContain('if (slot >= prevGunFlash.length) break')
     expect(fn).not.toContain('if (slot >= prevGunFlash.length) return')
@@ -228,8 +236,8 @@ describe('音效的戰鬥事件接線', () => {
     expect(ALL).toContain('const cannonAudio = createCannonAudio(audio, audioEar)')
     expect(ALL).toContain('const noteGroundShot = cannonAudio.noteGroundShot')
     const note = body('function noteGroundShot(', CANNONS)
-    expect(note).toContain('const tier = groundGunTier(unit)')
-    expect(note).toContain('if (tier === null) return')
+    expect(note).toContain('const kind = groundGunTier(unit)')
+    expect(note).toContain('if (kind === null) return')
     expect(note).toContain('if (d >= CANNON_AUDIO_RANGE) return')
     expect(note).toContain('if (d >= best.dist) return')
     expect(note).toContain('best.dist = d')

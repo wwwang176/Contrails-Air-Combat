@@ -22,9 +22,12 @@ export function layerDelay(rand: () => number): number {
   return rand() * 0.03
 }
 
-/** 每次播放的音高 ±8%：同一個檔案聽起來像好幾種 */
-export function randomRate(rand: () => number): number {
-  return 0.92 + rand() * 0.16
+/**
+ * 每次播放的音高 ±`jitter`（預設 ±8%）：同一個檔案聽起來像好幾種。類別可以自己定幅度
+ * （`CategorySpec.pitchJitter`）—— 砲聲每種只有一個檔，差太多聽起來像換了一門砲
+ */
+export function randomRate(rand: () => number, jitter = 0.08): number {
+  return 1 - jitter + rand() * 2 * jitter
 }
 
 /**
