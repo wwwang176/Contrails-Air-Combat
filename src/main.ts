@@ -1495,7 +1495,7 @@ const listenerMotion = createListenerMotion()
 const camVel = listenerMotion.velocity
 const aircraftLoopAudio = createAircraftLoopAudio(audio, audioEar, camVel)
 const flightAudio = createFlightAudio(audio, audioEar, input, {
-  playHeavyHit: battleAudioCues.playHeavyHit, teamSlot,
+  playHeavyHit: battleAudioCues.playHeavyHit, teamSlot, gun: playerController,
 })
 
 /**

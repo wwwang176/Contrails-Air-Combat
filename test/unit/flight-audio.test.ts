@@ -7,6 +7,7 @@ import { createInputState } from '../../src/input/InputState'
 import { P51D } from '../../src/specs/p51d'
 import { JU87 } from '../../src/specs/ju87'
 import { World, teamSlot } from '../../src/world/World'
+import { dryClickInterval } from '../../src/control/gunHeat'
 
 function setup(spec = P51D) {
   const world = new World()
@@ -16,11 +17,52 @@ function setup(spec = P51D) {
   const cam = new Vector3(0, 1000, 0)
   const audio = { selfLoop: vi.fn(), playPool: vi.fn(), playFile: vi.fn() }
   const playHeavyHit = vi.fn()
-  const flight = createFlightAudio(audio, cam, input, { playHeavyHit, teamSlot })
+  const gun = { dryFiring: false }
+  const flight = createFlightAudio(audio, cam, input, { playHeavyHit, teamSlot, gun })
   flight.reset()
   const update = (time = 1, warn = false, dt = 1 / 60) => flight.update(world, me, time, dt, warn)
-  return { world, me, input, cam, audio, flight, playHeavyHit, update }
+  return { world, me, input, cam, audio, flight, playHeavyHit, update, gun }
 }
+
+/**
+ * 過熱時扣扳機的空響（SPEC `2026-10-08-gun-overheat-design.md`）：射速的兩倍。
+ * 【保留餘數】音效每畫面幀才跑一次；每響一次就重設整個間隔的話，60 fps 下 21.7 次／秒會掉到 20 次
+ */
+describe('過熱的空響', () => {
+  const jams = (audio: { playFile: ReturnType<typeof vi.fn> }) =>
+    audio.playFile.mock.calls.filter((c) => c[0] === SINGLE_FILES.gunJam).length
+
+  it('按著的期間依射速兩倍響，幀率不影響累積次數；放開就停', () => {
+    for (const fps of [30, 60, 144]) {
+      const { audio, update, gun, me } = setup()
+      const interval = dryClickInterval(me.aircraft.spec.battery)
+      gun.dryFiring = true
+      for (let i = 0; i < fps * 10; i++) update(1 + i / fps, false, 1 / fps)
+      expect(Math.abs(jams(audio) - 10 / interval), `${fps} fps`).toBeLessThanOrEqual(2)
+      gun.dryFiring = false
+      audio.playFile.mockClear()
+      for (let i = 0; i < fps; i++) update(20 + i / fps, false, 1 / fps)
+      expect(jams(audio)).toBe(0)
+    }
+  })
+
+  it('一按下就響第一聲；音量類別是自己的機械聲', () => {
+    const { audio, update, gun } = setup()
+    gun.dryFiring = true
+    update(1, false, 1 / 60)
+    const call = audio.playFile.mock.calls.find((c) => c[0] === SINGLE_FILES.gunJam)
+    expect(call).toBeDefined()
+    expect(call![1]).toBe('reload')
+  })
+
+  it('上帝視角不響', () => {
+    const { audio, update, gun, input } = setup()
+    input.godView = true
+    gun.dryFiring = true
+    for (let i = 0; i < 60; i++) update(1 + i / 60, false, 1 / 60)
+    expect(jams(audio)).toBe(0)
+  })
+})
 
 afterEach(() => vi.restoreAllMocks())
 

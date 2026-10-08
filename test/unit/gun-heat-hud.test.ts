@@ -39,4 +39,9 @@ describe('熱度寫進 HUD', () => {
     expect(src).toContain('fillGunHeatHud(hudFrame, playerController.gunHeat, input.playerAi || input.godView, battle.world.time)')
     expect(readFileSync('src/main.ts', 'utf8')).toMatch(/const battleFlightHudDeps: BattleFlightHudDependencies = \{[^}]*playerController,/)
   })
+
+  /** 【空響讀的是玩家控制器】接成別的物件的話，過熱時扣扳機一聲都不響，也不報錯 */
+  it('flightAudio 的空響接到玩家控制器', () => {
+    expect(readFileSync('src/main.ts', 'utf8')).toMatch(/createFlightAudio\(audio, audioEar, input, \{[^}]*gun: playerController,/)
+  })
 })

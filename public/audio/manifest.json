@@ -1154,6 +1154,13 @@
    -60.0
   ]
  },
+ "gun-jam-1": {
+  "loop": false,
+  "makeupDb": 8.0,
+  "envelopeDb": [
+   0.0
+  ]
+ },
  "hit-1": {
   "loop": false,
   "makeupDb": 0.0,

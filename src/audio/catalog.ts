@@ -363,6 +363,12 @@ export const SINGLE_FILES = {
   bayToggle: 'reload-1',
   /** 彈艙補滿：掛鉤扣上的「喀」加一下悶響 */
   reloadDone: 'reload-2',
+  /**
+   * 前機槍過熱時扣扳機的空響：機械的「喀」一聲，0.13 s。依射速的兩倍連續播（`flightAudio`）。
+   * 補償 +8 dB：連續的空響（A 加權約 −19.5 dB）落在自己的引擎（−20.6）與自己的槍聲（−17.2）之間 ——
+   * 不補的話被引擎蓋掉 8 dB
+   */
+  gunJam: 'gun-jam-1',
   whistle: 'whistle-1',
   warn: 'warn-1',
   wind: 'wind-1',

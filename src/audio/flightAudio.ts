@@ -9,10 +9,13 @@ import type { AudioEngine } from './engine'
 import { SINGLE_FILES, engineFile, sirenFile } from './catalog'
 import { engineRate, noseDownRad, shakeGainDb, shakeInterval, sirenParams, sirenWobble, windParams } from './curves'
 import { nearMiss } from './nearMiss'
+import { dryClickInterval } from '../control/gunHeat'
 
 interface FlightAudioFeedback {
   playHeavyHit(severity: number): void
   teamSlot: typeof teamSlot
+  /** 玩家的控制器：前機槍過熱而且扳機按著（`control/gunHeat.ts`） */
+  gun: { readonly dryFiring: boolean }
 }
 
 /** 自機狀態與附近彈藥的聽覺回饋；換場、接手僚機時重設事件邊緣。 */
@@ -20,7 +23,7 @@ export function createFlightAudio(
   audio: Pick<AudioEngine, 'selfLoop' | 'playPool' | 'playFile'>, cam: Vector3,
   input: Pick<InputState, 'godView' | 'viewMode'>, feedback: FlightAudioFeedback,
 ) {
-  const { playHeavyHit, teamSlot } = feedback
+  const { playHeavyHit, teamSlot, gun } = feedback
   /** 敵彈擦過的判定半徑，m；兩次擦過聲之間至少隔幾秒 */
   const FLYBY_RADIUS = 20
 
@@ -52,6 +55,12 @@ export function createFlightAudio(
 
   let lastFlyby = -Infinity
 
+  /** 到下一聲空響還有幾秒。≤ 0 = 該響了；不在空響時歸 0，下一次按下立刻響 */
+  let dryTimer = 0
+
+  /** 一幀最多補幾聲空響：分頁在背景回來的那一幀時間很長，補不完的就丟掉 */
+  const DRY_CLICK_BURST = 4
+
   function update(
     world: Pick<World, 'projectiles' | 'bombs'>, me: Combatant,
     elapsed: number, worldSeconds: number, arenaWarning: boolean,
@@ -71,6 +80,19 @@ export function createFlightAudio(
     // 警告蜂鳴：飛出邊界，或速度進了紅線（與 HUD 的紅線警告同一個門檻）
     const warn = flying && (arenaWarning || vneRatio >= OVERSPEED_FULL)
     audio.selfLoop('warn', warn ? SINGLE_FILES.warn : null, 1, 0)
+    // 過熱時扣扳機的空響：射速的兩倍（`dryClickInterval`）。
+    // 【保留餘數】這裡每畫面幀才跑一次；每響一次就重設整個間隔的話，節奏會隨幀率變慢
+    if (flying && gun.dryFiring) {
+      const interval = dryClickInterval(spec.battery)
+      dryTimer -= worldSeconds
+      for (let n = 0; dryTimer <= 0 && n < DRY_CLICK_BURST; n++) {
+        audio.playFile(SINGLE_FILES.gunJam, 'reload', 0, 0, 0, false)
+        dryTimer += interval
+      }
+      if (dryTimer <= 0) dryTimer = interval
+    } else {
+      dryTimer = 0
+    }
 
     // 【擦過看的是聽者】`cam` 是聽者的位置（`battleAudioController` 寫入）：自己在飛
     // 時是機身，上帝視角時是在世界裡自由飛的鏡頭 —— 從它旁邊掠過的子彈一樣該有聲音
@@ -137,6 +159,7 @@ export function createFlightAudio(
     prevReloading = false
     rattleTimer = 0
     lastFlyby = -Infinity
+    dryTimer = 0
     prevViewMode = input.viewMode
   }
 
