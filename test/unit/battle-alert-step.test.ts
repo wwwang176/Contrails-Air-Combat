@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { AiController } from '../../src/ai/AiController'
 import { createBattle, resetBattle, stepBattle, type Battle } from '../../src/battle/setup'
 import { MISSIONS, missionConfigFrom, type ReadyMissionCard } from '../../src/battle/missions'
-import { alertTriggered, stepAlert, stepPatrol } from '../../src/battle/alert'
+import { alertTriggered, createAlertState, stepAlert, stepPatrol } from '../../src/battle/alert'
 import { stepBeats } from '../../src/battle/missionBeats'
 import { MESSAGE_SECONDS } from '../../src/battle/beats'
 import { readyCard, KILL_CARD } from '../fixtures/mission'
@@ -36,7 +36,7 @@ describe('警戒：開場', () => {
   it('第一個世界步之前，紅方每一架 AI 已經拿著巡邏命令、transit、沒有目標', () => {
     const b = rennell()
     const ais = redAi(b)
-    expect(ais.length).toBe(6)
+    expect(ais.length).toBe(card().battle.redCount)
     for (const ai of ais) {
       expect(ai.order?.kind).toBe('rally')
       expect(ai.transit).toBe(true)
@@ -158,20 +158,28 @@ describe('警戒：重新開始', () => {
 
 describe('警戒：巡邏', () => {
   /** 【中心是船的形心】驅逐艦在前方，形心比卡片上的艦隊中心偏前；巡邏線要經過船在的地方 */
-  it('巡邏點在艦隊形心左右 patrolHalfWidth、高度 patrolAltitude；兩支紅方小隊反方向', () => {
+  it('每支紅方小隊一個巡邏點：艦隊形心左右 patrolHalfWidth、高度 patrolAltitude', () => {
     const b = rennell()
     const spec = card().battle.alert!
     const ships = b.world.ships.filter((s) => s.team === 'red')
     const center = ships.reduce((acc, s) => acc.add(s.position), b.cfg.fleet!.center.clone().set(0, 0, 0))
       .multiplyScalar(1 / ships.length)
     const points = b.alert!.orders.filter((o) => o !== null).map((o) => o!.point)
-    expect(points.length).toBe(2)
+    expect(points.length).toBe(b.flights.flights.filter((f) => f.team === 'red').length)
+    expect(points.length).toBeGreaterThan(0)
     for (const p of points) {
       expect(Math.abs(Math.abs(p.x - center.x) - spec.patrolHalfWidth)).toBeLessThan(1)
       expect(p.y).toBe(spec.patrolAltitude)
       expect(Math.abs(p.z - center.z)).toBeLessThan(1)
     }
-    expect(Math.sign(points[0]!.x - center.x)).toBe(-Math.sign(points[1]!.x - center.x))
+  })
+
+  /** 【兩隊以上時反方向飛】蓋得比較廣；只有一隊時就是往左端出發 */
+  it('紅方小隊依順序交替往左、往右；藍方小隊沒有巡邏', () => {
+    const spec = card().battle.alert!
+    const a = createAlertState(spec, [{ team: 'blue' }, { team: 'red' }, { team: 'blue' }, { team: 'red' }, { team: 'red' }])
+    expect(Array.from(a.initialLegs)).toEqual([0, -1, 0, 1, -1])
+    expect(a.orders.map((o) => o === null)).toEqual([true, false, true, false, false])
   })
 
   it('長機進到端點的半徑內就換飛另一端', () => {
