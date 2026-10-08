@@ -55,6 +55,30 @@ describe('過熱的空響', () => {
     expect(call![1]).toBe('reload')
   })
 
+  /** 【放開要歸零倒數】不歸零的話再按下去要等上一次剩下的倒數才響 */
+  it('響過、放開一幀、再按一幀就立刻響', () => {
+    const { audio, update, gun } = setup()
+    gun.dryFiring = true
+    update(1, false, 1 / 60)
+    gun.dryFiring = false
+    update(1 + 1 / 60, false, 1 / 60)
+    gun.dryFiring = true
+    audio.playFile.mockClear()
+    update(1 + 2 / 60, false, 1 / 60)
+    expect(jams(audio)).toBe(1)
+  })
+
+  /** 【重設也要歸零倒數】換場、接手時呼叫；殘留的倒數會讓新的一場第一下晚響 */
+  it('reset 清掉殘留的倒數', () => {
+    const { audio, update, gun, flight } = setup()
+    gun.dryFiring = true
+    update(1, false, 1 / 60)
+    flight.reset()
+    audio.playFile.mockClear()
+    update(1 + 1 / 60, false, 1 / 60)
+    expect(jams(audio)).toBe(1)
+  })
+
   it('上帝視角不響', () => {
     const { audio, update, gun, input } = setup()
     input.godView = true
