@@ -31,7 +31,7 @@ function fixture() {
     createShipModels: vi.fn(() => model('ships')),
     createShipWakes: vi.fn(() => ({ ...model('wakes'), bindOcean: vi.fn(), step: vi.fn() })),
     shipFoamTexture: vi.fn(() => foam),
-    createGroundModels: vi.fn(() => ({ ...model('ground'), lodState: () => ({ withLod: 0, far: 0 }) })),
+    createGroundModels: vi.fn(() => ({ ...model('ground'), lodState: () => ({ withLod: 0, far: 0 }), resetTurrets: vi.fn() })),
     createSearchlights: vi.fn(() => model('searchlights')),
     createGroundBattle: vi.fn<BattleSceneryBuilders['createGroundBattle']>(() => {
       const m = model('theater')

@@ -103,9 +103,9 @@ describe('拆塊：遊戲裡的 GLB', () => {
     return 'glb' in m && m.turret !== undefined
   })
 
-  it('五種模型、七個單位登記了砲塔', () => {
+  it('六種模型、十個單位登記了砲塔', () => {
     expect(turreted.map((u) => u.id).sort()).toEqual(
-      ['atGun', 'flakHeavy', 'flakLight', 'tank', 'tankDug', 'usFlakHeavy', 'usFlakTrack'],
+      ['atGun', 'flakHeavy', 'flakLight', 'panzer4', 'tank', 'tankDug', 'tiger', 'usFlakHeavy', 'usFlakTrack', 'usTank'],
     )
   })
 

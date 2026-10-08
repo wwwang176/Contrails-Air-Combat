@@ -162,6 +162,9 @@ function hitFrames(unit: GroundUnit): Group {
   return g
 }
 
+/** 在遊戲裡掛著模擬砲位、照防空砲的仰角範圍轉的那幾種（`battle/missionSpawns.ts` 的 `placeGround`） */
+const AA_UNITS: ReadonlySet<GroundUnitId> = new Set<GroundUnitId>(['flakHeavy', 'flakLight', 'usFlakTrack', 'usFlakHeavy'])
+
 /** 把一個單位擺進場景，附上名牌。 */
 function place(unit: GroundUnit, x: number, z: number, ry: number): Entry {
   const geo = groundGeometry(unit)
@@ -183,12 +186,12 @@ function place(unit: GroundUnit, x: number, z: number, ry: number): Entry {
     elev.position.copy(gt.elevatePivot)
     trav.add(elev)
     mesh.add(trav)
-    // T-34 照地面戰的仰角範圍，其餘是防空砲
-    const tank = unit.id === 'tank' || unit.id === 'tankDug'
+    // 防空砲用砲位的仰角範圍，戰車與反坦克砲用地面戰的
+    const aa = AA_UNITS.has(unit.id)
     turret = {
       trav, elev,
-      pitchMin: tank ? TANK_PITCH_MIN : GUN_PITCH_MIN,
-      pitchMax: tank ? TANK_PITCH_MAX : GUN_PITCH_MAX,
+      pitchMin: aa ? GUN_PITCH_MIN : TANK_PITCH_MIN,
+      pitchMax: aa ? GUN_PITCH_MAX : TANK_PITCH_MAX,
     }
     tri += (gt.traverse.getAttribute('position').count + gt.elevate.getAttribute('position').count) / 3
   }

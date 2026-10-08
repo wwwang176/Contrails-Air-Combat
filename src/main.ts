@@ -1148,6 +1148,8 @@ function restartBattle(): void {
     return
   }
   resetBattle(battle)
+  // 【砲塔回正前方】這一條路不重建地面模型，上一場最後的砲塔角度會留著
+  battleScenery.groundModels?.resetTurrets()
   // 【池子也要清】少了這一行，上一場的煙（最多 3.1 s）、碎片（1.5–2 s）、
   // 水柱（~2.1 s）會飄在舊位置上等自己過期。殘骸不在其中 —— 下面的
   // `rebuildVisuals` 會把殘骸池持有的模型還回去。

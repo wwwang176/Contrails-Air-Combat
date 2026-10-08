@@ -45,6 +45,7 @@ export interface GroundModelSet {
 /** 共用同一支 GLB 的單位用同一份節點名 —— 預載時會檢查一致 */
 const T34_TURRET: GroundTurretNodes = { traverse: 'T34_Traverse', elevate: 'T34_Elevate' }
 const F38_TURRET: GroundTurretNodes = { traverse: 'F38_Traverse', elevate: 'F38_Elevate' }
+const M4_TURRET: GroundTurretNodes = { traverse: 'M4_Traverse', elevate: 'M4_Elevate' }
 /** Flak 38 的座椅、防盾、側翼跟著砲塔轉，轉到側面會伸出盒子 —— 比照砲管不算命中 */
 const F38_LOOSE = ['F38_Barrel_', 'F38_Seat_', 'F38_Shield', 'F38_Wing_']
 
@@ -53,8 +54,8 @@ export const GROUND_MODELS: Readonly<Record<GroundUnitId, GroundModelSet>> = {
   tank: { model: { glb: '/models/t34.glb', barrelNodes: ['T34_Gun'], turret: T34_TURRET } },
   tankDug: { model: { glb: '/models/t34.glb', barrelNodes: ['T34_Gun'], turret: T34_TURRET } },
   atGun: { model: { glb: '/models/flak38.glb', barrelNodes: F38_LOOSE, turret: F38_TURRET } },
-  panzer4: { model: { glb: '/models/m4a3.glb', barrelNodes: ['M4_Gun'] } },
-  tiger: { model: { glb: '/models/m4a3.glb', barrelNodes: ['M4_Gun'] } },
+  panzer4: { model: { glb: '/models/m4a3.glb', barrelNodes: ['M4_Gun'], turret: M4_TURRET } },
+  tiger: { model: { glb: '/models/m4a3.glb', barrelNodes: ['M4_Gun'], turret: M4_TURRET } },
   infantry: { model: { build: buildInfantrySquad } },
   mortar: { model: { build: buildMortar } },
   truck: { model: { glb: '/models/zis150.glb', barrelNodes: [] } },
@@ -62,7 +63,7 @@ export const GROUND_MODELS: Readonly<Record<GroundUnitId, GroundModelSet>> = {
     model: { glb: '/models/flak18.glb', barrelNodes: ['F18_Barrel'], turret: { traverse: 'F18_Traverse', elevate: 'F18_Elevate' } },
   },
   flakLight: { model: { glb: '/models/flak38.glb', barrelNodes: F38_LOOSE, turret: F38_TURRET } },
-  usTank: { model: { glb: '/models/m4a3.glb', barrelNodes: ['M4_Gun'] } },
+  usTank: { model: { glb: '/models/m4a3.glb', barrelNodes: ['M4_Gun'], turret: M4_TURRET } },
   usTruck: { model: { glb: '/models/cckw.glb', barrelNodes: [] } },
   usFlakTrack: {
     model: {

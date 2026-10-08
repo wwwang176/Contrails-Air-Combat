@@ -126,6 +126,22 @@ describe('T-34：照地面戰的瞄準目標慢慢轉', () => {
     models.dispose()
   })
 
+  /** 【重開一場】沒有波次的一場重開時地面模型留著用（`main.ts`），角度不能帶到下一場 */
+  it('resetTurrets 把角度歸零，下一場從正前方開始轉', () => {
+    const tank = createGroundTarget(0, 'tank', 'blue', 0, 0, 0)
+    const foe = createGroundTarget(1, 'tank', 'red', -300, 0, 0)
+    const list = [tank, foe]
+    const models = createGroundModels(list)
+    const { trav, elev } = partsOf(models, 0)
+    for (let i = 0; i < 20; i++) models.update(list, CAM, 0.5, source(1))
+    models.resetTurrets()
+    expect(trav.rotation.y).toBe(0)
+    expect(elev.rotation.x).toBe(0)
+    models.update(list, CAM, 0.5, source(1))
+    expect(trav.rotation.y).toBeCloseTo(TANK_TRAVERSE_RATE * 0.5, 9)
+    models.dispose()
+  })
+
   it('沒有目標（或沒有來源）就慢慢轉回正前方', () => {
     const tank = createGroundTarget(0, 'tank', 'blue', 0, 0, 0)
     const foe = createGroundTarget(1, 'tank', 'red', -300, 0, 0)

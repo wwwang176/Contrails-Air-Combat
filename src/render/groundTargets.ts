@@ -75,6 +75,11 @@ export interface GroundModels {
    * 症狀只有「省下來的幀時間是零」，而幀時間本來就會漂。
    */
   lodState(): { withLod: number; far: number }
+  /**
+   * 砲塔角度歸零（朝正前方、砲管放平）。**重開一場時呼叫**：沒有波次的一場重開不重建地面模型
+   * （`main.ts`），不歸零的話上一場最後的角度會帶進來
+   */
+  resetTurrets(): void
   dispose(): void
 }
 
@@ -240,6 +245,15 @@ export function createGroundModels(targets: readonly GroundTarget[]): GroundMode
         // 開到前線退場的車也不畫 —— 它是開走了，不是燒在路上。藏著還沒出發的
         // 縱隊也不畫：它還不在場上。死掉的人也不畫：不留焦黑的人形
         m.visible = !t.departed && !t.arrived && !t.dormant && (t.alive || t.unit.personnel !== true)      }
+    },
+    resetTurrets() {
+      yaws.fill(0)
+      pitches.fill(0)
+      for (const trav of turrets) {
+        if (trav === null) continue
+        trav.rotation.y = 0
+        trav.children[0]!.rotation.x = 0
+      }
     },
     lodState() {
       let withLod = 0
