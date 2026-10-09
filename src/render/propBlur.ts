@@ -26,6 +26,8 @@ export const PROP_BLUR = {
   /** 殘影往每一側拖多遠，倍槳半徑：槳根、槳尖 */
   rootSmear: 0.05,
   tipSmear: 0.15,
+  /** 殘影長度從槳根到槳尖的增加曲線：1 = 直線；越大越集中在外圈才拉長 */
+  smearCurve: 2,
   /** 槳葉本身（最濃那一段）的寬度，倍槳半徑。槳根到槳尖一樣寬（槳葉是長條，不是扇形） */
   bladeWidth: 0.1,
   /** 整張圓盤的底色濃度：槳葉之間也留一點點 */
@@ -44,6 +46,7 @@ const SHARED = {
   uFadeCurve: { value: PROP_BLUR.fadeCurve },
   uRootSmear: { value: PROP_BLUR.rootSmear },
   uTipSmear: { value: PROP_BLUR.tipSmear },
+  uSmearCurve: { value: PROP_BLUR.smearCurve },
   uBladeWidth: { value: PROP_BLUR.bladeWidth },
   uBase: { value: PROP_BLUR.base },
 }
@@ -58,6 +61,7 @@ export function syncPropBlur(): void {
   SHARED.uFadeCurve.value = PROP_BLUR.fadeCurve
   SHARED.uRootSmear.value = PROP_BLUR.rootSmear
   SHARED.uTipSmear.value = PROP_BLUR.tipSmear
+  SHARED.uSmearCurve.value = PROP_BLUR.smearCurve
   SHARED.uBladeWidth.value = PROP_BLUR.bladeWidth
   SHARED.uBase.value = PROP_BLUR.base
   for (const m of MATERIALS) m.color.copy(SHADE.setScalar(PROP_BLUR.shade))
@@ -86,7 +90,7 @@ export function createPropBlurMaterial(blades: number, radius: number): MeshStan
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
        varying vec2 vProp;
-       uniform float uBlades, uRadius, uOpacity, uRootAlpha, uTipAlpha, uFadeCurve, uRootSmear, uTipSmear, uBladeWidth, uBase;`)
+       uniform float uBlades, uRadius, uOpacity, uRootAlpha, uTipAlpha, uFadeCurve, uRootSmear, uTipSmear, uSmearCurve, uBladeWidth, uBase;`)
       .replace('#include <dithering_fragment>', `#include <dithering_fragment>
        float rr = length(vProp) / uRadius;
        float turn = atan(vProp.y, vProp.x) / 6.28318530718;
@@ -94,7 +98,7 @@ export function createPropBlurMaterial(blades: number, radius: number): MeshStan
        // 用距離而不是角度，槳葉才是一樣寬的長條，不會越往外越寬
        float off = abs(fract(turn * uBlades + 0.5) - 0.5);
        float dist = rr * sin(off * 6.28318530718 / uBlades);
-       float smear = mix(uRootSmear, uTipSmear, rr);
+       float smear = mix(uRootSmear, uTipSmear, pow(clamp(rr, 0.0, 1.0), uSmearCurve));
        float core = uBladeWidth * 0.5;
        float trail = dist < core ? 1.0 : exp(-(dist - core) / max(smear, 1e-3));
        float dens = mix(uRootAlpha, uTipAlpha, 1.0 - pow(1.0 - clamp(rr, 0.0, 1.0), uFadeCurve));
