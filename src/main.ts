@@ -127,6 +127,7 @@ import { KILL_SHAKE, createCameraShake } from './camera/cameraShake'
 import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
 import { attachTouch } from './input/touch'
+import { enterFullscreen } from './input/fullscreen'
 import { AimAssist } from './input/aimAssist'
 import { readAimAssist, saveAimAssist } from './input/aimAssistPreferences'
 import { teamSlot } from './world/team'
@@ -1770,8 +1771,11 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   boardEl.classList.toggle('finished', finished)
 }
 
+/** 主要指標是手指：手機、平板 */
+const PHONE_POINTER = window.matchMedia('(pointer: coarse)')
+
 /**
- * 要求指標鎖定，被拒絕就算了。
+ * 要求指標鎖定，被拒絕就算了。手機改成進全螢幕。
  *
  * 【為什麼一定要接住 rejection】瀏覽器在使用者按 ESC 解除鎖定之後有一段
  * 冷卻期（Chrome 約 1.25 s）會拒絕新的請求 —— 而「按 ESC 暫停、立刻按
@@ -1785,8 +1789,12 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
 function grabPointer(): void {
   // 【在手勢裡解鎖音訊】瀏覽器要使用者手勢才肯出聲；這裡就是出擊、繼續的那一下
   audio.unlock()
-  // 【觸控操作不鎖指標】觸控層直接收 pointer 事件
-  if (touch.active) return
+  // 【觸控操作不鎖指標】觸控層直接收 pointer 事件。手機改進全螢幕 —— 網址列與工具列會吃掉
+  // 一截橫放的畫面；觸控筆電的主要指標是滑鼠，不進
+  if (touch.active) {
+    if (PHONE_POINTER.matches) enterFullscreen(document.documentElement, document)
+    return
+  }
   void Promise.resolve(canvas.requestPointerLock()).catch(() => {})
 }
 
