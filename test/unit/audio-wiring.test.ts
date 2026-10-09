@@ -23,7 +23,6 @@ const CANNONS = readFileSync('src/audio/cannonAudio.ts', 'utf8').replace(/\r\n/g
   .split('\n').map(line => line.replace(/^  /, ''))
 const ENGINE = readFileSync('src/audio/engine.ts', 'utf8').replace(/\r\n/g, '\n')
   .split('\n').map(line => line.replace(/^  /, ''))
-const MENU_SOUND = readFileSync('src/ui/menuSound.ts', 'utf8').replace(/\r\n/g, '\n')
 
 function lines(needle: string, source = SRC): number[] {
   const hits: number[] = []
@@ -658,32 +657,16 @@ describe('選單按鈕的聲音', () => {
   })
 
   /**
-   * 【三份名單各自分得清楚】漏掉一顆就是那一顆用錯音效，而畫面上完全看不
-   * 出來。取的是 `data-act` —— 選單那一層唯一的協定。
-   *
-   * 【退回與關閉是兩件事】換一頁是退回；把疊在上面的暫停、確認框、設定、
-   * 教學卡收掉是關閉。兩者用同一支的話，分家就白做了。
+   * 【兩份名單各自分得清楚】漏掉一顆就是那一顆用錯音效，而畫面上完全看不
+   * 出來。取的是 `data-act` —— 選單那一層唯一的協定。退回上一頁與收起疊在上面的
+   * 暫停、確認框、設定、教學卡是同一聲；其餘是一般按鈕
    */
-  it('退回、關閉、一般三份名單各自分得清楚', async () => {
+  it('退回／關閉、一般兩份名單各自分得清楚', async () => {
+    const { uiSound } = await import('../../src/ui/menuSound')
     const { SINGLE_FILES } = await import('../../src/audio/catalog')
-    const fn = MENU_SOUND
-    expect(fn).toContain('if (BACK_ACTS.has(act)) return SINGLE_FILES.uiBack')
-    expect(fn).toContain('if (CLOSE_ACTS.has(act)) return SINGLE_FILES.uiClose')
-    const listOf = (head: string): string => {
-      const at = MENU_SOUND.indexOf(head)
-      expect(at, head).toBeGreaterThan(0)
-      return MENU_SOUND.slice(at, MENU_SOUND.indexOf('])', at))
-    }
-    const back = listOf('const BACK_ACTS = new Set([')
-    const close = listOf('const CLOSE_ACTS = new Set([')
-    const pick = (act: string): string =>
-      back.includes(`'${act}'`) ? SINGLE_FILES.uiBack
-        : close.includes(`'${act}'`) ? SINGLE_FILES.uiClose : SINGLE_FILES.uiClick
-    for (const act of ['back', 'toSetup', 'toMission', 'toMenu']) {
-      expect(pick(act), act).toBe(SINGLE_FILES.uiBack)
-    }
-    for (const act of ['resume', 'tutorialOk', 'restartNo', 'abandonNo', 'toMenuNo',
-      'settingsCancel', 'reloadNo']) {
+    const pick = uiSound
+    for (const act of ['back', 'toSetup', 'toMission', 'toMenu', 'resume', 'tutorialOk', 'restartNo',
+      'abandonNo', 'toMenuNo', 'settingsCancel', 'reloadNo', 'planePickCancel']) {
       expect(pick(act), act).toBe(SINGLE_FILES.uiClose)
     }
     for (const act of ['start', 'fight', 'mission', 'skirmish', 'hangar', 'settings',
@@ -720,7 +703,7 @@ describe('選單按鈕的聲音', () => {
    */
   it('按鈕音排在下載佇列最前面', async () => {
     const { FIRST_FILES, SINGLE_FILES } = await import('../../src/audio/catalog')
-    expect([...FIRST_FILES]).toEqual([SINGLE_FILES.uiClick, SINGLE_FILES.uiBack, SINGLE_FILES.uiClose])
+    expect([...FIRST_FILES]).toEqual([SINGLE_FILES.uiClick, SINGLE_FILES.uiClose])
     expect(ENGINE).toContain('const { buffers, makeup, envelopes, load } = createAudioAssets(ctx)')
     expect(ENGINE).toMatch(/return \{\s+load,/)
   })

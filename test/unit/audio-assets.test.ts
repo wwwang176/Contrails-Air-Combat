@@ -15,7 +15,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 describe('音效素材載入', () => {
   it('優先載入按鈕音，同時最多六個下載／解碼工作，進度包含每一支素材', async () => {
-    const ids = ['normal0', FIRST_FILES[0]!, 'normal1', FIRST_FILES[1]!, 'normal2', FIRST_FILES[2]!, 'normal3', 'normal4']
+    const ids = ['normal0', FIRST_FILES[0]!, 'normal1', FIRST_FILES[1]!, 'normal2', 'normal3', 'normal4', 'normal5']
     const manifest = Object.fromEntries(ids.map((id, i) => [id, { loop: false, makeupDb: i, envelopeDb: [0, -i] }]))
     const gates = ids.map(() => deferred<AudioBuffer>())
     const started: string[] = []
@@ -34,19 +34,19 @@ describe('音效素材載入', () => {
     const progress = vi.fn()
     const loading = assets.load(progress)
     await vi.waitFor(() => expect(active).toBe(6))
-    expect(started).toEqual([...FIRST_FILES, 'normal0', 'normal1', 'normal2'])
+    expect(started).toEqual([...FIRST_FILES, 'normal0', 'normal1', 'normal2', 'normal3'])
     expect(progress.mock.calls).toEqual([[0, 8]])
-    expect(assets.makeup.get('normal4')).toBe(7)
-    expect(assets.envelopes.get('normal4')).toEqual([0, -7])
+    expect(assets.makeup.get('normal5')).toBe(7)
+    expect(assets.envelopes.get('normal5')).toEqual([0, -7])
     gates[ids.indexOf(FIRST_FILES[0]!)]!.resolve(decoded)
     await vi.waitFor(() => expect(started).toHaveLength(7))
-    expect(started[6]).toBe('normal3')
+    expect(started[6]).toBe('normal4')
     expect(assets.buffers.get(FIRST_FILES[0]!)).toBe(decoded)
     expect(progress).toHaveBeenLastCalledWith(1, 8)
     for (const gate of gates) gate.resolve(decoded)
     await loading
     expect(peak).toBe(6)
-    expect(started).toEqual([...FIRST_FILES, 'normal0', 'normal1', 'normal2', 'normal3', 'normal4'])
+    expect(started).toEqual([...FIRST_FILES, 'normal0', 'normal1', 'normal2', 'normal3', 'normal4', 'normal5'])
     expect(progress.mock.calls).toEqual(Array.from({ length: 9 }, (_, i) => [i, 8]))
     expect(assets.buffers.size).toBe(8)
   })

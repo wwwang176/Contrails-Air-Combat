@@ -2322,21 +2322,14 @@
  },
  "ui-1": {
   "loop": false,
-  "makeupDb": 9.0,
-  "envelopeDb": [
-   0.0
-  ]
- },
- "ui-2": {
-  "loop": false,
-  "makeupDb": 9.0,
+  "makeupDb": 8.5,
   "envelopeDb": [
    0.0
   ]
  },
  "ui-3": {
   "loop": false,
-  "makeupDb": 9.0,
+  "makeupDb": 12.0,
   "envelopeDb": [
    0.0
   ]
