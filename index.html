@@ -658,6 +658,7 @@
     </style>
     <link rel="stylesheet" href="/src/ui/frontMenu.css">
     <link rel="stylesheet" href="/src/ui/campaignMenu.css">
+    <link rel="stylesheet" href="/src/ui/overlayMenu.css">
   </head>
   <body>
     <canvas id="scene"></canvas>
@@ -839,17 +840,22 @@
         </div>
       </section>
 
-      <section id="pause" class="screen" style="--v:.55" hidden>
-        <h2 data-i18n="pause.title">已暫停</h2>
-        <button class="go" data-act="resume" data-i18n="common.resume">繼續</button>
-        <button class="btn" data-act="restart" data-i18n="pause.restart">重新開始</button>
+      <section id="pause" class="screen command-overlay" style="--v:.55" hidden>
+        <div class="command-panel pause-panel">
+        <header class="command-heading"><span class="pause-insignia" aria-hidden="true">Ⅱ</span><h2 data-i18n="pause.title">已暫停</h2></header>
+        <div class="pause-actions">
+        <button class="dossier-action" data-act="resume" data-i18n="common.resume">繼續</button>
+        <button class="command-button" data-act="settings" data-i18n="settings.title">設定</button>
+        <button class="command-button" data-act="restart" data-i18n="pause.restart">重新開始</button>
         <!-- 兩個出口依模式擇一顯示（main.ts）：遭遇戰回主選單，任務先問過
              再回該陣營的任務表。理由與結算板相同：不逐幀改 data-act -->
-        <button class="btn" data-act="toMenu" data-i18n="pause.toMenu">回主選單</button>
-        <button class="btn" data-act="abandon" hidden data-i18n="pause.abandon">放棄任務</button>
+        <button class="command-button pause-exit" data-act="toMenu" data-i18n="pause.toMenu">回主選單</button>
+        <button class="command-button pause-exit" data-act="abandon" hidden data-i18n="pause.abandon">放棄任務</button>
+        </div>
+        </div>
       </section>
       <!-- 放棄任務的確認。疊在暫停之上，menu.ts 自己開關 -->
-      <section id="confirm" class="screen" style="--v:.60" hidden>
+      <section id="confirm" class="screen command-overlay command-confirm" style="--v:.60" hidden>
         <div class="ask">
           <h2 data-i18n="confirm.abandon.title">是否放棄進度？</h2>
           <div class="row">
@@ -859,7 +865,7 @@
         </div>
       </section>
       <!-- 重新開始的確認。與放棄任務同一類：疊在暫停之上，menu.ts 自己開關 -->
-      <section id="restart-confirm" class="screen" style="--v:.60" hidden>
+      <section id="restart-confirm" class="screen command-overlay command-confirm" style="--v:.60" hidden>
         <div class="ask">
           <h2 data-i18n="confirm.restart.title">要重新開始這一場嗎？</h2>
           <div class="row">
@@ -886,7 +892,7 @@
         </div>
       </section>
       <!-- 回主選單的確認。遭遇戰的出口，與放棄任務同一類 -->
-      <section id="menu-confirm" class="screen" style="--v:.60" hidden>
+      <section id="menu-confirm" class="screen command-overlay command-confirm" style="--v:.60" hidden>
         <div class="ask">
           <h2 data-i18n="confirm.menu.title">要離開這一場回主選單嗎？</h2>
           <div class="row">
@@ -897,42 +903,44 @@
       </section>
       <!-- 設定。與暫停、確認同一類：overlay，不是畫面（見 ui/screens.ts）。
            齒輪在右上角固定位置，任何畫面都按得到 -->
-      <section id="settings" class="screen" style="--v:.60" hidden>
-        <div class="ask">
-          <h2 data-i18n="settings.title">設定</h2>
-          <div>
-            <div class="lbl" style="margin-bottom:7px" data-i18n="settings.lang">語言</div>
+      <section id="settings" class="screen command-overlay" style="--v:.60" hidden>
+        <div class="ask command-panel settings-panel">
+          <header class="command-heading"><h2 data-i18n="settings.title">設定</h2><span class="command-heading-rule" aria-hidden="true"></span></header>
+          <div class="settings-fields">
+          <div class="setting-field">
+            <div class="setting-label" id="set-lang-label" data-i18n="settings.lang">語言</div>
             <!-- 語言名稱各用自己的語言寫，兩種語言下都一樣 -->
-            <div class="opt narrow" id="set-lang"></div>
+            <div class="opt narrow" id="set-lang" role="group" aria-labelledby="set-lang-label"></div>
           </div>
-          <div>
-            <div class="lbl" style="margin-bottom:7px" data-i18n="settings.quality">畫質</div>
+          <div class="setting-field">
+            <div class="setting-label" id="set-quality-label" data-i18n="settings.quality">畫質</div>
             <!-- 只調 3D 那張畫布的解析度；HUD 是另一張 2D 畫布，維持原生清晰度 -->
-            <div class="opt narrow" id="set-quality"></div>
+            <div class="opt narrow" id="set-quality" role="group" aria-labelledby="set-quality-label"></div>
           </div>
-          <div>
-            <div class="lbl" style="margin-bottom:7px" data-i18n="settings.aa">抗鋸齒</div>
+          <div class="setting-field">
+            <div class="setting-label" id="set-aa-label" data-i18n="settings.aa">抗鋸齒</div>
             <!-- 建立 WebGL context 時才決定得了，所以改它要重新載入 -->
-            <div class="opt narrow" id="set-aa"></div>
+            <div class="opt narrow" id="set-aa" role="group" aria-labelledby="set-aa-label"></div>
           </div>
-          <div>
-            <div class="lbl" style="margin-bottom:7px" data-i18n="settings.volume">音量</div>
-            <div class="opt narrow" id="set-volume"></div>
+          <div class="setting-field">
+            <div class="setting-label" id="set-volume-label" data-i18n="settings.volume">音量</div>
+            <div class="opt narrow" id="set-volume" role="group" aria-labelledby="set-volume-label"></div>
           </div>
-          <div>
-            <div class="lbl" style="margin-bottom:7px" data-i18n="settings.assist">瞄準輔助</div>
-            <div class="opt narrow" id="set-assist"></div>
+          <div class="setting-field">
+            <div class="setting-label" id="set-assist-label" data-i18n="settings.assist">瞄準輔助</div>
+            <div class="opt narrow" id="set-assist" role="group" aria-labelledby="set-assist-label"></div>
+          </div>
           </div>
           <!-- 【選了不算數，按確定才套用】要重新載入的項目得先問過；
                改一下就立刻重整會讓玩家在毫無預期之下丟掉進行中的戰鬥 -->
-          <div class="row">
-            <button class="go" data-act="settingsApply" data-i18n="common.ok">確定</button>
-            <button class="btn cancel" data-act="settingsCancel" data-i18n="common.cancel">取消</button>
-          </div>
+          <footer class="row command-footer">
+            <button class="command-button" data-act="settingsCancel" data-i18n="common.cancel">取消</button>
+            <button class="dossier-action" data-act="settingsApply" data-i18n="common.ok">確定</button>
+          </footer>
         </div>
       </section>
       <!-- 需要重新載入才生效的設定，套用前的最後一問。疊在設定之上 -->
-      <section id="reload-ask" class="screen" style="--v:.60" hidden>
+      <section id="reload-ask" class="screen command-overlay command-confirm" style="--v:.60" hidden>
         <div class="ask">
           <h2 data-i18n="reload.title">需要重新載入</h2>
           <div class="lbl" data-i18n="reload.body">抗鋸齒要重新載入才會生效，進行中的戰鬥會遺失。</div>
