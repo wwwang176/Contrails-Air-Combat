@@ -160,6 +160,21 @@ describe('剔除與河面', () => {
     expect(d.pools.clods.live + d.pools.mixClods.live + d.pools.spout.live + d.pools.dust.live)
       .toBe(0)
   })
+
+  /**
+   * 【落點剛好在水面也算水】地面戰的砲彈落點用 `collisionHeightAt`（地面與河面取高的），
+   * 落在河裡時高度就等於水面 —— 只認「比水面低」的話它噴土柱、也沒有落水聲
+   */
+  it('落點剛好等於水面：一樣推水柱，不噴土', () => {
+    const d = createDirtImpacts()
+    const ev = createImpacts()
+    const river = createImpacts()
+    pushImpact(ev, 10, 1.25, 0, 0, 1, 0)
+    d.emit(ev, 0, 0, 0, () => 1.25, river)
+    expect(river.count).toBe(1)
+    expect(river.data[1]).toBe(1.25)
+    expect(d.pools.clods.live + d.pools.mixClods.live + d.pools.spout.live + d.pools.dust.live).toBe(0)
+  })
 })
 
 describe('dirtSurfaceOf', () => {

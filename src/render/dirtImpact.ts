@@ -161,7 +161,7 @@ export interface DirtImpacts {
    * 依地形命中事件發射。熱路徑：不配置。
    *
    * @param waterAt       水面高度（`Terrain.waterAt`），沒有水是 −Infinity
-   * @param riverSplashes 落點在河面以下的推到這裡，高度是水面，交給水柱
+   * @param riverSplashes 落點在河面以下（含剛好在水面）的推到這裡，高度是水面，交給水柱
    * @param scale         整發放大幾倍。省略 = 1（機槍）；戰車與反坦克砲的砲彈是 `SHELL_DIRT_SCALE`
    */
   emit(
@@ -262,9 +262,10 @@ export function createDirtImpacts(
         const x = d[o]!, y = d[o + 1]!, z = d[o + 2]!
         const dx = x - cx, dy = y - cy, dz = z - cz
         if (dx * dx + dy * dy + dz * dz > DIRT_CULL * DIRT_CULL) continue
-        // 【河底不噴土】子彈穿過河面才打到河床，看得到的是水面上那一柱水
+        // 【河底不噴土】子彈穿過河面才打到河床，看得到的是水面上那一柱水。
+        // 【剛好在水面也算】地面戰的砲彈落點取地面與河面高的那一個，落在河裡時就等於水面
         const w = waterAt(x, z)
-        if (w > y) {
+        if (w >= y) {
           pushImpact(riverSplashes, x, w, z, 0, 1, 0)
           continue
         }
