@@ -75,6 +75,19 @@ describe('選單背景音樂的接線', () => {
   })
 })
 
+/**
+ * 【播停交給 `runControl`】喚醒要在點擊的當下呼叫、已經停了不再停、每一步有時限 —— 自己在引擎裡
+ * 排 promise 鏈的話，Safari 上第一個 suspend() 不回來，之後的喚醒全部卡住，遊戲整場無聲
+ */
+describe('音訊 context 的播停接線', () => {
+  it('引擎每次狀態變動都交給 runControl，判準是解鎖、沒靜音、沒暫停', () => {
+    const engine = ENGINE.join('\n')
+    expect(engine).toContain('const runControl = createRunControl(ctx, () => unlocked && !playback.muted && !paused)')
+    expect(body('function applyRunState(', ENGINE)).toContain('runControl.apply()')
+    expect(engine).not.toContain('runChain')
+  })
+})
+
 describe('音效的生命週期接線', () => {
   /** 【手勢裡解鎖】瀏覽器要使用者手勢才肯出聲；出擊那一下就是 grabPointer */
   it('grabPointer 裡解鎖音訊', () => {

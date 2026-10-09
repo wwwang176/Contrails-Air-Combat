@@ -3,6 +3,7 @@ import { PannedAudio } from './spatial'
 import { azimuthDeg, equalPowerMatrix, inverseDistanceGain, type ListenerPose } from './pan'
 import { createAudioOutput } from './output'
 import { createMusic } from './music'
+import { createRunControl } from './runControl'
 import { assetUrl } from '../core/asset'
 import { CATEGORY, POOLS, type Category, type Pool } from './catalog'
 import { createAudioAssets } from './assets'
@@ -371,12 +372,8 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
 
   const selfAudio = createSelfAudio(listener, buffers, makeup, playback, lowpass)
 
-  /**
-   * 【排隊依序做】`resume()` 回來之前 `ctx.state` 還是 suspended —— 那時切走分頁，
-   * 只看當下狀態的話會跳過 `suspend()`，等 `resume()` 完成聲音又出來。
-   * 每一步都在前一步完成之後，重新看一次現在該停還是該播。
-   */
-  let runChain: Promise<void> = Promise.resolve()
+  /** context 的播停：排隊依序、喚醒在手勢當下、已停不再停（`runControl.ts`） */
+  const runControl = createRunControl(ctx, () => unlocked && !playback.muted && !paused)
   /** 上一次 `applyRunState` 決定的是播還是停 */
   let running = false
   function applyRunState(): void {
@@ -392,10 +389,7 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
     running = run
     // 【音樂的元素也要停】context 暫停只是不輸出，元素照樣往前走
     music?.setRunning(run)
-    runChain = runChain.then(() => {
-      const run = unlocked && !playback.muted && !paused
-      return run ? ctx.resume() : ctx.suspend()
-    }).catch(() => {})
+    runControl.apply()
   }
 
   function gainOf(file: string, cat: Category, extraDb: number): number {
