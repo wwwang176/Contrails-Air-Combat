@@ -3,9 +3,9 @@ import { Color, DoubleSide, MeshStandardMaterial, type WebGLProgramParametersWit
 /**
  * # 轉動中的螺旋槳：槳葉的殘影
  *
- * 一張圓盤，片段端照角度與半徑算出「離最近一片槳葉多遠」：槳葉本身最濃，往後拖出一道
- * 扇形殘影，越往後越淡。殘影的長度、濃淡隨半徑變（槳根濃而短、槳尖淡而長），外圈可以
- * 往後彎。槳葉之間是透明的，看得到後面的機身。
+ * 一張圓盤，片段端照角度與半徑算出「離最近一片槳葉多遠」：槳葉本身最濃，往前後兩側各拖出
+ * 一道扇形殘影，越遠越淡（淡、深、淡）。殘影的長度、濃淡隨半徑變（槳根濃而短、槳尖淡而長）。
+ * 槳葉之間是透明的，看得到後面的機身。
  *
  * 【殘影不照真實轉速轉】圖案隨角度變化，照真實轉速轉的話每幀跨過的角度與槳葉間隔
  * 打拍子，看起來是慢慢轉、停住或倒轉（馬車輪效應）。圓盤另外照 `spin` 轉
@@ -18,13 +18,11 @@ export const PROP_BLUR = {
   /** 槳根、槳尖那一圈殘影的濃度（0–1） */
   rootAlpha: 0.75,
   tipAlpha: 0.25,
-  /** 殘影拖多長，倍槳葉間隔（0–1）：槳根、槳尖 */
-  rootSmear: 0.12,
-  tipSmear: 0.35,
-  /** 槳葉本身的寬度，倍槳葉間隔 */
+  /** 殘影往每一側拖多長，倍槳葉間隔（0–0.5）：槳根、槳尖 */
+  rootSmear: 0.06,
+  tipSmear: 0.15,
+  /** 槳葉本身（最濃那一段）的寬度，倍槳葉間隔 */
   bladeWidth: 0.04,
-  /** 外圈往後彎多少，圈（槳尖比槳根落後這麼多圈） */
-  curve: 0.04,
   /** 整張圓盤的底色濃度：槳葉之間也留一點點 */
   base: 0.04,
   /** 殘影本身的轉速，rad/s */
@@ -41,7 +39,6 @@ const SHARED = {
   uRootSmear: { value: PROP_BLUR.rootSmear },
   uTipSmear: { value: PROP_BLUR.tipSmear },
   uBladeWidth: { value: PROP_BLUR.bladeWidth },
-  uCurve: { value: PROP_BLUR.curve },
   uBase: { value: PROP_BLUR.base },
 }
 
@@ -55,15 +52,13 @@ export function syncPropBlur(): void {
   SHARED.uRootSmear.value = PROP_BLUR.rootSmear
   SHARED.uTipSmear.value = PROP_BLUR.tipSmear
   SHARED.uBladeWidth.value = PROP_BLUR.bladeWidth
-  SHARED.uCurve.value = PROP_BLUR.curve
   SHARED.uBase.value = PROP_BLUR.base
   for (const m of MATERIALS) m.color.copy(SHADE.setScalar(PROP_BLUR.shade))
 }
 const SHADE = new Color()
 
 /**
- * 一具螺旋槳的殘影材質。圓盤在轉軸的 XY 平面上、繞 +Z 轉（`rotation.z` 增加 = 槳葉往角度
- * 增加的方向走），殘影拖在角度較小的那一側。
+ * 一具螺旋槳的殘影材質。圓盤在轉軸的 XY 平面上、繞 +Z 轉；殘影對稱，轉向不影響樣子。
  *
  * 【半透明、不寫深度】與舊的模糊圓盤同一套：繪製順序見 `PROP_DISC_RENDER_ORDER`
  */
@@ -84,17 +79,15 @@ export function createPropBlurMaterial(blades: number, radius: number): MeshStan
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
        varying vec2 vProp;
-       uniform float uBlades, uRadius, uOpacity, uRootAlpha, uTipAlpha, uRootSmear, uTipSmear, uBladeWidth, uCurve, uBase;`)
+       uniform float uBlades, uRadius, uOpacity, uRootAlpha, uTipAlpha, uRootSmear, uTipSmear, uBladeWidth, uBase;`)
       .replace('#include <dithering_fragment>', `#include <dithering_fragment>
        float rr = length(vProp) / uRadius;
-       // 外圈往後彎：槳尖比槳根落後 uCurve 圈
-       float turn = atan(vProp.y, vProp.x) / 6.28318530718 + uCurve * rr;
-       // 在這一片的間隔裡走到哪：0 = 槳葉前緣，往後（角度較小那一側）是 1 → 0，所以「落後多少」= 1 − 這個
-       float behind = 1.0 - fract(turn * uBlades);
+       float turn = atan(vProp.y, vProp.x) / 6.28318530718;
+       // 離最近一片槳葉的中線多遠，倍槳葉間隔（0 = 正中、0.5 = 兩片正中間）
+       float off = abs(fract(turn * uBlades + 0.5) - 0.5);
        float smear = mix(uRootSmear, uTipSmear, rr);
-       float trail = behind < uBladeWidth ? 1.0 : exp(-(behind - uBladeWidth) / max(smear, 1e-3));
-       // 前緣柔一點，不然是一條鋸齒
-       trail *= smoothstep(0.0, 0.015, behind);
+       float core = uBladeWidth * 0.5;
+       float trail = off < core ? 1.0 : exp(-(off - core) / max(smear, 1e-3));
        float dens = mix(uRootAlpha, uTipAlpha, clamp(rr, 0.0, 1.0));
        // 外緣柔邊：圓盤是多邊形，硬邊看得出稜角
        float rim = 1.0 - smoothstep(0.94, 1.0, rr);
