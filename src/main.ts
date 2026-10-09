@@ -40,6 +40,7 @@ import { arenaKills, createArenaState, SKIRMISH_ARENA, stepArena, type ArenaBoun
 import { createTerrain, preloadTerrainScenery, type TerrainGfx, type TerrainKind } from './render/terrain'
 import { createObjectiveRing } from './render/objectiveRing'
 import { boardRevealed, timeScale } from './battle/mission'
+import { advancePropBlur } from './render/propBlur'
 import { createTracers } from './render/tracers'
 import { createMuzzles, createTurretMuzzles } from './render/muzzle'
 import { createTurretBarrels } from './render/turretBarrels'
@@ -2114,6 +2115,12 @@ function frame(now: number) {
   lastTime = now
   perf.begin(now)
   bindings.tick(frameSeconds, touch.hold)
+  // 【螺旋槳殘影每一幀都轉】選單短片、機庫也有。戰鬥中照遊戲的流速（暫停不動、結算慢動作一起慢）；
+  // 座艙視角轉得慢（`COCKPIT_SPIN_DIVISOR`）。
+  // 【載入中當成戰鬥外】第一場載入時畫面已經是 battle，但 `battle` 還沒建
+  const inBattle = screen === 'battle' && !loadingBattle
+  const propBlurSeconds = !inBattle ? frameSeconds : paused ? 0 : frameSeconds * timeScale(battle.outcome, sinceBattleEnd)
+  advancePropBlur(propBlurSeconds, inBattle && !input.godView && input.viewMode === 'first')
   touch.sync(
     screen === 'battle' && !loadingBattle && !paused && battle.outcome === 'fighting',
   )

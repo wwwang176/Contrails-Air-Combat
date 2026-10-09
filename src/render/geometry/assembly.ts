@@ -25,8 +25,11 @@ export interface AircraftModel {
    * 公分，對一團火來說沒有分別。殘骸的燃燒（`render/wrecks.ts`）長在這裡。
    */
   enginePoints: readonly Vector3[]
-  /** rotation 為累積弧度；blurred 為 true 時切換為半透明圓盤 */
-  setPropSpin(rotation: number, blurred: boolean): void
+  /**
+   * rotation 為槳轂的累積弧度；blurred 為 true 時切換為殘影圓盤。
+   * throttle（0–1，省略 = 1）是這一架的油門：殘影轉速照它等比例（`render/propBlur.ts` 的 `propBlurRate`）
+   */
+  setPropSpin(rotation: number, blurred: boolean, throttle?: number): void
   dispose(): void
 }
 

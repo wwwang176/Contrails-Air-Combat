@@ -184,7 +184,7 @@ export function createAircraftVisuals(
       } else {
         v.model.group.visible = true
       }
-      shown.setPropSpin(propRotation, c.command.throttle > 0.15)
+      shown.setPropSpin(propRotation, c.command.throttle > 0.15, c.command.throttle)
 
       // 【翼尖凝結尾】接線點在 `v.wrecked` 與 `!c.alive` 的 continue 之後 ——
       // 翻滾的殘骸沒有升力，本來就不該冒尾跡，那是免費得到的。

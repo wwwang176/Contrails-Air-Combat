@@ -3,41 +3,63 @@ import { Color, DoubleSide, MeshStandardMaterial, type WebGLProgramParametersWit
 /**
  * # 轉動中的螺旋槳：槳葉的殘影
  *
- * 一張圓盤，片段端照角度與半徑算出「離最近一片槳葉多遠」：槳葉本身最濃，往前後兩側各拖出
- * 一道扇形殘影，越遠越淡（淡、深、淡）。殘影的長度、濃淡隨半徑變（槳根濃而短、槳尖淡而長）。
+ * 一張圓盤，片段端照角度與半徑算出「離最近一片槳葉的中線多遠」：槳葉本身最濃，往前後兩側
+ * 各拖出一道殘影，越遠越淡（淡、深、淡）。殘影的長度、濃淡隨半徑變（槳根濃而短、槳尖淡而長）。
  * 槳葉之間是透明的，看得到後面的機身。
  *
  * 【殘影不照真實轉速轉】圖案隨角度變化，照真實轉速轉的話每幀跨過的角度與槳葉間隔
- * 打拍子，看起來是慢慢轉、停住或倒轉（馬車輪效應）。圓盤另外照 `spin` 轉
+ * 打拍子，看起來是慢慢轉、停住或倒轉（馬車輪效應）。圓盤另外照 `PROP_BLUR_SPIN` 轉
  *
- * 【參數是全場共用的一份】`PROP_BLUR` 改了，下一幀所有螺旋槳一起變（工具頁的滑桿就是改它）
+ * 【參數是全場共用的一份】`PROP_BLUR` 改了，下一幀所有螺旋槳一起變（工具頁 /tools/propblur.html
+ * 的滑桿就是改它，數值在那裡調）
  */
 export const PROP_BLUR = {
   /** 整體不透明度 */
-  opacity: 0.85,
+  opacity: 1,
   /** 槳根、槳尖那一圈殘影的濃度（0–1） */
-  rootAlpha: 0.75,
-  tipAlpha: 0.25,
+  rootAlpha: 1,
+  tipAlpha: 0.07,
   /**
    * 槳根到槳尖的濃度漸變曲線：1 = 直線；越大往外掉得越快（外圈很快就接近槳尖濃度）、
    * 小於 1 則槳根濃度撐得越久
    */
-  fadeCurve: 1,
+  fadeCurve: 1.9,
   /** 殘影往每一側拖多遠，倍槳半徑：槳根、槳尖 */
   rootSmear: 0.05,
-  tipSmear: 0.15,
+  tipSmear: 0.205,
   /** 殘影長度從槳根到槳尖的增加曲線：1 = 直線；越大越集中在外圈才拉長 */
-  smearCurve: 2,
+  smearCurve: 1.4,
   /** 槳葉本身（最濃那一段）的寬度，倍槳半徑。槳根到槳尖一樣寬（槳葉是長條，不是扇形） */
-  bladeWidth: 0.1,
+  bladeWidth: 0.075,
   /** 整張圓盤的底色濃度（槳轂那裡）：槳葉之間也留一點點 */
-  base: 0.04,
+  base: 0.3,
   /** 底色往槳尖怎麼淡：0 = 整盤一樣濃；越大越早淡掉（槳尖那一圈 = 底色 ×（1 − 半徑）^這個） */
-  baseCurve: 0,
-  /** 殘影本身的轉速，rad/s */
-  spin: 4,
+  baseCurve: 3.7,
+  /** 殘影本身的轉速（外部視角、油門 100%），rad/s。實際轉速照油門等比例（`propBlurRate`） */
+  spin: 25,
   /** 殘影的顏色亮度（0 = 黑、1 = 白） */
-  shade: 0.12,
+  shade: 0,
+}
+
+/**
+ * 座艙視角時殘影轉速除以這個。槳盤就在眼前、佔大半個畫面，照外部視角的轉速轉會閃
+ */
+export const COCKPIT_SPIN_DIVISOR = 3
+
+/**
+ * 全場共用的殘影時鐘，s（`advancePropBlur` 推進）。每一架照兩幀之間時鐘走了多少、乘上自己的轉速
+ * （`propBlurRate`）累積自己的殘影角度
+ */
+export const PROP_BLUR_SPIN = { clock: 0 }
+
+/** 推進殘影時鐘一幀。`cockpit` 是玩家在座艙視角：時鐘只走 1/`COCKPIT_SPIN_DIVISOR` */
+export function advancePropBlur(dt: number, cockpit: boolean): void {
+  PROP_BLUR_SPIN.clock += cockpit ? dt / COCKPIT_SPIN_DIVISOR : dt
+}
+
+/** 這一架的殘影轉速，rad/s：`spin` × 油門（0–1），等比例 */
+export function propBlurRate(throttle: number): number {
+  return PROP_BLUR.spin * throttle
 }
 
 /** 所有殘影材質共用的 uniform：`PROP_BLUR` 每幀由 `syncPropBlur` 寫進來 */
@@ -75,7 +97,10 @@ const SHADE = new Color()
 /**
  * 一具螺旋槳的殘影材質。圓盤在轉軸的 XY 平面上、繞 +Z 轉；殘影對稱，轉向不影響樣子。
  *
- * 【半透明、不寫深度】與舊的模糊圓盤同一套：繪製順序見 `PROP_DISC_RENDER_ORDER`
+ * 【半透明、不寫深度】繪製順序見 `PROP_DISC_RENDER_ORDER`。
+ * 【DoubleSide】圓盤朝 −Z，單面的話只有從飛機後方才畫得出來，從前方看螺旋槳整個不見。
+ * 【forceSinglePass】three 對「透明＋雙面」預設分背面、正面兩趟畫，每一趟都把材質標髒、
+ * 重算 shader program，20 架就是每幀 40 次。圓盤是平的，一趟畫出來的像素與兩趟相同
  */
 export function createPropBlurMaterial(blades: number, radius: number): MeshStandardMaterial {
   const m = new MeshStandardMaterial({
@@ -112,6 +137,7 @@ export function createPropBlurMaterial(blades: number, radius: number): MeshStan
        gl_FragColor.a = clamp(trail * dens + baseA, 0.0, 1.0) * uOpacity * rim;`)
   }
   m.customProgramCacheKey = () => 'propBlur'
+  m.userData['propBlades'] = blades
   MATERIALS.add(m)
   m.addEventListener('dispose', () => { MATERIALS.delete(m) })
   return m
