@@ -20,8 +20,8 @@ export interface CloudField {
   readonly amount: CloudAmount
 }
 
-/** 每平方公里幾朵。視野 8 km 內大約看得到 20／40／70 朵 */
-export const CLOUD_DENSITY: Record<CloudAmount, number> = { few: 0.1, some: 0.2, many: 0.35 }
+/** 每平方公里幾朵。視野 8 km 內大約看得到 40／80／140 朵 */
+export const CLOUD_DENSITY: Record<CloudAmount, number> = { few: 0.2, some: 0.4, many: 0.7 }
 
 /**
  * 雲鋪到戰場半徑再往外多遠，m。雲最遠畫到 8 km（`CLOUD_DRAW_FAR`）：站在界上往外看，

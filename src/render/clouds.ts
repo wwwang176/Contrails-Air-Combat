@@ -71,10 +71,10 @@ export const CLOUD_TILES: readonly (readonly [number, number, number, number])[]
   [0.922, 0.715, 0, -0.131], [0.922, 0.664, 0, -0.168], [0.922, 0.609, 0, -0.164], [0.918, 0.672, -0.002, 0.16],
 ]
 /**
- * 全部雲朵合計最多幾團雲塊。最密的一場（半徑 20 km、`many`，440 朵）最壞是 13,200 團；
+ * 全部雲朵合計最多幾團雲塊。最密的一場（半徑 20 km、`many`，880 朵）最壞是 26,400 團；
  * 超過的雲塊被靜靜截掉，所以每一關與每一種遭遇戰組合的總數由 `cloud-field.test.ts` 守
  */
-export const CLOUD_PUFF_CAPACITY = 16384
+export const CLOUD_PUFF_CAPACITY = 32768
 /** 每這麼多公尺半徑一團雲塊；一朵雲的團數夾在 `CLOUD_PUFFS_MIN`～`CLOUD_PUFFS_MAX` */
 export const CLOUD_PUFF_SPACING = 4.7
 export const CLOUD_PUFFS_MIN = 12
