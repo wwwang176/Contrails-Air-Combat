@@ -8,9 +8,23 @@ const FADE_POINTS = 32
 /** 世界音訊的最後一段；管理淡入、限幅與輸出讀數，不管理聲道。 */
 export function createAudioOutput(ctx: BaseAudioContext, input: GainNode) {
   const fade = ctx.createGain()
+  /**
+   * 選單音樂的匯流排：**接在共用淡入之後**、限幅器之前。共用淡入是進戰鬥與恢復用的，經過它的話
+   * 第一次按「開始遊戲」時兩條淡入相乘。增益由引擎跟著主音量設
+   */
+  const musicInput = ctx.createGain()
   input.disconnect()
   input.connect(fade)
   fade.connect(ctx.destination)
+  musicInput.connect(ctx.destination)
+
+  /** 共用淡入與音樂匯流排一起改接到 `target` */
+  function route(target: AudioNode): void {
+    fade.disconnect()
+    musicInput.disconnect()
+    fade.connect(target)
+    musicInput.connect(target)
+  }
   let limGain = 1
   let limPeak = 0
   /**
@@ -30,12 +44,10 @@ export function createAudioOutput(ctx: BaseAudioContext, input: GainNode) {
     }
     node.onprocessorerror = () => {
       limiter = null
-      fade.disconnect()
       node.disconnect()
-      fade.connect(ctx.destination)
+      route(ctx.destination)
     }
-    fade.disconnect()
-    fade.connect(node)
+    route(node)
     node.connect(ctx.destination)
     limiter = node
   }).catch(() => { limiter = null })
@@ -60,9 +72,8 @@ export function createAudioOutput(ctx: BaseAudioContext, input: GainNode) {
 
   function bypassLimiter(): void {
     if (limiter === null) return
-    fade.disconnect()
     limiter.disconnect()
-    fade.connect(ctx.destination)
+    route(ctx.destination)
     limiter = null
   }
 
@@ -72,7 +83,7 @@ export function createAudioOutput(ctx: BaseAudioContext, input: GainNode) {
   }
 
   return {
-    fadeIn, resetLimiter, bypassLimiter, readMeter,
+    fadeIn, resetLimiter, bypassLimiter, readMeter, musicInput,
     get limiterEnabled() { return limiter !== null },
   }
 }

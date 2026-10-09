@@ -2,6 +2,8 @@ import { AudioListener, Vector3, type Camera } from 'three'
 import { PannedAudio } from './spatial'
 import { azimuthDeg, equalPowerMatrix, inverseDistanceGain, type ListenerPose } from './pan'
 import { createAudioOutput } from './output'
+import { createMusic } from './music'
+import { assetUrl } from '../core/asset'
 import { CATEGORY, POOLS, type Category, type Pool } from './catalog'
 import { createAudioAssets } from './assets'
 import { createUiAudio } from './uiAudio'
@@ -94,6 +96,11 @@ export interface AudioEngine {
   endFrame(): void
   /** 離開戰鬥：停掉所有聲音 */
   stopAll(): void
+  /**
+   * 選單背景音樂：開始、停止各 0.5 s 淡入淡出（`music.ts`）。`stopAll` 不停它；
+   * 切分頁、關音量時跟著整個音訊一起停
+   */
+  readonly music: { start(): void; stop(): void }
   /**
    * 現在的輸出峰值、限幅器壓了多少、HDR 的窗口與同時發聲數。**給錶用。**
    * 限幅器沒接上時壓縮量恆為 0。
@@ -218,6 +225,17 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
   const ctx = listener.context
   const output = createAudioOutput(ctx, listener.gain)
   const { fadeIn, resetLimiter } = output
+
+  /** 選單背景音樂。**第一次 `music.start()` 才建** —— 開場頁不下載它 */
+  let music: ReturnType<typeof createMusic> | null = null
+  function menuMusic(): ReturnType<typeof createMusic> {
+    if (music === null) {
+      music = createMusic(ctx, output.musicInput, new Audio(assetUrl('/music/menu.mp3')))
+      // 【建的時候對齊現在的播停】之後只在變的時候才通知
+      music.setRunning(running)
+    }
+    return music
+  }
   /**
    * 試聽用的開關：在主控台打 `__audioMix({ limiter: false })` 可以當場拆掉
    * 限幅器、`{ hdr: false }` 關掉動態窗口，比對某個怪聲是哪一層造成的。
@@ -372,6 +390,8 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
       fadeIn(RESUME_FADE_IN)
     }
     running = run
+    // 【音樂的元素也要停】context 暫停只是不輸出，元素照樣往前走
+    music?.setRunning(run)
     runChain = runChain.then(() => {
       const run = unlocked && !playback.muted && !paused
       return run ? ctx.resume() : ctx.suspend()
@@ -674,6 +694,7 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
 
   return {
     load,
+    music: { start: () => menuMusic().start(), stop: () => music?.stop() },
     unlock() {
       unlocked = true
       applyRunState()
@@ -686,6 +707,8 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
       // 【加上混音餘裕】設定頁的「高」是 0，但那是**使用者看到的滿音量**，
       // 不是 0 dBFS。見 `MIX_HEADROOM_DB`
       if (db !== null) listener.setMasterVolume(dbToGain(db + MIX_HEADROOM_DB))
+      // 【音樂匯流排不在 listener 之後】跟著主音量另外設
+      if (db !== null) output.musicInput.gain.value = dbToGain(db + MIX_HEADROOM_DB)
       uiAudio.setVolume(db)
       applyRunState()
     },

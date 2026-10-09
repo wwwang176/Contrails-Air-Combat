@@ -11,15 +11,17 @@ function fixture() {
   const fade = { ...node(), gain: {
     value: 0, cancelScheduledValues: vi.fn(), setValueCurveAtTime: vi.fn(),
   } }
+  const music = { ...node(), gain: { value: 1 } }
   const input = node()
   const limiter = { ...node(), port: { onmessage: null as null | ((e: MessageEvent) => void), postMessage: vi.fn() },
     onprocessorerror: null as null | (() => void) }
   const construct = vi.fn(function () { return limiter })
   vi.stubGlobal('AudioWorkletNode', construct)
-  const ctx = { currentTime: 4, destination: {}, createGain: vi.fn(() => fade),
+  const ctx = { currentTime: 4, destination: {},
+    createGain: vi.fn().mockReturnValueOnce(fade).mockReturnValueOnce(music),
     audioWorklet: { addModule: vi.fn(() => loaded) } }
   const create = () => createAudioOutput(ctx as unknown as BaseAudioContext, input as unknown as GainNode)
-  return { ctx, input, fade, limiter, construct, create, resolve, reject }
+  return { ctx, input, fade, music, limiter, construct, create, resolve, reject }
 }
 
 describe('世界音訊的輸出端', () => {
@@ -55,6 +57,29 @@ describe('世界音訊的輸出端', () => {
     expect(f.limiter.disconnect).toHaveBeenCalledOnce()
   })
 
+  /**
+   * 【音樂匯流排在共用淡入之後】共用淡入是進戰鬥與恢復用的；經過它的話第一次按「開始遊戲」時
+   * 兩條淡入相乘。它一樣要過限幅器：接上、失效、旁路都跟著共用淡入改接
+   */
+  it('音樂匯流排與共用淡入接到同一個地方：直接輸出、限幅器、出錯、旁路', async () => {
+    const f = fixture()
+    const output = f.create()
+    expect(output.musicInput).toBe(f.music)
+    expect(f.music.connect).toHaveBeenLastCalledWith(f.ctx.destination)
+    f.resolve()
+    await Promise.resolve()
+    expect(f.music.connect).toHaveBeenLastCalledWith(f.limiter)
+    output.bypassLimiter()
+    expect(f.music.connect).toHaveBeenLastCalledWith(f.ctx.destination)
+    const g = fixture()
+    const second = g.create()
+    g.resolve()
+    await Promise.resolve()
+    g.limiter.onprocessorerror!()
+    expect(g.music.connect).toHaveBeenLastCalledWith(g.ctx.destination)
+    expect(second.musicInput).toBe(g.music)
+  })
+
   it('處理器出錯後改回直接輸出', async () => {
     const f = fixture()
     const output = f.create()
@@ -78,7 +103,8 @@ describe('世界音訊的輸出端', () => {
     expect(f.construct).not.toHaveBeenCalled()
     expect(f.fade.disconnect).not.toHaveBeenCalled()
     expect(f.fade.connect).toHaveBeenLastCalledWith(f.ctx.destination)
-    const ctx = { ...f.ctx, audioWorklet: undefined }
+    const ctx = { ...f.ctx, audioWorklet: undefined,
+      createGain: vi.fn(() => ({ connect: vi.fn(), disconnect: vi.fn(), gain: { value: 1 } })) }
     expect(() => createAudioOutput(ctx as unknown as BaseAudioContext, f.input as unknown as GainNode)).not.toThrow()
   })
 

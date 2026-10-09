@@ -40,6 +40,41 @@ function body(head: string, source = SRC): string {
   return source.slice(at, end + 1).join('\n')
 }
 
+/**
+ * 【選單背景音樂的四個時機】按「開始遊戲」開始、開始載入戰鬥時停（排在載入之前，0.5 s 淡出蓋在
+ * 載入畫面上）、離開戰鬥回到選單再開始、開發用的 `__drill` 直接進戰鬥也停。漏掉任何一處，
+ * 那條路徑上音樂不是不響就是帶進戰鬥，而且不報錯
+ */
+describe('選單背景音樂的接線', () => {
+  it('onEvent：開始、進戰鬥、離開戰鬥；__drill', () => {
+    const fn = body('  onEvent(event) {')
+    expect(fn).toContain("if (event === 'start') audio.music.start()")
+    const fight = fn.slice(fn.indexOf("if (event === 'fight' && screen === 'battle') {"))
+    expect(fight.indexOf('audio.music.stop()')).toBeGreaterThan(-1)
+    expect(fight.indexOf('audio.music.stop()')).toBeLessThan(fight.indexOf('void loadBattle()'))
+    const leave = fn.slice(fn.indexOf("if (from === 'battle' && screen !== 'battle') {"))
+    expect(leave.indexOf('audio.music.start()')).toBeGreaterThan(leave.indexOf('leaveBattle()'))
+    expect(leave.indexOf('audio.music.start()')).toBeLessThan(leave.indexOf('\n    }'))
+    expect(body("(window as unknown as Record<string, unknown>)['__drill'] = ")).toContain('audio.music.stop()')
+  })
+
+  /**
+   * 【引擎那一半】音樂接在輸出端的音樂匯流排（共用淡入之後）；匯流排跟著主音量；context 的播停
+   * 要通知音樂 —— context 暫停只是不輸出，元素照樣往前走
+   */
+  it('引擎：第一次開始才建、建在音樂匯流排上、匯流排跟著主音量、播停通知音樂', () => {
+    const engine = ENGINE.join('\n')
+    const make = body('function menuMusic(', ENGINE)
+    expect(make).toContain("music = createMusic(ctx, output.musicInput, new Audio(assetUrl('/music/menu.mp3')))")
+    // 【建的時候對齊現在的播停】否則 context 早就在跑，音樂卻以為沒在跑而永遠不播
+    expect(make).toContain('music.setRunning(running)')
+    expect(body('function applyRunState(', ENGINE)).toContain('music?.setRunning(run)')
+    const vol = body('  setVolume(db) {', ENGINE)
+    expect(vol).toContain('if (db !== null) output.musicInput.gain.value = dbToGain(db + MIX_HEADROOM_DB)')
+    expect(engine).toContain('music: { start: () => menuMusic().start(), stop: () => music?.stop() },')
+  })
+})
+
 describe('音效的生命週期接線', () => {
   /** 【手勢裡解鎖】瀏覽器要使用者手勢才肯出聲；出擊那一下就是 grabPointer */
   it('grabPointer 裡解鎖音訊', () => {

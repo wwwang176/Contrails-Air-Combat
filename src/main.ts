@@ -1979,6 +1979,8 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
       mode = 'skirmish'
       pendingMission = null
     }
+    // 【選單背景音樂】按「開始遊戲」才開始（開場頁不播）；點擊已經先解鎖音訊
+    if (event === 'start') audio.music.start()
     // 【短片只在選單類畫面放】機庫有自己的展示場、戰鬥有自己的場景。停下時連共用的
     // 特效池一起清 —— 機庫不推進那些池，留著的黑雲會凍在天上
     if (screen === 'hangar' || screen === 'battle') menuReel.stop()
@@ -1989,12 +1991,15 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
       // 【先鎖指標再載入】瀏覽器只准在點擊的當下要指標鎖定；等載入完再要會被拒絕
       grabPointer()
       setPausedState(false)
+      // 音樂在載入畫面上淡出，戰鬥中不播
+      audio.music.stop()
       void loadBattle()
     }
     // 【離開戰鬥要清場】不清的話回到主選單還看得到上一場的戰場
     if (from === 'battle' && screen !== 'battle') {
       setPausedState(false)
       leaveBattle()
+      audio.music.start()
     }
     // 【離開機庫也要清場】展示機與它的彈留在場景裡的話，主選單的海上會
     // 有一架飛機在遠處繞圈
@@ -2501,6 +2506,7 @@ Object.assign(window, createSceneryInspection({
     screen = 'battle'
     // 【與選單進戰鬥同一條】短片不停的話，離場清掉的雲它不會再鋪回來
     menuReel.stop()
+    audio.music.stop()
     enterBattle()
     setPausedState(false)
     menu.show(screen)

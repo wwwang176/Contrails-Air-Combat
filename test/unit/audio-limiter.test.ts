@@ -195,7 +195,9 @@ describe('限幅器的接線', () => {
   const ENGINE = readFileSync('src/audio/engine.ts', 'utf8').replace(/\r\n/g, '\n')
 
   it('接在淡入之後、喇叭之前', () => {
-    expect(SRC).toContain('fade.connect(node)')
+    // 共用淡入與音樂匯流排由 `route` 一起改接
+    expect(SRC).toContain('route(node)')
+    expect(SRC.slice(SRC.indexOf('function route('), SRC.indexOf('function route(') + 200)).toContain('fade.connect(target)')
     expect(SRC).toContain('node.connect(ctx.destination)')
   })
 
@@ -209,8 +211,8 @@ describe('限幅器的接線', () => {
     const at = SRC.indexOf('node.onprocessorerror')
     expect(at).toBeGreaterThan(0)
     const body = SRC.slice(at, at + 260)
-    expect(body).toContain('fade.disconnect()')
-    expect(body).toContain('fade.connect(ctx.destination)')
+    expect(body).toContain('node.disconnect()')
+    expect(body).toContain('route(ctx.destination)')
   })
 
   /** 【恢復與換場都要清緩衝】不清就會漏出乘過舊增益的那幾毫秒 */
