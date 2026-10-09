@@ -5,10 +5,10 @@ export const MUSIC_FADE_SECONDS = 0.5
 
 /**
  * 選單音樂的音量。檔案整首正規化到 −16 LUFS，壓峰值少掉的 `makeupDb` 在這裡補回；
- * `gainDb` 與自己的引擎（`CATEGORY.engineSelf`）同一個量級，由試聽裁定
+ * `gainDb` 由試聽裁定
  */
 export const MENU_MUSIC = (() => {
-  const gainDb = -3
+  const gainDb = -9
   const makeupDb = 1.8
   return { gainDb, makeupDb, level: dbToGain(gainDb + makeupDb) }
 })()

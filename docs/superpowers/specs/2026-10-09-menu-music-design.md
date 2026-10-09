@@ -37,8 +37,7 @@
   - 匯流排的增益跟著主音量（`setVolume` 同時設 `listener` 與它，含混音餘量）
 - 引擎（`createAudioEngine`）建一個音樂，接在匯流排上；`applyRunState` 每次呼叫 `music.setRunning`
   - 引擎介面多 `music: { start(): void; stop(): void }`
-- 音量：`MENU_MUSIC.gainDb`，起始值與自己的引擎同一個量級（−3 dB），由試聽裁定；加上檔案壓峰值少掉的
-  `makeupDb` 1.8 dB
+- 音量：`MENU_MUSIC.gainDb` −9 dB（試聽裁定）；加上檔案壓峰值少掉的 `makeupDb` 1.8 dB
 - 網址用 `assetUrl('/music/menu.mp3')`
 
 ## 接線（`main.ts` 的 `onEvent`）
