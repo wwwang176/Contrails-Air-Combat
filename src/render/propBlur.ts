@@ -23,11 +23,11 @@ export const PROP_BLUR = {
    * 小於 1 則槳根濃度撐得越久
    */
   fadeCurve: 1,
-  /** 殘影往每一側拖多長，倍槳葉間隔（0–0.5）：槳根、槳尖 */
-  rootSmear: 0.06,
+  /** 殘影往每一側拖多遠，倍槳半徑：槳根、槳尖 */
+  rootSmear: 0.05,
   tipSmear: 0.15,
-  /** 槳葉本身（最濃那一段）的寬度，倍槳葉間隔 */
-  bladeWidth: 0.04,
+  /** 槳葉本身（最濃那一段）的寬度，倍槳半徑。槳根到槳尖一樣寬（槳葉是長條，不是扇形） */
+  bladeWidth: 0.1,
   /** 整張圓盤的底色濃度：槳葉之間也留一點點 */
   base: 0.04,
   /** 殘影本身的轉速，rad/s */
@@ -90,11 +90,13 @@ export function createPropBlurMaterial(blades: number, radius: number): MeshStan
       .replace('#include <dithering_fragment>', `#include <dithering_fragment>
        float rr = length(vProp) / uRadius;
        float turn = atan(vProp.y, vProp.x) / 6.28318530718;
-       // 離最近一片槳葉的中線多遠，倍槳葉間隔（0 = 正中、0.5 = 兩片正中間）
+       // 離最近一片槳葉的中線差幾度（倍槳葉間隔，0 = 正中、0.5 = 兩片正中間），換成垂直距離（倍半徑）：
+       // 用距離而不是角度，槳葉才是一樣寬的長條，不會越往外越寬
        float off = abs(fract(turn * uBlades + 0.5) - 0.5);
+       float dist = rr * sin(off * 6.28318530718 / uBlades);
        float smear = mix(uRootSmear, uTipSmear, rr);
        float core = uBladeWidth * 0.5;
-       float trail = off < core ? 1.0 : exp(-(off - core) / max(smear, 1e-3));
+       float trail = dist < core ? 1.0 : exp(-(dist - core) / max(smear, 1e-3));
        float dens = mix(uRootAlpha, uTipAlpha, 1.0 - pow(1.0 - clamp(rr, 0.0, 1.0), uFadeCurve));
        // 外緣柔邊：圓盤是多邊形，硬邊看得出稜角
        float rim = 1.0 - smoothstep(0.94, 1.0, rr);
