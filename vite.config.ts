@@ -11,6 +11,7 @@ const TOOLS = {
   ground: 'tools/ground.html',
   range: 'tools/range.html',
   propdisc: 'tools/propdisc.html',
+  propblur: 'tools/propblur.html',
   damageedge: 'tools/damageedge.html',
   daylight: 'tools/daylight.html',
   blast: 'tools/blast.html',
