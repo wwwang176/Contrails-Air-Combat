@@ -2564,6 +2564,18 @@
    -21.1
   ]
  },
+ "water-hit-1": {
+  "loop": false,
+  "makeupDb": 0.0,
+  "envelopeDb": [
+   0.0,
+   -0.6,
+   -0.4,
+   -3.2,
+   -9.9,
+   -22.6
+  ]
+ },
  "whistle-1": {
   "loop": false,
   "makeupDb": 0.0,

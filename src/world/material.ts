@@ -10,8 +10,10 @@
 export const MATERIAL = {
   /** 艦體：厚鋼板 */
   ship: 0,
-  /** 地面目標：建築、車輛、砲位 */
+  /** 地面目標：建築、砲位，以及其他不是車輛的 */
   ground: 1,
+  /** 車輛：戰車、卡車、半履帶車、反坦克砲、火車（`GroundUnit.vehicle`） */
+  vehicle: 2,
 } as const
 
 export type ImpactMaterial = typeof MATERIAL[keyof typeof MATERIAL]

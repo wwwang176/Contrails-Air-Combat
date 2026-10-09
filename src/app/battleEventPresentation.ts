@@ -30,7 +30,7 @@ type EventTerrain = Pick<ReturnType<typeof createTerrain>, 'heightAt' | 'collisi
 export interface BattleEventSinks {
   readonly camera: Pick<Camera, 'position' | 'quaternion'>
   readonly damageMarks: DamageMark[]
-  readonly battleAudioCues: Pick<ReturnType<typeof createBattleAudioCues>, 'queueAudioCues'>
+  readonly battleAudioCues: Pick<ReturnType<typeof createBattleAudioCues>, 'queueAudioCues' | 'noteWaterHits'>
   readonly sparks: Pick<ReturnType<typeof createSparks>, 'emit'>
   readonly dirt: Pick<DirtImpacts, 'emit'>
   readonly splashes: Pick<ReturnType<typeof createSplashes>, 'emit'>
@@ -77,6 +77,9 @@ export function createBattleEventPresentation({
     const c = camera.position
     dirt.emit(world.terrainHitEvents, c.x, c.y, c.z, terrain.waterAt, riverSplashes)
     splashes.emit(riverSplashes, terrain.waterAt, elapsed)
+    // 【打到水面的聲音】海面與河面兩條，都要在下面排空之前交出去
+    battleAudioCues.noteWaterHits(world.splashEvents)
+    battleAudioCues.noteWaterHits(riverSplashes)
     clearImpacts(world.hitEvents)
     clearImpacts(world.terrainHitEvents)
     clearImpacts(riverSplashes)

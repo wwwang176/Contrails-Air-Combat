@@ -173,6 +173,25 @@ describe('音效的戰鬥事件接線', () => {
    * 不會整個沒聲音。**一定要限頻率** —— 對船掃射每秒命中幾十發，不限的話
    * 光這一項就把事件佇列灌滿，爆炸與擊落全被擠掉。
    */
+  /**
+   * 【會飛的彈打到水都有聲音】三條來源：彈丸穿過海面（`splashEvents`）、打進河床（`dirt.emit`
+   * 轉成的 `riverSplashes`）、地面戰的砲彈落在河裡（`shellRiverSplash`）。每一條都要在排空之前
+   * 交給音效 —— 排在清除之後就永遠是空的，而且不報錯
+   */
+  it('打到水面的三條來源都在排空之前交給音效', () => {
+    const ev = EVENTS.join('\n')
+    expect(ev).toContain('battleAudioCues.noteWaterHits(world.splashEvents)')
+    expect(ev).toContain('battleAudioCues.noteWaterHits(riverSplashes)')
+    expect(ev.indexOf('battleAudioCues.noteWaterHits(world.splashEvents)')).toBeLessThan(ev.indexOf('clearImpacts(world.splashEvents)'))
+    expect(ev.indexOf('battleAudioCues.noteWaterHits(riverSplashes)')).toBeGreaterThan(ev.indexOf('dirt.emit(world.terrainHitEvents'))
+    expect(ev.indexOf('battleAudioCues.noteWaterHits(riverSplashes)')).toBeLessThan(ev.indexOf('clearImpacts(riverSplashes)'))
+    const shell = body('const onShellLanded = ')
+    expect(shell).toContain('battleAudioCues.noteWaterHits(shellRiverSplash)')
+    expect(shell.indexOf('battleAudioCues.noteWaterHits(shellRiverSplash)')).toBeLessThan(shell.indexOf('clearImpacts(shellRiverSplash)'))
+    const play = body('function playFrame(', CUES)
+    expect(play).toContain('playWaterHit(elapsed)')
+  })
+
   it('子彈打到船殼、建築有定位的撞擊聲，而且限頻率', () => {
     const q = body('function queueAudioCues(', CUES)
     expect(q).toContain('world.materialHits')

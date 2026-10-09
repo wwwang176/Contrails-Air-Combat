@@ -317,7 +317,7 @@ export class ProjectileHits {
         if (hitTarget !== null) {
           const hx = ax + (bx - ax) * bestT, hy = ay + (by - ay) * bestT, hz = az + (bz - az) * bestT
           pushImpact(world.hitEvents, hx, hy, hz, -(bx - ax), -(by - ay), -(bz - az))
-          pushImpact(world.materialHits, hx, hy, hz, MATERIAL.ground, 0, 0)
+          pushImpact(world.materialHits, hx, hy, hz, hitTarget.unit.vehicle === true ? MATERIAL.vehicle : MATERIAL.ground, 0, 0)
           if (hitPart !== null) {
             hitTarget.hp -= partDamage(hitTarget.airframe!.protection, p.damage[i]!, hitPart)
           } else {

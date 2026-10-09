@@ -42,7 +42,7 @@ function setup() {
   })
   const deps = {
     camera, damageMarks, groundFires, shipFires: createShipFires(), BLAST_POOLS,
-    battleAudioCues: { queueAudioCues: audio },
+    battleAudioCues: { queueAudioCues: audio, noteWaterHits: vi.fn((e: ImpactEvents) => { observed.push(`water:${e.count}`) }) },
     sparks: { emit: record('sparks') }, splashes: { emit: record('splashes') }, dirt,
     blastPresentation: {
       emitKillBlasts: record('kill'), emitGroundKills: record('ground'),
@@ -70,9 +70,9 @@ describe('物理子步的事件呈現', () => {
     pushImpact(world.torpedoWakeEvents, 30, 0, 40, 0, 1, 0)
     pushBurst(world.burstEvents, 1, 2, 3, 0)
     present(world, player, terrain, 5, false)
-    // 兩次 splashes：子彈入海那一份、土柱推出的河面水柱那一份
+    // 兩次 splashes：子彈入海那一份、土柱推出的河面水柱那一份；兩份都在排空之前交給打到水面的聲音
     expect(observed).toEqual([
-      'audio:1:1:1', 'sparks:1', 'splashes:1', 'dirt:1', 'splashes:1', 'kill:1', 'ground:0',
+      'audio:1:1:1', 'sparks:1', 'splashes:1', 'dirt:1', 'splashes:1', 'water:1', 'water:1', 'kill:1', 'ground:0',
       'balloon:0', 'debris:1', 'bomb:1', 'torpedo:1', 'flak:1',
     ])
     // 河面水柱的高度函數是這一次傳進來的水面，不是陸地高度

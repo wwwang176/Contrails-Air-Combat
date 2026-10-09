@@ -8,6 +8,7 @@ import { NO_PENETRATION_DAMAGE } from '../../src/weapons/armour'
 import { GROUND_UNITS } from '../../src/specs/ground'
 import { boundingRadius } from '../../src/world/hit'
 import { BOMB_BLAST_DAMAGE } from '../../src/weapons/bomb'
+import { MATERIAL } from '../../src/world/material'
 
 /**
  * 地面目標接進 World 的護欄。
@@ -61,6 +62,14 @@ describe('地面目標的資料', () => {
     }
   })
 
+  /** 【車輛打起來是金屬聲】戰車、卡車、半履帶車、反坦克砲、火車；建物、砲位、人不是 */
+  it('車輛的登記', () => {
+    expect(GROUND_UNITS.filter((u) => u.vehicle === true).map((u) => u.id).sort()).toEqual([
+      'atGun', 'boxcar', 'flatcar', 'locomotive', 'panzer4', 'tank', 'tankDug', 'tender', 'tiger', 'truck',
+      'usFlakTrack', 'usTank', 'usTruck',
+    ])
+  })
+
   it('落地把 y 填成地面高度，開局位置一起填', () => {
     const t = createGroundTarget(0, 'tank', 'red', 10, 20, 0)
     settleGroundTargets([t], (x, z) => x + z)
@@ -76,6 +85,21 @@ describe('子彈打地面目標', () => {
     shoot(world, 0)
     expect(target.hp).toBe(hp - 100)
     expect(world.hitEvents.count).toBeGreaterThan(0)
+  })
+
+  /** 撞擊聲看材質：車輛記 `vehicle`，其餘地面目標記 `ground` */
+  it('打中車輛記車輛材質，打中建物記地面材質', () => {
+    const { world } = fieldWith('truck')
+    shoot(world, 0)
+    expect(world.materialHits.count).toBe(1)
+    expect(world.materialHits.data[3]).toBe(MATERIAL.vehicle)
+    const dump = new World()
+    dump.groundAt = () => 0
+    dump.waterAt = () => -Infinity
+    dump.groundTargets.push(createGroundTarget(0, 'fuelDump', 'red', 0, 0, 0))
+    shoot(dump, 0)
+    expect(dump.materialHits.count).toBe(1)
+    expect(dump.materialHits.data[3]).toBe(MATERIAL.ground)
   })
 
   it('同隊的子彈穿過去', () => {

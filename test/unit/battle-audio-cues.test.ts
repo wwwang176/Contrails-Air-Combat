@@ -9,7 +9,8 @@ import { JU87 } from '../../src/specs/ju87'
 import { B17G } from '../../src/specs/b17g'
 import { World } from '../../src/world/World'
 import { clearDamage, pushDamage } from '../../src/world/damage'
-import { pushImpact } from '../../src/world/events'
+import { clearImpacts, createImpacts, pushImpact } from '../../src/world/events'
+import { WATER_HIT } from '../../src/audio/catalog'
 import { pushBurst } from '../../src/world/flak'
 import { HIT_PARTS } from '../../src/world/hit'
 
@@ -196,6 +197,56 @@ describe('戰鬥單次音效的收集與播放', () => {
     hitFeedback(near.aircraft.state.position.distanceTo(cam), fb)
     expect(playPool.mock.calls).toEqual([['hit', 'hitDealt', 0, 0, 0, false, fb.gainDb, false,
       hitRate(JU87.mass, JU87.protection[HIT_PARTS[1]!]), fb.cutoffHz]])
+  })
+
+  /**
+   * 【打到水面：兩層同時起播、共用一個音高】碎屑過低通，疊上落水聲。限頻與材質撞擊同一套：
+   * 聽得到的範圍內挑最近的一發、聽不到的不佔時段；候選跨幀留到播完才清
+   * （地面戰的砲彈落地在 `playFrame` 之後才寫進來）
+   */
+  it('打到水面：挑聽得到的最近一發，兩層同一個音高；候選播完才清、被擋的不留', () => {
+    const { world, player, playPool, cues } = setup()
+    vi.spyOn(Math, 'random').mockReturnValue(0.75)
+    const ev = createImpacts()
+    pushImpact(ev, 3000, 1000, 0, 0, 1, 0)
+    pushImpact(ev, 300, 1000, 0, 0, 1, 0)
+    cues.noteWaterHits(ev)
+    clearImpacts(ev)
+    pushImpact(ev, 40, 1000, 0, 0, 1, 0)
+    cues.noteWaterHits(ev)
+    cues.playFrame(world, player, 10, true)
+    const r = 0.92 + 0.75 * 0.16
+    expect(playPool.mock.calls).toEqual([
+      ['debris', 'waterHit', 40, 1000, 0, true, WATER_HIT.debrisDb, false, r, WATER_HIT.debrisCutoffHz],
+      ['waterHit', 'waterHit', 40, 1000, 0, true, WATER_HIT.splashDb, false, r],
+    ])
+    // 播完就清：下一幀沒有新的就不響
+    cues.playFrame(world, player, 10.1, true)
+    expect(playPool).toHaveBeenCalledTimes(2)
+    // 聽不到的不佔時段
+    clearImpacts(ev)
+    pushImpact(ev, 5000, 1000, 0, 0, 1, 0)
+    cues.noteWaterHits(ev)
+    cues.playFrame(world, player, 10.2, true)
+    expect(playPool).toHaveBeenCalledTimes(2)
+    clearImpacts(ev)
+    pushImpact(ev, 50, 1000, 0, 0, 1, 0)
+    cues.noteWaterHits(ev)
+    cues.playFrame(world, player, 10.21, true)
+    expect(playPool).toHaveBeenCalledTimes(4)
+    // 時段內被擋的不留到下一幀
+    cues.noteWaterHits(ev)
+    cues.playFrame(world, player, 10.22, true)
+    cues.playFrame(world, player, 11, true)
+    expect(playPool).toHaveBeenCalledTimes(4)
+    // 重設清掉候選與時段
+    cues.noteWaterHits(ev)
+    cues.reset()
+    cues.playFrame(world, player, 11.01, true)
+    expect(playPool).toHaveBeenCalledTimes(4)
+    cues.noteWaterHits(ev)
+    cues.playFrame(world, player, 0, true)
+    expect(playPool).toHaveBeenCalledTimes(6)
   })
 
   it('命中回饋使用實際受害者與部位；不在座艙時消耗待播旗標', () => {

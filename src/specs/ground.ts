@@ -58,6 +58,11 @@ export interface GroundUnit {
    * 擊毀事件照推（計數與通報照常），只有畫面與音效略過。
    */
   personnel?: true
+  /**
+   * 這一種是車輛（含反坦克砲、火車）。子彈打上去是金屬撞擊聲（`MATERIAL.vehicle`），
+   * 不是建物那一種碎屑聲
+   */
+  vehicle?: true
   /** 命中盒，遊戲座標。 */
   hull: readonly Box[]
 }
@@ -80,29 +85,29 @@ function measuredBox(center: readonly [number, number, number], half: readonly [
 export const GROUND_UNITS: readonly GroundUnit[] = [
   {
     id: 'tank', note: '蘇軍戰車 — 德 M4 勒熱夫突擊的縱隊',
-    realLength: 6.68, realWidth: 3.00, realHeight: 2.60,
+    realLength: 6.68, realWidth: 3.00, realHeight: 2.60, vehicle: true,
     hull: [groundBox([-1.50, 0.00, -2.61], [1.50, 2.63, 3.54])],
   },
   {
     // 劇本殘骸與突擊縱隊分開計數，也有不同的 AI 目標價值。
     id: 'tankDug', note: '蘇軍戰車（殘骸與劇本打掉的）— 德 M4 勒熱夫',
-    realLength: 6.68, realWidth: 3.00, realHeight: 2.60,
+    realLength: 6.68, realWidth: 3.00, realHeight: 2.60, vehicle: true,
     hull: [groundBox([-1.50, 0.00, -2.61], [1.50, 2.63, 3.54])],
   },
   {
     id: 'atGun', note: 'ZiS-3 76 mm 加農砲 — 德 M4 勒熱夫：蘇軍支援砲（第一段的目標）與德軍的反坦克砲共用',
     // 寬是兩根架腳張開的跨距。盒子前緣 −0.41：防盾上角在 ±27° 射界內會伸到 −0.41
-    realLength: 5.56, realWidth: 3.36, realHeight: 1.37,
+    realLength: 5.56, realWidth: 3.36, realHeight: 1.37, vehicle: true,
     hull: [groundBox([-1.68, 0.00, -0.41], [1.68, 1.37, 2.66])],
   },
   {
     id: 'panzer4', note: '德軍 IV 號戰車 — 德 M4 勒熱夫',
-    realLength: 6.68, realWidth: 2.92, realHeight: 2.56,
+    realLength: 6.68, realWidth: 2.92, realHeight: 2.56, vehicle: true,
     hull: [groundBox([-1.46, 0.00, -2.95], [1.46, 2.56, 3.21])],
   },
   {
     id: 'tiger', note: '德軍虎式戰車 — 目前沒有任務使用',
-    realLength: 8.34, realWidth: 3.56, realHeight: 2.93,
+    realLength: 8.34, realWidth: 3.56, realHeight: 2.93, vehicle: true,
     hull: [groundBox([-1.78, 0.00, -3.15], [1.78, 2.93, 3.05])],
   },
   {
@@ -117,7 +122,7 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   {
     id: 'truck', note: '蘇軍 4 噸卡車 — 德 M4 勒熱夫的德軍後勤也借用它（暫代）',
-    realLength: 6.72, realWidth: 2.385, realHeight: 2.70,
+    realLength: 6.72, realWidth: 2.385, realHeight: 2.70, vehicle: true,
     hull: [groundBox([-1.21, 0.00, -3.40], [1.21, 2.70, 3.32])],
   },
   {
@@ -132,17 +137,17 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   {
     id: 'usTank', note: '美軍戰車 — 日 M2 雷伊泰車隊',
-    realLength: 5.84, realWidth: 2.62, realHeight: 2.58,
+    realLength: 5.84, realWidth: 2.62, realHeight: 2.58, vehicle: true,
     hull: [groundBox([-1.30, 0.00, -2.92], [1.30, 2.58, 2.88])],
   },
   {
     id: 'usTruck', note: '美軍兩噸半卡車 — 日 M2 雷伊泰車隊',
-    realLength: 6.93, realWidth: 2.24, realHeight: 2.79,
+    realLength: 6.93, realWidth: 2.24, realHeight: 2.79, vehicle: true,
     hull: [groundBox([-1.10, 0.00, -3.52], [1.10, 2.86, 3.29])],
   },
   {
     id: 'usFlakTrack', note: '美軍四聯 .50 防空半履帶車 — 日 M2 雷伊泰車隊與灘頭',
-    realLength: 6.51, realWidth: 2.16, realHeight: 2.61,
+    realLength: 6.51, realWidth: 2.16, realHeight: 2.61, vehicle: true,
     hull: [groundBox([-1.05, 0.00, -3.43], [1.05, 2.61, 2.90])],
   },
   {
@@ -152,22 +157,22 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   },
   {
     id: 'locomotive', note: '蒸汽機車 — 盟 M3 諾曼第斷軌',
-    realLength: 13.00, realWidth: 3.10, realHeight: 4.45,
+    realLength: 13.00, realWidth: 3.10, realHeight: 4.45, vehicle: true,
     hull: [measuredBox([0, 2.2310123052448034, 0], [1.5700000524520874, 2.2089877519756556, 6.5])],
   },
   {
     id: 'tender', note: '接在機車後面 — 盟 M3',
-    realLength: 8.60, realWidth: 2.92, realHeight: 3.35,
+    realLength: 8.60, realWidth: 2.92, realHeight: 3.35, vehicle: true,
     hull: [measuredBox([0, 1.683190569281578, 0], [1.4299999475479126, 1.6587188392877579, 4.300000190734863])],
   },
   {
     id: 'boxcar', note: '有蓋貨車 — 盟 M3',
-    realLength: 9.10, realWidth: 2.92, realHeight: 3.70,
+    realLength: 9.10, realWidth: 2.92, realHeight: 3.70, vehicle: true,
     hull: [measuredBox([0, 1.8617464657872915, 0], [1.4600000381469727, 1.8382535818964243, 4.550000190734863])],
   },
   {
     id: 'flatcar', note: '載台，可放防空砲 — 盟 M3',
-    realLength: 10.30, realWidth: 2.92, realHeight: 1.72,
+    realLength: 10.30, realWidth: 2.92, realHeight: 1.72, vehicle: true,
     hull: [measuredBox([0, 0.8717464562505484, 0], [1.4600000381469727, 0.8482535723596811, 5.150000095367432])],
   },
   plant('hydroTower', { note: '高壓氫化反應塔，成排 — 盟 M2 梅澤堡的油廠' }),

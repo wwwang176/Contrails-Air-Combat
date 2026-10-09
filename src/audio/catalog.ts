@@ -10,7 +10,7 @@ import type { ShipAATier } from '../world/shipAA'
  */
 export type Category = 'engine' | 'engineSelf' | 'fire' | 'fireSelf' | 'turret' | 'explosion' | 'splash'
   | 'blast' | 'cannon' | 'flakBurst' | 'hitSelf' | 'hitDealt' | 'flyby' | 'damage' | 'rattle'
-  | 'reload' | 'whistle' | 'radio' | 'warn' | 'wind' | 'impact' | 'ui' | 'thunder' | 'siren' | 'sirenSelf'
+  | 'reload' | 'whistle' | 'radio' | 'warn' | 'wind' | 'impact' | 'waterHit' | 'ui' | 'thunder' | 'siren' | 'sirenSelf'
 
 export interface CategorySpec {
   gainDb: number
@@ -124,6 +124,12 @@ export const CATEGORY: Record<Category, CategorySpec> = {
    */
   impact: { gainDb: -4, ref: 60, max: 1200 },
   /**
+   * 子彈、砲彈打到水面（`WATER_HIT`）。音量與距離同撞擊；自己一類，1.5 s 的落水聲才不會佔掉
+   * 撞擊的聲道。**音高亂數由呼叫端給、兩層共用**（`battleAudioCues` 的 `playWaterHit`），
+   * 這裡是 0 —— 不是 0 的話兩層各自亂跳，聽起來像兩個聲音
+   */
+  waterHit: { gainDb: -4, ref: 60, max: 1200, pitchJitter: 0 },
+  /**
    * 雷聲（雷雨的時段）。**定位在閃電打下的地方**（`render/storm.ts`、`main.ts`
    * 的 `playThunder`）：聽得出從哪一邊來，音波走到才響，遠的更悶。
    *
@@ -163,6 +169,8 @@ export const POOLS = {
   radio: range('radio', 4),
   /** 子彈打在地面、建築上：一下撞擊加碎屑散落 */
   debris: range('debris', 4),
+  /** 打到水面的第二層：1.5 s 的落水聲，最後 1 s 淡出（`WATER_HIT`） */
+  waterHit: ['water-hit-1'],
   // 自己的槍：一次擊發一個 one-shot。命名與砲塔同一套（武器 id ×挺數）
   'volley-m2-50calx6': range('volley-m2-50calx6', 3),
   'volley-mk108x1': range('volley-mk108x1', 3),
@@ -294,9 +302,32 @@ const IMPACT_BY_MATERIAL: readonly ImpactSound[] = [
    * 連續掃射時會疊成一片轟隆。低通只切掉高頻的殘響，長度與節奏維持原樣。
    */
   { pool: 'hit', gainDb: 6, rate: 1, cutoffHz: 550 },
-  /** 地面目標：建築、車輛 */
+  /** 地面目標：建築、砲位 */
   { pool: 'debris', gainDb: 0, rate: 1, cutoffHz: 22000 },
+  /**
+   * 車輛：命中庫，比艦體亮 —— 薄得多的鋼板。
+   *
+   * 【−0.6 dB】試聽定的是一級低通 5350 Hz、0 dB；遊戲的定位聲道是兩級串接，截止頻率附近的
+   * 共振疊起來，A 加權（最響 0.4 s 窗的 RMS）平均大 0.58 dB，這裡扣回來
+   */
+  { pool: 'hit', gainDb: -0.6, rate: 1, cutoffHz: 5350 },
 ]
+
+/**
+ * 子彈、砲彈打到水面：**兩層同時起播、共用一個音高**。碎屑過低通是濺起來的那一下，
+ * 疊上落水聲（`POOLS.waterHit`）是水花的尾巴。
+ *
+ * 【落水聲的 −16 dB】試聽定的是 −15 dB；檔案照慣例正規化到 −16 LUFS 之後，A 加權（最響 0.4 s
+ * 窗的 RMS）比試聽那一段大 1.0 dB，這裡扣回來。
+ * 【碎屑的 −0.1 dB】試聽是一級低通、0 dB；遊戲的兩級串接在 600 Hz 時 A 加權大 0.09 dB
+ */
+export const WATER_HIT = {
+  /** 碎屑那一層的低通，Hz */
+  debrisCutoffHz: 600,
+  debrisDb: -0.1,
+  /** 落水聲那一層，dB */
+  splashDb: -16,
+} as const
 
 export function impactSound(material: number): ImpactSound {
   return IMPACT_BY_MATERIAL[material] ?? IMPACT_DEFAULT

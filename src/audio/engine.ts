@@ -125,7 +125,7 @@ const LAYER_MIN_FREE = 16
  * 也分不出來**：同一刻十顆與十五顆爆炸，人耳聽起來一樣。
  */
 const VOICE_QUOTA: Partial<Record<Category, number>> = {
-  cannon: 22, impact: 12, flyby: 8, whistle: 6, hitDealt: 6, splash: 8, flakBurst: 14,
+  cannon: 22, impact: 12, waterHit: 8, flyby: 8, whistle: 6, hitDealt: 6, splash: 8, flakBurst: 14,
   explosion: 8, blast: 8,
 }
 const LOOP_VOICES: Record<LoopPool, number> = { engine: 8, fire: 6, turret: 6, siren: 4 }

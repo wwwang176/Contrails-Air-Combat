@@ -772,6 +772,8 @@ const onShellLanded = (x: number, y: number, z: number): void => {
   const c = ctx.camera.position
   dirt.emit(shellLanding, c.x, c.y, c.z, terrain.waterAt, shellRiverSplash, SHELL_DIRT_SCALE)
   splashes.emit(shellRiverSplash, terrain.waterAt, elapsed)
+  // 落在河裡：打到水面的聲音（下一幀的 `playFrame` 播）
+  battleAudioCues.noteWaterHits(shellRiverSplash)
   clearImpacts(shellLanding)
   clearImpacts(shellRiverSplash)
 }

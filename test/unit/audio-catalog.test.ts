@@ -96,6 +96,27 @@ describe('撞擊材質', () => {
     expect(impactSound(MATERIAL.ground).pool).toBe('debris')
   })
 
+  /**
+   * 【車輛是命中庫，比船清脆】試聽定案：一級低通 5350 Hz、0 dB、原速。遊戲的定位聲道是兩級低通，
+   * A 加權大 0.58 dB，所以是 −0.6 dB
+   */
+  it('車輛用命中庫，低通 5350 Hz、−0.6 dB', () => {
+    expect(impactSound(MATERIAL.vehicle)).toEqual({ pool: 'hit', gainDb: -0.6, rate: 1, cutoffHz: 5350 })
+  })
+
+  /**
+   * 【打到水面兩層】碎屑過低通 600 Hz，疊上一段 1.5 s 的落水聲（小 16 dB：試聽的 −15 dB，
+   * 再扣掉檔案正規化後 A 加權大出來的 1.0 dB）；碎屑 −0.1 dB 是兩級低通的 A 加權差。與撞擊同一個音量與距離；
+   * 音高亂數由呼叫端給、兩層共用，所以類別的 `pitchJitter` 是 0
+   */
+  it('打到水面：兩層的設定，與撞擊同一個音量與距離', () => {
+    expect(WATER_HIT).toEqual({ debrisCutoffHz: 600, debrisDb: -0.1, splashDb: -16 })
+    expect(POOLS.waterHit).toEqual(['water-hit-1'])
+    const { pitchJitter, ...rest } = CATEGORY.waterHit
+    expect(pitchJitter).toBe(0)
+    expect(rest).toEqual(CATEGORY.impact)
+  })
+
   /** 【預設跟著地面走】沒定材質的東西多半不是鋼板 */
   it('沒定義的材質走預設，不是沒聲音', () => {
     for (const bad of [99, -1, 1.5, NaN]) {
@@ -108,7 +129,7 @@ describe('撞擊材質', () => {
 import { existsSync, readFileSync } from 'node:fs'
 import {
   ALL_FILES, CATEGORY, POOLS, TURRET_GAIN_FILES, engineFile, fireFile, ownTurretVolleyPools, sirenFile, turretFile,
-  turretGainDb, volleyPool, jamPool,
+  turretGainDb, volleyPool, jamPool, WATER_HIT,
 } from '../../src/audio/catalog'
 import { ALL_SPECS } from '../../src/battle/skirmish'
 import { JU87 } from '../../src/specs/ju87'

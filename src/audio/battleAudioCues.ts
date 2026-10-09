@@ -2,14 +2,14 @@ import type { Vector3 } from 'three'
 import type { World } from '../world/World'
 import type { Combatant } from '../world/combatant'
 import { DAMAGE_STRIDE } from '../world/damage'
-import { IMPACT_STRIDE, clearImpacts } from '../world/events'
+import { IMPACT_STRIDE, clearImpacts, type ImpactEvents } from '../world/events'
 import { burstDamageTo } from '../world/flak'
 import { HIT_PARTS, type HitPart } from '../world/hit'
 import type { AudioEngine } from './engine'
-import { CATEGORY, impactSound, type Pool } from './catalog'
+import { CATEGORY, WATER_HIT, impactSound, type Pool } from './catalog'
 import { blastGainDb, blastRate, damageGainDb, hitFeedback, hitRate } from './curves'
 import { queueExplosionCues, type ExplosionTerrain } from './explosionCues'
-import { LAYER_DB } from './pick'
+import { LAYER_DB, randomRate } from './pick'
 import { CUE, CUE_STRIDE, clearCues, createCueQueue, pushCue } from './queue'
 import { buildVolleyGroups } from './volleyGroups'
 import { warmJamGainDb } from '../control/gunHeat'
@@ -28,7 +28,7 @@ export function createBattleAudioCues(
   const state = {
     /** 後座砲塔走自機齊射時，座艙視角須排除同一架的定位砲塔循環。 */
     ownTurretVolley: false,
-    rebuildVolleyGroups, queueAudioCues, playFrame, playHeavyHit, queueExplosion, clear, reset,
+    rebuildVolleyGroups, queueAudioCues, noteWaterHits, playFrame, playHeavyHit, queueExplosion, clear, reset,
   }
 
   /** 一幀最多 8 步、每步幾類事件 —— 512 筆夠寬，滿了丟新的 */
@@ -62,6 +62,18 @@ export function createBattleAudioCues(
 
   /** 子彈打在船殼、建築上最密多久一次，s */
   const MATERIAL_HIT_GAP = 0.07
+
+  /** 打到水面最密多久一次，s。與撞擊同一個值（試聽的「掃射」就是這個間隔） */
+  const WATER_HIT_GAP = 0.07
+
+  /** 上一次播打到水面的 `elapsed` */
+  let lastWaterHit = -Infinity
+
+  /** 這一幀聽得到的範圍內離鏡頭最近的那一發打到水面；`waterDist2` 是 Infinity 時沒有 */
+  let waterDist2 = Infinity
+  let waterX = 0
+  let waterY = 0
+  let waterZ = 0
 
   /**
    * 自己那架的槍分組：前射武器同一種槍算一組，每組記一個代表掛架與它的齊射庫；有齊射庫的
@@ -135,6 +147,42 @@ export function createBattleAudioCues(
     const spec = best.aircraft.spec
     const rate = hitRate(spec.mass, spec.protection[partOf(bestPart)])
     audio.playPool('hit', 'hitDealt', 0, 0, 0, false, HIT_FB.gainDb, false, rate, HIT_FB.cutoffHz)
+  }
+
+  /**
+   * 子彈、砲彈打到水面（海面、河面都算，事件的位置在水面上）：記下聽得到的範圍內離鏡頭最近的那一發，
+   * `playFrame` 播。一幀內可以呼叫好幾次（每個物理子步、地面戰的砲彈落地）。熱路徑：不配置
+   *
+   * 【候選播完才清】地面戰的砲彈落地在 `playFrame` 之後才寫進來，留到下一幀播
+   */
+  function noteWaterHits(events: ImpactEvents): void {
+    const max2 = CATEGORY.waterHit.max * CATEGORY.waterHit.max
+    for (let e = 0; e < events.count; e++) {
+      const o = e * IMPACT_STRIDE
+      const x = events.data[o]!, y = events.data[o + 1]!, z = events.data[o + 2]!
+      const dx = x - cam.x, dy = y - cam.y, dz = z - cam.z
+      const d2 = dx * dx + dy * dy + dz * dz
+      if (d2 > max2 || d2 >= waterDist2) continue
+      waterDist2 = d2
+      waterX = x
+      waterY = y
+      waterZ = z
+    }
+  }
+
+  /**
+   * 播 `noteWaterHits` 記下的那一發：碎屑過低通，疊上落水聲，**兩層同一個音高**（類別的
+   * `pitchJitter` 是 0，音高在這裡給）。【被時段擋下的不留】留到下一幀會把過時的位置播出來
+   */
+  function playWaterHit(elapsed: number): void {
+    if (waterDist2 === Infinity) return
+    waterDist2 = Infinity
+    if (elapsed - lastWaterHit < WATER_HIT_GAP) return
+    lastWaterHit = elapsed
+    const rate = randomRate(Math.random)
+    audio.playPool('debris', 'waterHit', waterX, waterY, waterZ, true, WATER_HIT.debrisDb, false, rate,
+      WATER_HIT.debrisCutoffHz)
+    audio.playPool('waterHit', 'waterHit', waterX, waterY, waterZ, true, WATER_HIT.splashDb, false, rate)
   }
 
   /** 記下這一幀有一架被打中：已經記過就只更新部位。熱路徑：不配置 */
@@ -287,6 +335,7 @@ export function createBattleAudioCues(
   function playFrame(world: Pick<World, 'combatants'>, player: Combatant, elapsed: number, flying: boolean): void {
     playCues(player)
     clearCues(cues)
+    playWaterHit(elapsed)
     // 【誰打中誰都播】僚機打中的也算。太遠的由距離衰減擋掉
     if (dealtCount > 0 && flying) playHitDealt(world, elapsed)
     dealtCount = 0
@@ -304,6 +353,8 @@ export function createBattleAudioCues(
     lastHitDealt = -Infinity
     lastMaterialHit = -Infinity
     dealtCount = 0
+    lastWaterHit = -Infinity
+    waterDist2 = Infinity
   }
 
   return state as Readonly<typeof state>
