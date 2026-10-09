@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
-  FINISHED_TIME_SCALE, createMissionState, resetMissionState, stepMission, timeScale,
+  END_BOARD_DELAY_SECONDS, END_SLOWDOWN_SECONDS, FINISHED_TIME_SCALE, boardRevealed,
+  createMissionState, resetMissionState, stepMission, timeScale,
   type MissionInputs, type MissionRules,
 } from '../../src/battle/mission'
 
@@ -291,14 +292,29 @@ describe('resetMissionState', () => {
  * 子步」「單幀經過時間被 maxFrameSeconds 夾制」等九條）。兩件事各自成立，
  * 合起來就是慢動作 —— **不需要第三支去驗那個合成**。
  */
-describe('timeScale：分出勝負之後切慢動作', () => {
+describe('timeScale：分出勝負之後慢慢降到慢動作', () => {
   it('打鬥中是原速', () => {
-    expect(timeScale('fighting')).toBe(1)
+    expect(timeScale('fighting', 0)).toBe(1)
+    expect(timeScale('fighting', 99)).toBe(1)
   })
 
-  it('勝利與失敗都切到同一個流速', () => {
-    expect(timeScale('victory')).toBe(FINISHED_TIME_SCALE)
-    expect(timeScale('defeat')).toBe(FINISHED_TIME_SCALE)
+  /** 【不是一下切過去】一幀從原速掉到 0.05 很生硬；線性降，`END_SLOWDOWN_SECONDS` 真實秒數到底 */
+  it.each(['victory', 'defeat'] as const)('%s：從原速線性降到最終流速，之後維持', (outcome) => {
+    const half = END_SLOWDOWN_SECONDS / 2
+    expect(timeScale(outcome, 0)).toBe(1)
+    expect(timeScale(outcome, half)).toBeCloseTo((1 + FINISHED_TIME_SCALE) / 2, 9)
+    expect(timeScale(outcome, END_SLOWDOWN_SECONDS)).toBeCloseTo(FINISHED_TIME_SCALE, 9)
+    expect(timeScale(outcome, END_SLOWDOWN_SECONDS * 10)).toBeCloseTo(FINISHED_TIME_SCALE, 9)
+    expect(END_SLOWDOWN_SECONDS).toBe(1.5)
+  })
+
+  /** 【慢動作降完才出現】一分出勝負就蓋上來太生硬 */
+  it('結算板在分出勝負後 END_BOARD_DELAY_SECONDS 真實秒數才出現；打鬥中不出現', () => {
+    expect(END_BOARD_DELAY_SECONDS).toBe(1.5)
+    expect(boardRevealed('fighting', 99)).toBe(false)
+    expect(boardRevealed('victory', END_BOARD_DELAY_SECONDS - 0.01)).toBe(false)
+    expect(boardRevealed('victory', END_BOARD_DELAY_SECONDS)).toBe(true)
+    expect(boardRevealed('defeat', END_BOARD_DELAY_SECONDS)).toBe(true)
   })
 
   it('流速在 0 與 1 之間 —— 是慢動作，不是暫停也不是快轉', () => {

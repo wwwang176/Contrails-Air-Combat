@@ -1,4 +1,4 @@
-import type { Outcome } from '../battle/mission'
+import { boardRevealed, type Outcome } from '../battle/mission'
 import type { Roster } from '../battle/pilots'
 import type { Team } from '../world/team'
 import type { AfterAction, Scoreboard } from '../ui/scoreboard'
@@ -22,26 +22,32 @@ export function createBattleScoreboard(
     boardNextDraw = 0
   }
 
+  /**
+   * @param elapsed 模擬時間（分出勝負後跟著放慢），戰報的結束時間與按住 TAB 的節流用它
+   * @param sinceEnd 分出勝負之後的真實秒數；結算板等 `boardRevealed` 成立才出現，之前按住 TAB
+   *   看的是即時戰績
+   */
   function update(
     roster: Roster,
     seats: readonly { team: Team }[],
     outcome: Outcome,
     held: boolean,
     elapsed: number,
+    sinceEnd: number,
   ): void {
-    const finished = outcome !== 'fighting'
-    if (finished && battleEndedAt < 0) battleEndedAt = elapsed
-    const showBoard = held || finished
+    if (outcome !== 'fighting' && battleEndedAt < 0) battleEndedAt = elapsed
+    const final = boardRevealed(outcome, sinceEnd)
+    const showBoard = held || final
     // 只在顯示中而且到時間了才建列。結算戰報畫過就不再動，
     // 否則之後的幀會把展開／收合的細節與選取的文字洗掉
-    if (showBoard && (finished ? !aarDrawn : elapsed >= boardNextDraw)) {
+    if (showBoard && (final ? !aarDrawn : elapsed >= boardNextDraw)) {
       scoreboard.render(
         sortScoreRows(scoreRows(roster, seats, 'blue')),
         sortScoreRows(scoreRows(roster, seats, 'red')),
-        finished ? (outcome === 'victory' ? 'victory' : 'defeat') : null,
-        finished ? afterAction(battleEndedAt) : null,
+        final ? (outcome === 'victory' ? 'victory' : 'defeat') : null,
+        final ? afterAction(battleEndedAt) : null,
       )
-      aarDrawn = finished
+      aarDrawn = final
       boardNextDraw = elapsed + BOARD_PERIOD
     }
     // 重新按下 TAB 要立刻畫，即使還在上一個間隔內

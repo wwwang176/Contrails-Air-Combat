@@ -39,7 +39,7 @@ import { flatSeaCrashPolicy } from './world/seaCrash'
 import { arenaKills, createArenaState, SKIRMISH_ARENA, stepArena, type ArenaBounds } from './world/arena'
 import { createTerrain, preloadTerrainScenery, type TerrainGfx, type TerrainKind } from './render/terrain'
 import { createObjectiveRing } from './render/objectiveRing'
-import { timeScale } from './battle/mission'
+import { boardRevealed, timeScale } from './battle/mission'
 import { createTracers } from './render/tracers'
 import { createMuzzles, createTurretMuzzles } from './render/muzzle'
 import { createTurretBarrels } from './render/turretBarrels'
@@ -1494,6 +1494,8 @@ let elapsed = 0
 const { fillMissionHud, resetMissionBanner, setMissionHudLanguageTime } = createMissionHud(hudFrame, audio, t)
 /** 這一場從 `elapsed` 的哪一刻開始 —— `elapsed` 是全域幀鐘，跨場不歸零 */
 let battleStartedAt = 0
+/** 分出勝負之後經過的真實秒數（不放慢）；打鬥中是 0。慢動作與結算板的時機看它 */
+let sinceBattleEnd = 0
 /**
  * 下一次印遙測的時間，s。
  *
@@ -1753,22 +1755,23 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     audioMeter.draw(METER_SAMPLE, frameSeconds)
   }
 
-  const finished = battle.outcome !== 'fighting'
-  // 【分出勝負就放開指標鎖】結算板的兩顆按鈕要點得到，而指標鎖定期間
+  // 【結算板等慢動作降完才出現】見 `mission.ts` 的 `END_BOARD_DELAY_SECONDS`
+  const revealed = boardRevealed(battle.outcome, sinceBattleEnd)
+  // 【結算板出現就放開指標鎖】它的兩顆按鈕要點得到，而指標鎖定期間
   // 游標是被抓住的。解鎖會讓下一幀的 `pointerLockLost` 為真，但那個分支
   // 只在 `outcome === 'fighting'` 時才暫停 —— 所以不會誤觸
-  if (finished && document.pointerLockElement === canvas) document.exitPointerLock()
-  battleScoreboard.update(battle.roster, world.combatants, battle.outcome, input.scoreboardHeld, elapsed)
+  if (revealed && document.pointerLockElement === canvas) document.exitPointerLock()
+  battleScoreboard.update(battle.roster, world.combatants, battle.outcome, input.scoreboardHeld, elapsed, sinceBattleEnd)
   // 【結算時才讓那兩顆按鈕出現，而且 #board 這時要能點】按住 TAB 看戰績
   // 的期間它是 pointer-events: none —— 那時它只是看
-  boardActions.hidden = !finished
+  boardActions.hidden = !revealed
   // 【兩個出口依模式擇一】不逐幀改 `data-act` —— 它是選單那一層唯一的協定
   // （`menu.ts` 的事件委派註解），改它等於讓一個 DOM 屬性變成隱性狀態
   backToSetup.hidden = mode !== 'skirmish'
   backToMission.hidden = mode !== 'mission'
   pauseToMenu.hidden = mode !== 'skirmish'
   pauseAbandon.hidden = mode !== 'mission'
-  boardEl.classList.toggle('finished', finished)
+  boardEl.classList.toggle('finished', revealed)
 }
 
 /** 主要指標是手指：手機、平板 */
@@ -2147,8 +2150,11 @@ function frame(now: number) {
       }
     }
     if (!paused) {
-      // 【分出勝負之後切超級慢動作】理由與流速的定值見 `mission.ts` 的
+      // 【分出勝負之後慢慢降到超級慢動作】理由與流速的定值見 `mission.ts` 的
       // `timeScale`。結算板背後的戰場繼續，只是慢下來。
+      //
+      // 【結束後的秒數由勝負推導】打鬥中歸零、分出勝負後累加真實的幀秒數 —— 每一條重開的
+      // 路徑都不必記得重設它
       //
       // 【為什麼是縮放 dt，而不是像暫停那樣整個跳過 `stepAndDrawBattle`】
       // 結算板、兩顆按鈕、放開指標鎖**全部**在那支函數的尾巴。跳過它就得
@@ -2159,9 +2165,11 @@ function frame(now: number) {
       //
       // 【`elapsed` 也要一起慢】海浪與地形讀的就是它，見 `timeScale` 的註解。
       // 低於 30 fps 時物理丟時間，它也丟同樣多（`worldSeconds`）
-      const sim = frameSeconds * timeScale(battle.outcome)
+      sinceBattleEnd = battle.outcome === 'fighting' ? 0 : sinceBattleEnd + frameSeconds
+      const scale = timeScale(battle.outcome, sinceBattleEnd)
+      const sim = frameSeconds * scale
       // 聲音也跟著慢
-      audio.setTimeScale(timeScale(battle.outcome))
+      audio.setTimeScale(scale)
       const world = loop.worldSeconds(sim)
       elapsed += world
       stepAndDrawBattle(sim, world)
@@ -2271,7 +2279,6 @@ if (initialRecoveryFailure !== null) {
  * 真實幀率比對，兩者對不上就是覆蓋層量錯了東西。
  */
 ;(window as unknown as Record<string, unknown>)['__perfFps'] = (): number => perf.fps
-
 /**
  * 主選單短片的**量測出口**：不給參數回目前放到哪；給 `(段名, 秒)` 就跳過去，
  * 事件從頭重放到那一刻。`hold` = 跳過去之後定格（截圖驗收分鏡用）。

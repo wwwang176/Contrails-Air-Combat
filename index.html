@@ -429,7 +429,9 @@
       }
       #board[hidden] { display: none; }
       /* 【結算時 #board 要能點】按住 TAB 時它只是看，所以預設 pointer-events: none */
-      #board.finished { pointer-events: auto; }
+      /* 【結算板淡入】慢動作降完才出現，一下子蓋上來太生硬。按住 TAB 看戰績不淡入 */
+      #board.finished { pointer-events: auto; animation: board-in .4s ease-out; }
+      @keyframes board-in { from { opacity: 0; } to { opacity: 1; } }
       .aar { position: relative; width: min(760px, 96vw); padding: 22px 26px 24px;
         background: var(--panel-thin); border: 1px solid var(--bd); box-shadow: 0 16px 34px rgba(0,0,0,.6); }
       #banner { font: 700 30px/1.2 var(--f-body); color: var(--strong); letter-spacing: .04em; }

@@ -431,7 +431,24 @@ export interface MissionState {
 export const FINISHED_TIME_SCALE = 0.05
 
 /**
- * 這一幀的模擬時間要乘多少。**分出勝負之後切慢動作。**
+ * 分出勝負之後，流速從原速線性降到 `FINISHED_TIME_SCALE` 花的時間，真實秒數。
+ * 一幀切過去太生硬
+ */
+export const END_SLOWDOWN_SECONDS = 1.5
+
+/** 分出勝負之後過這麼多真實秒數，結算板才出現（慢動作降完） */
+export const END_BOARD_DELAY_SECONDS = 1.5
+
+/** 結算板現在該不該出現。`sinceEnd` 是分出勝負之後的真實秒數 */
+export function boardRevealed(outcome: Outcome, sinceEnd: number): boolean {
+  return outcome !== 'fighting' && sinceEnd >= END_BOARD_DELAY_SECONDS
+}
+
+/**
+ * 這一幀的模擬時間要乘多少。**分出勝負之後慢慢降到慢動作**：`sinceEnd`（分出勝負之後的
+ * 真實秒數，不是放慢後的）從 0 到 `END_SLOWDOWN_SECONDS`，流速從 1 線性降到 `FINISHED_TIME_SCALE`。
+ *
+ * 【`sinceEnd` 要用真實秒數】用放慢後的時間算的話，越慢走得越慢，降到底要好幾倍久
  *
  * 【為什麼抽成一支函數住在這裡】它的呼叫端是 `main.ts` 的主迴圈，而那個
  * 檔案沒有任何測試（見 `test/e2e/` 幾支的檔頭）。抽出來之後這件事拆成
@@ -450,8 +467,10 @@ export const FINISHED_TIME_SCALE = 0.05
  * 【呼叫端要連 `elapsed` 一起乘】海浪與地形讀的是那個累加值。只慢飛機的話
  * 畫面上是一批慢動作的飛機浮在照常起伏的海上（M10 spec §8.1 的同一條）。
  */
-export function timeScale(outcome: Outcome): number {
-  return outcome === 'fighting' ? 1 : FINISHED_TIME_SCALE
+export function timeScale(outcome: Outcome, sinceEnd: number): number {
+  if (outcome === 'fighting') return 1
+  const t = Math.min(1, Math.max(0, sinceEnd / END_SLOWDOWN_SECONDS))
+  return 1 + (FINISHED_TIME_SCALE - 1) * t
 }
 
 export function createMissionState(rules: MissionRules): MissionState {
