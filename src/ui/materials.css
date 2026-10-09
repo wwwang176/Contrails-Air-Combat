@@ -1,0 +1,49 @@
+/* Opt-in materials: content stays in HTML; a single tile supplies the grain.
+   These classes can be reused without changing legacy .paperbit / .go pages. */
+:root {
+  --dossier-grain: url('/ui/materials/grain.svg');
+  --dossier-paper: #c9b991;
+  --dossier-paper-lit: #e1cfaa;
+  --dossier-red: #913f30;
+}
+
+.dossier-paper {
+  color: #2f271c;
+  background-color: var(--dossier-paper);
+  background-image: var(--dossier-grain),
+    radial-gradient(ellipse at 20% 0%, #fff5d22b, transparent 70%),
+    linear-gradient(110deg, #65482318, transparent 18% 82%, #65482320);
+  border: 1px solid #99835b;
+  box-shadow: inset 0 0 0 3px #f9e9bd24, inset 0 0 22px #5e43251a,
+    0 6px 16px #0005;
+}
+
+/* Real button, not text baked into an image: translations and sizes can vary. */
+#ui .dossier-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+  min-height: 56px;
+  padding: 12px 26px;
+  border: 1px solid #c5805a;
+  background: var(--dossier-grain), linear-gradient(110deg, #a34a37, #793025);
+  color: #fff0d2;
+  font: 600 18px/1.4 var(--f-body);
+  letter-spacing: .12em;
+  box-shadow: inset 0 0 0 3px #efbe8720, 0 6px 16px #0005;
+  transition: background-color .18s, box-shadow .18s, transform .18s;
+}
+
+.dossier-action::after { content: '›'; font: 28px/1 var(--f-ui); }
+@media (hover: hover) {
+  #ui .dossier-action:hover {
+    background: var(--dossier-grain), linear-gradient(110deg, #b3543e, #913d2e);
+    box-shadow: inset 0 0 0 3px #efbe8730, 0 8px 22px #0006;
+  }
+}
+#ui .dossier-action:active { transform: translateY(1px); }
+.dossier-action:focus-visible { outline: 2px solid #ffedbf; outline-offset: 5px; }
+@media (prefers-reduced-motion: reduce) {
+  #ui .dossier-action { transition: none; }
+}

@@ -1,0 +1,156 @@
+@import './materials.css';
+
+/* Landing and main menu share the same measured column. main.ts uses .rows
+   to keep the live aircraft reel in the open space on the right. */
+#ui .screen.front-screen {
+  --front-width: min(640px, 47vw);
+  box-sizing: border-box;
+  align-items: flex-start;
+  gap: 24px;
+  padding: 64px max(24px, 5.5vw) 40px;
+  padding-left: max(24px, 5.5vw, env(safe-area-inset-left));
+  background: linear-gradient(90deg, #19150fe8 0%, #201a12ba 30%, #201a124d 53%, transparent 78%);
+}
+.front-screen .front-heading { width: var(--front-width); }
+.front-screen .menu-title {
+  display: block;
+  margin: 0;
+  color: #f1e6ca;
+  font: 400 clamp(26px, 2.8vw, 44px)/1.15 var(--f-title);
+  letter-spacing: .015em;
+  text-shadow: 0 3px 14px #0008;
+}
+.front-screen .brand-sub { white-space: nowrap; }
+.front-screen .front-kicker {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 15px 0 0;
+  color: #d2bf98;
+  font: 13px/1.5 var(--f-ui);
+  letter-spacing: .24em;
+}
+.front-kicker::before { content: ''; width: 32px; height: 1px; background: #bba071; }
+.front-kicker::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, #bba07170, transparent); }
+.front-screen .rows { display: flex; flex-direction: column; gap: 14px; width: var(--front-width); }
+
+#ui .front-card {
+  background-image: linear-gradient(110deg, #e5d6b220, #78603b20), url('/ui/materials/parchment-no-crease.png');
+  background-size: cover;
+  background-position: center;
+  --card-height: clamp(92px, 14vh, 142px);
+  position: relative;
+  display: grid;
+  grid-template-columns: 37% minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 20px;
+  padding: 9px 22px 9px 12px;
+  text-align: left;
+  color: #2f271c;
+  transition: transform .2s, background-color .2s, box-shadow .2s;
+}
+.front-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  background: #735f3d55;
+  transition: background-color .2s;
+}
+.front-card::after { content: '›'; font: 32px/1 var(--f-ui); color: #655235; }
+.front-card .photo { height: var(--card-height); border: 1px solid #7b6b4c; }
+.front-card .photo::after { box-shadow: inset 0 0 0 4px #eee1bdcc, inset 0 0 24px #0004; }
+.front-card .txt { display: flex; flex-direction: column; min-width: 0; }
+.front-card .card-index {
+  align-self: flex-start;
+  margin-bottom: 8px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid #806b4980;
+  font: 15px/1 var(--f-title);
+  color: #705a39;
+  letter-spacing: .1em;
+}
+.front-card .t { font: 700 clamp(20px, 1.8vw, 28px)/1.3 var(--f-body); color: #2b2318; }
+.front-card .d { margin-top: 5px; font: 13px/1.5 var(--f-body); color: #574a35; }
+.front-card .tape { width: 42px; height: 12px; }
+
+/* The first mission folder is the resting emphasis, not a fake selected tab.
+   Pointer/keyboard emphasis moves to whichever real button is being used. */
+.front-screen .rows:not(:has(.front-card:hover, .front-card:focus-visible)) .front-card:first-child,
+.front-screen .front-card:focus-visible {
+  background-color: var(--dossier-paper-lit);
+}
+.front-screen .rows:not(:has(.front-card:hover, .front-card:focus-visible)) .front-card:first-child::before,
+.front-card:focus-visible::before { background: var(--dossier-red); }
+.front-card:focus-visible { outline: 2px solid #f6dfac; outline-offset: 4px; }
+@media (hover: hover) {
+  #ui .front-card:hover {
+    background-color: var(--dossier-paper-lit);
+    box-shadow: inset 0 0 0 3px #f9e9bd40, 0 9px 24px #0006;
+  }
+  .front-card:hover::before { background: var(--dossier-red); }
+  .front-card:hover::after { color: var(--dossier-red); }
+  .front-card:hover .photo img { filter: grayscale(.65) sepia(.15) contrast(1.04); }
+}
+#ui .front-card:active { transform: translateY(1px); }
+
+.front-screen .landing-col {
+  width: var(--front-width);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 32px;
+}
+#landing .menu-title { font-size: clamp(42px, 5vw, 78px); }
+#landing .brand-sub { display: block; margin-top: 10px; font-size: .56em; letter-spacing: .12em; }
+.front-screen .landing-ruler { height: 0; margin-top: -24px; }
+.front-screen .dossier-action { min-width: 240px; }
+
+/* Only the two redesigned screens opt in; pause/settings retain their layout. */
+#ui:has(.front-screen:not([hidden])) > .gear {
+  width: 44px;
+  height: 44px;
+  right: max(16px, env(safe-area-inset-right));
+  background: var(--dossier-grain), linear-gradient(135deg, #4b3c27, #2c241a);
+  border-color: #9d8357;
+}
+#ui:has(.front-screen:not([hidden])) > .gear:focus-visible {
+  outline: 2px solid #f6dfac;
+  outline-offset: 3px;
+}
+
+/* Fit landscape phones by height as well as width. Keep every card reachable,
+   retain a readable title, and leave the right side to the aircraft reel. */
+@media (max-height: 540px) and (orientation: landscape) {
+  #ui .screen.front-screen {
+    --front-width: min(520px, 53vw);
+    padding: 18px 24px 14px;
+    padding-left: max(64px, env(safe-area-inset-left));
+    gap: 12px;
+  }
+  .front-screen .menu-title { font-size: clamp(21px, 2.9vw, 30px); }
+  .front-screen .front-kicker { margin-top: 6px; font-size: 10px; gap: 10px; }
+  .front-screen .rows { gap: 8px; }
+  #ui .front-card {
+    --card-height: clamp(48px, calc((100vh - 144px) / 3 - 14px), 82px);
+    --card-height: clamp(48px, calc((100dvh - 144px) / 3 - 14px), 82px);
+    grid-template-columns: 30% minmax(0, 1fr) 12px;
+    gap: 12px;
+    padding: 6px 12px 6px 9px;
+  }
+  .front-card .card-index { margin-bottom: 3px; padding: 0; border: 0; font-size: 10px; }
+  .front-card .t { font-size: 18px; }
+  .front-card .d { margin-top: 2px; font-size: 11px; line-height: 1.3; }
+  .front-card::after { font-size: 25px; }
+  .front-screen .landing-col { gap: 18px; }
+  #landing .menu-title { font-size: clamp(36px, 5.5vw, 58px); }
+  .front-screen .landing-ruler { margin-top: -12px; }
+  #ui .front-screen .dossier-action { min-height: 48px; min-width: 200px; font-size: 16px; padding: 10px 20px; }
+}
+@media (max-width: 600px) and (orientation: portrait) {
+  #ui .screen.front-screen { --front-width: 100%; padding: 64px 24px 24px; }
+  #ui .front-card { grid-template-columns: 30% minmax(0, 1fr) 12px; gap: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #ui .front-card, .front-card::before, .front-card .photo img { transition: none; }
+}

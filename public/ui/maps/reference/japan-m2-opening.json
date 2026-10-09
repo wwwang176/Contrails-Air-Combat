@@ -1,0 +1,595 @@
+{
+  "mission": "japan-m2",
+  "terrain": "leyte",
+  "time": 0.016666666666666666,
+  "target": null,
+  "aircraft": [
+    {
+      "index": 0,
+      "aircraft": "ki84",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        -989.9999999462252,
+        1200.0014878272113,
+        4747.093516849526
+      ],
+      "velocity": [
+        1.074728970279718e-05,
+        0.1416522093882589,
+        -174.38020798910907
+      ],
+      "orientation": [
+        -3.684343832917629e-05,
+        -2.1160443637528813e-05,
+        -3.220521238905163e-05,
+        0.9999999985788105
+      ]
+    },
+    {
+      "index": 1,
+      "aircraft": "ki84",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        -790,
+        1200.0014890632826,
+        4807.093721461136
+      ],
+      "velocity": [
+        0,
+        0.14191010520217237,
+        -174.36056601485853
+      ],
+      "orientation": [
+        6.814988255034441e-05,
+        0,
+        0,
+        0.9999999976777969
+      ]
+    },
+    {
+      "index": 2,
+      "aircraft": "ki84",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        -1240,
+        1250.001489122343,
+        4867.086542660898
+      ],
+      "velocity": [
+        0,
+        0.14191856439764783,
+        -174.79112279499367
+      ],
+      "orientation": [
+        6.81510476610646e-05,
+        0,
+        0,
+        0.9999999976777173
+      ]
+    },
+    {
+      "index": 3,
+      "aircraft": "ki84",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        -1440,
+        1250.0014891263038,
+        4927.086538255968
+      ],
+      "velocity": [
+        0,
+        0.14191913322889288,
+        -174.79154562362046
+      ],
+      "orientation": [
+        6.815085995429135e-05,
+        0,
+        0,
+        0.9999999976777302
+      ]
+    },
+    {
+      "index": 4,
+      "aircraft": "ki84",
+      "team": "blue",
+      "player": true,
+      "protected": false,
+      "position": [
+        -510,
+        1350.0014892514862,
+        5247.0720933498305
+      ],
+      "velocity": [
+        0,
+        0.14193700678008148,
+        -175.65821428419417
+      ],
+      "orientation": [
+        6.806265001683838e-05,
+        0,
+        0,
+        0.9999999976837379
+      ]
+    },
+    {
+      "index": 5,
+      "aircraft": "ki84",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        -310,
+        1350.0014892521028,
+        5307.072093349844
+      ],
+      "velocity": [
+        0,
+        0.14193715475877067,
+        -175.65821428205473
+      ],
+      "orientation": [
+        6.815280905858926e-05,
+        0,
+        0,
+        0.9999999976775973
+      ]
+    },
+    {
+      "index": 6,
+      "aircraft": "f6f5",
+      "team": "red",
+      "player": false,
+      "protected": false,
+      "position": [
+        750,
+        1200.0011287411462,
+        -4997.153676267365
+      ],
+      "velocity": [
+        -2.0912967122077044e-14,
+        0.10769067724446811,
+        170.76733582795302
+      ],
+      "orientation": [
+        4.246729096127375e-21,
+        0.9999999975949871,
+        -6.935434959718674e-05,
+        6.123233983910664e-17
+      ]
+    },
+    {
+      "index": 7,
+      "aircraft": "f6f5",
+      "team": "red",
+      "player": false,
+      "protected": false,
+      "position": [
+        550,
+        1200.0011287415277,
+        -5057.1536762673695
+      ],
+      "velocity": [
+        -2.0912967121952183e-14,
+        0.10769076884182006,
+        170.76733582693345
+      ],
+      "orientation": [
+        4.250415203567392e-21,
+        0.9999999975908104,
+        -6.941454830005695e-05,
+        6.123233983885063e-17
+      ]
+    }
+  ],
+  "ground": [
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 2753,
+      "y": 12.7,
+      "z": -3031
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 2500,
+      "y": 9.1,
+      "z": -3250
+    },
+    {
+      "id": "usFlakHeavy",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 2519,
+      "y": 16.3,
+      "z": -2706
+    },
+    {
+      "id": "usFlakHeavy",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 2900,
+      "y": 16.3,
+      "z": -2900
+    },
+    {
+      "id": "usFlakHeavy",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 2300,
+      "y": 15.2,
+      "z": -2900
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1228,
+      "y": 12,
+      "z": 1169
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1346,
+      "y": 11.5,
+      "z": 1033
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 10,
+      "x": 2091.7,
+      "y": 11.7,
+      "z": -2356.3
+    },
+    {
+      "id": "usTruck",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 10,
+      "x": 2112.9,
+      "y": 11.9,
+      "z": -2377.5
+    },
+    {
+      "id": "usTruck",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 10,
+      "x": 2134.1,
+      "y": 12.2,
+      "z": -2398.8
+    },
+    {
+      "id": "usTank",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 10,
+      "x": 2155.7,
+      "y": 12.4,
+      "z": -2419.6
+    },
+    {
+      "id": "usTruck",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 10,
+      "x": 2179,
+      "y": 12.7,
+      "z": -2438.5
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 10,
+      "x": 2202.2,
+      "y": 12.9,
+      "z": -2457.5
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 10,
+      "x": 2494.4,
+      "y": 14.7,
+      "z": -2959.1
+    },
+    {
+      "id": "usTruck",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 10,
+      "x": 2500.9,
+      "y": 14.2,
+      "z": -2988.4
+    },
+    {
+      "id": "usTruck",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 10,
+      "x": 2507.3,
+      "y": 13.6,
+      "z": -3017.7
+    },
+    {
+      "id": "usTank",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 10,
+      "x": 2518,
+      "y": 12.9,
+      "z": -3045.4
+    },
+    {
+      "id": "usTruck",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 10,
+      "x": 2533.9,
+      "y": 12.3,
+      "z": -3070.8
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 10,
+      "x": 2549.9,
+      "y": 11.6,
+      "z": -3096.2
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 10,
+      "x": 2936.1,
+      "y": 4.2,
+      "z": -3490.8
+    },
+    {
+      "id": "usTruck",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 10,
+      "x": 2936.7,
+      "y": 2.9,
+      "z": -3520.8
+    },
+    {
+      "id": "usTruck",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 10,
+      "x": 2937.7,
+      "y": 1.5,
+      "z": -3550.8
+    },
+    {
+      "id": "usTank",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 10,
+      "x": 2938.9,
+      "y": 0.6,
+      "z": -3580.7
+    },
+    {
+      "id": "usTruck",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 10,
+      "x": 2943.4,
+      "y": 0,
+      "z": -3610.3
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 10,
+      "x": 2950,
+      "y": 0,
+      "z": -3639.6
+    }
+  ],
+  "ships": [
+    {
+      "cls": "lst",
+      "alive": true,
+      "x": 2728.7,
+      "z": -3622.1,
+      "heading": 153.7,
+      "team": "red"
+    },
+    {
+      "cls": "lst",
+      "alive": true,
+      "x": 2678.4,
+      "z": -3625.9,
+      "heading": 151.6,
+      "team": "red"
+    },
+    {
+      "cls": "lst",
+      "alive": true,
+      "x": 2620.9,
+      "z": -3637.6,
+      "heading": 153.5,
+      "team": "red"
+    },
+    {
+      "cls": "lst",
+      "alive": true,
+      "x": 2014.2,
+      "z": -3966.9,
+      "heading": 162.4,
+      "team": "red"
+    },
+    {
+      "cls": "lst",
+      "alive": true,
+      "x": 1968.8,
+      "z": -3986.9,
+      "heading": 158.3,
+      "team": "red"
+    },
+    {
+      "cls": "lst",
+      "alive": true,
+      "x": 3152.9,
+      "z": -3775.4,
+      "heading": -154.4,
+      "team": "red"
+    },
+    {
+      "cls": "lst",
+      "alive": true,
+      "x": 3200.7,
+      "z": -3800.6,
+      "heading": -153,
+      "team": "red"
+    },
+    {
+      "cls": "lst",
+      "alive": true,
+      "x": 3615.9,
+      "z": -3959.1,
+      "heading": -187.4,
+      "team": "red"
+    },
+    {
+      "cls": "lst",
+      "alive": true,
+      "x": 3670.4,
+      "z": -3970.7,
+      "heading": -188,
+      "team": "red"
+    },
+    {
+      "cls": "lst",
+      "alive": true,
+      "x": 3725.5,
+      "z": -3980.2,
+      "heading": -189.1,
+      "team": "red"
+    }
+  ],
+  "bounds": {
+    "west": -3311.9919232057373,
+    "east": 5597.491923205737,
+    "north": -6557.1536762673695,
+    "south": 6807.072093349843
+  },
+  "projection": "orthographic",
+  "image": {
+    "width": 1200,
+    "height": 800
+  },
+  "imageRight": "-Z",
+  "imageUp": "-X",
+  "occlusionRemoved": [
+    "clouds",
+    "fog",
+    "HUD",
+    "effects"
+  ]
+}

@@ -1,0 +1,874 @@
+{
+  "mission": "germany-m2",
+  "terrain": "poltava",
+  "time": 0.016666666666666666,
+  "target": null,
+  "aircraft": [
+    {
+      "index": 0,
+      "aircraft": "he111",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        -990,
+        1199.999190391579,
+        4748.498408680809
+      ],
+      "velocity": [
+        0,
+        -0.07735378516111525,
+        -90.09636688999863
+      ],
+      "orientation": [
+        2.3739651939615138e-05,
+        0,
+        0,
+        0.9999999997182146
+      ]
+    },
+    {
+      "index": 1,
+      "aircraft": "he111",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        -790,
+        1199.999190391579,
+        4808.498408680809
+      ],
+      "velocity": [
+        0,
+        -0.07735378516111525,
+        -90.09636688999863
+      ],
+      "orientation": [
+        2.3739651939615138e-05,
+        0,
+        0,
+        0.9999999997182146
+      ]
+    },
+    {
+      "index": 2,
+      "aircraft": "he111",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        -1240,
+        1249.9991860324933,
+        4868.498408298284
+      ],
+      "velocity": [
+        0,
+        -0.07777225925622214,
+        -90.0964036160337
+      ],
+      "orientation": [
+        2.3625576356972597e-05,
+        0,
+        0,
+        0.9999999997209161
+      ]
+    },
+    {
+      "index": 3,
+      "aircraft": "he111",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        -1440,
+        1249.9991860324933,
+        4928.498408298284
+      ],
+      "velocity": [
+        0,
+        -0.07777225925622214,
+        -90.0964036160337
+      ],
+      "orientation": [
+        2.3625576356972597e-05,
+        0,
+        0,
+        0.9999999997209161
+      ]
+    },
+    {
+      "index": 4,
+      "aircraft": "he111",
+      "team": "blue",
+      "player": true,
+      "protected": false,
+      "position": [
+        -510,
+        1349.999177362486,
+        5248.498407537596
+      ],
+      "velocity": [
+        0,
+        -0.07860463674467472,
+        -90.09647664841266
+      ],
+      "orientation": [
+        2.339799957850682e-05,
+        0,
+        0,
+        0.999999999726267
+      ]
+    },
+    {
+      "index": 5,
+      "aircraft": "he111",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        -309.99999999999994,
+        1349.999177362487,
+        5308.498407537599
+      ],
+      "velocity": [
+        0,
+        -0.07860463654437011,
+        -90.09647664813156
+      ],
+      "orientation": [
+        2.339865219195498e-05,
+        0,
+        0,
+        0.9999999997262515
+      ]
+    },
+    {
+      "index": 6,
+      "aircraft": "he111",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        -760,
+        1399.999173051488,
+        5368.498407159431
+      ],
+      "velocity": [
+        0,
+        -0.07901854679210671,
+        -90.09651295494479
+      ],
+      "orientation": [
+        2.3285801754850432e-05,
+        0,
+        0,
+        0.9999999997288858
+      ]
+    },
+    {
+      "index": 7,
+      "aircraft": "he111",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        -960,
+        1399.999173051488,
+        5428.498407159431
+      ],
+      "velocity": [
+        0,
+        -0.07901854679210671,
+        -90.09651295494479
+      ],
+      "orientation": [
+        2.3285801754850432e-05,
+        0,
+        0,
+        0.9999999997288858
+      ]
+    }
+  ],
+  "ground": [
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -970,
+      "y": 0,
+      "z": -7100
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -806,
+      "y": 0,
+      "z": -7100
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -970,
+      "y": 0,
+      "z": -7170
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -806,
+      "y": 0,
+      "z": -7170
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -970,
+      "y": 0,
+      "z": -7240
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -806,
+      "y": 0,
+      "z": -7240
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -970,
+      "y": 0,
+      "z": -7310
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -806,
+      "y": 0,
+      "z": -7310
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 630,
+      "y": 0,
+      "z": -6640
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 794,
+      "y": 0,
+      "z": -6640
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 930,
+      "y": 0,
+      "z": -6640
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 1094,
+      "y": 0,
+      "z": -6640
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 630,
+      "y": 0,
+      "z": -6570
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 794,
+      "y": 0,
+      "z": -6570
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 930,
+      "y": 0,
+      "z": -6570
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 1094,
+      "y": 0,
+      "z": -6570
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 630,
+      "y": 0,
+      "z": -6500
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 794,
+      "y": 0,
+      "z": -6500
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 930,
+      "y": 0,
+      "z": -6500
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 1094,
+      "y": 0,
+      "z": -6500
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 630,
+      "y": 0,
+      "z": -6430
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 794,
+      "y": 0,
+      "z": -6430
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 930,
+      "y": 0,
+      "z": -6430
+    },
+    {
+      "id": "parkedB17",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 1094,
+      "y": 0,
+      "z": -6430
+    },
+    {
+      "id": "fuelDump",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1150,
+      "y": 0,
+      "z": -6850
+    },
+    {
+      "id": "fuelDump",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1090,
+      "y": 0,
+      "z": -6850
+    },
+    {
+      "id": "bombDump",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 1160,
+      "y": 0,
+      "z": -6500
+    },
+    {
+      "id": "flakLight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -500,
+      "y": 0,
+      "z": -7450
+    },
+    {
+      "id": "flakLight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 0,
+      "y": 0,
+      "z": -7480
+    },
+    {
+      "id": "flakLight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 500,
+      "y": 0,
+      "z": -7450
+    },
+    {
+      "id": "flakLight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -700,
+      "y": 0,
+      "z": -7150
+    },
+    {
+      "id": "flakLight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -800,
+      "y": 0,
+      "z": -6800
+    },
+    {
+      "id": "flakLight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 800,
+      "y": 0,
+      "z": -7200
+    },
+    {
+      "id": "flakLight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -450,
+      "y": 0,
+      "z": -6550
+    },
+    {
+      "id": "flakLight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 150,
+      "y": 0,
+      "z": -6520
+    },
+    {
+      "id": "flakLight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 1300,
+      "y": 0,
+      "z": -7000
+    },
+    {
+      "id": "flakLight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 919,
+      "y": 0,
+      "z": -6081
+    },
+    {
+      "id": "flakLight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 0,
+      "y": 0,
+      "z": -5700
+    },
+    {
+      "id": "flakLight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -919,
+      "y": 0,
+      "z": -6081
+    },
+    {
+      "id": "flakLight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1300,
+      "y": 0,
+      "z": -7000
+    },
+    {
+      "id": "flakLight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -919,
+      "y": 0,
+      "z": -7919
+    },
+    {
+      "id": "flakLight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 0,
+      "y": 0,
+      "z": -8300
+    },
+    {
+      "id": "flakLight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 919,
+      "y": 0,
+      "z": -7919
+    },
+    {
+      "id": "flakHeavy",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 2300,
+      "y": 0,
+      "z": -7000
+    },
+    {
+      "id": "flakHeavy",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 1150,
+      "y": 0,
+      "z": -5008
+    },
+    {
+      "id": "flakHeavy",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1150,
+      "y": 0,
+      "z": -5008
+    },
+    {
+      "id": "flakHeavy",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -2300,
+      "y": 0,
+      "z": -7000
+    },
+    {
+      "id": "flakHeavy",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1150,
+      "y": 0,
+      "z": -8992
+    },
+    {
+      "id": "flakHeavy",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 1150,
+      "y": 0,
+      "z": -8992
+    },
+    {
+      "id": "searchlight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 950,
+      "y": 0,
+      "z": -7150
+    },
+    {
+      "id": "searchlight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 475,
+      "y": 0,
+      "z": -6177
+    },
+    {
+      "id": "searchlight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -475,
+      "y": 0,
+      "z": -6177
+    },
+    {
+      "id": "searchlight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1100,
+      "y": 0,
+      "z": -6850
+    },
+    {
+      "id": "searchlight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -475,
+      "y": 0,
+      "z": -7823
+    },
+    {
+      "id": "searchlight",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": 475,
+      "y": 0,
+      "z": -7823
+    }
+  ],
+  "ships": [],
+  "bounds": {
+    "west": -5806.832802386477,
+    "east": 5806.832802386477,
+    "north": -10492,
+    "south": 6928.49840715943
+  },
+  "projection": "orthographic",
+  "image": {
+    "width": 1200,
+    "height": 800
+  },
+  "imageRight": "-Z",
+  "imageUp": "-X",
+  "occlusionRemoved": [
+    "clouds",
+    "fog",
+    "HUD",
+    "effects"
+  ]
+}

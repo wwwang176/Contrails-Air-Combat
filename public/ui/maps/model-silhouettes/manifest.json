@@ -1,0 +1,184 @@
+[
+  {
+    "id": "p51d",
+    "source": "public/models/p51d.glb",
+    "sha256": "25c6a95f66812c7f9355a70e9d28e6ca379a9a7c72416953be648a574ded6054",
+    "width": 1024,
+    "height": 375,
+    "meshes": 30,
+    "bounds": [
+      11.279999732971191,
+      3.6119999874068656,
+      9.867500066757202
+    ]
+  },
+  {
+    "id": "m16",
+    "source": "public/models/m16.glb",
+    "sha256": "58bf55375f961db26ada653782a27e19e8c0ba5e5717f8a31bea9a9afeb0e43f",
+    "width": 1024,
+    "height": 422,
+    "meshes": 46,
+    "bounds": [
+      2.0999999046325684,
+      2.6089441776275635,
+      6.330000162124634
+    ]
+  },
+  {
+    "id": "cckw",
+    "source": "public/models/cckw.glb",
+    "sha256": "3a54292ff2a8923468e0f06f58119a14df326aa86b4a1bbc8c61d053e62ba636",
+    "width": 1024,
+    "height": 430,
+    "meshes": 25,
+    "bounds": [
+      2.200000047683716,
+      2.859999895095825,
+      6.809999942779541
+    ]
+  },
+  {
+    "id": "m4a3",
+    "source": "public/models/m4a3.glb",
+    "sha256": "2a42c80394cec3884791805c70327acfba5403046a87165b08aa4f22036f9f09",
+    "width": 1024,
+    "height": 448,
+    "meshes": 33,
+    "bounds": [
+      2.5999999046325684,
+      2.5799999237060547,
+      5.900000095367432
+    ]
+  },
+  {
+    "id": "m1_90mm",
+    "source": "public/models/m1_90mm.glb",
+    "sha256": "6f563071561b669a04f86d5f03b251d0e3449bd48004b26e731a1e20cc4826ae",
+    "width": 1024,
+    "height": 281,
+    "meshes": 22,
+    "bounds": [
+      7.099999904632568,
+      2.109999895095825,
+      7.700000047683716
+    ]
+  },
+  {
+    "id": "wichita",
+    "source": "public/models/wichita.glb",
+    "sha256": "0f58a1d395317c2a8b3436b334b3f1de8b7d41fa09bf8022b471340ead97e73b",
+    "width": 1024,
+    "height": 256,
+    "meshes": 4,
+    "bounds": [
+      20.123153686523438,
+      45.7166690826416,
+      182.6199722290039
+    ]
+  },
+  {
+    "id": "fletcher",
+    "source": "public/models/fletcher.glb",
+    "sha256": "c56ed0a1eb0cbad768f728d47ddebcc73c1e435b90e9d0b4436f9d0eac508ce6",
+    "width": 1024,
+    "height": 278,
+    "meshes": 4,
+    "bounds": [
+      12.034314155578613,
+      30.91585874557495,
+      113.9000015258789
+    ]
+  },
+  {
+    "id": "essex",
+    "source": "public/models/essex.glb",
+    "sha256": "2836524bab56b8ab30cbbfb1feacec96cfb8ca77030995fe3b785a3a5fda91f4",
+    "width": 1024,
+    "height": 212,
+    "meshes": 8,
+    "bounds": [
+      46.41868782043457,
+      54.64792060852051,
+      263.5
+    ]
+  },
+  {
+    "id": "b17g",
+    "source": "public/models/b17g.glb",
+    "sha256": "b456c75f5eb598efb28e21ecc77219b1d4f3d5623508bd9f2d8c90591251d099",
+    "width": 1024,
+    "height": 325,
+    "meshes": 72,
+    "bounds": [
+      31.6200008392334,
+      7.18762481212616,
+      22.670000076293945
+    ]
+  },
+  {
+    "id": "flak18",
+    "source": "public/models/flak18.glb",
+    "sha256": "0de8efdd12b04ac71dc194285e37c49a8cb06960bb248bb5bcacf6d185889acf",
+    "width": 1024,
+    "height": 395,
+    "meshes": 15,
+    "bounds": [
+      5.260000228881836,
+      2.5,
+      6.480000019073486
+    ]
+  },
+  {
+    "id": "flak38",
+    "source": "public/models/flak38.glb",
+    "sha256": "6809225b0a08edc6d48b449f27cca9164969ddad4d049dfad8997629ea5f994f",
+    "width": 1024,
+    "height": 598,
+    "meshes": 19,
+    "bounds": [
+      1.899999976158142,
+      1.5,
+      2.569999935105443
+    ]
+  },
+  {
+    "id": "zis3",
+    "source": "public/models/zis3.glb",
+    "sha256": "d9b6290d6f64a2c4d68010555ed20bfe6dc9f8f003a38cb1285467146d430b56",
+    "width": 1024,
+    "height": 252,
+    "meshes": 23,
+    "bounds": [
+      3.359999895095825,
+      1.3700000047683716,
+      5.561666250228882
+    ]
+  },
+  {
+    "id": "panzer4",
+    "source": "public/models/panzer4.glb",
+    "sha256": "a682004972ee6f34f442e3c8fc6a03b45d5df731bf20afa521a8e71b805f7d8e",
+    "width": 1024,
+    "height": 392,
+    "meshes": 35,
+    "bounds": [
+      2.9200000762939453,
+      2.559999942779541,
+      6.680000066757202
+    ]
+  },
+  {
+    "id": "t34",
+    "source": "public/models/t34.glb",
+    "sha256": "cb77eb12eb7ca1efecf692bfc030095c6ab90d1557ab073c3b3b9b2c0e4c7f72",
+    "width": 1024,
+    "height": 400,
+    "meshes": 24,
+    "bounds": [
+      3.0001180171966553,
+      2.630000114440918,
+      6.730000019073486
+    ]
+  }
+]

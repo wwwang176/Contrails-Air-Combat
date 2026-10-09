@@ -1,0 +1,4 @@
+Mode: built-in imagegen edit
+Input: parchment.webp
+
+Use case: precise-object-edit. Input image is the edit target: aged warm tan parchment UI texture. Remove ONLY the long horizontal fold/crease crossing the entire middle of the paper, including its dark line and light raised ridge. Seamlessly reconstruct that narrow strip with the surrounding mottled paper grain. Preserve the original warm beige/brown color, subtle stains, aged irregular edges, overall texture, lighting, full-bleed composition and aspect ratio. No new folds, lines, text, symbols, objects or borders. Output just the edited flat texture.
