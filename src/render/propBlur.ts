@@ -30,8 +30,10 @@ export const PROP_BLUR = {
   smearCurve: 2,
   /** 槳葉本身（最濃那一段）的寬度，倍槳半徑。槳根到槳尖一樣寬（槳葉是長條，不是扇形） */
   bladeWidth: 0.1,
-  /** 整張圓盤的底色濃度：槳葉之間也留一點點 */
+  /** 整張圓盤的底色濃度（槳轂那裡）：槳葉之間也留一點點 */
   base: 0.04,
+  /** 底色往槳尖怎麼淡：0 = 整盤一樣濃；越大越早淡掉（槳尖那一圈 = 底色 ×（1 − 半徑）^這個） */
+  baseCurve: 0,
   /** 殘影本身的轉速，rad/s */
   spin: 4,
   /** 殘影的顏色亮度（0 = 黑、1 = 白） */
@@ -49,6 +51,7 @@ const SHARED = {
   uSmearCurve: { value: PROP_BLUR.smearCurve },
   uBladeWidth: { value: PROP_BLUR.bladeWidth },
   uBase: { value: PROP_BLUR.base },
+  uBaseCurve: { value: PROP_BLUR.baseCurve },
 }
 
 const MATERIALS = new Set<MeshStandardMaterial>()
@@ -64,6 +67,7 @@ export function syncPropBlur(): void {
   SHARED.uSmearCurve.value = PROP_BLUR.smearCurve
   SHARED.uBladeWidth.value = PROP_BLUR.bladeWidth
   SHARED.uBase.value = PROP_BLUR.base
+  SHARED.uBaseCurve.value = PROP_BLUR.baseCurve
   for (const m of MATERIALS) m.color.copy(SHADE.setScalar(PROP_BLUR.shade))
 }
 const SHADE = new Color()
@@ -90,7 +94,7 @@ export function createPropBlurMaterial(blades: number, radius: number): MeshStan
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
        varying vec2 vProp;
-       uniform float uBlades, uRadius, uOpacity, uRootAlpha, uTipAlpha, uFadeCurve, uRootSmear, uTipSmear, uSmearCurve, uBladeWidth, uBase;`)
+       uniform float uBlades, uRadius, uOpacity, uRootAlpha, uTipAlpha, uFadeCurve, uRootSmear, uTipSmear, uSmearCurve, uBladeWidth, uBase, uBaseCurve;`)
       .replace('#include <dithering_fragment>', `#include <dithering_fragment>
        float rr = length(vProp) / uRadius;
        float turn = atan(vProp.y, vProp.x) / 6.28318530718;
@@ -104,7 +108,8 @@ export function createPropBlurMaterial(blades: number, radius: number): MeshStan
        float dens = mix(uRootAlpha, uTipAlpha, 1.0 - pow(1.0 - clamp(rr, 0.0, 1.0), uFadeCurve));
        // 外緣柔邊：圓盤是多邊形，硬邊看得出稜角
        float rim = 1.0 - smoothstep(0.94, 1.0, rr);
-       gl_FragColor.a = clamp(trail * dens + uBase, 0.0, 1.0) * uOpacity * rim;`)
+       float baseA = uBase * pow(max(1.0 - rr, 1e-4), uBaseCurve);
+       gl_FragColor.a = clamp(trail * dens + baseA, 0.0, 1.0) * uOpacity * rim;`)
   }
   m.customProgramCacheKey = () => 'propBlur'
   MATERIALS.add(m)

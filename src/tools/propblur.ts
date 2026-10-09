@@ -132,6 +132,7 @@ const SLIDERS: [keyof typeof PROP_BLUR, string, number, number, number][] = [
   ['smearCurve', '殘影漸增曲線', 0.2, 6, 0.1],
   ['bladeWidth', '槳葉寬', 0, 0.3, 0.005],
   ['base', '底盤濃度', 0, 0.3, 0.005],
+  ['baseCurve', '底盤漸變曲線', 0, 6, 0.1],
   ['spin', '殘影轉速', 0, 30, 0.5],
   ['shade', '顏色亮度', 0, 1, 0.01],
 ]
