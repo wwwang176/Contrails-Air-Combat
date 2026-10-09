@@ -29,11 +29,14 @@ export function createCannonAudio(audio: Pick<AudioEngine, 'playPool'>, cam: Vec
    */
   const prevGunShots = new Float64Array(1024)
 
-  /** 每一種砲聲上一次出聲的時間（`elapsed`）。種類見 `catalog.ts` 的 `gunSound` */
+  /** 每一門砲上一次出聲的時間（`elapsed`），與 `prevGunShots` 同一個順序 */
+  const lastShotAt = new Float64Array(1024).fill(-Infinity)
+
+  /** 地面戰每一種砲聲上一次出聲的時間（`elapsed`）。種類見 `catalog.ts` 的 `gunSound` */
   const lastGunKind = new Map<string, number>()
 
   /**
-   * 這一幀每一種砲聲最近的那一座剛開火的砲。**值就地改寫，不在幀迴圈裡配置** ——
+   * 地面戰這一幀每一種砲聲最近的那一發。**值就地改寫，不在幀迴圈裡配置** ——
    * 只有第一次見到某一種時才建一個。
    */
   const gunPick = new Map<string, { dist: number; x: number; y: number; z: number }>()
@@ -41,46 +44,38 @@ export function createCannonAudio(audio: Pick<AudioEngine, 'playPool'>, cam: Vec
   /**
    * 高射砲、艦砲開火：開火計數增加的那一幀響一下（一幀內開了好幾發也只響一下）。
    *
-   * 【每一種各自限頻率，而且只響最近的那一座】20 mm 一座每秒八發、一艘船八個
-   * 砲位 —— 不限的話光它就把聲道吃光，五吋砲與爆炸反而聽不見。但那個時段是
-   * **整個戰場共用一個**，取第一個輪到的等於隨機挑：貼著一座砲飛時，聽到的
-   * 常常是八百公尺外那一門在響，而旁邊這門悶不吭聲。所以先掃一趟挑最近的。
+   * 【每一座砲各自限頻率，總量交給引擎】`gap` 只防同一座在一瞬間疊好幾聲。全場同一種共用一個
+   * 時段的話，一公里外那座先開火就把旁邊這座消音（勒熱夫實測：貼著一座四聯 20 mm，它 75% 的開火
+   * 被擋，擋它的砲中位數 1,072 m 外）。同時有幾十聲時，引擎的每類配額（`VOICE_QUOTA`）與
+   * 「比響度、丟最小聲的」管住總量 —— 被丟的是遠處的砲。
    */
   function playCannons(world: Pick<World, 'ships' | 'groundTargets'>, elapsed: number): void {
-    // 第一趟：邊緣偵測，每一種留下離鏡頭最近的那一座。
-    // 【候選不在這裡清】地面戰的砲口聲（`noteGroundShot`）在 `updateAudio` 之後才寫進來，要留到
-    // 下一幀的這支函式；清除放在第二趟播完之後
     let slot = 0
     // 兩組平台依固定順序掃描，不為每幀建立臨時陣列。
     for (let platform = 0; platform < 2; platform++) {
       const list = platform === 0 ? world.ships : world.groundTargets
       for (const p of list) {
         for (const gun of p.guns) {
-          // 【滿了只停止記錄，不能整支返回】第二趟還沒跑，返回等於這一幀全啞
+          // 【滿了只停止記錄，不能整支返回】地面戰那一趟還沒跑，返回等於它們這一幀全啞
           if (slot >= prevGunShots.length) break
-          const was = prevGunShots[slot]!
-          prevGunShots[slot++] = gun.shots
+          const s = slot++
+          const was = prevGunShots[s]!
+          prevGunShots[s] = gun.shots
           if (!(gun.shots > was) || !p.alive) continue
           GUN_POS.copy(gun.zone.position).applyQuaternion(p.orientation).add(p.position)
-          const d = GUN_POS.distanceTo(cam)
-          if (d >= CANNON_AUDIO_RANGE) continue
+          if (GUN_POS.distanceTo(cam) >= CANNON_AUDIO_RANGE) continue
           // 陸上砲位帶自己的種類；船依層對到艦砲的三種
-          const kind = gun.zone.sound ?? shipGunSound(gun.zone.tier)
-          let best = gunPick.get(kind)
-          if (best === undefined) {
-            best = { dist: Infinity, x: 0, y: 0, z: 0 }
-            gunPick.set(kind, best)
-          }
-          if (d >= best.dist) continue
-          best.dist = d
-          best.x = GUN_POS.x
-          best.y = GUN_POS.y
-          best.z = GUN_POS.z
+          const g = gunSound(gun.zone.sound ?? shipGunSound(gun.zone.tier))
+          if (elapsed - lastShotAt[s]! < g.gap) continue
+          lastShotAt[s] = elapsed
+          audio.playPool(g.pool, 'cannon', GUN_POS.x, GUN_POS.y, GUN_POS.z, true,
+            g.gainDb + (rand() * 2 - 1) * GUN_GAIN_JITTER_DB, false)
         }
       }
     }
 
-    // 第二趟：每一種在自己的時段裡響一次，位置取剛才挑到的那一座
+    // 地面戰：每一種在自己的時段裡響一次，位置取 `noteGroundShot` 挑到的那一發。
+    // 【候選不在掃砲位之前清】回呼在 `updateAudio` 之後才寫進來，要留到這一幀；清除放在播完之後
     for (const [kind, best] of gunPick) {
       if (best.dist === Infinity) continue
       const g = gunSound(kind)
@@ -117,6 +112,7 @@ export function createCannonAudio(audio: Pick<AudioEngine, 'playPool'>, cam: Vec
 
   function reset(): void {
     prevGunShots.fill(0)
+    lastShotAt.fill(-Infinity)
     lastGunKind.clear()
     gunPick.clear()
   }

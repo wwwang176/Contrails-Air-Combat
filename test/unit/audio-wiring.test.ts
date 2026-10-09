@@ -208,20 +208,22 @@ describe('音效的戰鬥事件接線', () => {
   })
 
   /**
-   * 【時段是整個戰場共用的，所以要挑最近的】取第一個輪到的等於隨機挑：
-   * 貼著一座砲飛時，聽到的常常是八百公尺外那一門在響，旁邊這門悶不吭聲。
+   * 【砲位每一座各自限頻率，總量交給引擎】全場同一種共用一個時段的話，一公里外那座先開火就把
+   * 旁邊這座消音。引擎的每類配額與「比響度」已經管住總量（勒熱夫實測：旁邊那座 75% 的開火被擋）。
+   * 地面戰的戲沒有砲位編號，仍是每一種挑最近的一發。
    */
-  it('每一層只響離鏡頭最近的那一座', () => {
+  it('砲位各自限頻率；地面戰的仍挑最近的那一發', () => {
     const fn = body('function playCannons(', CANNONS)
-    // 第一趟挑最近的
-    expect(fn).toContain('if (d >= best.dist) continue')
-    expect(fn).toContain('best.dist = d')
-    // 第二趟才播，位置用挑到的那一座
+    expect(fn).toContain('if (elapsed - lastShotAt[s]! < g.gap) continue')
+    expect(fn).toContain('lastShotAt[s] = elapsed')
+    expect(fn).toContain("audio.playPool(g.pool, 'cannon', GUN_POS.x, GUN_POS.y, GUN_POS.z, true,")
+    // 地面戰：播挑到的那一發
     expect(fn).toContain("audio.playPool(g.pool, 'cannon', best.x, best.y, best.z, true,")
-    // 【滿了只停止記錄】返回的話第二趟不會跑，那一幀整個啞掉
+    // 【滿了只停止記錄】返回的話地面戰那一趟不會跑，那一幀它們整個啞掉
     expect(fn).toContain('if (slot >= prevGunShots.length) break')
     expect(fn).not.toContain('if (slot >= prevGunShots.length) return')
     expect(body('function reset(', CANNONS)).toContain('gunPick.clear()')
+    expect(body('function reset(', CANNONS)).toContain('lastShotAt.fill(-Infinity)')
   })
 
   /**

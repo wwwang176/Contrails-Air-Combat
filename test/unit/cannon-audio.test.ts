@@ -70,15 +70,38 @@ describe('砲聲候選與生命週期', () => {
     audio.playCannons(world, 3)
     expect(playPool).toHaveBeenCalledTimes(2)
   })
-  it('每一種選最近的砲，保留第一個等距候選，播那一種的池與音量', () => {
+  /**
+   * 【每一座砲各自出聲，總量交給引擎】全場同一種共用一個時段的話，一公里外那座先開火就佔掉
+   * 0.1 s，旁邊這座跟著消音（勒熱夫實測：旁邊那座 75% 的開火被擋，擋它的中位數 1,072 m）
+   */
+  it('每一座開了火的砲都出聲，播那一種的池與音量', () => {
     const { audio, world, playPool } = setup()
     world.ships.push(ship(500), ship(20), ship(-20), ship(40, 'mg'), ship(60, 'autocannon'))
     audio.playCannons(world, 1)
-    expect(playPool.mock.calls).toEqual(['naval5in', 'naval20', 'naval40'].map((kind, i) => {
-      const g = gunSound(kind)
-      return [g.pool, 'cannon', [20, 40, 60][i], 0, 0, true, g.gainDb, false]
-    }))
+    expect(playPool.mock.calls).toEqual(
+      ([['naval5in', 500], ['naval5in', 20], ['naval5in', -20], ['naval20', 40], ['naval40', 60]] as const).map(([kind, x]) => {
+        const g = gunSound(kind)
+        return [g.pool, 'cannon', x, 0, 0, true, g.gainDb, false]
+      }))
     audio.playCannons(world, 2)
+    expect(playPool).toHaveBeenCalledTimes(5)
+  })
+
+  it('遠處同一種的砲剛響過，旁邊這座照樣響；同一座在時段內再開火不重複響', () => {
+    const { audio, world, playPool } = setup()
+    const far = ship(1000, 'mg')
+    const near = ship(15, 'mg')
+    near.guns[0]!.shots = 0
+    world.ships.push(far, near)
+    audio.playCannons(world, 1)
+    near.guns[0]!.shots = 1
+    audio.playCannons(world, 1.02)
+    expect(playPool.mock.calls.map((c) => c[2])).toEqual([1000, 15])
+    near.guns[0]!.shots = 2
+    audio.playCannons(world, 1.04)
+    expect(playPool).toHaveBeenCalledTimes(2)
+    near.guns[0]!.shots = 3
+    audio.playCannons(world, 1.02 + gunSound('naval20').gap)
     expect(playPool).toHaveBeenCalledTimes(3)
   })
 
@@ -127,7 +150,7 @@ describe('砲聲候選與生命週期', () => {
     expect(playPool).toHaveBeenCalledTimes(1)
   })
 
-  it('1024 個記錄槽滿時，仍播放已選的砲與地面砲', () => {
+  it('1024 個記錄槽滿時，記得住的砲照樣出聲，地面砲也照樣播；超出的那一門不出聲', () => {
     const { audio, world, playPool } = setup()
     const p = ship(100)
     p.guns = Array.from({ length: 1025 }, (_, i) => ({
@@ -136,7 +159,10 @@ describe('砲聲候選與生命週期', () => {
     world.ships.push(p)
     audio.noteGroundShot('tank', 30, 0, 0)
     audio.playCannons(world, 1)
-    expect(playPool.mock.calls.map(call => call[2])).toEqual([30, 100])
+    const xs = playPool.mock.calls.map(call => call[2] as number)
+    expect(xs).toHaveLength(1025)
+    expect(xs.slice(0, 1024).every((x) => x === 100)).toBe(true)
+    expect(xs[1024]).toBe(30)
   })
 
   it('重設清除閃光、限頻與待播事件，且不同實例互不影響', () => {
