@@ -10,6 +10,9 @@ import { groundGunTier, gunSound, shipGunSound } from './catalog'
  */
 export const GUN_GAIN_JITTER_DB = 1
 
+/** 地面戰一幀最多排幾發；超過時丟最遠的。全場同時開火遠低於此數 */
+export const GROUND_SHOT_QUEUE = 64
+
 /**
  * 艦砲、高射砲與地面砲聲共用的候選、邊緣偵測與限頻狀態。
  *
@@ -32,14 +35,19 @@ export function createCannonAudio(audio: Pick<AudioEngine, 'playPool'>, cam: Vec
   /** 每一門砲上一次出聲的時間（`elapsed`），與 `prevGunShots` 同一個順序 */
   const lastShotAt = new Float64Array(1024).fill(-Infinity)
 
-  /** 地面戰每一種砲聲上一次出聲的時間（`elapsed`）。種類見 `catalog.ts` 的 `gunSound` */
-  const lastGunKind = new Map<string, number>()
-
   /**
-   * 地面戰這一幀每一種砲聲最近的那一發。**值就地改寫，不在幀迴圈裡配置** ——
-   * 只有第一次見到某一種時才建一個。
+   * 地面戰每一台上一次出聲的時間（`elapsed`），依 `groundBattle` 的單位序號。超出長度的序號不限頻
    */
-  const gunPick = new Map<string, { dist: number; x: number; y: number; z: number }>()
+  const lastUnitShotAt = new Float64Array(1024).fill(-Infinity)
+
+  /** 地面戰等著下一幀播的開火：種類、位置、離鏡頭的距離、開砲那一台的序號。固定大小，不配置 */
+  const queueKind: string[] = new Array<string>(GROUND_SHOT_QUEUE).fill('')
+  const queueX = new Float64Array(GROUND_SHOT_QUEUE)
+  const queueY = new Float64Array(GROUND_SHOT_QUEUE)
+  const queueZ = new Float64Array(GROUND_SHOT_QUEUE)
+  const queueDist = new Float64Array(GROUND_SHOT_QUEUE)
+  const queueUnit = new Int32Array(GROUND_SHOT_QUEUE)
+  let queued = 0
 
   /**
    * 高射砲、艦砲開火：開火計數增加的那一幀響一下（一幀內開了好幾發也只響一下）。
@@ -74,47 +82,53 @@ export function createCannonAudio(audio: Pick<AudioEngine, 'playPool'>, cam: Vec
       }
     }
 
-    // 地面戰：每一種在自己的時段裡響一次，位置取 `noteGroundShot` 挑到的那一發。
-    // 【候選不在掃砲位之前清】回呼在 `updateAudio` 之後才寫進來，要留到這一幀；清除放在播完之後
-    for (const [kind, best] of gunPick) {
-      if (best.dist === Infinity) continue
-      const g = gunSound(kind)
-      // 【不論響不響都清掉】被時段擋下的候選留到下一幀，會把一個過時的位置播出來
-      best.dist = Infinity
-      if (elapsed - (lastGunKind.get(kind) ?? -Infinity) < g.gap) continue
-      lastGunKind.set(kind, elapsed)
-      audio.playPool(g.pool, 'cannon', best.x, best.y, best.z, true,
+    // 地面戰：佇列裡每一發依開砲那一台的時段，與砲位同一套。
+    // 【佇列不在掃砲位之前清】回呼在 `updateAudio` 之後才寫進來，要留到這一幀；清除放在播完之後。
+    // 【被時段擋下的不留】留到下一幀會把一個過時的位置播出來
+    for (let i = 0; i < queued; i++) {
+      const g = gunSound(queueKind[i]!)
+      const u = queueUnit[i]!
+      if (u < lastUnitShotAt.length && elapsed - lastUnitShotAt[u]! < g.gap) continue
+      if (u < lastUnitShotAt.length) lastUnitShotAt[u] = elapsed
+      audio.playPool(g.pool, 'cannon', queueX[i]!, queueY[i]!, queueZ[i]!, true,
         g.gainDb + (rand() * 2 - 1) * GUN_GAIN_JITTER_DB, false)
     }
+    queued = 0
   }
 
   /**
-   * 地面戰的戰車砲、反坦克砲開一發：記下這一種離鏡頭最近的一發，下一幀的 `playCannons` 播。
-   * 限頻率與艦砲、重高砲同一套，種類由 `groundGunTier` 查；沒有種類的單位（卡車、建物）
-   * 不出聲。熱路徑：只有第一次見到某一種時才配置。
+   * 地面戰開一發（戰車、反坦克砲、步兵、迫擊砲）：排進佇列，下一幀的 `playCannons` 播。
+   * 種類由 `groundGunTier` 查；沒有種類的單位（卡車、建物）不出聲。佇列滿了時取代最遠的那一發，
+   * 這一發比它還遠就不排。熱路徑：不配置
+   *
+   * @param index 開砲那一台的序號（`groundBattle` 的單位序號），限頻率依它
    */
-  function noteGroundShot(unit: GroundUnitId, x: number, y: number, z: number): void {
+  function noteGroundShot(unit: GroundUnitId, x: number, y: number, z: number, index: number): void {
     const kind = groundGunTier(unit)
     if (kind === null) return
     const d = Math.hypot(x - cam.x, y - cam.y, z - cam.z)
     if (d >= CANNON_AUDIO_RANGE) return
-    let best = gunPick.get(kind)
-    if (best === undefined) {
-      best = { dist: Infinity, x: 0, y: 0, z: 0 }
-      gunPick.set(kind, best)
+    let k = queued
+    if (k < GROUND_SHOT_QUEUE) {
+      queued++
+    } else {
+      k = 0
+      for (let i = 1; i < GROUND_SHOT_QUEUE; i++) if (queueDist[i]! > queueDist[k]!) k = i
+      if (d >= queueDist[k]!) return
     }
-    if (d >= best.dist) return
-    best.dist = d
-    best.x = x
-    best.y = y
-    best.z = z
+    queueKind[k] = kind
+    queueX[k] = x
+    queueY[k] = y
+    queueZ[k] = z
+    queueDist[k] = d
+    queueUnit[k] = index
   }
 
   function reset(): void {
     prevGunShots.fill(0)
     lastShotAt.fill(-Infinity)
-    lastGunKind.clear()
-    gunPick.clear()
+    lastUnitShotAt.fill(-Infinity)
+    queued = 0
   }
 
   return { playCannons, noteGroundShot, reset }

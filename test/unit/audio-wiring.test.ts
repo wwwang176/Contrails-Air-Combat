@@ -200,30 +200,34 @@ describe('音效的戰鬥事件接線', () => {
   it('艦砲三層都出聲，各層各自限頻率', () => {
     const fn = body('function playCannons(', CANNONS)
     expect(fn).not.toContain("gun.zone.tier !== 'flak'")
-    expect(fn).toContain('const g = gunSound(kind)')
-    expect(fn).toContain('lastGunKind.get(kind)')
+    expect(fn).toContain('const g = gunSound(gun.zone.sound ?? shipGunSound(gun.zone.tier))')
+    expect(fn).toContain('const g = gunSound(queueKind[i]!)')
     expect(fn).toContain('g.gainDb + (rand() * 2 - 1) * GUN_GAIN_JITTER_DB, false)')
     expect(body('function reset(', CONTROLLER)).toContain('cannonAudio.reset()')
-    expect(body('function reset(', CANNONS)).toContain('lastGunKind.clear()')
   })
 
   /**
    * 【砲位每一座各自限頻率，總量交給引擎】全場同一種共用一個時段的話，一公里外那座先開火就把
    * 旁邊這座消音。引擎的每類配額與「比響度」已經管住總量（勒熱夫實測：旁邊那座 75% 的開火被擋）。
-   * 地面戰的戲沒有砲位編號，仍是每一種挑最近的一發。
+   * 地面戰依 `groundBattle` 的單位序號，同一套。
    */
-  it('砲位各自限頻率；地面戰的仍挑最近的那一發', () => {
+  it('砲位與地面戰都是每一座／每一台各自限頻率', () => {
     const fn = body('function playCannons(', CANNONS)
     expect(fn).toContain('if (elapsed - lastShotAt[s]! < g.gap) continue')
     expect(fn).toContain('lastShotAt[s] = elapsed')
     expect(fn).toContain("audio.playPool(g.pool, 'cannon', GUN_POS.x, GUN_POS.y, GUN_POS.z, true,")
-    // 地面戰：播挑到的那一發
-    expect(fn).toContain("audio.playPool(g.pool, 'cannon', best.x, best.y, best.z, true,")
+    // 地面戰：佇列裡每一發依開砲那一台的時段
+    expect(fn).toContain('if (u < lastUnitShotAt.length && elapsed - lastUnitShotAt[u]! < g.gap) continue')
+    expect(fn).toContain("audio.playPool(g.pool, 'cannon', queueX[i]!, queueY[i]!, queueZ[i]!, true,")
+    expect(CANNONS).not.toContain('gunPick')
+    expect(CANNONS).not.toContain('lastGunKind')
     // 【滿了只停止記錄】返回的話地面戰那一趟不會跑，那一幀它們整個啞掉
     expect(fn).toContain('if (slot >= prevGunShots.length) break')
     expect(fn).not.toContain('if (slot >= prevGunShots.length) return')
-    expect(body('function reset(', CANNONS)).toContain('gunPick.clear()')
-    expect(body('function reset(', CANNONS)).toContain('lastShotAt.fill(-Infinity)')
+    const reset = body('function reset(', CANNONS)
+    expect(reset).toContain('queued = 0')
+    expect(reset).toContain('lastUnitShotAt.fill(-Infinity)')
+    expect(reset).toContain('lastShotAt.fill(-Infinity)')
   })
 
   /**
@@ -231,7 +235,7 @@ describe('音效的戰鬥事件接線', () => {
    * 所以候選要跨幀留到下一幀的 `playCannons`：清除放在播完之後，放在第一趟之前會把它抹掉，
    * 症狀是戰車與反坦克砲整場無聲，而且不報錯。
    */
-  it('地面戰的砲口聲：回呼記下最近的一發，playCannons 播完才清', () => {
+  it('地面戰的砲口聲：回呼排進佇列，playCannons 播完才清', () => {
     expect(ALL).toContain('burn: emitFirePuff, impact: onGroundImpact, fired: noteGroundShot')
     expect(ALL).toContain('battleScenery.rebuild(world, pendingMission?.battle.theater, battle.cfg.groundLivery)')
     expect(SCENERY).toContain('createGroundBattle(theater, assets.burn, assets.smokeTexture, assets.impact, assets.fired, assets.landed)')
@@ -241,12 +245,9 @@ describe('音效的戰鬥事件接線', () => {
     expect(note).toContain('const kind = groundGunTier(unit)')
     expect(note).toContain('if (kind === null) return')
     expect(note).toContain('if (d >= CANNON_AUDIO_RANGE) return')
-    expect(note).toContain('if (d >= best.dist) return')
-    expect(note).toContain('best.dist = d')
     const fn = body('function playCannons(', CANNONS)
-    expect(fn).not.toContain('e.dist = Infinity')
-    expect(fn).toContain('best.dist = Infinity')
-    expect(fn.indexOf('best.dist = Infinity')).toBeGreaterThan(fn.indexOf('if (d >= best.dist) continue'))
+    expect(fn).toContain('queued = 0')
+    expect(fn.lastIndexOf('queued = 0')).toBeGreaterThan(fn.indexOf("audio.playPool(g.pool, 'cannon', queueX[i]!"))
   })
 
   /**

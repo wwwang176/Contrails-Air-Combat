@@ -484,13 +484,25 @@ describe('直射砲彈擊中', () => {
  */
 describe('砲口聲的通報', () => {
   const flat = (): number => 0
-  type Shot = { unit: string; x: number; y: number; z: number }
+  type Shot = { unit: string; x: number; y: number; z: number; index: number }
   const battle = (shooters: string[], period: number): { gb: ReturnType<typeof createGroundBattle>; shots: Shot[] } => {
     const shots: Shot[] = []
     const gb = createGroundBattle({ shooters, period, range: 1500 } as never, () => {}, undefined, undefined,
-      (unit, x, y, z) => { shots.push({ unit, x, y, z }) })
+      (unit, x, y, z, index) => { shots.push({ unit, x, y, z, index }) })
     return { gb, shots }
   }
+
+  /** 【帶開火那一台的序號】開火聲每一台各自限頻率（`audio/cannonAudio.ts`），要分得出是誰開的 */
+  it('通報帶開火那一台的序號：藍方在 x = 0、紅方在 x = 900', () => {
+    const { gb, shots } = battle(['tank'], 1)
+    const a = createGroundTarget(0, 'tank', 'blue', 0, 0, 0)
+    const b = createGroundTarget(1, 'tank', 'red', 900, 0, 0)
+    for (let t = 0; t < 30; t += 0.1) gb.update([a, b], t, 0.1, flat)
+    expect(shots.length).toBeGreaterThan(10)
+    for (const s of shots) expect(s.index).toBe(Math.abs(s.x) < 50 ? 0 : 1)
+    expect(new Set(shots.map((s) => s.index))).toEqual(new Set([0, 1]))
+    gb.dispose()
+  })
 
   it('戰車每開一發通報一次，砲口在車頭前方、車身的高度', () => {
     const { gb, shots } = battle(['tank'], 1)

@@ -325,8 +325,8 @@ export function impactSound(material: number): ImpactSound {
  * 【`gainDb` 含 A 加權校正】檔案照素材慣例都在 −16 LUFS，但人耳聽感（A 加權、最響 0.4 s）各不相同。
  * 這裡的值 = 負責人在試聽頁定的砲種音量 + 把該檔校正到舊砲擊庫平均 −24.1 dB(A) 的差。改檔要重量。
  *
- * 【`gap` 是每一種各自的上限】20 mm 一座每秒八發，一艘船八個砲位 —— 不限的話
- * 光它就把聲道吃光。同一種在 `gap` 秒內只播一次，聽起來仍然是連續的。
+ * 【`gap` 是每一座砲位／每一台地面單位各自的時段】一座在 `gap` 秒內只響一聲，防它自己在一瞬間
+ * 疊好幾聲；全場的總量交給引擎的每類配額（`VOICE_QUOTA`），被丟的是遠處小聲的。
  */
 export interface GunSound {
   pool: Pool

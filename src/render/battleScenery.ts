@@ -20,7 +20,8 @@ export interface BattleSceneryAssets {
   smokeTexture: Texture
   burn: FirePuffFn
   impact(x: number, y: number, z: number): void
-  fired(unit: GroundUnitId, x: number, y: number, z: number): void
+  /** 地面戰開一發（`createGroundBattle` 的 `fired`）；`index` 是開砲那一台的序號 */
+  fired(unit: GroundUnitId, x: number, y: number, z: number, index: number): void
   /** 戰車與反坦克砲打偏、砲彈落地（`createGroundBattle` 的 `landed`） */
   landed(x: number, y: number, z: number): void
 }

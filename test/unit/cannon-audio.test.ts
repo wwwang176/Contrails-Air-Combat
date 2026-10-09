@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Vector3 } from 'three'
-import { createCannonAudio } from '../../src/audio/cannonAudio'
+import { GROUND_SHOT_QUEUE, createCannonAudio } from '../../src/audio/cannonAudio'
 import { gunSound } from '../../src/audio/catalog'
 import { createShip, SHIP_CLASSES } from '../../src/world/ships'
 import { createGroundBattery } from '../../src/world/shipGuns'
@@ -132,22 +132,38 @@ describe('砲聲候選與生命週期', () => {
     expect(playPool.mock.calls[0]![4]).toBeCloseTo(0)
   })
 
-  it('地面砲候選留到下一幀，限頻丟棄的候選不會延後播放', () => {
+  /**
+   * 【地面戰也是每一台各自限頻率】同一種全場共用一個時段時，遠處那台先開就把旁邊這台消音
+   * （勒熱夫實測：貼著一個步兵班，它 120 次開火只有 28 次出聲）
+   */
+  it('地面戰：留到下一幀播；每一台各自限頻，遠處同一種不擋旁邊這台；被擋的不延後', () => {
     const { audio, world, playPool } = setup()
     const note = audio.noteGroundShot
     audio.playCannons(world, 0)
-    note('tank', 100, 0, 0)
-    note('panzer4', 20, 0, 0)
+    note('tank', 100, 0, 0, 1)
+    note('panzer4', 20, 0, 0, 2)
+    expect(playPool).not.toHaveBeenCalled()
     audio.playCannons(world, 1)
-    expect(playPool.mock.calls[0]![2]).toBe(20)
-    note('tank', 10, 0, 0)
+    expect(playPool.mock.calls.map((c) => c[2])).toEqual([100, 20])
+    note('tank', 10, 0, 0, 1)
+    note('tank', 15, 0, 0, 3)
     audio.playCannons(world, 1.01)
+    expect(playPool.mock.calls.map((c) => c[2])).toEqual([100, 20, 15])
     audio.playCannons(world, 2)
-    expect(playPool).toHaveBeenCalledTimes(1)
-    note('truck', 0, 0, 0)
-    note('tank', 6000, 0, 0)
+    expect(playPool).toHaveBeenCalledTimes(3)
+    note('truck', 0, 0, 0, 4)
+    note('tank', 6000, 0, 0, 5)
     audio.playCannons(world, 3)
-    expect(playPool).toHaveBeenCalledTimes(1)
+    expect(playPool).toHaveBeenCalledTimes(3)
+  })
+
+  /** 【佇列固定大小】一幀內超過的話丟最遠的 —— 熱路徑不配置 */
+  it(`一幀內超過 ${GROUND_SHOT_QUEUE} 發時丟掉最遠的`, () => {
+    const { audio, world, playPool } = setup()
+    for (let k = 0; k < GROUND_SHOT_QUEUE + 6; k++) audio.noteGroundShot('infantry', GROUND_SHOT_QUEUE + 6 - k, 0, 0, k)
+    audio.playCannons(world, 1)
+    const xs = (playPool.mock.calls.map((c) => c[2]) as number[]).sort((a, b) => a - b)
+    expect(xs).toEqual(Array.from({ length: GROUND_SHOT_QUEUE }, (_, i) => i + 1))
   })
 
   it('1024 個記錄槽滿時，記得住的砲照樣出聲，地面砲也照樣播；超出的那一門不出聲', () => {
@@ -157,7 +173,7 @@ describe('砲聲候選與生命週期', () => {
       ...p.guns[0]!, zone: { ...p.guns[0]!.zone, position: new Vector3(i === 1024 ? -99 : 0, 0, 0) },
     }))
     world.ships.push(p)
-    audio.noteGroundShot('tank', 30, 0, 0)
+    audio.noteGroundShot('tank', 30, 0, 0, 0)
     audio.playCannons(world, 1)
     const xs = playPool.mock.calls.map(call => call[2] as number)
     expect(xs).toHaveLength(1025)
@@ -170,8 +186,8 @@ describe('砲聲候選與生命週期', () => {
     const other = setup()
     world.ships.push(ship(10))
     audio.playCannons(world, 10)
-    audio.noteGroundShot('tank', 20, 0, 0)
-    other.audio.noteGroundShot('tank', 30, 0, 0)
+    audio.noteGroundShot('tank', 20, 0, 0, 0)
+    other.audio.noteGroundShot('tank', 30, 0, 0, 0)
     audio.reset()
     audio.reset()
     audio.playCannons(world, 0)

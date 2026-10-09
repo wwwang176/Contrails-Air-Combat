@@ -220,15 +220,16 @@ function gunSmokeColor(_t: number, out: Color): void {
  * @param smokeTexture 塵土的不透明度貼圖，與爆炸的塵土同一張
  * @param impact 小爆炸，世界座標：迫擊砲彈落地、戰車與反坦克砲的砲彈擊中目標時放。**與炸彈同一份
  *   火球與粒子的配方，只是縮小**（`main.ts` 的 `emitMortarBlast`）；省略 = 沒有表現
- * @param fired 開一發時呼叫：開砲的單位 id 與砲口的世界座標。劇本打掉前的最後一發也算；迫擊砲只算
- *   現在發射的，開場前就已經在天上的不算。省略 = 不通報。**熱路徑：呼叫端不配置**
+ * @param fired 開一發時呼叫：開砲的單位 id、砲口的世界座標、開砲那一台在 `targets` 裡的序號（聲音
+ *   每一台各自限頻率）。劇本打掉前的最後一發也算；迫擊砲只算現在發射的，開場前就已經在天上的不算。
+ *   省略 = 不通報。**熱路徑：呼叫端不配置**
  * @param landed 戰車與反坦克砲打偏、砲彈落地時呼叫，落點在地面上。遊戲接的是戰鬥機機槍打到地面
  *   那一套土柱（`render/dirtImpact.ts`）。省略 = 一小團塵土。**熱路徑：呼叫端不配置**
  */
 export function createGroundBattle(
   theater: MissionTheater, burn: FirePuffFn, smokeTexture?: Texture,
   impact: (x: number, y: number, z: number) => void = () => {},
-  fired: (unit: GroundUnitId, x: number, y: number, z: number) => void = () => {},
+  fired: (unit: GroundUnitId, x: number, y: number, z: number, index: number) => void = () => {},
   landed?: (x: number, y: number, z: number) => void,
 ): GroundBattle {
   const shooters = new Set<GroundUnitId>(theater.shooters)
@@ -357,7 +358,7 @@ export function createGroundBattle(
     // 砲口：垂直的管子，一小團槍焰與往上飄的煙
     flash.emit(ox, oy, oz, 0, 0, 0, 0.8)
     gunSmoke.emit(ox, oy + 0.3, oz, 0, 4, 0, 1)
-    fired(me.unit.id, ox, oy, oz)
+    fired(me.unit.id, ox, oy, oz, s)
   }
 
   /**
@@ -401,13 +402,13 @@ export function createGroundBattle(
       ty = groundAt(tx, tz)
     }
     if (infantry) {
-      fired(me.unit.id, ox, oy, oz)
+      fired(me.unit.id, ox, oy, oz, s)
       bullets.fire(ox, oy, oz, tx, ty, tz, BULLET_SPEED, hit)
       return
     }
     flash.emit(ox, oy, oz, 0, 0, 0, 1)
     gunSmoke.emit(ox, oy, oz, ux * 2, 0.5, uz * 2, 1)
-    fired(me.unit.id, ox, oy, oz)
+    fired(me.unit.id, ox, oy, oz, s)
     shells.fire(ox, oy, oz, tx, ty, tz, SHELL_SPEED, hit)
   }
 
