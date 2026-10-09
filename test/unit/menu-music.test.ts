@@ -117,8 +117,12 @@ describe('選單背景音樂', () => {
     music.setRunning(true)
     expect(element.play).toHaveBeenCalledTimes(1)
     await played()
+    // 淡入走完：之後的暫停要把它歸零，恢復時才會再淡入一次
+    gain.value = MENU_MUSIC.level
+    ctx.currentTime = 25
     music.setRunning(false)
     expect(element.pause).toHaveBeenCalledTimes(1)
+    expect(gain.calls.slice(-2)).toEqual([['cancel', 25], ['set', 0, 25]])
     expect(gain.value).toBe(0)
     ctx.currentTime = 30
     music.setRunning(true)
