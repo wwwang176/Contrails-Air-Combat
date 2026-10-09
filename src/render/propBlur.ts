@@ -18,8 +18,11 @@ export const PROP_BLUR = {
   /** 槳根、槳尖那一圈殘影的濃度（0–1） */
   rootAlpha: 0.75,
   tipAlpha: 0.25,
-  /** 濃度從哪裡開始變淡，倍半徑：這以內是槳根濃度，從這裡到槳尖直線降到槳尖濃度 */
-  fadeStart: 0,
+  /**
+   * 槳根到槳尖的濃度漸變曲線：1 = 直線；越大往外掉得越快（外圈很快就接近槳尖濃度）、
+   * 小於 1 則槳根濃度撐得越久
+   */
+  fadeCurve: 1,
   /** 殘影往每一側拖多長，倍槳葉間隔（0–0.5）：槳根、槳尖 */
   rootSmear: 0.06,
   tipSmear: 0.15,
@@ -38,7 +41,7 @@ const SHARED = {
   uOpacity: { value: PROP_BLUR.opacity },
   uRootAlpha: { value: PROP_BLUR.rootAlpha },
   uTipAlpha: { value: PROP_BLUR.tipAlpha },
-  uFadeStart: { value: PROP_BLUR.fadeStart },
+  uFadeCurve: { value: PROP_BLUR.fadeCurve },
   uRootSmear: { value: PROP_BLUR.rootSmear },
   uTipSmear: { value: PROP_BLUR.tipSmear },
   uBladeWidth: { value: PROP_BLUR.bladeWidth },
@@ -52,7 +55,7 @@ export function syncPropBlur(): void {
   SHARED.uOpacity.value = PROP_BLUR.opacity
   SHARED.uRootAlpha.value = PROP_BLUR.rootAlpha
   SHARED.uTipAlpha.value = PROP_BLUR.tipAlpha
-  SHARED.uFadeStart.value = PROP_BLUR.fadeStart
+  SHARED.uFadeCurve.value = PROP_BLUR.fadeCurve
   SHARED.uRootSmear.value = PROP_BLUR.rootSmear
   SHARED.uTipSmear.value = PROP_BLUR.tipSmear
   SHARED.uBladeWidth.value = PROP_BLUR.bladeWidth
@@ -83,7 +86,7 @@ export function createPropBlurMaterial(blades: number, radius: number): MeshStan
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
        varying vec2 vProp;
-       uniform float uBlades, uRadius, uOpacity, uRootAlpha, uTipAlpha, uFadeStart, uRootSmear, uTipSmear, uBladeWidth, uBase;`)
+       uniform float uBlades, uRadius, uOpacity, uRootAlpha, uTipAlpha, uFadeCurve, uRootSmear, uTipSmear, uBladeWidth, uBase;`)
       .replace('#include <dithering_fragment>', `#include <dithering_fragment>
        float rr = length(vProp) / uRadius;
        float turn = atan(vProp.y, vProp.x) / 6.28318530718;
@@ -92,7 +95,7 @@ export function createPropBlurMaterial(blades: number, radius: number): MeshStan
        float smear = mix(uRootSmear, uTipSmear, rr);
        float core = uBladeWidth * 0.5;
        float trail = off < core ? 1.0 : exp(-(off - core) / max(smear, 1e-3));
-       float dens = mix(uRootAlpha, uTipAlpha, clamp((rr - uFadeStart) / max(1.0 - uFadeStart, 1e-3), 0.0, 1.0));
+       float dens = mix(uRootAlpha, uTipAlpha, 1.0 - pow(1.0 - clamp(rr, 0.0, 1.0), uFadeCurve));
        // 外緣柔邊：圓盤是多邊形，硬邊看得出稜角
        float rim = 1.0 - smoothstep(0.94, 1.0, rr);
        gl_FragColor.a = clamp(trail * dens + uBase, 0.0, 1.0) * uOpacity * rim;`)

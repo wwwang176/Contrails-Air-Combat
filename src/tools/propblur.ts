@@ -126,7 +126,7 @@ const SLIDERS: [keyof typeof PROP_BLUR, string, number, number, number][] = [
   ['opacity', '整體濃度', 0, 1, 0.01],
   ['rootAlpha', '槳根濃度', 0, 1, 0.01],
   ['tipAlpha', '槳尖濃度', 0, 1, 0.01],
-  ['fadeStart', '從哪裡變淡', 0, 0.95, 0.01],
+  ['fadeCurve', '漸變曲線', 0.2, 6, 0.1],
   ['rootSmear', '槳根殘影長', 0, 0.5, 0.005],
   ['tipSmear', '槳尖殘影長', 0, 0.5, 0.005],
   ['bladeWidth', '槳葉寬', 0, 0.2, 0.005],
