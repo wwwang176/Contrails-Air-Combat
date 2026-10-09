@@ -6,7 +6,7 @@ import { IMPACT_STRIDE, clearImpacts } from '../world/events'
 import { burstDamageTo } from '../world/flak'
 import { HIT_PARTS, type HitPart } from '../world/hit'
 import type { AudioEngine } from './engine'
-import { impactSound, type Pool } from './catalog'
+import { CATEGORY, impactSound, type Pool } from './catalog'
 import { blastGainDb, blastRate, damageGainDb, hitFeedback, hitRate } from './curves'
 import { queueExplosionCues, type ExplosionTerrain } from './explosionCues'
 import { LAYER_DB } from './pick'
@@ -87,13 +87,16 @@ export function createBattleAudioCues(
   /** 上一次播子彈打在船殼、建築上的世界時間 */
   let lastMaterialHit = -Infinity
 
-  /** 最後一次有飛機被打中，是誰的哪個部位。−1 = 這一場還沒有過 */
-  let lastDealtVictim = -1
+  /** 一幀最多記幾架被打中的飛機；同一架只佔一格，超過的不記 */
+  const DEALT_CAPACITY = 64
 
-  let lastDealtPart = 0
-
-  /** 這一幀有飛機被打中（自己以外）。子步裡寫、`updateAudio` 讀完歸零 */
-  let hitDealtPending = false
+  /**
+   * 這一幀被打中的飛機（自己以外）與它最後被打中的部位，同一架只記一次。子步裡寫、
+   * `playFrame` 挑離鏡頭最近的那一架播完歸零
+   */
+  const dealtVictims = new Int32Array(DEALT_CAPACITY)
+  const dealtParts = new Int32Array(DEALT_CAPACITY)
+  let dealtCount = 0
 
   /** 自己這架的前射武器依武器種類分組 */
   function rebuildVolleyGroups(player: Combatant): void {
@@ -108,18 +111,43 @@ export function createBattleAudioCues(
    * 打中敵機的回饋。**不定位、但依那架有多遠給一點衰減與變悶**（見 `hitFeedback`）：
    * 打遠的聽起來悶而小聲，打近的清脆，兩者都還聽得見。
    *
-   * 距離與部位取最後一筆命中事件的受擊飛機。
+   * 距離、機型與部位取這一幀被打中、離鏡頭最近的那一架。【不取最後一筆】同一幀僚機在遠處打中的話，
+   * 自己近距離打中的那一聲會用遠處的悶聲播
    */
   function playHitDealt(world: Pick<World, 'combatants'>, elapsed: number): void {
     if (elapsed - lastHitDealt < HIT_DEALT_GAP) return
-    const victim = world.combatants[lastDealtVictim]
-    if (victim === undefined) return
+    let best: Combatant | undefined
+    let bestPart = 0
+    let bestD2 = Infinity
+    for (let k = 0; k < dealtCount; k++) {
+      const victim = world.combatants[dealtVictims[k]!]
+      if (victim === undefined) continue
+      const d2 = victim.aircraft.state.position.distanceToSquared(cam)
+      if (d2 >= bestD2) continue
+      best = victim
+      bestPart = dealtParts[k]!
+      bestD2 = d2
+    }
+    if (best === undefined) return
     lastHitDealt = elapsed
-    hitFeedback(victim.aircraft.state.position.distanceTo(cam), HIT_FB)
+    hitFeedback(best.aircraft.state.position.distanceTo(cam), HIT_FB)
     // 【與自己被打中同一條曲線】只是換成看對方那架：大台的、護甲厚的部位比較低沉
-    const spec = victim.aircraft.spec
-    const rate = hitRate(spec.mass, spec.protection[partOf(lastDealtPart)])
+    const spec = best.aircraft.spec
+    const rate = hitRate(spec.mass, spec.protection[partOf(bestPart)])
     audio.playPool('hit', 'hitDealt', 0, 0, 0, false, HIT_FB.gainDb, false, rate, HIT_FB.cutoffHz)
+  }
+
+  /** 記下這一幀有一架被打中：已經記過就只更新部位。熱路徑：不配置 */
+  function noteDealt(victim: number, part: number): void {
+    for (let k = 0; k < dealtCount; k++) {
+      if (dealtVictims[k] !== victim) continue
+      dealtParts[k] = part
+      return
+    }
+    if (dealtCount >= DEALT_CAPACITY) return
+    dealtVictims[dealtCount] = victim
+    dealtParts[dealtCount] = part
+    dealtCount++
   }
 
   /** 物理子步裡呼叫，排在所有事件清除之前。只寫佇列 */
@@ -154,13 +182,24 @@ export function createBattleAudioCues(
       if (dmg > 0) pushCue(cues, CUE.Damage, dmg / f.damage[i]!, 0, 0)
     }
     // 子彈打在船殼、建築上。【要限頻率】對船掃射時六挺每秒命中幾十發，
-    // 不限的話光這一項就把事件佇列灌滿，爆炸與擊落會被擠掉
+    // 不限的話光這一項就把事件佇列灌滿，爆炸與擊落會被擠掉。一個時段播一聲：這一子步裡挑
+    // 聽得到的範圍內最近的那一發。【先濾距離再佔時段】聽不到的遠處命中佔掉時段的話，旁邊那一發就被擋掉
     const mh = world.materialHits
-    for (let e = 0; e < mh.count; e++) {
-      if (world.time - lastMaterialHit < MATERIAL_HIT_GAP) break
-      lastMaterialHit = world.time
-      const o = e * IMPACT_STRIDE
-      pushCue(cues, CUE.MaterialHit, mh.data[o]!, mh.data[o + 1]!, mh.data[o + 2]!, mh.data[o + 3]!)
+    if (world.time - lastMaterialHit >= MATERIAL_HIT_GAP) {
+      let best = -1
+      let bestD2 = CATEGORY.impact.max * CATEGORY.impact.max
+      for (let e = 0; e < mh.count; e++) {
+        const o = e * IMPACT_STRIDE
+        const dx = mh.data[o]! - cam.x, dy = mh.data[o + 1]! - cam.y, dz = mh.data[o + 2]! - cam.z
+        const d2 = dx * dx + dy * dy + dz * dz
+        if (d2 > bestD2) continue
+        best = o
+        bestD2 = d2
+      }
+      if (best >= 0) {
+        lastMaterialHit = world.time
+        pushCue(cues, CUE.MaterialHit, mh.data[best]!, mh.data[best + 1]!, mh.data[best + 2]!, mh.data[best + 3]!)
+      }
     }
     clearImpacts(mh)
     const dmg = world.damageEvents
@@ -169,11 +208,9 @@ export function createBattleAudioCues(
       // 【誰打中誰都算】不分射手 —— 僚機打中的也聽得到。太遠的由距離衰減擋掉，
       // 而距離要量**真正被打中的那一架**，所以這裡記下是誰
       if (dmg.data[o]! !== player.index) {
-        lastDealtVictim = dmg.data[o]!
-        lastDealtPart = dmg.data[o + 4]!
-        hitDealtPending = true
+        noteDealt(dmg.data[o]!, dmg.data[o + 4]!)
+        continue
       }
-      if (dmg.data[o]! !== player.index) continue
       // 【x 帶的是被打中的部位序號】不是座標；護甲厚的部位聽起來比較低沉
       pushCue(cues, CUE.HitSelf, dmg.data[o + 4]!, 0, 0)
       if (Math.random() < HIT_DAMAGE_CHANCE) pushCue(cues, CUE.Damage, BULLET_SEVERITY, 0, 0)
@@ -251,8 +288,8 @@ export function createBattleAudioCues(
     playCues(player)
     clearCues(cues)
     // 【誰打中誰都播】僚機打中的也算。太遠的由距離衰減擋掉
-    if (hitDealtPending && flying) playHitDealt(world, elapsed)
-    hitDealtPending = false
+    if (dealtCount > 0 && flying) playHitDealt(world, elapsed)
+    dealtCount = 0
   }
 
   /** 地面佈景的落地回呼在物理子步外發生，仍走同一份佇列。 */
@@ -266,7 +303,7 @@ export function createBattleAudioCues(
   function reset(): void {
     lastHitDealt = -Infinity
     lastMaterialHit = -Infinity
-    lastDealtVictim = -1
+    dealtCount = 0
   }
 
   return state as Readonly<typeof state>

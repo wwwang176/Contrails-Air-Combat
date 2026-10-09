@@ -11,6 +11,7 @@ import { World } from '../../src/world/World'
 import { clearDamage, pushDamage } from '../../src/world/damage'
 import { pushImpact } from '../../src/world/events'
 import { pushBurst } from '../../src/world/flak'
+import { HIT_PARTS } from '../../src/world/hit'
 
 const land = { waterAt: () => -Infinity }
 function setup(spec = P51D) {
@@ -149,6 +150,52 @@ describe('戰鬥單次音效的收集與播放', () => {
     cues.queueAudioCues(world, player, land, false)
     cues.playFrame(world, player, 0, true)
     expect(playPool).toHaveBeenCalledTimes(2)
+  })
+
+  /**
+   * 【先濾距離再佔時段】聽不到的遠處命中（超過 `impact` 的 1200 m）佔掉時段的話，旁邊那一發就被擋掉；
+   * 同一個子步裡挑最近的那一發
+   */
+  it('材質撞擊：同一子步挑聽得到的最近一發；聽不到的不佔時段', () => {
+    const { world, player, playPool, cues } = setup()
+    world.time = 10
+    pushImpact(world.materialHits, 3000, 1000, 0, 0, 0, 0)
+    pushImpact(world.materialHits, 300, 1000, 0, 0, 0, 0)
+    pushImpact(world.materialHits, 50, 1000, 0, 0, 0, 0)
+    pushImpact(world.materialHits, 400, 1000, 0, 0, 0, 0)
+    cues.queueAudioCues(world, player, land, false)
+    cues.playFrame(world, player, 10, true)
+    expect(playPool.mock.calls.map((c) => c[2])).toEqual([50])
+    world.time = 10.1
+    pushImpact(world.materialHits, 3000, 1000, 0, 0, 0, 0)
+    cues.queueAudioCues(world, player, land, false)
+    world.time = 10.11
+    pushImpact(world.materialHits, 60, 1000, 0, 0, 0, 0)
+    cues.queueAudioCues(world, player, land, false)
+    cues.playFrame(world, player, 10.11, true)
+    expect(playPool.mock.calls.map((c) => c[2])).toEqual([50, 60])
+  })
+
+  /**
+   * 【挑這一幀離鏡頭最近的那一架】不定位的一聲，音量與悶度看被打中那一架的距離。記最後一筆的話，
+   * 同一幀僚機在 1.5 km 外打中，自己 100 m 打中的那一聲就用 1.5 km 的悶聲播
+   */
+  it('命中回饋：同一幀有好幾架被打中時，用最近那一架的距離、機型與它最後被打中的部位', () => {
+    const { world, player, cam, playPool, cues } = setup()
+    const near = world.add(new Aircraft(JU87), { update() {} }, 'red', new Vector3(100, 1000, 0))
+    const far = world.add(new Aircraft(B17G), { update() {} }, 'red', new Vector3(1500, 1000, 0))
+    near.aircraft.state.position.set(100, 1000, 0)
+    far.aircraft.state.position.set(1500, 1000, 0)
+    pushDamage(world.damageEvents, near.index, 1, 0, 0, 0)
+    pushDamage(world.damageEvents, near.index, 1, 0, 0, 1)
+    pushDamage(world.damageEvents, far.index, 1, 0, 0, 0)
+    cues.queueAudioCues(world, player, land, false)
+    clearDamage(world.damageEvents)
+    cues.playFrame(world, player, 1, true)
+    const fb = { gainDb: 0, cutoffHz: 0 }
+    hitFeedback(near.aircraft.state.position.distanceTo(cam), fb)
+    expect(playPool.mock.calls).toEqual([['hit', 'hitDealt', 0, 0, 0, false, fb.gainDb, false,
+      hitRate(JU87.mass, JU87.protection[HIT_PARTS[1]!]), fb.cutoffHz]])
   })
 
   it('命中回饋使用實際受害者與部位；不在座艙時消耗待播旗標', () => {

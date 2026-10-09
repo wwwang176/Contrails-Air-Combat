@@ -136,25 +136,24 @@ describe('音效的戰鬥事件接線', () => {
 
   /**
    * 【打中誰都播，走同一條曲線】不分射手 —— 僚機打中的也聽得到，太遠的由距離
-   * 衰減擋掉。所以距離要量**真正被打中的那一架**，不能拿「最近的敵機」來估。
+   * 衰減擋掉。所以距離要量**真正被打中的那一架**，不能拿「最近的敵機」來估；
+   * 同一幀有好幾架被打中時取離鏡頭最近的那一架。
    */
-  it('有飛機被打中就播，速度與距離都看被打中的那一架', () => {
+  it('有飛機被打中就播，速度與距離都看這一幀被打中、離鏡頭最近的那一架', () => {
     const q = body('function queueAudioCues(', CUES)
-    expect(q).toContain('lastDealtVictim = dmg.data[o]!')
-    expect(q).toContain('lastDealtPart = dmg.data[o + 4]!')
-    expect(q).toContain('hitDealtPending = true')
+    expect(q).toContain('noteDealt(dmg.data[o]!, dmg.data[o + 4]!)')
     const fn = body('function playHitDealt(', CUES)
-    expect(fn).toContain('world.combatants[lastDealtVictim]')
-    expect(fn).toContain('hitFeedback(victim.aircraft.state.position.distanceTo(cam), HIT_FB)')
-    expect(fn).toContain('hitRate(spec.mass, spec.protection[partOf(lastDealtPart)])')
+    expect(fn).toContain('world.combatants[dealtVictims[k]!]')
+    expect(fn).toContain('hitFeedback(best.aircraft.state.position.distanceTo(cam), HIT_FB)')
+    expect(fn).toContain('hitRate(spec.mass, spec.protection[partOf(bestPart)])')
     expect(fn).toContain('false, rate, HIT_FB.cutoffHz)')
     const upd = body('function update(', CONTROLLER)
     expect(upd).toContain('battleAudioCues.playFrame(world, player, elapsed, flying)')
     const play = body('function playFrame(', CUES)
-    expect(play).toContain('if (hitDealtPending && flying) playHitDealt(world, elapsed)')
-    expect(play).toContain('hitDealtPending = false')
+    expect(play).toContain('if (dealtCount > 0 && flying) playHitDealt(world, elapsed)')
+    expect(play).toContain('dealtCount = 0')
     expect(body('function reset(', CONTROLLER)).toContain('battleAudioCues.reset()')
-    expect(body('function reset(', CUES)).toContain('lastDealtVictim = -1')
+    expect(body('function reset(', CUES)).toContain('dealtCount = 0')
   })
 
   /**
@@ -178,6 +177,9 @@ describe('音效的戰鬥事件接線', () => {
     const q = body('function queueAudioCues(', CUES)
     expect(q).toContain('world.materialHits')
     expect(q).toContain('MATERIAL_HIT_GAP')
+    // 【先濾距離再佔時段】聽不到的遠處命中不能把時段佔掉
+    expect(q).toContain('CATEGORY.impact.max')
+    expect(q.indexOf('lastMaterialHit = world.time')).toBeGreaterThan(q.indexOf('if (best >= 0)'))
     expect(q).toContain('pushCue(cues, CUE.MaterialHit')
     expect(q).toContain('clearImpacts(mh)')
     const fn = body('function playCues(', CUES)
@@ -496,7 +498,7 @@ describe('音效的戰鬥事件接線', () => {
     const fn = body('function update(', CONTROLLER)
     expect(fn).toContain('const flying = me.alive && !godView')
     expect(fn).toContain('battleAudioCues.playFrame(world, player, elapsed, flying)')
-    expect(body('function playFrame(', CUES)).toContain('if (hitDealtPending && flying)')
+    expect(body('function playFrame(', CUES)).toContain('if (dealtCount > 0 && flying)')
   })
 
   it('增援預警換新時播無線電', () => {
