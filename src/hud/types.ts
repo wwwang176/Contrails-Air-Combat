@@ -290,6 +290,8 @@ export interface HudFrame {
   worldX: number
   worldZ: number
   aircraftName: string
+  /** 目前駕駛機種，用於血量區的機型短名。 */
+  aircraftId: string
   /** 接觸點池。只有前 contactCount 格有效 */
   contacts: HudContact[]
   contactCount: number
@@ -370,6 +372,8 @@ export interface HudFrame {
    * 小地圖因此一行都不用改就變成以鏡頭為中心。
    */
   godView: boolean
+  /** 顯示進階飛行讀數，預設關閉。 */
+  flightReadouts: boolean
   /** 觸控操作層顯示著。按鍵提示那一行寫的是鍵盤，這時不畫 */
   touch: boolean
   /**
@@ -485,7 +489,7 @@ export function createHudFrame(): HudFrame {
     runCount: 0,
     bombBayCapacity: 0,
     bombLoad: 0, bombReloading: false, bombReloadLeft: 0,
-    worldX: 0, worldZ: 0, aircraftName: '',
+    worldX: 0, worldZ: 0, aircraftName: '', aircraftId: '',
     contacts: Array.from({ length: HUD_MAX_CONTACTS }, createHudContact),
     contactCount: 0,
     markers: Array.from({ length: HUD_MAX_MARKERS }, createHudMarker),
@@ -502,6 +506,7 @@ export function createHudFrame(): HudFrame {
     aiPhase: '',
     aiOverride: '',
     aiExtendWhy: '',
+    flightReadouts: false,
     godView: false,
     touch: false,
     shakeAngle: 0, shakeX: 0, shakeY: 0,

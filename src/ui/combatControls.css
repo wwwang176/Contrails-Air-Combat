@@ -1,0 +1,19 @@
+/* 保留原本觸控位置與範圍，薄底維持亮天空上的文字對比。 */
+#touch .t-btn {
+  border: 1px solid #e2d2ae99; border-radius: 1.2vh;
+  background: rgba(24, 20, 14, .3);
+  color: #f0e4c7; text-shadow: 0 1px 3px #000, 0 0 2px #000;
+  box-shadow: none;
+  font-weight: 500; letter-spacing: .04em;
+}
+#touch .t-fire {
+  border-radius: 50%; border-color: #e3b994bb;
+  outline: 1px solid #e3b99444; outline-offset: -5px;
+  font-weight: 600;
+}
+#touch .t-up, #touch .t-down { border-left: 2px solid #dac9a0; }
+#touch .t-pause { font-family: var(--f-ui); }
+#touch .t-btn.down {
+  color: #fff6dc; background: rgba(184, 84, 63, .55);
+  border-color: #fff1cc; box-shadow: inset 0 0 0 1px #fff1cc;
+}

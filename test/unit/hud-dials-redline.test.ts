@@ -28,6 +28,7 @@ function fakeCtx(): { ctx: CanvasRenderingContext2D; texts: Array<{ text: string
 
 function tasColor(vneRatio: number): string {
   const f = createHudFrame()
+  f.flightReadouts = true
   f.vneRatio = vneRatio
   const { ctx, texts } = fakeCtx()
   drawDials(ctx, LAYOUT, f)
@@ -53,13 +54,13 @@ describe('速度錶的紅線警告', () => {
     expect(tasColor(0.96)).toBe(HUD_COLORS.danger)
   })
 
-  it('速度錶上面那行標籤不跟著變色', () => {
+  it('不重複顯示錶外單位標籤', () => {
     const f = createHudFrame()
     f.vneRatio = 1.2
     const { ctx, texts } = fakeCtx()
     drawDials(ctx, LAYOUT, f)
     const label = texts.find((t) => t.text === 'IAS km/h')
-    expect(label?.color).toBe(HUD_COLORS.dim)
+    expect(label).toBeUndefined()
   })
 })
 
@@ -70,7 +71,8 @@ describe('速度錶的紅線警告', () => {
 describe('畫面中央的 OVERSPEED', () => {
   function centreText(vneRatio: number): { text: string; color: string } | undefined {
     const f = createHudFrame()
-    f.vneRatio = vneRatio
+    f.flightReadouts = true
+  f.vneRatio = vneRatio
     const { ctx, texts } = fakeCtx()
     drawEnergy(ctx, LAYOUT, f)
     return texts.find((t) => t.text === 'OVERSPEED')
@@ -95,4 +97,20 @@ describe('畫面中央的 OVERSPEED', () => {
     drawEnergy(ctx, LAYOUT, f)
     expect(texts.some((t) => t.text === 'LOW SPEED')).toBe(false)
   })
+})
+
+
+it('隱藏進階讀數時仍顯示失速、低速警告與儀表主讀數', () => {
+  const f = createHudFrame()
+  f.alphaCrit = 0.2
+  f.alpha = 0.3
+  f.controlAuthority = 0.5
+  const { ctx, texts } = fakeCtx()
+  drawEnergy(ctx, LAYOUT, f)
+  drawDials(ctx, LAYOUT, f)
+  expect(texts.some(t => t.text === 'STALL')).toBe(true)
+  expect(texts.some(t => t.text === 'LOW SPEED')).toBe(true)
+  expect(texts.some(t => /^(THR|TAS|VS|AoA|Ps|Es|G$)/.test(t.text))).toBe(false)
+  expect(texts.some(t => t.text === 'IAS km/h')).toBe(false)
+  expect(texts.some(t => /^\d+$/.test(t.text))).toBe(true)
 })

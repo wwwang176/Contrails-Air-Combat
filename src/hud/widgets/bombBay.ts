@@ -14,7 +14,7 @@ const RAD = 180 / Math.PI
  */
 const BOTTOM = 77
 /** 每一格彈的寬與高，px（未乘 `L.scale`）。1 : 4 接近炸彈的長徑比 4.4 */
-const PIP_W = 6
+const PIP_W = 8
 const PIP_H = 24
 const PIP_GAP = 6
 /**
@@ -26,7 +26,7 @@ const PIP_GAP = 6
  * 80 × 7 接近那個比例。
  */
 const TORPEDO_W = 80
-const TORPEDO_H = 7
+const TORPEDO_H = 9
 /**
  * 「裝填中」的**字底**離格子頂邊多遠，px。
  *
@@ -109,6 +109,7 @@ function cell(
   ctx: CanvasRenderingContext2D, text: string, ok: boolean, x: number, y: number,
 ): void {
   ctx.fillStyle = releaseGateColor(ok)
+  ctx.strokeText(text, x, y)
   ctx.fillText(text, x, y)
 }
 
@@ -211,6 +212,10 @@ export function drawBombBay(
 ): void {
   if (!f.bombCapable || f.bombBayCapacity <= 0) return
 
+  ctx.save()
+  ctx.shadowColor = '#000'
+  ctx.shadowBlur = 0
+
   const torpedo = f.ordnance === 'torpedo'
   const w = (torpedo ? TORPEDO_W : PIP_W) * L.scale
   const h = (torpedo ? TORPEDO_H : PIP_H) * L.scale
@@ -232,29 +237,54 @@ export function drawBombBay(
     const k = loaded ? 0 : inset
     ordnancePath(ctx, torpedo ? TORPEDO_OUTLINE : BOMB_OUTLINE,
       x + k, y + k, w - 2 * k, h - 2 * k, !torpedo)
+    // 與文字使用相同的細暗邊，讓實心與空心彈藥在亮背景上都能辨識。
+    ctx.lineJoin = 'round'
+    ctx.strokeStyle = 'rgba(20, 29, 31, .65)'
+    ctx.lineWidth = loaded ? 1.25 : 1 * L.scale + 1.25
+    ctx.stroke()
     if (loaded) {
       ctx.fillStyle = HUD_COLORS.primary
       ctx.fill()
     } else {
+      ctx.lineWidth = 1 * L.scale
       ctx.strokeStyle = HUD_COLORS.dim
       ctx.stroke()
     }
   }
 
-  // 【裝填中與閘門二擇一】兩個都畫的話會在同一個 baseline 上疊字。裝填中
-  // 優先 —— 那時候投不出去的理由是「艙是空的」，姿態對不對無關緊要
-  const baseline = y - LABEL_RISE * L.scale
-  if (!f.bombReloading) {
-    if (releaseGateVisible(f)) drawReleaseGate(ctx, L, f, baseline)
-    return
-  }
-  ctx.font = hudFont(Math.round(LABEL_FONT * L.scale))
-  ctx.fillStyle = HUD_COLORS.warn
-  ctx.textAlign = 'center'
-  // 【一定要自己設 textBaseline】整個 HUD 共用一個 ctx，而這個屬性是黏著的
-  // ——不設就吃到上一個畫字的 widget 留下的值，字會隨別的儀表出沒而跳動。
-  // `bottom` 讓字底就是 y − LABEL_RISE，與格子的距離才算得準
+  // 彈量與狀態使用固定基線，不因魚雷較矮或彈量減少而跳動。
+  const baseline = L.height - (BOTTOM + LABEL_RISE) * L.scale
+  ctx.font = hudFont(Math.max(11, Math.round(LABEL_FONT * L.scale)), true)
   ctx.textBaseline = 'bottom'
-  ctx.fillText(t('hud.reloading', { s: f.bombReloadLeft.toFixed(0) }), L.cx, baseline)
+  ctx.strokeStyle = 'rgba(20, 29, 31, .65)'
+  ctx.lineWidth = 1.25
+  ctx.lineJoin = 'round'
+  const count = t('hud.ordnance.kind', { kind: f.ordnance ?? 'bomb' })
+  const status = f.bombReloading ? t('hud.reloading', { s: f.bombReloadLeft.toFixed(0) })
+    : f.bombLoad <= 0 ? t('hud.ordnance.empty')
+      : f.releaseOk ? t('hud.ordnance.ready') : t('hud.ordnance.blocked')
+  const countWidth = ctx.measureText(count).width
+  const statusWidth = ctx.measureText(status).width
+  const textGap = 12 * L.scale
+  const textX = L.cx - (countWidth + statusWidth + textGap) / 2
   ctx.textAlign = 'left'
+  ctx.fillStyle = HUD_COLORS.primary
+  ctx.strokeText(count, textX, baseline)
+  ctx.fillText(count, textX, baseline)
+  ctx.fillStyle = f.bombReloading || f.bombLoad <= 0 ? HUD_COLORS.warn
+    : f.releaseOk ? HUD_COLORS.primary : HUD_COLORS.danger
+  ctx.strokeText(status, textX + countWidth + textGap, baseline)
+  ctx.fillText(status, textX + countWidth + textGap, baseline)
+
+  // 寬幅的魚雷姿態提示放在儀表組上方，避免手機右端與空速表重疊。
+  if (f.bombLoad > 0 && releaseGateVisible(f)) {
+    const r = Math.min(L.width, L.height) * .085
+    const dialTop = L.height - 2 * r - 24 * L.scale
+    const dialLeft = L.width - 30 * L.scale - 6 * r - 36 * L.scale
+    const gateRight = L.cx + (GATE_GAP + 70) * L.scale
+    const gateY = baseline - 25 * L.scale
+    drawReleaseGate(ctx, L, f, gateRight >= dialLeft
+      ? Math.min(gateY, dialTop - 8 * L.scale) : gateY)
+  }
+  ctx.restore()
 }

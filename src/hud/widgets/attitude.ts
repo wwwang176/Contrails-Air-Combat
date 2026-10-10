@@ -19,8 +19,6 @@ export function drawAttitude(
   ctx.save()
   ctx.beginPath()
   ctx.arc(cx, cy, r, 0, Math.PI * 2)
-  ctx.fillStyle = HUD_COLORS.panel
-  ctx.fill()
   ctx.clip()
 
   ctx.translate(cx, cy)
@@ -33,7 +31,7 @@ export function drawAttitude(
   ctx.fillStyle = 'rgba(120, 90, 50, 0.5)'
   ctx.fillRect(-r * 2, horizonY, r * 4, r * 2)
 
-  ctx.strokeStyle = HUD_COLORS.primary
+  ctx.strokeStyle = HUD_COLORS.instrument
   ctx.lineWidth = 1.5 * L.scale
   ctx.beginPath()
   ctx.moveTo(-r * 1.2, horizonY)
@@ -41,7 +39,7 @@ export function drawAttitude(
   ctx.stroke()
 
   // 俯仰刻度
-  ctx.strokeStyle = HUD_COLORS.dim
+  ctx.strokeStyle = HUD_COLORS.instrumentDim
   ctx.lineWidth = 1
   for (let p = -60; p <= 60; p += 10) {
     if (p === 0) continue
@@ -54,12 +52,9 @@ export function drawAttitude(
   }
   ctx.restore()
 
-  // 外圈與固定的飛機符號。外圈必須畫在天地色塊**之後**，否則被蓋掉
-  ctx.strokeStyle = HUD_COLORS.primary
+  // 固定的飛機符號；金屬外圈由儀表組統一繪製。
+  ctx.strokeStyle = HUD_COLORS.instrument
   ctx.lineWidth = 1.5 * L.scale
-  ctx.beginPath()
-  ctx.arc(cx, cy, r, 0, Math.PI * 2)
-  ctx.stroke()
   ctx.beginPath()
   ctx.moveTo(cx - r * 0.32, cy)
   ctx.lineTo(cx - r * 0.1, cy)

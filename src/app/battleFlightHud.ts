@@ -49,7 +49,7 @@ export function fillGunHeatHud(
 export function updateBattleFlightHud(
   deps: BattleFlightHudDependencies,
   hudFrame: HudFrame,
-  input: Pick<InputState, 'aimWorld' | 'godView' | 'playerAi'>,
+  input: Pick<InputState, 'aimWorld' | 'godView' | 'playerAi' | 'flightReadouts'>,
   battle: Battle,
   player: Combatant,
   aircraft: Aircraft,
@@ -89,6 +89,7 @@ export function updateBattleFlightHud(
   hudFrame.worldX = input.godView ? godCam.position.x : renderPos.x
   hudFrame.worldZ = input.godView ? godCam.position.z : renderPos.z
   hudFrame.aircraftName = aircraftName(aircraft.spec)
+  hudFrame.aircraftId = aircraft.spec.id
   hudFrame.hp = player.hp
   hudFrame.hpMax = player.aircraft.spec.hp
   hudFrame.aiFlying = input.playerAi
@@ -100,6 +101,7 @@ export function updateBattleFlightHud(
     hudFrame.aiExtendWhy = playerAi.intent === 'extend'
       ? extendReason(playerAi.rules) : ''
   }
+  hudFrame.flightReadouts = !touch.visible && input.flightReadouts
   hudFrame.godView = input.godView
   hudFrame.touch = touch.visible
   hudFrame.shakeAngle = hudShakeAngle(cameraShake)

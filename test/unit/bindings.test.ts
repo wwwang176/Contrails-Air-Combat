@@ -661,3 +661,21 @@ describe('attachInput：陣亡中的右鍵', () => {
     expect(state.lookYaw).not.toBe(0)
   })
 })
+
+
+describe('進階讀數開關', () => {
+  it('預設隱藏，H 切換、長按不連續切換，上帝視角也可操作', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    expect(state.flightReadouts).toBe(false)
+    const press = (repeat = false) => dom.win.fire('keydown', { code: 'KeyH', repeat, preventDefault() {} })
+    press()
+    expect(state.flightReadouts).toBe(true)
+    press(true)
+    expect(state.flightReadouts).toBe(true)
+    state.godView = true
+    press()
+    expect(state.flightReadouts).toBe(false)
+  })
+})

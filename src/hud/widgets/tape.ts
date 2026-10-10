@@ -17,7 +17,8 @@ export function drawHeadingTape(ctx: CanvasRenderingContext2D, L: HudLayout, f: 
 
   ctx.save()
   ctx.beginPath()
-  ctx.rect(L.cx - halfWidth, y - 20 * L.scale, halfWidth * 2, 40 * L.scale)
+  // 數字從 y + 12 開始，字高 12；底部留到 y + 28，避免切掉字底。
+  ctx.rect(L.cx - halfWidth, y - 20 * L.scale, halfWidth * 2, 48 * L.scale)
   ctx.clip()
   ctx.strokeStyle = HUD_COLORS.dim
   ctx.fillStyle = HUD_COLORS.primary
