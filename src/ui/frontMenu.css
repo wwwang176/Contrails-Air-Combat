@@ -11,12 +11,13 @@
   padding-left: max(24px, 5.5vw, env(safe-area-inset-left));
   background: linear-gradient(90deg, #19150fe8 0%, #201a12ba 30%, #201a124d 53%, transparent 78%);
 }
-.front-screen .front-heading { width: var(--front-width); }
+.front-screen .front-heading { width: var(--front-width); container-type: inline-size; }
 .front-screen .menu-title {
   display: block;
   margin: 0;
   color: #f1e6ca;
-  font: 400 clamp(26px, 2.8vw, 44px)/1.15 var(--f-title);
+  font: 400 clamp(18px, 7cqw, 44px)/1.15 var(--f-title);
+  white-space: nowrap;
   letter-spacing: .015em;
   text-shadow: 0 3px 14px #0008;
 }
@@ -101,8 +102,8 @@
   align-items: flex-start;
   gap: 32px;
 }
-#landing .menu-title { font-size: clamp(42px, 5vw, 78px); }
-#landing .brand-sub { display: block; margin-top: 10px; font-size: .56em; letter-spacing: .12em; }
+#landing .menu-title { font-size: clamp(24px, 8cqw, 64px); }
+#landing .brand-sub { display: inline; font-size: .56em; letter-spacing: .12em; }
 .front-screen .landing-ruler { height: 0; margin-top: -24px; }
 .front-screen .dossier-action { min-width: 240px; }
 
@@ -128,7 +129,7 @@
     padding-left: max(64px, env(safe-area-inset-left));
     gap: 12px;
   }
-  .front-screen .menu-title { font-size: clamp(21px, 2.9vw, 30px); }
+
   .front-screen .front-kicker { margin-top: 6px; font-size: 10px; gap: 10px; }
   .front-screen .rows { gap: 8px; }
   #ui .front-card {
@@ -143,7 +144,7 @@
   .front-card .d { margin-top: 2px; font-size: 11px; line-height: 1.3; }
   .front-card::after { font-size: 25px; }
   .front-screen .landing-col { gap: 18px; }
-  #landing .menu-title { font-size: clamp(36px, 5.5vw, 58px); }
+
   .front-screen .landing-ruler { margin-top: -12px; }
   #ui .front-screen .dossier-action { min-height: 48px; min-width: 200px; font-size: 16px; padding: 10px 20px; }
 }
