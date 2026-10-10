@@ -8,6 +8,7 @@ import { createGltfLoader } from './gltfLoader'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { PROP_DISC_RENDER_ORDER, type HullMetrics } from './assembly'
 import { assetUrl } from '../../core/asset'
+import { countBlades, createPropBlurMaterial } from '../propBlur'
 import { applyLiveryUv, liveryMoveFor, type LiveryLayout } from './livery'
 
 /**
@@ -202,13 +203,6 @@ export async function parseGlbTemplate(
     color: 0x9fd4e8, flatShading: true, transparent: true, opacity: 0.45,
     roughness: 0.2, depthWrite: false,
   })
-  // 【DoubleSide】圓盤朝 −Z，單面的話只有從飛機後方才畫得出來，從前方看螺旋槳整個不見。
-  // 【forceSinglePass】three 對「透明＋雙面」預設分背面、正面兩趟畫，每一趟都把材質標髒、
-  // 重算 shader program，20 架就是每幀 40 次。圓盤是平的，一趟畫出來的像素與兩趟相同
-  const blur = new MeshStandardMaterial({
-    color: 0xc8d0d8, transparent: true, opacity: 0.22, roughness: 0.5,
-    depthWrite: false, side: DoubleSide, forceSinglePass: true,
-  })
   const cockpit = new MeshStandardMaterial({ color: 0x191d1a, roughness: 0.95 })
   // 見 GlbMaterialKind
   const frame = new MeshStandardMaterial({
@@ -216,7 +210,7 @@ export async function parseGlbTemplate(
   })
   const inner = new MeshStandardMaterial({ color: 0x191d1a, roughness: 0.95, side: DoubleSide })
   const mats = { body, accent, glass, cockpit, frame, inner }
-  const owned: { dispose(): void }[] = [body, accent, glass, cockpit, frame, inner, blur]
+  const owned: { dispose(): void }[] = [body, accent, glass, cockpit, frame, inner]
 
   const group = new Group()
   const hull = new Group()
@@ -315,13 +309,20 @@ export async function parseGlbTemplate(
     hub.position.set(hx, p.hubY, p.hubZ)
     // `buildFromTemplate` 靠這個旗標認轉軸；多發機有好幾個
     hub.userData['propHub'] = true
+    const bladeVerts: number[] = []
     for (const m of propMeshes[i]!) {
       m.geometry.translate(-hx, -p.hubY, -p.hubZ)
       // 命中盒覆蓋率測試靠這個旗標排除掃掠面
       m.userData['spinning'] = true
       hub.add(m)
+      const pos = m.geometry.getAttribute('position')
+      for (let k = 0; k < pos.count; k++) bladeVerts.push(pos.getX(k), pos.getY(k), pos.getZ(k))
     }
-    const disc = new Mesh(new CircleGeometry(p.radius, 16), blur)
+    // 【殘影材質一具一份】槳葉數與半徑各機種不同（`render/propBlur.ts`）。圓盤 64 邊：殘影的柔邊上
+    // 16 邊看得出稜角
+    const blur = createPropBlurMaterial(countBlades(bladeVerts, p.radius), p.radius)
+    owned.push(blur)
+    const disc = new Mesh(new CircleGeometry(p.radius, 64), blur)
     disc.visible = false
     disc.renderOrder = PROP_DISC_RENDER_ORDER
     disc.userData['spinning'] = true

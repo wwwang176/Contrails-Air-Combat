@@ -29,6 +29,7 @@ export function releaseTouchGrip(
     case 'up': hold.up = false; break
     case 'down': hold.down = false; state.braking = false; break
     case 'score': state.scoreboardHeld = false; break
+    case 'view': state.zoom = false; break
     default: break
   }
 }

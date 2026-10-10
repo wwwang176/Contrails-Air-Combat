@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { createInputState } from '../../src/input/InputState'
 import { releaseTouchGrip, type Grip } from '../../src/input/touchGrip'
 
@@ -19,6 +20,17 @@ describe('觸控握點放開', () => {
     expect(state.lookYaw).toBe(0)
     expect(state.lookPitch).toBe(0)
     expect(ring.hidden).toBe(true)
+  })
+
+  /** 【望遠鈕是按住的】放開就結束，與鍵盤的 V 一樣 */
+  it('放開望遠鈕結束望遠；按下望遠鈕開始望遠', () => {
+    const state = createInputState()
+    state.zoom = true
+    const grip: Grip = { kind: 'view', x: 0, y: 0, el: element() }
+    releaseTouchGrip(grip, state, { up: false, down: false, fire: false }, element(), element())
+    expect(state.zoom).toBe(false)
+    const touch = readFileSync('src/input/touch.ts', 'utf8')
+    expect(touch).toContain("case 'view': if (!state.dead) state.zoom = true; break")
   })
 
   it('清掉按鈕狀態，不影響無關的按住輸入', () => {

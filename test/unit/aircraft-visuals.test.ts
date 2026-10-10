@@ -111,7 +111,8 @@ describe('飛機顯示資源的生命週期', () => {
         expect(m.group.position.toArray()).toEqual(expectedPosition.toArray())
         expect(m.group.quaternion.angleTo(expectedRotation)).toBeLessThan(1e-7)
       }
-      expect((far ? v.lod! : v.model).setPropSpin).toHaveBeenLastCalledWith(12, true)
+      // 第三個參數是這一架的油門：殘影轉速照它等比例
+      expect((far ? v.lod! : v.model).setPropSpin).toHaveBeenLastCalledWith(12, true, 0.8)
       const tail = f.vortex.emit.mock.lastCall!
       expect(tail.slice(0, 2)).toEqual([c.index, 3])
       for (const [i, value] of [...left.toArray(), ...right.toArray()].entries()) {

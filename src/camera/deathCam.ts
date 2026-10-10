@@ -8,15 +8,16 @@ const S = makeScratch(1, 2)
  * 玩家陣亡那一幀對輸入狀態的整理。之後到接手為止 `main.ts` 每幀維持
  * `input.dead`，輸入層靠它擋掉新的轉頭與 `B`。
  *
- * 【視角一律退回機外】投彈瞄具那條相機分支完全不看視線，留在 `bomb` 的話
- * `deathCamAim` 轉出來的視線整段被蓋掉，畫面停在殘骸機腹的瞄具；座艙視角
- * 則是從殘骸裡面往外看。死亡鏡頭只在機外成立。
+ * 【視角一律退回機外、不望遠】投彈瞄具那條相機分支完全不看視線，留在 `bomb` 的話
+ * `deathCamAim` 轉出來的視線整段被蓋掉，畫面停在殘骸機腹的瞄具。死亡鏡頭只在機外、
+ * 原本的視野成立。
  *
  * 【右鍵正按著就取消】不取消的話 `lookYaw/lookPitch` 留著死前的偏移，
  * 視線被那個偏移整個歪掉；放開右鍵的事件也可能在指標鎖掉了之後才來。
  */
 export function enterDeathCam(input: InputState): void {
   input.viewMode = 'third'
+  input.zoom = false
   input.lookActive = false
   input.lookYaw = 0
   input.lookPitch = 0

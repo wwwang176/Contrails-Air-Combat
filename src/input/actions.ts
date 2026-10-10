@@ -18,11 +18,15 @@ const LOOK_PITCH_LIMIT = 80 * (Math.PI / 180)
  * 自由視角轉一段，單位螢幕半高。滑鼠右鍵與觸控右半邊共用。
  *
  * 【死亡鏡頭下不轉】視線由 `deathCamAim` 接管，轉頭會把它從擊殺者身上拉走
+ * 【望遠時慢下來】乘上 `lookScale`（1 / 望遠倍率）
  */
-export function slewLook(state: Pick<InputState, 'dead' | 'lookYaw' | 'lookPitch'>, dx: number, dy: number): void {
+export function slewLook(
+  state: Pick<InputState, 'dead' | 'lookYaw' | 'lookPitch' | 'lookScale'>, dx: number, dy: number,
+): void {
   if (state.dead) return
-  state.lookYaw = clamp(state.lookYaw - dx * LOOK_SENSITIVITY, -LOOK_YAW_LIMIT, LOOK_YAW_LIMIT)
-  state.lookPitch = clamp(state.lookPitch - dy * LOOK_SENSITIVITY, -LOOK_PITCH_LIMIT, LOOK_PITCH_LIMIT)
+  const k = LOOK_SENSITIVITY * state.lookScale
+  state.lookYaw = clamp(state.lookYaw - dx * k, -LOOK_YAW_LIMIT, LOOK_YAW_LIMIT)
+  state.lookPitch = clamp(state.lookPitch - dy * k, -LOOK_PITCH_LIMIT, LOOK_PITCH_LIMIT)
 }
 
 /** 放開自由視角：鏡頭回正 */
@@ -49,19 +53,5 @@ export function pressBomb(
     state.viewMode = state.viewMode === 'bomb' ? 'third' : 'bomb'
   } else if (state.bombRelease && !state.dead && !repeat) {
     state.bombTaps++
-  }
-}
-
-/**
- * 座艙／機外切換（鍵盤 `V`、觸控的視角鈕）。
- *
- * 【投彈模式下不作用】這條軸是「座艙／機外」，投彈瞄具不是那條軸上的一個點。
- * 照舊寫成三元式的話 `=== 'third'` 為 false 會把它彈回 `third`，等於多了一個
- * 沒有人記得的離開鍵
- * 【死亡鏡頭下也不作用】座艙視角是從殘骸裡面往外看
- */
-export function pressView(state: Pick<InputState, 'viewMode' | 'dead'>): void {
-  if (state.viewMode !== 'bomb' && !state.dead) {
-    state.viewMode = state.viewMode === 'third' ? 'first' : 'third'
   }
 }

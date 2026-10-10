@@ -134,6 +134,35 @@ describe('attachInput：自由視角（右鍵）不得移動瞄準點', () => {
     expect(state.lookPitch).not.toBe(0)
   })
 
+  /**
+   * 【望遠時自由視角慢下來，瞄準不另外乘】自由視角每像素轉固定角度，照 `lookScale` 縮小；
+   * 瞄準的位移本來就照鏡頭 FOV 換算成角度（`slewAimWorld`），再乘一次就慢了兩次
+   */
+  it('自由視角乘上 lookScale，瞄準位移不乘', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    dom.win.fire('mousemove', move(0.02, 0.01))
+    const aim = { x: state.aimDeltaX, y: state.aimDeltaY }
+    state.aimDeltaX = 0
+    state.aimDeltaY = 0
+    state.lookScale = 0.4
+    dom.win.fire('mousemove', move(0.02, 0.01))
+    expect(state.aimDeltaX).toBe(aim.x)
+    expect(state.aimDeltaY).toBe(aim.y)
+
+    state.lookScale = 1
+    dom.canvas.fire('mousedown', { button: 2 })
+    dom.win.fire('mousemove', move(0.02, 0.01))
+    const full = { yaw: state.lookYaw, pitch: state.lookPitch }
+    state.lookYaw = 0
+    state.lookPitch = 0
+    state.lookScale = 0.4
+    dom.win.fire('mousemove', move(0.02, 0.01))
+    expect(state.lookYaw).toBeCloseTo(full.yaw * 0.4, 12)
+    expect(state.lookPitch).toBeCloseTo(full.pitch * 0.4, 12)
+  })
+
   it('放開右鍵後視角歸零，瞄準位移恢復累積', () => {
     const dom = setupDom()
     const state = createInputState()
@@ -537,21 +566,27 @@ describe('attachInput：投彈模式', () => {
     expect(state.viewMode).toBe('third')
   })
 
-  it('投彈模式下 V 沒有作用 —— 它的軸是座艙／機外，投彈不在那條軸上', () => {
+  /** 【V 按住望遠】不換視角：投彈瞄具照舊由 B 切，V 只管望遠 */
+  it('V 按住望遠、放開結束，不換視角', () => {
     const { dom, state } = arm(true)
+    dom.win.fire('keydown', key('KeyV'))
+    expect(state.zoom).toBe(true)
+    expect(state.viewMode).toBe('third')
+    dom.win.fire('keyup', key('KeyV'))
+    expect(state.zoom).toBe(false)
     dom.win.fire('keydown', key('KeyB'))
     dom.win.fire('keydown', key('KeyV'))
     expect(state.viewMode).toBe('bomb')
   })
 
-  it('機首視角下按 B 也進得去，退出時回機外', () => {
-    const { dom, state } = arm(true)
+  /** 【切出視窗不送 keyup】不清的話回來時一直在望遠 */
+  it('clearHolds 放掉望遠', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    const input = attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
     dom.win.fire('keydown', key('KeyV'))
-    expect(state.viewMode).toBe('first')
-    dom.win.fire('keydown', key('KeyB'))
-    expect(state.viewMode).toBe('bomb')
-    dom.win.fire('keydown', key('KeyB'))
-    expect(state.viewMode).toBe('third')
+    input.clearHolds()
+    expect(state.zoom).toBe(false)
   })
 
   it('上帝視角吃掉 B —— 鏡頭都不在飛機上了', () => {
@@ -627,12 +662,13 @@ describe('attachInput：陣亡中的右鍵', () => {
     expect(state.aimDeltaY).toBe(0)
   })
 
-  it('陣亡中 V 沒有作用 —— 座艙視角是從殘骸裡面往外看', () => {
+  it('陣亡中 V 沒有作用 —— 鏡頭在看殘骸', () => {
     const dom = setupDom()
     const state = createInputState()
     attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
     state.dead = true
     dom.win.fire('keydown', { code: 'KeyV', preventDefault: () => {} })
+    expect(state.zoom).toBe(false)
     expect(state.viewMode).toBe('third')
   })
 

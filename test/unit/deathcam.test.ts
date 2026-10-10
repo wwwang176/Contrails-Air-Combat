@@ -103,11 +103,11 @@ describe('enterDeathCam：陣亡那一幀對輸入狀態的整理', () => {
     expect(input.viewMode).toBe('third')
   })
 
-  it('座艙視角也退回機外 —— 殘骸裡面沒有東西可看', () => {
+  it('望遠也放掉 —— 鏡頭要看殘骸', () => {
     const input = createInputState()
-    input.viewMode = 'first'
+    input.zoom = true
     enterDeathCam(input)
-    expect(input.viewMode).toBe('third')
+    expect(input.zoom).toBe(false)
   })
 
   it('正按著右鍵轉頭的話，轉頭取消、偏移歸零', () => {

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>螺旋槳殘影 — Contrails Air: Combat</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1620;
+        font: 13px/1.5 ui-monospace, Consolas, monospace; color: #cfe0ef; }
+      canvas { display: block; }
+      #panel {
+        position: fixed; top: 12px; left: 12px; width: 300px; max-height: calc(100% - 24px); overflow-y: auto;
+        padding: 12px 14px; background: rgba(10,18,26,0.86); border: 1px solid #2b3f52; border-radius: 6px;
+      }
+      #panel h1 { margin: 0 0 10px; font-size: 13px; letter-spacing: .08em; color: #8fb8d8; }
+      #panel h2 { margin: 12px 0 6px; font-size: 11px; letter-spacing: .1em; font-weight: 400;
+        color: #6f8ba5; border-top: 1px solid #2b3f52; padding-top: 9px; }
+      .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+      .row label { flex: 0 0 78px; color: #8ea6bb; }
+      .row input[type=range] { flex: 1; min-width: 0; }
+      .row .val { flex: 0 0 52px; text-align: right; color: #e6f0f8; }
+      select, button { font: inherit; color: #cfe0ef; background: #16283a; border: 1px solid #2b3f52;
+        border-radius: 4px; padding: 4px 8px; cursor: pointer; }
+      button:hover { background: #1e364c; }
+      button.on { background: #2d5a86; border-color: #4f8ec0; color: #eaf4ff; }
+      .btns { display: flex; flex-wrap: wrap; gap: 5px; }
+      #info { margin-top: 8px; color: #8ea6bb; white-space: pre-wrap; }
+      #dump { width: 100%; height: 120px; margin-top: 6px; font: 11px ui-monospace, Consolas, monospace;
+        background: #0b141d; color: #cfe0ef; border: 1px solid #2b3f52; }
+    </style>
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+    <div id="panel">
+      <h1>螺旋槳殘影</h1>
+      <div class="row"><label>機種</label><select id="spec"></select></div>
+      <div class="btns" id="modes">
+        <button data-mode="new" class="on">新：殘影</button>
+        <button data-mode="old">舊：灰圓盤</button>
+        <button data-mode="blades">實際槳葉</button>
+      </div>
+      <div class="btns" style="margin-top:6px" id="cams">
+        <button data-cam="front">正前</button>
+        <button data-cam="quarter">斜前</button>
+        <button data-cam="side">側面</button>
+        <button data-cam="cockpit">座艙</button>
+      </div>
+      <div id="info"></div>
+      <h2>殘影參數</h2>
+      <div id="sliders"></div>
+      <h2>目前的值（貼給 Claude）</h2>
+      <textarea id="dump" readonly></textarea>
+    </div>
+    <script type="module" src="/src/tools/propblur.ts"></script>
+  </body>
+</html>
