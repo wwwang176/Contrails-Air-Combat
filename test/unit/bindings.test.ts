@@ -134,6 +134,22 @@ describe('attachInput：自由視角（右鍵）不得移動瞄準點', () => {
     expect(state.lookPitch).not.toBe(0)
   })
 
+  /** 【望遠時自由視角也慢下來】畫面放大了，每像素轉的角度照 `aimScale` 縮小 */
+  it('自由視角乘上 aimScale', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    dom.canvas.fire('mousedown', { button: 2 })
+    dom.win.fire('mousemove', move(0.02, 0.01))
+    const full = { yaw: state.lookYaw, pitch: state.lookPitch }
+    state.lookYaw = 0
+    state.lookPitch = 0
+    state.aimScale = 0.4
+    dom.win.fire('mousemove', move(0.02, 0.01))
+    expect(state.lookYaw).toBeCloseTo(full.yaw * 0.4, 12)
+    expect(state.lookPitch).toBeCloseTo(full.pitch * 0.4, 12)
+  })
+
   it('放開右鍵後視角歸零，瞄準位移恢復累積', () => {
     const dom = setupDom()
     const state = createInputState()
