@@ -143,7 +143,13 @@ export function createScoreboard(root: HTMLElement): Scoreboard {
       if (last !== null) draw(...last)
     },
     setVisible(v) {
+      const opening = v && root.hidden
       root.hidden = !v
+      if (opening) {
+        details.scrollTop = 0
+        const summary = root.querySelector<HTMLElement>('.aar-summary')
+        if (summary) summary.scrollTop = 0
+      }
     },
   }
 }

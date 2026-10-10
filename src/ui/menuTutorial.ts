@@ -21,13 +21,19 @@ export function createMenuTutorial(
     // 【觸控裝置換說法】與瞄準輔助的預設同一個判準（`input/aimAssistPreferences.ts`）
     const touch = window.matchMedia('(pointer: coarse)').matches
     q('tut-title').textContent = t(card.titleKey)
-    q('tut-panels').innerHTML = card.panels.map((p) =>
+    const progress = root.querySelector<HTMLElement>('#tut-progress')
+    if (progress) {
+      progress.textContent = `${tutorialAt + 1} / ${tutorialQueue.length}`
+      progress.hidden = tutorialQueue.length < 2
+    }
+    q('tut-panels').innerHTML = card.panels.map((p, i) =>
       `<li class="tut-panel"><figure class="tut-fig">`
       + `<img src="${assetUrl(p.image)}" alt="${escapeHtml(t(p.altKey))}">`
       + p.tags.map((g) =>
         `<span class="tut-tag${g.hud === undefined ? '' : ` hud ${g.hud}`}" style="left:${g.x}%;top:${g.y}%">`
         + `${escapeHtml(t(g.textKey, g.params) + (g.suffix ?? ''))}</span>`).join('')
-      + `</figure><div class="tut-cap">${escapeHtml(t(captionOf(p, touch)))}</div></li>`).join('')
+      + `</figure><div class="tut-instruction"><span class="tut-step" aria-hidden="true">${String(i + 1).padStart(2, '0')}</span>`
+      + `<div class="tut-cap">${escapeHtml(t(captionOf(p, touch)))}</div></div></li>`).join('')
   }
 
   /** 「了解」：這一張記成看過；還有下一張就換上，沒有就收起來並呼叫 `done` */
@@ -35,7 +41,12 @@ export function createMenuTutorial(
     const t = tutorialQueue[tutorialAt]
     if (t !== undefined) markTutorialSeen(t.id)
     tutorialAt++
-    if (tutorialAt < tutorialQueue.length) { drawTutorial(); return }
+    if (tutorialAt < tutorialQueue.length) {
+      drawTutorial()
+      q('tut-panels').scrollLeft = 0
+      q('tut-panels').scrollTop = 0
+      return
+    }
     closeOverlay(tutorial)
     tutorialQueue = []
     const done = tutorialDone
@@ -52,6 +63,8 @@ export function createMenuTutorial(
       tutorialDone = done
       drawTutorial()
       openOverlay(tutorial)
+      q('tut-panels').scrollLeft = 0
+      q('tut-panels').scrollTop = 0
     },
   }
 }
