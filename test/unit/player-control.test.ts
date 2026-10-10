@@ -18,7 +18,7 @@ function setup() {
   const deps = {
     input, playerController, playerAi,
     bindings: { clearHolds: vi.fn() }, camera: new PerspectiveCamera(),
-    rig: { viewBase: new Quaternion(), snapTo: vi.fn() },
+    rig: { viewBase: new Quaternion(), snapTo: vi.fn(), magnification: 2.5 },
     aimAssist: { step: vi.fn(), reset: vi.fn() },
     visuals: { get: () => ({ position: new Vector3(10, 20, 30) }) },
     godCam: createGodCameraState(), godBlend: createCameraBlend(),
@@ -108,7 +108,7 @@ describe('玩家操控的切換', () => {
     expect(input.aimWorld.equals(initial)).toBe(false)
     expect(deps.aimAssist.step).toHaveBeenCalledWith(
       input.aimWorld, 0.1 * deps.camera.fov * Math.PI / 180 / 2,
-      1 / 60, player, world.combatants,
+      1 / 60, player, world.combatants, 2.5,
     )
     input.viewMode = 'bomb'
     input.aimDeltaX = 0.1

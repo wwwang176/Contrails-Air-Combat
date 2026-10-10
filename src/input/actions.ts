@@ -18,13 +18,13 @@ const LOOK_PITCH_LIMIT = 80 * (Math.PI / 180)
  * 自由視角轉一段，單位螢幕半高。滑鼠右鍵與觸控右半邊共用。
  *
  * 【死亡鏡頭下不轉】視線由 `deathCamAim` 接管，轉頭會把它從擊殺者身上拉走
- * 【望遠時慢下來】乘上 `aimScale`（1 / 望遠倍率），與瞄準同一個比例
+ * 【望遠時慢下來】乘上 `lookScale`（1 / 望遠倍率）
  */
 export function slewLook(
-  state: Pick<InputState, 'dead' | 'lookYaw' | 'lookPitch' | 'aimScale'>, dx: number, dy: number,
+  state: Pick<InputState, 'dead' | 'lookYaw' | 'lookPitch' | 'lookScale'>, dx: number, dy: number,
 ): void {
   if (state.dead) return
-  const k = LOOK_SENSITIVITY * state.aimScale
+  const k = LOOK_SENSITIVITY * state.lookScale
   state.lookYaw = clamp(state.lookYaw - dx * k, -LOOK_YAW_LIMIT, LOOK_YAW_LIMIT)
   state.lookPitch = clamp(state.lookPitch - dy * k, -LOOK_PITCH_LIMIT, LOOK_PITCH_LIMIT)
 }

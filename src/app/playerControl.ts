@@ -18,7 +18,7 @@ interface PlayerControlDependencies {
   input: InputState
   bindings: { clearHolds(): void }
   camera: PerspectiveCamera
-  rig: Pick<CameraRig, 'viewBase' | 'snapTo'>
+  rig: Pick<CameraRig, 'viewBase' | 'snapTo' | 'magnification'>
   playerAi: Controller
   /** 玩家的控制器；不在座位上（代飛、上帝視角）的期間由這裡替它的前機槍冷卻 */
   playerController: Controller & { coolWhileAway(seconds: number): void }
@@ -142,7 +142,7 @@ export function createPlayerControl({
       // 【輔助排在玩家之後】先吃玩家這一幀的轉動，再拉。轉動量與 `slewAimWorld`
       // 同一個換算（位移 × 半個 FOV）
       const playerTurn = Math.hypot(input.aimDeltaX, input.aimDeltaY) * camera.fov * DEG / 2
-      aimAssist.step(input.aimWorld, playerTurn, worldSeconds, player, world.combatants)
+      aimAssist.step(input.aimWorld, playerTurn, worldSeconds, player, world.combatants, rig.magnification)
     }
     // 【只在一般飛行時吸】其餘分支的瞄準點不歸玩家管，離開時要放掉目標
     if (input.godView || dying || aiFlying || input.viewMode === 'bomb') aimAssist.reset()

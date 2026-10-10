@@ -109,7 +109,7 @@ export function updateBattleCameraFrame(
     godInput.up = input.godMove.up
     godInput.down = input.godMove.down
     godInput.boost = input.godMove.boost
-    input.aimScale = 1
+    input.lookScale = 1
     stepGodCamera(godCam, godInput, frameSeconds)
     ctx.camera.position.copy(godCam.position)
     ctx.camera.up.set(0, 1, 0)
@@ -144,8 +144,8 @@ export function updateBattleCameraFrame(
       ctx.camera, renderPos, renderQuat, input.aimWorld, aircraft.diag.aero.tas,
       input.viewMode, input.lookYaw, input.lookPitch, worldSeconds, bombTarget, input.zoom,
     )
-    // 【望遠時瞄準跟著變細】畫面放大幾倍，滑鼠與觸控每像素轉的角度就除以幾，準星在畫面上的手感不變
-    input.aimScale = 1 / rig.magnification
+    // 【望遠時自由視角跟著變細】畫面放大幾倍，自由視角每像素轉的角度就除以幾
+    input.lookScale = 1 / rig.magnification
   }
   // 【排在兩個分支之後】上面算出來的是這一幀的目的姿態，過渡把它往按 G
   // 那一刻的姿態拉回一部分；過渡結束後這一行什麼都不做

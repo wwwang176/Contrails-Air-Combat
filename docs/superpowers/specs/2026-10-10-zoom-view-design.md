@@ -18,7 +18,9 @@
   - 鏡頭往世界上方多抬 `ZOOM_LIFT` × `zoomK` 公尺
   - 對外提供目前的倍率（`magnification`）
 - 望遠時要跟著倍率調整的：
-  - 滑鼠與觸控的瞄準靈敏度 ÷ 倍率（`InputState.aimScale`，主迴圈每幀寫入）
+  - 自由視角（右鍵、觸控右半邊）的靈敏度 ÷ 倍率（`InputState.lookScale`，主迴圈每幀寫入）。
+    瞄準不另外乘：瞄準位移照鏡頭 FOV 換算成角度，FOV 收窄就已經慢下來
+  - 瞄準輔助的吸附範圍與甩開門檻 ÷ 倍率（`AimAssist.step` 吃倍率）
   - 飛機換低精度模型的距離 × 倍率（`aircraftVisuals.update` 吃倍率）
 - 初始值：`ZOOM_MAGNIFICATION` 2.5、`ZOOM_LIFT` 0.3 m、`ZOOM_TIME` 0.07 s，由試玩裁定
 

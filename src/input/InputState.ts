@@ -53,10 +53,10 @@ export interface InputState {
    */
   zoom: boolean
   /**
-   * 瞄準靈敏度的倍率：滑鼠與觸控的瞄準位移乘上它。**由鏡頭每幀寫入**（`1 / 望遠倍率`）——
-   * 畫面放大了，準星照原本的速度飄就瞄不住
+   * 自由視角靈敏度的倍率（`slewLook` 乘上它）。**由鏡頭每幀寫入**（`1 / 望遠倍率`）。
+   * 瞄準不乘：瞄準位移照鏡頭 FOV 換算成角度，FOV 收窄就已經慢下來，再乘一次會慢兩次
    */
-  aimScale: number
+  lookScale: number
   /**
    * 這一台飛機掛得了彈嗎。**由 `main.ts` 在玩家換飛機時寫入。**
    *
@@ -175,7 +175,7 @@ export function createInputState(): InputState {
     lookPitch: 0,
     viewMode: 'third',
     zoom: false,
-    aimScale: 1,
+    lookScale: 1,
     bombCapable: false,
     bombRelease: false,
     bombTaps: 0,

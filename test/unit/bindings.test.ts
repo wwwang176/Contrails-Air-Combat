@@ -134,17 +134,30 @@ describe('attachInput：自由視角（右鍵）不得移動瞄準點', () => {
     expect(state.lookPitch).not.toBe(0)
   })
 
-  /** 【望遠時自由視角也慢下來】畫面放大了，每像素轉的角度照 `aimScale` 縮小 */
-  it('自由視角乘上 aimScale', () => {
+  /**
+   * 【望遠時自由視角慢下來，瞄準不另外乘】自由視角每像素轉固定角度，照 `lookScale` 縮小；
+   * 瞄準的位移本來就照鏡頭 FOV 換算成角度（`slewAimWorld`），再乘一次就慢了兩次
+   */
+  it('自由視角乘上 lookScale，瞄準位移不乘', () => {
     const dom = setupDom()
     const state = createInputState()
     attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    dom.win.fire('mousemove', move(0.02, 0.01))
+    const aim = { x: state.aimDeltaX, y: state.aimDeltaY }
+    state.aimDeltaX = 0
+    state.aimDeltaY = 0
+    state.lookScale = 0.4
+    dom.win.fire('mousemove', move(0.02, 0.01))
+    expect(state.aimDeltaX).toBe(aim.x)
+    expect(state.aimDeltaY).toBe(aim.y)
+
+    state.lookScale = 1
     dom.canvas.fire('mousedown', { button: 2 })
     dom.win.fire('mousemove', move(0.02, 0.01))
     const full = { yaw: state.lookYaw, pitch: state.lookPitch }
     state.lookYaw = 0
     state.lookPitch = 0
-    state.aimScale = 0.4
+    state.lookScale = 0.4
     dom.win.fire('mousemove', move(0.02, 0.01))
     expect(state.lookYaw).toBeCloseTo(full.yaw * 0.4, 12)
     expect(state.lookPitch).toBeCloseTo(full.pitch * 0.4, 12)

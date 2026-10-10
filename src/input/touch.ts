@@ -108,8 +108,8 @@ export function attachTouch(root: HTMLElement, state: InputState): TouchControls
     g.x = e.clientX
     g.y = e.clientY
     if (g.kind === 'aim') {
-      state.aimDeltaX += dx * TOUCH_AIM_SENSITIVITY * state.aimScale
-      state.aimDeltaY -= dy * TOUCH_AIM_SENSITIVITY * state.aimScale
+      state.aimDeltaX += dx * TOUCH_AIM_SENSITIVITY
+      state.aimDeltaY -= dy * TOUCH_AIM_SENSITIVITY
     } else if (g.kind === 'look') {
       slewLook(state, dx, dy)
     }

@@ -112,6 +112,27 @@ describe('瞄準輔助', () => {
     expect(a.target).toBe(1)
   })
 
+  /** 【望遠】吸附範圍與甩開門檻都除以倍率：畫面上看起來的大小、甩的手速與不望遠時一樣 */
+  it('望遠：吸附範圍與甩開門檻照倍率縮小', () => {
+    const foe = plane('red', new Vector3(20, 0, -500))
+    const off = new Vector3(0, 0, -1).angleTo(dirTo(20, 500))
+    expect(off).toBeLessThan(ASSIST_CONE)
+    expect(off).toBeGreaterThan(ASSIST_CONE / 2.5)
+    const aim = new Vector3(0, 0, -1)
+    const a = assist()
+    a.step(aim, 0, DT, me, [me, foe], 2.5)
+    expect(a.target).toBe(-1)
+    expect(aim.z).toBe(-1)
+
+    const near = plane('red', new Vector3(5, 0, -500))
+    const b = assist()
+    b.step(new Vector3(0, 0, -1), ASSIST_SWIPE_RATE * DT * 0.6, DT, me, [me, near])
+    expect(b.target).toBe(1)
+    const c = assist()
+    c.step(new Vector3(0, 0, -1), ASSIST_SWIPE_RATE * DT * 0.6, DT, me, [me, near], 2.5)
+    expect(c.target).toBe(-1)
+  })
+
   it('範圍內有兩架：黏著正在吸的那一架，不跳到更近的', () => {
     const far = plane('red', new Vector3(25, 0, -500))
     const near = plane('red', new Vector3(5, 0, -500))

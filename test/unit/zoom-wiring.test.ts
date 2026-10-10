@@ -6,17 +6,14 @@ import { en as EN } from '../../src/i18n/en'
 const read = (p: string): string => readFileSync(p, 'utf8').replace(/\r\n/g, '\n')
 
 /**
- * 【按住 V 望遠的接線】鏡頭吃按住的狀態；望遠時瞄準靈敏度與飛機換低模的距離跟著倍率調 ——
- * 不調的話畫面放大了、準星卻照原本的速度飄，遠方的飛機放大了卻還是低模
+ * 【按住 V 望遠的接線】望遠時飛機換低模的距離跟著倍率調，不然遠方的飛機放大了卻還是低模。
+ * 觸控瞄準的位移不乘倍率：它照鏡頭 FOV 換算成角度，FOV 收窄就已經慢下來了
  */
 describe('望遠的接線', () => {
-  it('滑鼠與觸控的瞄準乘上 aimScale', () => {
-    const b = read('src/input/bindings.ts')
-    expect(b).toContain('state.aimDeltaX += (e.movementX / half) * MOUSE_SENSITIVITY * state.aimScale')
-    expect(b).toContain('state.aimDeltaY -= (e.movementY / half) * MOUSE_SENSITIVITY * state.aimScale')
+  it('觸控瞄準的位移不另外乘倍率', () => {
     const t = read('src/input/touch.ts')
-    expect(t).toContain('state.aimDeltaX += dx * TOUCH_AIM_SENSITIVITY * state.aimScale')
-    expect(t).toContain('state.aimDeltaY -= dy * TOUCH_AIM_SENSITIVITY * state.aimScale')
+    expect(t).toContain('state.aimDeltaX += dx * TOUCH_AIM_SENSITIVITY\n')
+    expect(t).toContain('state.aimDeltaY -= dy * TOUCH_AIM_SENSITIVITY\n')
   })
 
   it('飛機換低模的距離跟著倍率拉遠', () => {

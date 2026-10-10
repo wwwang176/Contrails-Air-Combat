@@ -205,7 +205,8 @@ export class CameraRig {
   }
 
   /**
-   * 目前的放大倍率（1 = 沒有望遠）。瞄準靈敏度（`InputState.aimScale`）與飛機換低模的距離跟著它調
+   * 目前的放大倍率（1 = 沒有望遠）。自由視角靈敏度（`InputState.lookScale`）、瞄準輔助的範圍與
+   * 甩開門檻、飛機換低模的距離跟著它調
    */
   get magnification(): number {
     return 1 + (ZOOM_MAGNIFICATION - 1) * this.zoomK

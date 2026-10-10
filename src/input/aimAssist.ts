@@ -62,16 +62,18 @@ export class AimAssist {
   }
 
   /**
-   * @param aim        瞄準點，世界座標單位向量（in/out）
-   * @param playerTurn 玩家這一幀自己把瞄準點轉了多少，rad
-   * @param dt         這一幀世界前進的時間，s
+   * @param aim           瞄準點，世界座標單位向量（in/out）
+   * @param playerTurn    玩家這一幀自己把瞄準點轉了多少，rad
+   * @param dt            這一幀世界前進的時間，s
+   * @param magnification 鏡頭的望遠倍率。吸附範圍與甩開門檻除以它：畫面放大了，範圍在畫面上
+   *                      看起來的大小、甩開要的手速與不望遠時一樣
    */
   step(
     aim: Vector3, playerTurn: number, dt: number,
-    shooter: Combatant, cs: readonly Combatant[],
+    shooter: Combatant, cs: readonly Combatant[], magnification = 1,
   ): void {
     if (!this.enabled || dt <= 0) { this.target = -1; return }
-    if (playerTurn > ASSIST_SWIPE_RATE * dt) {
+    if (playerTurn > ASSIST_SWIPE_RATE / magnification * dt) {
       this.hold = ASSIST_SWIPE_HOLD
       this.target = -1
       return
@@ -85,8 +87,9 @@ export class AimAssist {
 
     const muzzle = shooter.aircraft.spec.battery.sight.muzzleVelocity
     const me = shooter.aircraft.state
+    const cone = ASSIST_CONE / magnification
     let best = -1
-    let bestAngle = ASSIST_CONE
+    let bestAngle = cone
     for (let i = 0; i < cs.length; i++) {
       const c = cs[i]!
       if (!c.alive || c.team === shooter.team) continue
@@ -95,7 +98,7 @@ export class AimAssist {
       const t = solveLead(P, V, muzzle, LEAD)
       if (t === NO_INTERCEPT || t > PROJECTILE_LIFETIME) continue
       const angle = aim.angleTo(LEAD)
-      if (angle > ASSIST_CONE) continue
+      if (angle > cone) continue
       if (i === this.target) {
         best = i
         bestAngle = angle

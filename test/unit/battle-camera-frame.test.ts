@@ -74,17 +74,17 @@ describe('戰鬥幀的鏡頭', () => {
     expect(f.output.bombTarget).toBeNull()
   })
 
-  /** 【望遠】按鍵交給相機；瞄準靈敏度照相機的放大倍率縮小，上帝視角不縮 */
-  it('望遠：交給相機、瞄準靈敏度除以倍率；上帝視角回到 1', () => {
+  /** 【望遠】按鍵交給相機；自由視角靈敏度照相機的放大倍率縮小，上帝視角不縮 */
+  it('望遠：交給相機、自由視角靈敏度除以倍率；上帝視角回到 1', () => {
     const f = fixture()
     f.input.zoom = true
     f.rig.magnification = 2
     f.step()
     expect(f.rig.update.mock.calls[0]![10]).toBe(true)
-    expect(f.input.aimScale).toBe(0.5)
+    expect(f.input.lookScale).toBe(0.5)
     f.input.godView = true
     f.step()
-    expect(f.input.aimScale).toBe(1)
+    expect(f.input.lookScale).toBe(1)
   })
 
   it('模擬暫停時，自由鏡頭照幀時間移動', () => {
