@@ -102,8 +102,8 @@
   align-items: flex-start;
   gap: 32px;
 }
-#landing .menu-title { font-size: clamp(24px, 8cqw, 64px); }
-#landing .brand-sub { display: inline; font-size: .56em; letter-spacing: .12em; }
+#landing .menu-title { font-size: clamp(18px, 7cqw, 44px); }
+#landing .brand-sub { display: inline; font-size: inherit; letter-spacing: inherit; }
 .front-screen .landing-ruler { height: 0; margin-top: -24px; }
 .front-screen .dossier-action { min-width: 240px; }
 
