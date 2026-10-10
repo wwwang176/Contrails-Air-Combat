@@ -254,7 +254,7 @@ export const zh = {
   'score.rosterCap': '完整名單',
 
   'touch.score': '戰績',
-  'touch.view': '視角',
+  'touch.view': '望遠',
   'touch.up': '加速',
   'touch.down': '減速',
   'rotate.hint': '請將手機橫放',
@@ -377,7 +377,7 @@ export const zh = {
   'touch.back': '返回',
   'touch.sight': '瞄準鏡',
 
-  'hud.keys': 'W/S 油門   V 視角   右鍵 自由視角   I 自機AI   G 上帝視角   F3 效能   ESC 暫停',
+  'hud.keys': 'W/S 油門   V 望遠   右鍵 自由視角   I 自機AI   G 上帝視角   F3 效能   ESC 暫停',
   'hud.godKeys': '滑鼠 轉鏡頭   WASD 平移   Q/E 升降   Shift 加速   Tab 記分板   G 離開   ESC 暫停',
   'hud.aiBanner': 'AI 代飛中，按 I 收回操控',
   'hud.godBanner': '上帝視角，AI 代飛中，按 G 回座艙',

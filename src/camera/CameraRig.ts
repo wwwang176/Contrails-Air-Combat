@@ -1,5 +1,5 @@
 import { Matrix4, Quaternion, Vector3, type PerspectiveCamera } from 'three'
-import { clamp } from '../core/math'
+import { DEG, clamp } from '../core/math'
 import { makeScratch } from '../core/pool'
 import { BOMB_CONE_HALF_ANGLE, coneClamp, sightUp } from './bombsight'
 
@@ -58,16 +58,9 @@ export interface CameraRigOptions {
   /** 相機上方向量靠回世界上方的時間常數，秒。見 baseOrientation */
   levelTime: number
   /**
-   * 機首視角的眼點位置（**機體座標**，量自座艙罩）。
-   *
-   * 預設值是 P-51D 的；`main.ts` 每次建模後改寫成該機種的 `model.eyePoint`。
-   */
-  firstPersonOffset: Vector3
-  /**
    * 投彈瞄具的眼點（**機體座標**），在機腹中央。
    *
-   * `main.ts` 每次換飛機後改寫成該機種的 `model.bombPoint`，與
-   * `firstPersonOffset` 同一個做法。
+   * `main.ts` 每次換飛機後改寫成該機種的 `model.bombPoint`。
    */
   bombPoint: Vector3
   /** 相機注視點在機首前方的距離 */
@@ -81,6 +74,16 @@ export interface CameraRigOptions {
  * 瞬間，不是一段動作。
  */
 export const BOMB_LERP_TIME = 0.25
+
+/**
+ * 按住望遠（`InputState.zoom`）時放大幾倍：垂直 FOV 照 tan 收窄成 1/這個。**起始值，由試玩裁定。**
+ * 鏡頭留在機外，自己的飛機也跟著放大，所以鏡頭再往上抬 `ZOOM_LIFT`，讓它留在畫面下方
+ */
+export const ZOOM_MAGNIFICATION = 2.5
+/** 望遠時鏡頭往世界上方多抬多少，m。**起始值，由試玩裁定。** */
+export const ZOOM_LIFT = 0.3
+/** 望遠拉近、放開拉回的時間常數，s：約 3 倍（0.2 s）到位 */
+export const ZOOM_TIME = 0.07
 
 const CONE_COS = Math.cos(BOMB_CONE_HALF_ANGLE)
 const CONE_SIN = Math.sin(BOMB_CONE_HALF_ANGLE)
@@ -98,7 +101,6 @@ export const DEFAULT_CAMERA_OPTIONS: CameraRigOptions = {
   lookReturnTime: 0.25,
   lookFollowTime: 0.04,
   levelTime: 0.25,
-  firstPersonOffset: new Vector3(0, 0.80, 0.70),
   // B-17G 的值。`main.ts` 每次建模後改寫成該機種的 `model.bombPoint`
   bombPoint: new Vector3(0, -0.76, 0),
   aimPointDistance: 400,
@@ -192,12 +194,21 @@ export class CameraRig {
    */
   private bombInit = false
 
+  /** 望遠量 0–1，向按住與否平順靠近（`ZOOM_TIME`）；投彈視角下歸零 */
+  private zoomK = 0
+
   constructor(options: CameraRigOptions = DEFAULT_CAMERA_OPTIONS) {
     this.options = {
       ...options,
-      firstPersonOffset: options.firstPersonOffset.clone(),
       bombPoint: options.bombPoint.clone(),
     }
+  }
+
+  /**
+   * 目前的放大倍率（1 = 沒有望遠）。瞄準靈敏度（`InputState.aimScale`）與飛機換低模的距離跟著它調
+   */
+  get magnification(): number {
+    return 1 + (ZOOM_MAGNIFICATION - 1) * this.zoomK
   }
 
   /**
@@ -271,10 +282,11 @@ export class CameraRig {
   }
 
   /**
-   * @param orientation 機體姿態。**只**用來擺放機首視角的眼點（座位固定在機身上）
+   * @param orientation 機體姿態。**只**用來擺放投彈瞄具的眼點（固定在機腹上）
    * @param viewDir 相機要看的世界方向。傳的是**滑鼠瞄準方向**而不是機首方向：
    *   準星因此釘在畫面中央，跟不上的是飛機——機身會斜在畫面裡，指揮儀正在
    *   追的誤差角於是直接看得見。傳機首方向則是相反的呈現方式。
+   * @param zoom 按住望遠（`InputState.zoom`）。投彈視角下不吃
    */
   update(
     camera: PerspectiveCamera,
@@ -282,11 +294,12 @@ export class CameraRig {
     orientation: Quaternion,
     viewDir: Vector3,
     tas: number,
-    viewMode: 'third' | 'first' | 'bomb',
+    viewMode: 'third' | 'bomb',
     lookYaw: number,
     lookPitch: number,
     dt: number,
     bombTarget: Vector3 | null = null,
+    zoom = false,
   ): void {
     const o = this.options
 
@@ -362,8 +375,10 @@ export class CameraRig {
         camera.fov = o.fovBase
         camera.updateProjectionMatrix()
       }
-      // 【切回第三人稱要重新吸附】與機首視角那一行同一個理由
+      // 【切回第三人稱要重新吸附】彈簧的偏移停在切進來之前，接著盪會從舊位置飛過來
       this.initialised = false
+      // 【瞄具不望遠】角度尺規要穩；切回機外時從原本的視野重新拉近
+      this.zoomK = 0
       // 【FOV 刻意不套速度增益】投彈時 FOV 一變，落點在畫面上就會跟著抖，
       // 而那是一個與投彈無關的動作
       //
@@ -374,13 +389,12 @@ export class CameraRig {
     }
     this.bombInit = false
 
-    if (viewMode === 'first') {
-      // 眼點是機體上的一個座位，**要跟著滾**——用完整姿態；看的方向才用無滾轉基準
-      const eye = S.v[3]!.copy(o.firstPersonOffset).applyQuaternion(orientation).add(position)
-      camera.position.copy(eye)
-      camera.quaternion.copy(viewQuat)
-      this.initialised = false // 切回第三人稱時重新吸附
-    } else {
+    // 望遠量向按住與否靠近
+    const kz = dt > 0 ? 1 - Math.exp(-dt / ZOOM_TIME) : 1
+    this.zoomK += ((zoom ? 1 : 0) - this.zoomK) * kz
+
+    // 機外：彈簧追隨
+    {
       const viewForward = S.v[8]!.set(0, 0, -1).applyQuaternion(viewQuat)
       // 彈簧只吃**機身轉向**造成的偏移變化，所以目標用不含自由視角的 baseForward
       const desired = this.chaseOffset(baseForward, S.v[0]!)
@@ -405,13 +419,17 @@ export class CameraRig {
       // 整條式子退化成 this.offset，也就是不轉頭時的純彈簧行為。
       const finalOffset = this.chaseOffset(viewForward, S.v[4]!).add(this.offset).sub(desired)
       camera.position.copy(position).add(finalOffset)
+      // 【望遠時抬高】自己的飛機跟著放大，抬一點讓它留在畫面下方
+      camera.position.y += ZOOM_LIFT * this.zoomK
       // 注視機首前方的瞄準點，使準星穩定於畫面中央區
       const target = S.v[0]!.copy(position).addScaledVector(viewForward, o.aimPointDistance)
       camera.up.set(0, 1, 0).applyQuaternion(viewQuat)
       camera.lookAt(target)
     }
 
-    const fov = o.fovBase + o.fovSpeedGain * clamp(tas / o.fovSpeedRef, 0, 1)
+    // 垂直 FOV 照速度在 65～73° 之間漲；望遠時照 tan 收窄成 1/倍率
+    const wide = o.fovBase + o.fovSpeedGain * clamp(tas / o.fovSpeedRef, 0, 1)
+    const fov = 2 * Math.atan(Math.tan((wide * DEG) / 2) / this.magnification) / DEG
     if (Math.abs(camera.fov - fov) > 0.01) {
       camera.fov = fov
       camera.updateProjectionMatrix()

@@ -51,17 +51,3 @@ export function pressBomb(
     state.bombTaps++
   }
 }
-
-/**
- * 座艙／機外切換（鍵盤 `V`、觸控的視角鈕）。
- *
- * 【投彈模式下不作用】這條軸是「座艙／機外」，投彈瞄具不是那條軸上的一個點。
- * 照舊寫成三元式的話 `=== 'third'` 為 false 會把它彈回 `third`，等於多了一個
- * 沒有人記得的離開鍵
- * 【死亡鏡頭下也不作用】座艙視角是從殘骸裡面往外看
- */
-export function pressView(state: Pick<InputState, 'viewMode' | 'dead'>): void {
-  if (state.viewMode !== 'bomb' && !state.dead) {
-    state.viewMode = state.viewMode === 'third' ? 'first' : 'third'
-  }
-}

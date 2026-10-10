@@ -45,18 +45,23 @@ export interface InputState {
   /** 自由視角偏移，rad */
   lookYaw: number
   lookPitch: number
+  /** `third` 機外、`bomb` 機腹投彈瞄具（`B` 切換） */
+  viewMode: 'third' | 'bomb'
   /**
-   * `third` 機外、`first` 座艙、`bomb` 機腹投彈瞄具。
-   *
-   * 【`bomb` 不在 `V` 的那條軸上】`V` 切的是「座艙／機外」；投彈瞄具是另一
-   * 件事，由 `B` 自己切換，而且 `V` 在它之下不作用。
+   * 按住望遠（鍵盤 `V`、觸控的望遠鈕）：鏡頭留在機外、視野收窄（`CameraRig`）。
+   * 陣亡、放掉按住的鍵（`clearHolds`）時清掉；投彈瞄具與上帝視角下鏡頭不吃它
    */
-  viewMode: 'third' | 'first' | 'bomb'
+  zoom: boolean
+  /**
+   * 瞄準靈敏度的倍率：滑鼠與觸控的瞄準位移乘上它。**由鏡頭每幀寫入**（`1 / 望遠倍率`）——
+   * 畫面放大了，準星照原本的速度飄就瞄不住
+   */
+  aimScale: number
   /**
    * 這一台飛機掛得了彈嗎。**由 `main.ts` 在玩家換飛機時寫入。**
    *
    * 【為什麼不是 bindings 自己判斷】`bindings.ts` 是純 DOM 外殼，對飛機
-   * 一無所知（見它的檔頭）。寫入點與 `rig.options.firstPersonOffset` 相同
+   * 一無所知（見它的檔頭）。寫入點與 `rig.options.bombPoint` 相同
    * —— 那裡本來就是「玩家換了一台飛機」。
    */
   bombCapable: boolean
@@ -169,6 +174,8 @@ export function createInputState(): InputState {
     lookYaw: 0,
     lookPitch: 0,
     viewMode: 'third',
+    zoom: false,
+    aimScale: 1,
     bombCapable: false,
     bombRelease: false,
     bombTaps: 0,

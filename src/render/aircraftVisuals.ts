@@ -51,6 +51,7 @@ export interface AircraftVisuals {
     combatants: readonly Combatant[], alpha: number, cameraPosition: Vector3,
     propRotation: number, liveries: Liveries,
     wrecks: Pick<Wrecks, 'adopt'>, vortex: Pick<Vortex, 'emit'>,
+    magnification?: number,
   ): void
 }
 
@@ -124,6 +125,7 @@ export function createAircraftVisuals(
     combatants: readonly Combatant[], alpha: number, cameraPosition: Vector3,
     propRotation: number, liveries: Liveries,
     wrecks: Pick<Wrecks, 'adopt'>, vortex: Pick<Vortex, 'emit'>,
+    magnification = 1,
   ): void {
     for (const c of combatants) {
       const v = visuals.get(c)!
@@ -142,8 +144,10 @@ export function createAircraftVisuals(
       v.quaternion.slerpQuaternions(c.aircraft.prevOrientation, c.aircraft.state.orientation, alpha)
       // 【距離 LOD】兩具的姿態都要寫 —— 只寫顯示中的那一具，換過去的那一幀
       // 會看到它還停在上一次顯示時的位置。
+      // 【望遠】畫面放大 `magnification` 倍，同一架在畫面上的大小等於近了那麼多倍，
+      // 距離照放大後的算，不然拉近看到的還是低模
       if (v.lod !== null) {
-        v.far = useAircraftLod(v.position.distanceToSquared(cameraPosition), v.far)
+        v.far = useAircraftLod(v.position.distanceToSquared(cameraPosition) / (magnification * magnification), v.far)
         v.lod.group.position.copy(v.position)
         v.lod.group.quaternion.copy(v.quaternion)
       }

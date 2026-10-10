@@ -252,7 +252,7 @@ export const en: Record<MessageKey, string> = {
   'score.rosterCap': 'Full roster',
 
   'touch.score': 'Scores',
-  'touch.view': 'View',
+  'touch.view': 'Zoom',
   'touch.up': 'Faster',
   'touch.down': 'Slower',
   'rotate.hint': 'Please turn your phone sideways',
@@ -375,7 +375,7 @@ export const en: Record<MessageKey, string> = {
   'touch.back': 'Back',
   'touch.sight': 'Sight',
 
-  'hud.keys': 'W/S throttle   V view   Right mouse free look   I autopilot   G god view   F3 perf   ESC pause',
+  'hud.keys': 'W/S throttle   V Zoom   Right mouse free look   I autopilot   G god view   F3 perf   ESC pause',
   'hud.godKeys': 'Mouse look   WASD move   Q/E up/down   Shift fast   Tab scores   G exit   ESC pause',
   'hud.aiBanner': 'AI is flying. Press I to take back control',
   'hud.godBanner': 'God view. AI is flying. Press G to return to the cockpit',

@@ -1,9 +1,9 @@
 import type { InputState } from './InputState'
 import { applyThrottleRate } from './throttle'
 import { clearInputHolds, type ThrottleHold, type TouchHold } from './holdState'
-import { endLook, pressBomb, pressView, slewLook } from './actions'
+import { endLook, pressBomb, slewLook } from './actions'
 
-export { endLook, pressBomb, pressView, slewLook } from './actions'
+export { endLook, pressBomb, slewLook } from './actions'
 export type { ThrottleHold, TouchHold } from './holdState'
 
 const MOUSE_SENSITIVITY = 1.6
@@ -63,8 +63,9 @@ export function attachInput(
     // 世界固定瞄準點：這裡只累積「本幀的螢幕相對位移」，真正的旋轉由飛行
     // 迴圈以 slewAimWorld 執行——旋轉軸取自相機，而相機不歸輸入層管
     // （bindings 是純 DOM 外殼，對 render/ 沒有依賴）。
-    state.aimDeltaX += (e.movementX / half) * MOUSE_SENSITIVITY
-    state.aimDeltaY -= (e.movementY / half) * MOUSE_SENSITIVITY
+    // 【望遠時慢下來】`aimScale` 是 1 / 望遠倍率，由鏡頭每幀寫入
+    state.aimDeltaX += (e.movementX / half) * MOUSE_SENSITIVITY * state.aimScale
+    state.aimDeltaY -= (e.movementY / half) * MOUSE_SENSITIVITY * state.aimScale
   }
 
   /**
@@ -116,7 +117,8 @@ export function attachInput(
       case 'KeyW': hold.up = true; break
       case 'KeyS': hold.down = true; state.braking = true; break
       case 'KeyB': pressBomb(state, e.repeat); break
-      case 'KeyV': pressView(state); break
+      // 按住望遠；陣亡時鏡頭在看殘骸，不望遠
+      case 'KeyV': if (!state.dead) state.zoom = true; break
       case 'KeyI': state.playerAi = !state.playerAi; break
       case 'Tab': state.scoreboardHeld = true; break
       default: return
@@ -136,6 +138,7 @@ export function attachInput(
       case 'KeyQ': state.godMove.down = false; break
       case 'ShiftLeft': case 'ShiftRight': state.godMove.boost = false; break
       case 'Tab': state.scoreboardHeld = false; break
+      case 'KeyV': state.zoom = false; break
       default: break
     }
   }

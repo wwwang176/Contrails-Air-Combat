@@ -35,16 +35,11 @@ export const PROP_BLUR = {
   base: 0.3,
   /** 底色往槳尖怎麼淡：0 = 整盤一樣濃；越大越早淡掉（槳尖那一圈 = 底色 ×（1 − 半徑）^這個） */
   baseCurve: 3.7,
-  /** 殘影本身的轉速（外部視角、油門 100%），rad/s。實際轉速照油門等比例（`propBlurRate`） */
+  /** 殘影本身的轉速（油門 100%），rad/s。實際轉速照油門等比例（`propBlurRate`） */
   spin: 25,
   /** 殘影的顏色亮度（0 = 黑、1 = 白） */
   shade: 0,
 }
-
-/**
- * 座艙視角時殘影轉速除以這個。槳盤就在眼前、佔大半個畫面，照外部視角的轉速轉會閃
- */
-export const COCKPIT_SPIN_DIVISOR = 3
 
 /**
  * 全場共用的殘影時鐘，s（`advancePropBlur` 推進）。每一架照兩幀之間時鐘走了多少、乘上自己的轉速
@@ -52,9 +47,9 @@ export const COCKPIT_SPIN_DIVISOR = 3
  */
 export const PROP_BLUR_SPIN = { clock: 0 }
 
-/** 推進殘影時鐘一幀。`cockpit` 是玩家在座艙視角：時鐘只走 1/`COCKPIT_SPIN_DIVISOR` */
-export function advancePropBlur(dt: number, cockpit: boolean): void {
-  PROP_BLUR_SPIN.clock += cockpit ? dt / COCKPIT_SPIN_DIVISOR : dt
+/** 推進殘影時鐘一幀 */
+export function advancePropBlur(dt: number): void {
+  PROP_BLUR_SPIN.clock += dt
 }
 
 /** 這一架的殘影轉速，rad/s：`spin` × 油門（0–1），等比例 */

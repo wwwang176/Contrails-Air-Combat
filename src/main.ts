@@ -1043,8 +1043,6 @@ function releaseVisuals(): void {
 function rebuildVisuals(): void {
   releaseVisuals()
   aircraftVisuals.sync(world.combatants, battle.cfg.liveries)
-  // 眼點是量出來的座艙位置，一機一個值
-  rig.options.firstPersonOffset.copy(visuals.get(player)!.model.eyePoint)
   syncBombLoad()
   fitCameraToPlayer()
 }
@@ -1602,8 +1600,6 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     playerAi.setDecisionPhase(player.index / world.combatants.length)
     // 換了機體就換了位置，上一個座位的地形承諾不再適用
     playerAi.clearTerrainState()
-    // 眼點是量出來的座艙位置，一機一個值 —— 兩隊機種不同時位置不一樣
-    rig.options.firstPersonOffset.copy(visuals.get(player)!.model.eyePoint)
     syncBombLoad()
     fitCameraToPlayer()
     // 【瞄準點要放回機首】不放的話它還指著舊機體墜落前指的地方（多半是
@@ -1628,7 +1624,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   propRotation += worldSeconds * (8 + input.throttle * 60)
   aircraftVisuals.update(
     world.combatants, alpha, ctx.camera.position, propRotation,
-    battle.cfg.liveries, wrecks, vortex,
+    battle.cfg.liveries, wrecks, vortex, rig.magnification,
   )
   const renderPos = visuals.get(player)!.position
   const renderQuat = visuals.get(player)!.quaternion
@@ -2115,12 +2111,11 @@ function frame(now: number) {
   lastTime = now
   perf.begin(now)
   bindings.tick(frameSeconds, touch.hold)
-  // 【螺旋槳殘影每一幀都轉】選單短片、機庫也有。戰鬥中照遊戲的流速（暫停不動、結算慢動作一起慢）；
-  // 座艙視角轉得慢（`COCKPIT_SPIN_DIVISOR`）。
+  // 【螺旋槳殘影每一幀都轉】選單短片、機庫也有。戰鬥中照遊戲的流速（暫停不動、結算慢動作一起慢）。
   // 【載入中當成戰鬥外】第一場載入時畫面已經是 battle，但 `battle` 還沒建
   const inBattle = screen === 'battle' && !loadingBattle
   const propBlurSeconds = !inBattle ? frameSeconds : paused ? 0 : frameSeconds * timeScale(battle.outcome, sinceBattleEnd)
-  advancePropBlur(propBlurSeconds, inBattle && !input.godView && input.viewMode === 'first')
+  advancePropBlur(propBlurSeconds)
   touch.sync(
     screen === 'battle' && !loadingBattle && !paused && battle.outcome === 'fighting',
   )

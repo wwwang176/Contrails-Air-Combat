@@ -14,7 +14,7 @@ import {
 
 function fixture() {
   const camera = new PerspectiveCamera(65, 16 / 9, 1, 60000)
-  const rig = { update: vi.fn<CameraRig['update']>() }
+  const rig = { update: vi.fn<CameraRig['update']>(), magnification: 1 }
   const deps: BattleCameraFrameDependencies = {
     ctx: { camera }, rig,
     godCam: createGodCameraState(), godTarget: new Vector3(),
@@ -72,6 +72,19 @@ describe('戰鬥幀的鏡頭', () => {
     f.step()
     expect(f.output.bombState).toBe('off')
     expect(f.output.bombTarget).toBeNull()
+  })
+
+  /** 【望遠】按鍵交給相機；瞄準靈敏度照相機的放大倍率縮小，上帝視角不縮 */
+  it('望遠：交給相機、瞄準靈敏度除以倍率；上帝視角回到 1', () => {
+    const f = fixture()
+    f.input.zoom = true
+    f.rig.magnification = 2
+    f.step()
+    expect(f.rig.update.mock.calls[0]![10]).toBe(true)
+    expect(f.input.aimScale).toBe(0.5)
+    f.input.godView = true
+    f.step()
+    expect(f.input.aimScale).toBe(1)
   })
 
   it('模擬暫停時，自由鏡頭照幀時間移動', () => {

@@ -1,5 +1,5 @@
 import type { InputState } from './InputState'
-import { pressBomb, pressView, slewLook } from './actions'
+import { pressBomb, slewLook } from './actions'
 import type { TouchHold } from './holdState'
 import { onLangChange, t, type MessageKey } from '../i18n'
 import { releaseTouchGrip, type Grip, type GripKind } from './touchGrip'
@@ -32,7 +32,7 @@ export interface TouchControls {
  * 觸控操作層：**左半邊拖曳 = 瞄準**、**右半邊拖曳 = 自由視角**，按鈕都在右邊。
  *
  * 寫的是與鍵鼠同一份 `InputState`：瞄準累加到 `aimDeltaX/Y`（與滑鼠同一個
- * 單位），自由視角走 `slewLook`，投彈與視角鈕走 `pressBomb`／`pressView`。
+ * 單位），自由視角走 `slewLook`，投彈鈕走 `pressBomb`，望遠鈕按住時 `zoom`。
  * 飛行控制完全不知道輸入來自哪裡。
  *
  * 【按下的那一刻決定歸屬】手指落在按鈕上，整段都算按鈕；落在空白處，依左右
@@ -94,7 +94,7 @@ export function attachTouch(root: HTMLElement, state: InputState): TouchControls
       case 'down': hold.down = true; state.braking = true; break
       case 'score': state.scoreboardHeld = true; break
       case 'bomb': pressBomb(state); break
-      case 'view': pressView(state); break
+      case 'view': if (!state.dead) state.zoom = true; break
       case 'pause': state.pauseRequested = true; break
     }
   })
@@ -108,8 +108,8 @@ export function attachTouch(root: HTMLElement, state: InputState): TouchControls
     g.x = e.clientX
     g.y = e.clientY
     if (g.kind === 'aim') {
-      state.aimDeltaX += dx * TOUCH_AIM_SENSITIVITY
-      state.aimDeltaY -= dy * TOUCH_AIM_SENSITIVITY
+      state.aimDeltaX += dx * TOUCH_AIM_SENSITIVITY * state.aimScale
+      state.aimDeltaY -= dy * TOUCH_AIM_SENSITIVITY * state.aimScale
     } else if (g.kind === 'look') {
       slewLook(state, dx, dy)
     }

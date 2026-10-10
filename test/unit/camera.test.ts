@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { PerspectiveCamera, Quaternion, Vector3 } from 'three'
 import {
-  CameraRig, DEFAULT_CAMERA_OPTIONS, REFERENCE_SPAN, thirdPersonFor,
+  CameraRig, DEFAULT_CAMERA_OPTIONS, REFERENCE_SPAN, ZOOM_LIFT, ZOOM_MAGNIFICATION, thirdPersonFor,
 } from '../../src/camera/CameraRig'
 import { DEG } from '../../src/core/math'
 
@@ -101,29 +101,52 @@ describe('CameraRig', () => {
     expect(behind.angleTo(new Vector3(0, 0, 1))).toBeGreaterThan(30 * DEG)
   })
 
-  it('機首視角的相機貼近飛機', () => {
+  /**
+   * 【望遠】鏡頭留在機外，視野收窄成原本的 1/`ZOOM_MAGNIFICATION`（照 tan 換算）、鏡頭往上抬
+   * `ZOOM_LIFT`；放開後回到原本的視野與高度
+   */
+  it('按住望遠：視野收窄、鏡頭抬高，倍率到位；放開回來', () => {
     const { rig, cam } = makeRig()
     const pos = new Vector3(0, 3000, 0)
     const q = new Quaternion()
-    rig.update(cam, pos, q, fwd(q), 160, 'first', 0, 0, DT)
-    expect(cam.position.distanceTo(pos)).toBeLessThan(3)
+    rig.snapTo(fwd(q))
+    for (let i = 0; i < 120; i++) rig.update(cam, pos, q, fwd(q), 160, 'third', 0, 0, DT)
+    const fov0 = cam.fov
+    const y0 = cam.position.y
+    expect(rig.magnification).toBe(1)
+    for (let i = 0; i < 120; i++) rig.update(cam, pos, q, fwd(q), 160, 'third', 0, 0, DT, null, true)
+    expect(rig.magnification).toBeCloseTo(ZOOM_MAGNIFICATION, 6)
+    const want = 2 * Math.atan(Math.tan((fov0 * DEG) / 2) / ZOOM_MAGNIFICATION) / DEG
+    // FOV 差不到 0.01° 不重設投影（`update` 的門檻），容差比門檻寬
+    expect(cam.fov).toBeCloseTo(want, 1)
+    expect(cam.position.y).toBeCloseTo(y0 + ZOOM_LIFT, 2)
+    for (let i = 0; i < 120; i++) rig.update(cam, pos, q, fwd(q), 160, 'third', 0, 0, DT, null, false)
+    expect(rig.magnification).toBeCloseTo(1, 6)
+    expect(cam.fov).toBeCloseTo(fov0, 1)
+    expect(cam.position.y).toBeCloseTo(y0, 2)
   })
 
-  it('機首視角的眼點隨機體姿態轉動（換機種時可改寫）', () => {
+  /** 【約 0.2 s 到位，不是一下跳過去】按下那一幀只走一點 */
+  it('望遠平順拉近：第一幀只走一小段，0.25 s 內接近到位', () => {
     const { rig, cam } = makeRig()
     const pos = new Vector3(0, 3000, 0)
-    rig.options.firstPersonOffset.set(0, 0.78, 0.60)
+    const q = new Quaternion()
+    rig.snapTo(fwd(q))
+    rig.update(cam, pos, q, fwd(q), 160, 'third', 0, 0, DT, null, true)
+    expect(rig.magnification).toBeGreaterThan(1)
+    expect(rig.magnification).toBeLessThan(1 + (ZOOM_MAGNIFICATION - 1) * 0.5)
+    for (let i = 0; i < 14; i++) rig.update(cam, pos, q, fwd(q), 160, 'third', 0, 0, DT, null, true)
+    expect(rig.magnification).toBeGreaterThan(1 + (ZOOM_MAGNIFICATION - 1) * 0.95)
+  })
 
-    // 正飛：眼點在原點上方偏後
-    rig.update(cam, pos, new Quaternion(), fwd(new Quaternion()), 160, 'first', 0, 0, DT)
-    expect(cam.position.y).toBeCloseTo(3000.78, 6)
-    expect(cam.position.z).toBeCloseTo(0.60, 6)
-
-    // 右滾 90°：座位跟著轉到側邊，不會留在機身上方
-    const rolled = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), -90 * DEG)
-    rig.update(cam, pos, rolled, fwd(rolled), 160, 'first', 0, 0, DT)
-    expect(cam.position.x).toBeCloseTo(0.78, 6)
-    expect(cam.position.y).toBeCloseTo(3000, 6)
+  /** 投彈瞄具有自己的 FOV（角度尺規要穩），不吃望遠 */
+  it('投彈視角不望遠', () => {
+    const { rig, cam } = makeRig()
+    const pos = new Vector3(0, 3000, 0)
+    const q = new Quaternion()
+    for (let i = 0; i < 60; i++) rig.update(cam, pos, q, fwd(q), 160, 'bomb', 0, 0, DT, null, true)
+    expect(cam.fov).toBeCloseTo(DEFAULT_CAMERA_OPTIONS.fovBase, 6)
+    expect(rig.magnification).toBe(1)
   })
 
   it('FOV 隨速度上升', () => {
