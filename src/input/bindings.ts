@@ -81,6 +81,11 @@ export function attachInput(
   const clearHolds = () => clearInputHolds(state, hold)
 
   const onKeyDown = (e: KeyboardEvent) => {
+    if (e.code === 'KeyH') {
+      if (!e.repeat) state.flightReadouts = !state.flightReadouts
+      e.preventDefault()
+      return
+    }
     if (e.code === 'KeyG') {
       state.godView = !state.godView
       clearHolds()

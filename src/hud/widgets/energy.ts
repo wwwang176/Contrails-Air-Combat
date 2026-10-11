@@ -22,44 +22,48 @@ export function drawEnergy(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFr
   ctx.textAlign = 'left'
   ctx.textBaseline = 'middle'
 
-  const rows: [string, string, string][] = [
-    ['G', f.loadFactor.toFixed(2), Math.abs(f.loadFactor) > 6 ? HUD_COLORS.warn : HUD_COLORS.primary],
-    ['AoA', `${(f.alpha * RAD).toFixed(1)}°`, HUD_COLORS.primary],
-    ['Ps', `${f.ps >= 0 ? '+' : ''}${f.ps.toFixed(1)} m/s`, f.ps >= 0 ? HUD_COLORS.primary : HUD_COLORS.warn],
-    ['Es', `${(f.es / 1000).toFixed(2)} km`, HUD_COLORS.primary],
-  ]
-  rows.forEach((r, i) => {
-    ctx.fillStyle = HUD_COLORS.dim
-    ctx.fillText(r[0], x, y + i * lh)
-    ctx.fillStyle = r[2]
-    ctx.fillText(r[1], x + 40 * L.scale, y + i * lh)
-  })
-
-  // 迎角條：接近臨界時進入紅區
-  const barX = x
-  const barY = y + rows.length * lh + 8 * L.scale
-  const barW = 90 * L.scale
-  const barH = 8 * L.scale
   const ratio = clamp(Math.abs(f.alpha) / f.alphaCrit, 0, 1.3)
-  ctx.fillStyle = 'rgba(255,255,255,0.12)'
-  ctx.fillRect(barX, barY, barW, barH)
-  ctx.fillStyle = ratio > 0.95 ? HUD_COLORS.danger : ratio > 0.85 ? HUD_COLORS.warn : HUD_COLORS.primary
-  ctx.fillRect(barX, barY, barW * Math.min(ratio, 1), barH)
-  ctx.strokeStyle = HUD_COLORS.danger
-  ctx.lineWidth = 1
-  ctx.beginPath()
-  ctx.moveTo(barX + barW * 0.95, barY - 2 * L.scale)
-  ctx.lineTo(barX + barW * 0.95, barY + barH + 2 * L.scale)
-  ctx.stroke()
+  if (f.flightReadouts) {
+    const rows: [string, string, string][] = [
+      ['G', f.loadFactor.toFixed(2), Math.abs(f.loadFactor) > 6 ? HUD_COLORS.warn : HUD_COLORS.primary],
+      ['AoA', `${(f.alpha * RAD).toFixed(1)}°`, HUD_COLORS.primary],
+      ['Ps', `${f.ps >= 0 ? '+' : ''}${f.ps.toFixed(1)} m/s`, f.ps >= 0 ? HUD_COLORS.primary : HUD_COLORS.warn],
+      ['Es', `${(f.es / 1000).toFixed(2)} km`, HUD_COLORS.primary],
+    ]
+    rows.forEach((r, i) => {
+      ctx.fillStyle = HUD_COLORS.dim
+      ctx.fillText(r[0], x, y + i * lh)
+      ctx.fillStyle = r[2]
+      ctx.fillText(r[1], x + 40 * L.scale, y + i * lh)
+    })
 
-  // 油門與引擎輸出
-  ctx.fillStyle = HUD_COLORS.dim
+    // 迎角條：接近臨界時進入紅區
+    const barX = x
+    const barY = y + rows.length * lh + 8 * L.scale
+    const barW = 90 * L.scale
+    const barH = 8 * L.scale
+    ctx.fillStyle = 'rgba(255,255,255,0.12)'
+    ctx.fillRect(barX, barY, barW, barH)
+    ctx.fillStyle = ratio > 0.95 ? HUD_COLORS.danger : ratio > 0.85 ? HUD_COLORS.warn : HUD_COLORS.primary
+    ctx.fillRect(barX, barY, barW * Math.min(ratio, 1), barH)
+    ctx.strokeStyle = HUD_COLORS.danger
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(barX + barW * 0.95, barY - 2 * L.scale)
+    ctx.lineTo(barX + barW * 0.95, barY + barH + 2 * L.scale)
+    ctx.stroke()
+
+    // 油門與引擎輸出
+    ctx.fillStyle = HUD_COLORS.dim
+    ctx.textAlign = 'center'
+    ctx.fillText(
+      `THR ${(f.throttle * 100).toFixed(0)}%${f.throttle > 1 ? ' WEP' : ''}   ` +
+      `${(f.powerW / 1000).toFixed(0)} kW`,
+      L.cx, L.height - 26 * L.scale,
+    )
+
+  }
   ctx.textAlign = 'center'
-  ctx.fillText(
-    `THR ${(f.throttle * 100).toFixed(0)}%${f.throttle > 1 ? ' WEP' : ''}   ` +
-    `${(f.powerW / 1000).toFixed(0)} kW   ${f.aircraftName}`,
-    L.cx, L.height - 26 * L.scale,
-  )
 
   // 失速警告
   if (ratio > 1) {

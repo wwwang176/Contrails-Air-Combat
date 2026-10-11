@@ -1,0 +1,74 @@
+[
+  {
+    "id": "allies-m2",
+    "tool": "built-in imagegen",
+    "prompt": "Style-transfer edit. Image 1 is the ACTUAL in-game orthographic terrain capture for the Leuna refinery mission; preserve its geography, crop and orientation. Image 2 is STYLE ONLY: match its restrained charcoal olive-brown paper, fine muted field outlines, stippled forests and low contrast. Render the first image's farmland, its winding river across the lower half and up the left edge, narrow roads and refinery compound on the middle-right as a dark WWII briefing map background. Preserve river bends and compound position, simplify tree noise and LOD seams. Do not copy geography from image 2. No invented coastline, cities or extra airfields. 3:2 landscape. Absolutely NO text, symbols, aircraft, units, arrows, grids, frames, compass, legend or title. Only terrain; unit symbols will be placed by code.",
+    "output": "C:\\Users\\weiwe\\AppData\\Roaming\\orca\\codex-runtime-home\\home\\generated_images\\01a1200e-51d4-70d2-a539-97c87130c85a\\exec-8c17c030-ca32-416b-8efb-2c92204b7f0e.png",
+    "asset": "public/ui/maps/tactical/allies-m2-terrain.webp",
+    "reference": "public/ui/maps/reference/allies-m2-terrain.webp"
+  },
+  {
+    "id": "allies-m3",
+    "tool": "built-in imagegen",
+    "prompt": "Style-transfer edit for a WWII briefing map background. Image 1 is the actual Okinawa in-game overhead scene: OPEN OCEAN ONLY, no land anywhere in this crop. Image 2 provides STYLE ONLY, dark charcoal olive-brown military paper, fine restrained ink and subtle texture. Translate the first image into an understated empty ocean chart surface in matching dark olive-charcoal, with barely visible fine horizontal engraved water strokes. Remove all ships, wakes, aircraft and polygon artifacts: unit symbols will be overlaid in code. No islands, coastline, invented geographical features, text, symbols, arrows, compass, grid, title, border or legend. 3:2 landscape, full bleed. Keep the ocean low contrast and calm so small blue/red tactical frames can read clearly.",
+    "output": "C:\\Users\\weiwe\\AppData\\Roaming\\orca\\codex-runtime-home\\home\\generated_images\\01a1200e-51d4-70d2-a539-97c87130c85a\\exec-c9c34d6e-9cd8-4db1-b3f5-342cfe9398b7.png",
+    "asset": "public/ui/maps/tactical/allies-m3-terrain.webp",
+    "reference": "public/ui/maps/reference/allies-m3-terrain.webp"
+  },
+  {
+    "id": "germany-m1",
+    "tool": "built-in imagegen",
+    "prompt": "Style-transfer edit for a dark WWII briefing map. Image 1 is the actual in-game autumn farmland overhead capture for the Merseburg interception mission. Preserve its crop, orientation, connected roads, forest patches and large field clusters exactly in their relative positions. Image 2 provides STYLE ONLY: dark charcoal olive-brown paper, muted thin field outlines, finely stippled forests, restrained cartographic detail. Re-render image 1 in that style, smoothing rendering seams and point noise. No river, no refinery, no city, no airfield, no coastline: these features do not exist in this actual crop. Do not copy image 2's geography. Full bleed 3:2 landscape. Absolutely no text, symbols, arrows, aircraft, unit markers, grids, compass, border, title or legend. Terrain only, for separate code-rendered tactical symbols.",
+    "output": "C:\\Users\\weiwe\\AppData\\Roaming\\orca\\codex-runtime-home\\home\\generated_images\\01a1200e-51d4-70d2-a539-97c87130c85a\\exec-6e51bd23-2173-4bd0-9420-2892f34dc8fa.png",
+    "asset": "public/ui/maps/tactical/germany-m1-terrain.webp",
+    "reference": "public/ui/maps/reference/germany-m1-terrain.webp"
+  },
+  {
+    "id": "germany-m4",
+    "tool": "built-in imagegen",
+    "prompt": "Style-transfer edit: image 1 is the actual in-game orthographic Rzhev winter battlefield. Preserve the crop, orientation and relative positions of its snowy field boundaries, branching narrow roads, shallow drainage lines and small damaged village/fortified front left-of-center. Image 2 is STYLE ONLY: dark olive-charcoal military map paper with muted precise field outlines and fine engraved/stippled terrain. Convert the bright snowy screenshot into this dark briefing style: winter fields should read as subtly lighter cool grey-olive parcels against charcoal, not white expanses. Keep the small village and scarred defensive ground at their actual location, without inventing a large city or extra fortifications. Remove rendering triangles, LOD seams, aircraft, smoke and individual combat units. Preserve terrain features. Full bleed 3:2 landscape. No text, tactical symbols, arrows, routes, grid, compass, frame, title or legend. Units will be added separately as schematic symbols.",
+    "output": "C:\\Users\\weiwe\\AppData\\Roaming\\orca\\codex-runtime-home\\home\\generated_images\\01a1200e-51d4-70d2-a539-97c87130c85a\\exec-d3bf2379-ee0e-48fe-857e-f30187e91f5b.png",
+    "asset": "public/ui/maps/tactical/germany-m4-terrain.webp",
+    "reference": "public/ui/maps/reference/germany-m4-terrain.webp"
+  },
+  {
+    "id": "germany-m2",
+    "tool": "built-in imagegen",
+    "prompt": "Style-transfer edit for a WWII night-raid briefing terrain map. Image 1 is the ACTUAL Poltava game overhead capture: the single narrow vertical runway is on the right, with aircraft parking aprons beside its two ends; fields and forest patches fill the surrounding country. Preserve exactly this crop, runway position/orientation, apron placement, field clusters and roads. Image 2 is STYLE ONLY: dark charcoal olive-brown paper, subtle terrain tones, precise thin field/road linework and stippled trees. Make image 1's dark night terrain legible in that restrained map style without turning it into a brightly lit scene. Treat runway/parking areas as terrain features; remove individual parked planes and all combat units, which will be represented by code symbols. No river, coast, extra airport or large city. Full bleed 3:2. Absolutely NO text, labels, arrows, symbols, grids, compass, borders, title or legend.",
+    "output": "C:\\Users\\weiwe\\AppData\\Roaming\\orca\\codex-runtime-home\\home\\generated_images\\01a1200e-51d4-70d2-a539-97c87130c85a\\exec-f0332344-dfd6-484b-a1ff-351d39ba0193.png",
+    "asset": "public/ui/maps/tactical/germany-m2-terrain.webp",
+    "reference": "public/ui/maps/reference/germany-m2-terrain.webp"
+  },
+  {
+    "id": "germany-m3",
+    "tool": "built-in imagegen",
+    "prompt": "Style-transfer edit for an Asch Y-29 WWII briefing map BACKGROUND. Image 1 is the actual overhead game capture. Keep its terrain crop, orientation, field clusters, forests and branching roads. The small forward airfield lies near the upper center, roughly x=50%, y=15% of this crop: a narrow horizontal steel-plank runway on grass with a small taxi loop and dispersed parking pads. It is subtle in the dark source; clarify this EXISTING small grass-field airstrip, maintaining its small size, location and horizontal orientation. Do not invent a large concrete airport. Image 2 is STYLE ONLY: dark charcoal olive-brown paper, subdued thin field outlines, fine stippled trees, restrained military cartography. Smooth rendering noise and seams. Remove individual aircraft/vehicles. No rivers, coastline, large cities or extra airfields. Full bleed 3:2 landscape. Absolutely NO text, unit symbols, arrows, routes, grids, compass, title, border or legend; tactical overlays are separate.",
+    "output": "C:\\Users\\weiwe\\AppData\\Roaming\\orca\\codex-runtime-home\\home\\generated_images\\01a1200e-51d4-70d2-a539-97c87130c85a\\exec-c62f3c30-ebfd-44ad-b63c-1e7554d24fe8.png",
+    "asset": "public/ui/maps/tactical/germany-m3-terrain.webp",
+    "reference": "public/ui/maps/reference/germany-m3-terrain.webp"
+  },
+  {
+    "id": "japan-m1",
+    "tool": "built-in imagegen",
+    "prompt": "Style-transfer edit of the ACTUAL game terrain in image 1 for the Guadalcanal naval attack briefing. Keep all five island shapes, sizes, positions and coastlines exactly as the reference crop: large island upper-middle-left, large island lower-middle, smaller island upper-right, tiny islets upper-left and lower-left. Keep the central sea passage open. Image 2 is STYLE ONLY: restrained dark charcoal olive-brown paper, thin muted outlines, fine stippled forests and engraved terrain. Use dark olive forested islands with subtle shore contours and slightly darker charcoal water with very faint water hatching. Remove ships, wakes, aircraft and triangular rendering artifacts. No additional land, coast, harbors or cities; do not substitute a real-world geographic map. Full bleed 3:2 landscape. No text, labels, unit symbols, arrows, grids, compass, border or legend. Background only for editable tactical symbols.",
+    "output": "C:\\Users\\weiwe\\AppData\\Roaming\\orca\\codex-runtime-home\\home\\generated_images\\01a1200e-51d4-70d2-a539-97c87130c85a\\exec-383daafd-b2ef-4b4c-9d46-a7e796cc739c.png",
+    "asset": "public/ui/maps/tactical/japan-m1-terrain.webp",
+    "reference": "public/ui/maps/reference/japan-m1-terrain.webp"
+  },
+  {
+    "id": "japan-m2",
+    "tool": "built-in imagegen",
+    "prompt": "Style-transfer edit of the ACTUAL Leyte in-game overhead terrain in image 1. Preserve this crop and orientation: forested inland terrain covers the left ~78%, dark sea occupies the right edge, an irregular mostly vertical coastline runs down the right, a narrow winding inland supply road snakes from the middle-right beach toward the upper-left, and another narrow track follows the coast. Preserve road junctions and coastline bends and all their relative locations. Image 2 is STYLE ONLY: dark charcoal olive-brown paper, muted fine cartographic linework and finely stippled forest, restrained contrast. Translate the tropical terrain into that style, with the winding supply road clearly but subtly legible. Remove triangular render artifacts and individual aircraft, vehicles, ships, balloons or wakes. Do not add buildings, ports, cities, rivers or islands. 3:2 landscape full bleed. Absolutely no text, labels, unit symbols, arrows, grids, compass, frame or legend. Terrain only, editable tactical symbols will be overlaid.",
+    "output": "C:\\Users\\weiwe\\AppData\\Roaming\\orca\\codex-runtime-home\\home\\generated_images\\01a1200e-51d4-70d2-a539-97c87130c85a\\exec-74906d6f-84e7-46d3-98c3-6e56f7ec2d22.png",
+    "asset": "public/ui/maps/tactical/japan-m2-terrain.webp",
+    "reference": "public/ui/maps/reference/japan-m2-terrain.webp"
+  },
+  {
+    "id": "japan-m3",
+    "tool": "reuse approved built-in imagegen ocean background",
+    "source": "public/ui/maps/tactical/allies-m3-terrain.webp",
+    "asset": "public/ui/maps/tactical/japan-m3-terrain.webp",
+    "reference": "public/ui/maps/reference/japan-m3-terrain.webp",
+    "reason": "The inspected Rennell capture is also open water without land. Reuse the same ocean paper texture; formations and fleet positions come from Rennell's own capture."
+  }
+]

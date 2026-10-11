@@ -128,6 +128,8 @@ export interface InputState {
    * `slewAimWorld`。
    */
   godView: boolean
+  /** 顯示進階飛行讀數，預設關閉。 */
+  flightReadouts: boolean
   /** 上帝視角的移動輸入。`godView` 為 false 時全部為 false */
   godMove: GodMove
   /**
@@ -183,6 +185,7 @@ export function createInputState(): InputState {
     firing: false,
     braking: false,
     playerAi: false,
+    flightReadouts: false,
     godView: false,
     godMove: {
       forward: false, back: false, left: false, right: false,

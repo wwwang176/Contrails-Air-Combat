@@ -1,0 +1,272 @@
+/* Campaign and briefing opt into the same materials as the front menu.
+   All text/actions remain DOM; the schematic is scalable, data-driven SVG. */
+#ui .campaign-screen, #ui .mission-screen { box-sizing: border-box; padding: 88px 32px 24px; }
+.campaign-pane { width: min(1080px, 100%); }
+.campaign-heading { margin: 0 0 22px; }
+.campaign-heading h1 { margin-top: 5px; font: 600 23px/1.4 var(--f-body); letter-spacing: .06em; }
+.campaign-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; }
+#ui .campaign-card {
+  display: flex; flex-direction: column; min-width: 0; padding: 10px 10px 0;
+  color: var(--paper-ink); text-align: left;
+  background-image: url('/ui/materials/campaign-paper-clean.png');
+  background-size: cover;
+  box-shadow: inset 0 0 0 2px #fff4d51a, 0 6px 18px #0004;
+  transition: background-color .2s, box-shadow .2s, border-color .2s;
+}
+.campaign-card .photo { height: clamp(180px, 37vh, 350px); flex: none; }
+.campaign-card-body { display: flex; flex: 1; flex-direction: column; padding: 18px 12px 0; }
+.campaign-card-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
+.campaign-card .t { font: 600 19px/1.4 var(--f-body); letter-spacing: .04em; }
+.campaign-count { font: 12px/1.4 var(--f-ui); color: #615034; }
+.campaign-card .d { display: block; margin: 12px 0 20px; font: 13px/1.7 var(--f-body); color: #574a35; }
+@media (hover: hover) {
+  #ui .campaign-card:hover { background-color: var(--dossier-paper-lit); border-color: #be7955; box-shadow: inset 0 -3px #913f30, 0 8px 24px #0006; }
+  .campaign-card:hover .photo img { filter: grayscale(.65) sepia(.15) contrast(1.04); }
+}
+.campaign-card:focus-visible, .mission-tab:focus-visible { outline: 2px solid #f5deae; outline-offset: 3px; }
+
+.mission-pane { width: min(1340px, 100%); }
+.mission-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); height: min(660px, calc(100dvh - 160px)); background: #262017f5; border: 1px solid #7d6845; box-shadow: 0 16px 40px #0006; }
+.mission-nav { padding: 22px 16px; border-right: 1px solid #7d684566; overflow-y: auto; }
+.mission-camphead { padding: 0 2px 18px; margin-bottom: 16px; border-bottom: 1px solid var(--rule); font: 600 19px/1.4 var(--f-body); }
+.mission-tabs { display: flex; flex-direction: column; gap: 8px; }
+#ui .mission-tab { position: relative; flex: none; padding: 12px 12px 12px 18px; width: 100%; min-height: 66px; text-align: left; color: var(--paper-ink); background-color: #b3a17d; }
+.mission-tab::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 5px; background: #7c6949; }
+#ui .mission-tab.on { background-color: var(--dossier-paper-lit); }
+.mission-tab.on::before { background: var(--dossier-red); }
+.mission-tab .k { font: 11px/1.5 var(--f-ui); color: #5c4b31; }
+.mission-tab .n { margin-top: 3px; font: 600 14px/1.5 var(--f-body); }
+.mission-tab .soonmark { font-size: 11px; }
+@media (hover: hover) { #ui .mission-tab:hover { background-color: var(--dossier-paper-lit); } }
+.mission-content {
+  display: grid; grid-template-columns: minmax(0, 1fr) 210px;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  gap: 14px 20px; padding: 22px; min-width: 0; min-height: 0;
+}
+.brief-intel { display: contents; }
+.brief-details { display: contents; }
+.mission-head { grid-area: 1 / 1 / 2 / -1; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.mission-head h2 { font: 600 24px/1.4 var(--f-body); letter-spacing: .04em; }
+.mission-kind { display: block; margin-bottom: 4px; color: #c7ad81; font: 12px/1.3 var(--f-ui); letter-spacing: .15em; }
+.mission-meta { margin-top: 7px; font: 12px/1.5 var(--f-ui); color: #c2b192; }
+.mission-stamp { flex: none; padding: 5px 10px; border: 2px solid #ad5440; color: #d37b60; font: 600 12px/1.3 var(--f-body); letter-spacing: .14em; }
+.mission-objective { grid-area: 2 / 1 / 3 / -1; border-left: 2px solid #ccb681; padding-left: 12px; color: #efe0bb; font: 400 15px/1.6 var(--f-body); }
+.mission-summary { grid-area: 3 / 1 / 4 / -1; margin: 0; color: #c5b695; font: 13px/1.7 var(--f-body); }
+.mission-forces { grid-area: 4 / 2; border-top: 1px solid #7d6845; overflow-y: auto; min-height: 0; }
+.mission-forces h3 { margin: 0; padding: 10px 0; font: 600 14px/1.5 var(--f-body); }
+.mission-force { padding: 10px 0; border-top: 1px solid var(--rule); }
+.mission-force h4 { margin: 0 0 12px; font: 600 14px/1.3 var(--f-body); }
+.mission-force.mine h4 { color: var(--mine); }
+.mission-force.foe h4 { color: var(--foe); }
+.mission-force .unit { align-items: center; gap: 8px; margin-bottom: 10px; }
+.mission-force .sil { width: 52px; height: 29px; }
+.mission-force .sil i { height: 24px; }
+.mission-force .sil .mk { height: 17px; }
+.mission-force .nm { font-size: 13px; }
+.mission-force .qty { white-space: nowrap; }
+.mission-actions { grid-area: 5 / 1 / 6 / -1; display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-top: 14px; border-top: 1px solid #7d684566; }
+.mission-seat { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.mission-seat small { display: block; font: 11px/1.5 var(--f-ui); color: #c2b192; }
+.mission-seat b { font: 600 16px/1.4 var(--f-body); }
+#ui .mission-actions .dossier-action { min-width: 156px; font-size: 16px; }
+.mission-unready { display: block; min-height: 360px; }
+.mission-unready .brief-intel { display: block; }
+.mission-unready .mission-summary { margin: 20px 0; }
+
+/* Paper clip is a CSS ornament, never an image containing map labels. */
+.mission-map { grid-area: 4 / 1; position: relative; display: flex; flex-direction: column; margin: 8px 0 0; padding: 16px; min-width: 0; min-height: 0; }
+.mission-map::before { content: ''; position: absolute; top: -8px; left: 26px; width: 52px; height: 16px; border: 3px solid #575548; border-radius: 4px; box-shadow: inset 0 0 0 1px #d9ceab80, 0 3px 3px #0005; background: linear-gradient(180deg, #a99e80, #353a32 45%, #7a7764 65%, #36372f); }
+.mission-map figcaption { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 14px; margin: 0 0 10px; }
+.mission-map figcaption b { font: 600 14px/1.4 var(--f-body); }
+.mission-map figcaption span { font: 11px/1.4 var(--f-ui); color: #5c4b31; }
+.map-drawing { display: block; width: 100%; height: 100%; flex: 1 1 0; min-height: 0; color: #5a563d; }
+.map-base { fill: #b2aa82; stroke: #867851; }
+.map-sea .map-base { fill: #9faeaa; }
+.map-contours { opacity: .28; stroke: #635e43; stroke-width: 1.5; }
+.map-sea .map-contours { stroke: #395d63; }
+.map-course { fill: none; stroke: #315a6c; stroke-width: 4; stroke-dasharray: 13 7; }
+.map-blue { color: #315a6c; }
+.map-red { color: #903e30; }
+.map-solid { fill: currentColor; stroke: none; }
+.map-target { fill: none; stroke: currentColor; stroke-width: 3; stroke-linejoin: round; }
+.map-label { fill: currentColor; font: 600 20px var(--f-body); }
+.map-caption { fill: #57513c; font: 14px var(--f-ui); letter-spacing: 1px; }
+.map-legend { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; padding-top: 10px; font: 11px/1.4 var(--f-ui); color: #4f4732; }
+.map-legend-line { width: 26px; border-top: 3px dashed #315a6c; }
+.map-legend-target { color: #903e30; margin-left: 12px; font-size: 20px; line-height: 1; }
+.mission-map:is([data-target="arrival"], [data-target="exit"], [data-target="defend"]) .map-legend-target { color: #315a6c; }
+
+/* Short landscape: horizontal mission folders, left diagram / right scrollable
+   intel, launch stays visible. The fourth German mission must remain reachable. */
+@media (max-height: 560px) and (orientation: landscape), (max-width: 1050px) {
+  #ui .mission-screen { padding: 48px 16px 10px; }
+  .mission-pane { height: 100%; display: flex; flex-direction: column; }
+  .mission-pane > .back { position: fixed; top: 6px; left: max(64px, env(safe-area-inset-left)); padding: 8px 14px; min-height: 38px; box-sizing: border-box; }
+  .mission-pane > .trail { display: none; }
+  .mission-layout { display: flex; flex-direction: column; height: auto; min-height: 0; flex: 1; }
+  .mission-nav { flex: none; padding: 0; border-right: 0; border-bottom: 1px solid #7d6845; overflow: visible; }
+  .mission-camphead { display: none; }
+  .mission-tabs { flex-direction: row; overflow-x: auto; padding: 5px; gap: 5px; scrollbar-width: thin; }
+  #ui .mission-tab { width: auto; min-width: 130px; flex: 1 0 0; min-height: 44px; padding: 5px 10px 5px 14px; }
+  .mission-tab .k { font-size: 10px; }
+  .mission-tab .n { font-size: 13px; margin-top: 1px; white-space: nowrap; }
+  .mission-content { flex: 1; min-height: 0; padding: 10px; gap: 8px 14px; grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .brief-intel { display: block; grid-area: 1 / 2; overflow-y: auto; padding-right: 4px; min-width: 0; }
+  .mission-head { gap: 8px; }
+  .mission-head h2 { font-size: 19px; }
+  .mission-kind { display: none; }
+  .mission-meta { font-size: 11px; margin-top: 4px; }
+  .mission-stamp { font-size: 10px; padding: 3px 5px; border-width: 1px; }
+  .mission-objective { margin: 8px 0; font-size: 14px; padding-left: 8px; }
+  .mission-summary { font-size: 12px; margin-top: 8px; }
+  .mission-summary p { max-height: none; overflow: visible; }
+  .mission-forces { overflow: visible; }
+  .mission-forces h3 { font-size: 13px; padding: 5px 0; }
+  .mission-force-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .mission-force { padding: 7px 0 0; min-width: 0; }
+  .mission-force h4 { font-size: 12px; margin-bottom: 7px; }
+  .mission-force .unit { gap: 5px; margin-bottom: 4px; font-size: 12px; line-height: 1.4; }
+  .mission-force .sil { width: 44px; height: 29px; flex: 0 0 44px; }
+  .mission-force .nm, .mission-force .qty { font-size: 11px; }
+  .mission-actions { grid-area: 2 / 2; padding-top: 8px; gap: 8px; }
+  .mission-seat { gap: 6px; }
+  .mission-seat > .sil { display: none; }
+  .mission-seat b { font-size: 15px; }
+  #ui .mission-actions .dossier-action { min-width: 105px; min-height: 44px; padding: 8px 14px; font-size: 15px; gap: 12px; }
+  .mission-map { grid-area: 1 / 1 / 3 / 2; margin: 5px 0 0; padding: 12px 10px 8px; }
+  .mission-map figcaption { margin-bottom: 4px; }
+  .mission-map figcaption b { font-size: 13px; }
+  .mission-map figcaption span { font-size: 10px; }
+  .map-legend { font-size: 10px; padding-top: 4px; gap: 5px; }
+  .map-legend-target { margin-left: 4px; }
+  .map-label { font-size: 26px; }
+  .mission-map::before { width: 38px; height: 11px; top: -6px; border-width: 2px; }
+  .mission-unready { display: block; overflow-y: auto; }
+  .mission-unready .brief-intel { overflow: visible; }
+}
+@media (max-height: 560px) and (orientation: landscape) {
+  #ui .campaign-screen { padding: 48px 24px 12px; }
+  .campaign-pane { height: 100%; display: flex; flex-direction: column; }
+  .campaign-pane > .back { position: fixed; top: 6px; left: max(64px, env(safe-area-inset-left)); padding: 8px 14px; min-height: 38px; box-sizing: border-box; }
+  .campaign-heading { margin: 0 0 8px; display: flex; align-items: baseline; gap: 12px; }
+  .campaign-heading h1 { font-size: 18px; margin: 0; }
+  .campaign-cards { gap: 12px; min-height: 0; flex: 1; }
+  #ui .campaign-card { padding: 6px 6px 0; overflow-y: auto; }
+  .campaign-card .photo { height: clamp(64px, calc(100dvh - 248px), 170px); }
+  .campaign-card-body { padding: 9px 6px 0; }
+  .campaign-card .t { font-size: 16px; }
+  .campaign-count { font-size: 10px; }
+  .campaign-card .d { font-size: 11px; line-height: 1.45; margin: 7px 0; }
+}
+@media (prefers-reduced-motion: reduce) { #ui .campaign-card, .campaign-card .photo img { transition: none; } }
+/* Art pass: physical dossier layers, inset cartography, restrained typography. */
+.mission-screen .dossier-paper {
+  background-image: linear-gradient(110deg, #e5d6b220, #78603b20), url('/ui/materials/parchment.webp');
+  background-size: cover;
+}
+.mission-layout {
+  background: radial-gradient(ellipse at 30% 0, #9c795324, transparent 65%), var(--dossier-grain), linear-gradient(120deg, #30291e, #1d1b16);
+  border-color: #a0895c;
+  box-shadow: inset 0 0 0 3px #100e0980, 0 20px 65px #0009;
+}
+.mission-nav { background: linear-gradient(90deg, #07070433, #c6a16b0a); }
+#ui .mission-tab { border-color: #927d54; box-shadow: inset 0 0 18px #5c42222b, 0 4px 8px #0004; }
+#ui .mission-tab.on { box-shadow: inset 0 0 0 1px #f5e0aa80, 0 5px 16px #0008; }
+.mission-tab:not(.on) { filter: brightness(.8) saturate(.7); }
+.mission-tab.on::before { box-shadow: 2px 0 #e4be8a88; }
+.mission-head { padding-bottom: 12px; border-bottom: 1px solid #a48c5555; }
+.mission-stamp { transform: rotate(-4deg); box-shadow: inset 0 0 0 2px #ad544022; text-shadow: 1px 0 #ad544055; }
+.mission-sidebar { grid-area: 4 / 2; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+.mission-forces { flex: 1 1 auto; border: 1px solid #a48c5555; background: #080a061c; padding: 0 12px; }
+.mission-map { padding: 15px 14px 10px; box-shadow: 0 7px 16px #0009, inset 0 0 22px #65482955; }
+.map-drawing { background: #baad86; border: 1px solid #6c624b66; box-shadow: 0 0 0 3px #9e8a6022; }
+.map-paper-overlay { mix-blend-mode: multiply; opacity: .65; }
+.map-place { fill: #444536; font: 16px Georgia, serif; letter-spacing: 2px; paint-order: stroke; stroke: #d1c4a180; stroke-width: 3px; }
+.map-operational-zone { fill: #913f3009; stroke: #903e3080; stroke-width: 1.5; stroke-dasharray: 4 5; }
+.map-label { font-size: 18px; paint-order: stroke; stroke: #e0d1ac; stroke-width: 4px; stroke-linejoin: round; }
+.map-compass { fill: #444735; stroke: #444735; stroke-width: 1.2; }
+.map-compass circle { fill: none; }
+.map-compass text { stroke: none; font: 16px Georgia, serif; }
+.map-caption { font-size: 13px; }
+.campaign-card .photo { box-shadow: inset 0 0 12px #0008, 0 2px 6px #412c2144; border: 1px solid #6c573b77; }
+.campaign-card-body { text-shadow: 0 1px #f7e3b333; }
+@media (max-height: 560px) and (orientation: landscape), (max-width: 1050px) {
+  .mission-head { padding-bottom: 5px; }
+  .mission-sidebar { display: block; margin-top: 10px; }
+  .mission-forces { padding: 0 8px; }
+  .mission-map { padding: 12px 8px 6px; }
+  .map-place { font-size: 18px; letter-spacing: 1px; }
+  .map-caption { font-size: 17px; }
+  .map-label { font-size: 22px; }
+}
+@media (min-width: 1051px) and (min-height: 561px) {
+  .mission-layout { height: min(720px, calc(100dvh - 160px)); }
+  .mission-content { grid-template-columns: minmax(0, 1fr) 250px; gap: 10px 20px; }
+  .mission-sidebar { overflow-y: auto; }
+  .mission-forces { flex: 0 0 auto; }
+}
+#ui .mission-screen, #ui .campaign-screen {
+  background: linear-gradient(90deg, #15120e99, #15120e55 45%, #15120e88);
+}
+/* Authored tactical plates retain their full composition at every aspect ratio. */
+.tactical-art { object-fit: contain; background: transparent; border: 0; box-shadow: none; }
+.map-legend-side { display: inline-flex; align-items: center; gap: 6px; }
+.map-legend-side + .map-legend-side { margin-left: 8px; }
+.map-legend-foe { border-color: #903e30; }
+.map-unavailable { display: grid; place-items: center; font: 14px var(--f-body); }
+@media (min-width: 1051px) and (min-height: 561px) {
+  .mission-sidebar { background: linear-gradient(#13130f22, transparent); }
+  .mission-forces { padding-bottom: 14px; }
+}
+/* Size the dark briefing frame to the 3:2 tactical plates. */
+.mission-map:has(.tactical-art) {
+  width: min(100%, 520px);
+  box-sizing: border-box;
+  justify-self: center;
+}
+@media (max-height: 560px) and (orientation: landscape), (max-width: 1050px) {
+  .mission-map:has(.tactical-art) { width: min(100%, 290px); }
+}
+/* Desktop briefing: full-width heading above the map and briefing details. */
+@media (min-width: 1051px) and (min-height: 561px) {
+  .mission-pane:has(.tactical-art) { width: min(1120px, 100%); }
+  .mission-layout:has(.tactical-art) {
+    grid-template-columns: 190px minmax(0, 1fr);
+    height: min(640px, calc(100dvh - 160px));
+  }
+  .mission-content:has(.tactical-art) {
+    grid-template-columns: minmax(0, 1fr) 290px;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    padding: 20px; gap: 14px 20px;
+  }
+  .mission-content:has(.tactical-art) .brief-intel {
+    display: contents;
+  }
+  .mission-content:has(.tactical-art) .mission-head { grid-area: 1 / 1 / 2 / -1; min-width: 0; }
+  .mission-content:has(.tactical-art) .brief-details {
+    display: block; grid-area: 2 / 2 / 3 / 3; overflow-y: auto; min-height: 0; padding-right: 4px;
+  }
+  .mission-content:has(.tactical-art) .mission-map { grid-area: 2 / 1 / 4 / 2; }
+  .mission-content:has(.tactical-art) .mission-objective { margin: 0 0 8px; }
+  .mission-content:has(.tactical-art) .mission-sidebar { margin-top: 14px; }
+  .mission-content:has(.tactical-art) .mission-actions {
+    grid-area: 3 / 2; flex-direction: column; align-items: stretch; gap: 12px; padding-top: 12px;
+  }
+  .mission-content:has(.tactical-art) .mission-seat { gap: 10px; }
+  .mission-content:has(.tactical-art) .mission-actions .dossier-action {
+    width: 100%; min-height: 48px; box-sizing: border-box; padding: 9px 18px;
+  }
+}
+.mission-map:has(.tactical-art) {
+  background: var(--dossier-grain), linear-gradient(130deg, #494438, #302f27);
+  color: #ded2b9; border-color: #807253;
+  box-shadow: 0 7px 16px #0008, inset 0 0 0 3px #c0ad7d12;
+}
+.mission-map:has(.tactical-art) :is(figcaption span, .map-legend) { color: #c9bea7; }
+.mission-map:has(.tactical-art) .map-legend-line { border-color: #83b6e1; }
+.mission-map:has(.tactical-art) .map-legend-foe { border-color: #df775e; }
+@media (min-width: 1051px) and (min-height: 561px) {
+  .mission-content:has(.tactical-art) .mission-map {
+    align-self: center; height: min(100%, 450px);
+  }
+}

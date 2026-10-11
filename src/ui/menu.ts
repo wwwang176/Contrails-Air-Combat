@@ -102,6 +102,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   const settings = root.querySelector('#settings') as HTMLElement
   const reloadAsk = root.querySelector('#reload-ask') as HTMLElement
   const planePick = root.querySelector('#plane-pick') as HTMLElement
+  const optionPick = root.querySelector('#sk-option-pick') as HTMLElement
   const gear = root.querySelector('#gear') as HTMLElement
   /**
    * 暫停時齒輪旁邊的「教學」按鈕：重看這架飛機的教學卡。**只在暫停選單開著、而且
@@ -192,7 +193,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   const { renderCampaign, renderMission } = createMenuCampaign(el, hooks)
   const { renderHangar, drawHangar } = createMenuHangar(el, hooks)
   const { renderSetup, redrawSetup, redrawPlanePick } = createMenuSkirmish(
-    el, planePick, hooks, openOverlay, closeOverlay,
+    el, planePick, optionPick, hooks, openOverlay, closeOverlay,
   )
 
   // 【事件委派】按鈕是動態產生的，一個一個掛監聽器會在重畫時漏掉舊的。

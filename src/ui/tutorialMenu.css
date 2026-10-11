@@ -1,0 +1,53 @@
+/* 截圖保持完整比例，標籤仍依原圖百分比定位。 */
+#tutorial .ask.tut {
+  width: min(880px, 100%); min-width: 0; max-height: min(600px, 100%);
+  max-height: min(600px, calc(100dvh - 88px));
+  padding: 22px 26px 18px; gap: 16px; align-items: stretch;
+  background: var(--dossier-grain), linear-gradient(125deg, #393125, #211e18);
+}
+#tutorial .command-heading { justify-content: space-between; padding-bottom: 12px; }
+#tutorial #tut-title { text-align: left; font-size: 21px; }
+#tut-progress { flex: none; font: 12px/1.5 var(--f-ui); color: #baa47b; font-variant-numeric: tabular-nums; }
+#tutorial .tut-panels {
+  flex-direction: row; align-items: stretch; justify-content: center;
+  min-height: 0; overflow: auto; gap: 14px; padding: 3px;
+  scrollbar-width: thin; scrollbar-color: #9c8257 #252219;
+}
+#tutorial .tut-panel {
+  min-width: 0; max-width: 260px; flex: 1 0 0; gap: 0;
+  border: 1px solid #a38a5755; background: #15171240;
+}
+#tutorial .tut-panels:focus-visible { outline: 1px solid #c8ac77; outline-offset: 2px; }
+#tutorial .tut-fig { flex: none; border: 0; border-bottom: 1px solid #a38a5755; }
+#tutorial .tut-fig img { width: 100%; height: auto; aspect-ratio: 4 / 5; object-fit: contain; }
+#tutorial .tut-tag:not(.hud) {
+  padding: 2px 5px; font: 600 clamp(9px, 4.4cqw, 12px)/1.4 var(--f-ui);
+  background: #d8c69f; color: #312a1f; border: 1px solid #806b49; box-shadow: 0 2px 5px #0008;
+}
+.tut-instruction { display: flex; gap: 10px; align-items: flex-start; padding: 13px 12px; }
+.tut-step { flex: none; padding-top: 1px; color: #b59762; font: 15px/1.5 var(--f-title); border-top: 1px solid #a58b5555; }
+#tutorial .tut-cap { font: 12px/1.8 var(--f-body); color: #d5c5a4; }
+.tutorial-footer { display: flex; flex: none; justify-content: flex-end; border-top: 1px solid #a48c5555; padding-top: 12px; }
+#tutorial .tutorial-footer .dossier-action { min-width: 140px; }
+@media (max-height: 560px) and (orientation: landscape), (max-width: 760px) {
+  #tutorial .ask.tut { width: min(880px, 100%); max-height: calc(100dvh - 64px); padding: 12px 16px 10px; gap: 9px; }
+  #tutorial .command-heading { padding-bottom: 8px; }
+  #tutorial #tut-title { font-size: 17px; }
+  #tutorial .tut-panels { justify-content: flex-start; scroll-snap-type: x proximity; scroll-padding-inline: 3px; gap: 10px; }
+  #tutorial .tut-panel {
+    display: grid; grid-template-columns: 132px minmax(0, 1fr); max-width: none;
+    flex: 0 0 min(390px, 82vw); align-items: start; scroll-snap-align: start;
+  }
+  #tutorial .tut-fig { border-bottom: 0; border-right: 1px solid #a38a5755; }
+  #tutorial .tut-instruction { flex-direction: column; gap: 6px; padding: 12px; }
+  #tutorial .tut-cap { font-size: 12px; line-height: 1.7; }
+  .tutorial-footer { padding-top: 8px; }
+}
+@media (max-height: 370px) and (orientation: landscape) {
+  #tutorial .tut-panel { grid-template-columns: 104px minmax(0, 1fr); }
+  #tutorial .tut-instruction { padding: 8px; }
+}
+@media (max-width: 480px) and (orientation: portrait) {
+  #tutorial .tut-panel { display: flex; flex-direction: column; flex-basis: 85%; }
+  #tutorial .tut-instruction { flex-direction: row; }
+}

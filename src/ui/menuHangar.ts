@@ -28,7 +28,8 @@ export function createMenuHangar(
     el.rack.innerHTML = ''
     HANGAR_SPECS.forEach((s, i) => {
       const b = document.createElement('button')
-      b.className = `stop paperbit${i === hangarPick ? ' on' : ''}`
+      b.className = `hangar-aircraft${i === hangarPick ? ' on' : ''}`
+      b.setAttribute('aria-pressed', String(i === hangarPick))
       // 【e2e 用 id 選機】顯示名會改，id 不會
       b.dataset['aircraft'] = s.id
       b.innerHTML = `${silBadge(s.id)}<div><div class="k">`
@@ -40,6 +41,9 @@ export function createMenuHangar(
         if (i === hangarPick) return
         hangarPick = i
         renderHangar()
+        const active = el.rack.querySelector<HTMLButtonElement>('.on')
+        active?.focus({ preventScroll: true })
+        active?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
       })
       el.rack.appendChild(b)
     })
@@ -48,16 +52,16 @@ export function createMenuHangar(
     // 【Bf 109 K-4 沒有副名】`fullName` 回空字串，不濾掉的話副標會以分隔符開頭
     const sub = [fullName(spec), campaignLabel(d.side), roleWord(d.role)]
       .filter((s) => s !== '').join(' · ')
-    el.sheet.innerHTML = `<h2>${escapeHtml(shortName(spec))}</h2>`
-      + `<div class="lbl" style="margin-top:5px">${escapeHtml(sub)}</div>`
-      + `<p class="story">${escapeHtml(d.story)}</p>`
+    el.sheet.innerHTML = `<header class="hangar-dossier-head"><div><h2>${escapeHtml(shortName(spec))}</h2>`
+      + `<div class="lbl">${escapeHtml(sub)}</div></div>${silBadge(spec.id)}</header>`
+      + `<div class="hangar-dossier-body"><p class="story">${escapeHtml(d.story)}</p>`
       + `<div class="bars">${d.bars.map((b) =>
         `<div class="stat"><span class="k">${escapeHtml(b.label)}</span>`
         + `<span class="track"><i data-fill="${(b.fill * 100).toFixed(1)}"></i></span>`
         + `<span class="v">${escapeHtml(b.text)}</span></div>`).join('')}</div>`
       + `<div class="facts">${d.facts.map((f) =>
         `<div class="fact"><span class="lbl">${escapeHtml(f.label)}</span>`
-        + `<span class="v">${escapeHtml(f.value)}</span></div>`).join('')}</div>`
+        + `<span class="v">${escapeHtml(f.value)}</span></div>`).join('')}</div></div>`
 
     // 【條的寬度要在下一幀才寫】`innerHTML` 換上的是新元素，而 CSS 轉場
     // 對「一生下來就是那個寬度」不會動。先讓它以 0 進 DOM，下一幀再推到

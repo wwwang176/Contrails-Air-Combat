@@ -7,7 +7,22 @@ export const HUD_COLORS = {
   unaware: '#ffee33',
   friendly: '#5aa9ff',
   panel: 'rgba(0, 0, 0, 0.35)',
+  /** 飛行儀表的暖白刻度與金屬框；戰術／警告顏色仍使用上方功能色。 */
+  instrument: '#eee0bb',
+  instrumentDim: 'rgba(225, 206, 163, 0.68)',
+  edge: '#aaa897',
+  edgeShadow: '#252c29',
 } as const
+
+/** 地圖與狀態條共用細框，線條收在給定範圍內，不擴張遮擋面積。 */
+export function drawHudBorder(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
+  ctx.strokeStyle = HUD_COLORS.edgeShadow
+  ctx.lineWidth = 1.5
+  ctx.strokeRect(x + .75, y + .75, w - 1.5, h - 1.5)
+  ctx.strokeStyle = HUD_COLORS.edge
+  ctx.lineWidth = .75
+  ctx.strokeRect(x + .75, y + .75, w - 1.5, h - 1.5)
+}
 
 /**
  * 一個接觸點該用什麼顏色。敵紅、友藍、**自己分隊的同伴用第三個顏色**。

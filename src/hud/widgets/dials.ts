@@ -3,23 +3,13 @@ import type { ReleaseEnvelope } from '../../weapons/releaseEnvelope'
 import type { HudFrame, HudLayout } from '../types'
 import { HUD_COLORS, hudFont } from '../style'
 import { drawAttitude } from './attitude'
+import { drawInstrumentBezel } from './instrumentSkin'
 import { drawCachedLayer, LAYER_ORIGIN, LOW_RATE, LOW_RATE_PHASE, newLayerCache } from './layerCache'
 
 /** 空速表滿刻度，km/h。P-51D 俯衝的指示空速摸得到 700 出頭。 */
 const ASI_MAX = 800
 /** 指針掃過的角度：從 −150°（左下）順時針到 +150°（右下）。 */
 const ASI_SWEEP = 300 * DEG
-
-/** 盤面：半透明底 + 外圈。 */
-function face(ctx: CanvasRenderingContext2D, L: HudLayout, cx: number, cy: number, r: number): void {
-  ctx.beginPath()
-  ctx.arc(cx, cy, r, 0, Math.PI * 2)
-  ctx.fillStyle = HUD_COLORS.panel
-  ctx.fill()
-  ctx.strokeStyle = HUD_COLORS.primary
-  ctx.lineWidth = 1.5 * L.scale
-  ctx.stroke()
-}
 
 /** 指針。角度 0 指向 12 點，順時針為正；尾端往回伸一小段當配重。 */
 function needle(
@@ -37,6 +27,10 @@ function needle(
   ctx.lineTo(cx + dx * length, cy + dy * length)
   ctx.stroke()
   ctx.lineCap = 'butt'
+  ctx.beginPath()
+  ctx.arc(cx, cy, width * 1.5, 0, Math.PI * 2)
+  ctx.fillStyle = '#b8aa8c'
+  ctx.fill()
 }
 
 /** 盤面刻度。角度同 needle。 */
@@ -62,9 +56,9 @@ function tickLabel(
 
 /** 刻度與刻度數字的畫筆狀態。之後的指針與讀數沿用其中的對齊方式 */
 function tickState(ctx: CanvasRenderingContext2D, L: HudLayout): void {
-  ctx.strokeStyle = HUD_COLORS.dim
+  ctx.strokeStyle = HUD_COLORS.instrumentDim
   ctx.lineWidth = 1
-  ctx.fillStyle = HUD_COLORS.dim
+  ctx.fillStyle = HUD_COLORS.instrumentDim
   ctx.font = hudFont(10 * L.scale)
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
@@ -147,12 +141,11 @@ const asiAngle = (v: number): number => -ASI_SWEEP / 2 + ASI_SWEEP * clamp(v / A
 function airspeedFace(
   ctx: CanvasRenderingContext2D, L: HudLayout, cx: number, cy: number, r: number,
 ): void {
-  face(ctx, L, cx, cy, r)
   tickState(ctx, L)
   for (let v = 0; v <= ASI_MAX; v += 50) {
     const a = asiAngle(v)
     const major = v % 100 === 0
-    tick(ctx, cx, cy, a, r * 0.94, r * (major ? 0.78 : 0.86))
+    tick(ctx, cx, cy, a, r * 0.90, r * (major ? 0.78 : 0.86))
     // 標到百位：0 2 4 6 8，與高度表的 0..9 同一套讀法
     if (v % 200 === 0) tickLabel(ctx, cx, cy, a, r * 0.62, String(v / 100))
   }
@@ -165,9 +158,9 @@ function drawAirspeed(
   drawFace(ctx, L, cx, cy, r, airspeedFace, ASI_FACE)
 
   const kmh = f.ias * 3.6
-  needle(ctx, cx, cy, asiAngle(kmh), r * 0.80, 2 * L.scale, HUD_COLORS.primary)
+  needle(ctx, cx, cy, asiAngle(kmh), r * 0.80, 2 * L.scale, HUD_COLORS.instrument)
 
-  ctx.fillStyle = HUD_COLORS.primary
+  ctx.fillStyle = HUD_COLORS.instrument
   ctx.font = hudFont(12 * L.scale)
   ctx.fillText(kmh.toFixed(0), cx, cy + r * 0.42)
 }
@@ -233,12 +226,11 @@ const BAND_W = 3
 function altimeterFace(
   ctx: CanvasRenderingContext2D, L: HudLayout, cx: number, cy: number, r: number,
 ): void {
-  face(ctx, L, cx, cy, r)
   tickState(ctx, L)
   for (let i = 0; i < 50; i++) {
     const a = (i / 50) * 360 * DEG
     const major = i % 5 === 0
-    tick(ctx, cx, cy, a, r * 0.94, r * (major ? 0.78 : 0.88))
+    tick(ctx, cx, cy, a, r * 0.90, r * (major ? 0.78 : 0.86))
     if (major) tickLabel(ctx, cx, cy, a, r * 0.62, String(i / 5))
   }
 }
@@ -265,10 +257,10 @@ function drawAltimeter(
 
   const alt = f.altitude
   // 短針先畫，長針壓在上面——重疊時要看得出哪一根是百米針
-  needle(ctx, cx, cy, ((alt / 10000) % 1) * 360 * DEG, r * 0.52, 3.2 * L.scale, HUD_COLORS.dim)
-  needle(ctx, cx, cy, ((alt / 1000) % 1) * 360 * DEG, r * 0.82, 2 * L.scale, HUD_COLORS.primary)
+  needle(ctx, cx, cy, ((alt / 10000) % 1) * 360 * DEG, r * 0.52, 3.2 * L.scale, HUD_COLORS.instrumentDim)
+  needle(ctx, cx, cy, ((alt / 1000) % 1) * 360 * DEG, r * 0.82, 2 * L.scale, HUD_COLORS.instrument)
 
-  ctx.fillStyle = HUD_COLORS.primary
+  ctx.fillStyle = HUD_COLORS.instrument
   ctx.font = hudFont(12 * L.scale)
   ctx.fillText(alt.toFixed(0), cx, cy + r * 0.42)
 }
@@ -282,20 +274,21 @@ function drawAltimeter(
  */
 export function drawDials(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame): void {
   const r = Math.min(L.width, L.height) * 0.085
+  // 薄框收在原本外徑內，保留指針長度與刻度數字位置。
+  const outer = r
   const gap = 18 * L.scale
-  const cy = L.height - r - 46 * L.scale
-  const altX = L.width - 30 * L.scale - r
-  const attX = altX - 2 * r - gap
-  const asiX = attX - 2 * r - gap
+  const cy = L.height - outer - 24 * L.scale
+  const altX = L.width - 30 * L.scale - outer
+  const attX = altX - 2 * outer - gap
+  const asiX = attX - 2 * outer - gap
 
-  // 表名與兩個沒有指針的附屬讀數
-  const labelY = cy + r + 11 * L.scale
-  const subY = labelY + 12 * L.scale
+  // 詳細讀數放在錶盤下方；不再重複顯示單位標籤。
+  const subY = cy + outer + 12 * L.scale
 
   // 【範圍含外圈的線寬】與 `drawFace` 的 pad 同一式。
   // 【左右多留一點】視窗很扁時底下那行 `TAS … M …` 會比表身寬，切掉的話
   // 那一行字會少一截，而且只在某些視窗比例下才看得出來
-  const pad = r + 1.5 * L.scale + 2
+  const pad = outer + 1.5 * L.scale + 2
   const padX = pad + 8 * L.scale
   drawCachedLayer(ctx, L, DIAL_LAYER, {
     x: asiX - padX,
@@ -303,17 +296,24 @@ export function drawDials(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFra
     w: altX - asiX + 2 * padX,
     h: subY + 9 * L.scale - (cy - pad),
   }, LOW_RATE, LOW_RATE_PHASE.dials, (c) => {
+    // 半透明底盤透出地景，刻度與指針維持原本亮度。
+    c.fillStyle = 'rgba(13, 17, 17, 0.52)'
+    for (const x of [asiX, attX, altX]) {
+      c.beginPath()
+      c.arc(x, cy, outer * .96, 0, Math.PI * 2)
+      c.fill()
+    }
     drawAirspeed(c, L, f, asiX, cy, r)
-    drawAttitude(c, L, f, attX, cy, r)
+    drawAttitude(c, L, f, attX, cy, r * .92)
     drawAltimeter(c, L, f, altX, cy, r)
+    // 圖片不放進靜態盤面快取，避免載入前的替代輪廓永久留在快取裡。
+    for (const x of [asiX, attX, altX]) drawInstrumentBezel(c, x, cy, outer)
 
     c.textAlign = 'center'
     c.textBaseline = 'middle'
     c.font = hudFont(10 * L.scale)
 
-    c.fillStyle = HUD_COLORS.dim
-    c.fillText('IAS km/h', asiX, labelY)
-    c.fillText('ALT m', altX, labelY)
+    if (!f.flightReadouts) return
     // 【紅線警告與失速警告同一組門檻】0.85 是操縱面開始變重的點，0.95 剩 22%
     c.fillStyle = f.vneRatio > 0.95 ? HUD_COLORS.danger
       : f.vneRatio > 0.85 ? HUD_COLORS.warn : HUD_COLORS.dim

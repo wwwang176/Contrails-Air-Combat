@@ -1,5 +1,5 @@
 import type { HudFrame, HudLayout } from '../types'
-import { contactColor, HUD_COLORS, hudFont } from '../style'
+import { contactColor, drawHudBorder, HUD_COLORS, hudFont } from '../style'
 import { drawCachedLayer, LOW_RATE, LOW_RATE_PHASE, newLayerCache } from './layerCache'
 
 /** 方框內那一塊，低頻重畫 */
@@ -86,7 +86,6 @@ function mapInterior(
 ): void {
   ctx.fillStyle = HUD_COLORS.panel
   ctx.fillRect(x, y, size, size)
-
   ctx.save()
   ctx.beginPath()
   ctx.rect(x, y, size, size)
@@ -236,9 +235,8 @@ function mapChrome(
   ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame,
   x: number, y: number, size: number, cx: number, cy: number, edge: number,
 ): void {
-  ctx.strokeStyle = HUD_COLORS.dim
-  ctx.lineWidth = 1
-  ctx.strokeRect(x, y, size, size)
+  // 細金屬邊只佔外緣，保留地圖尺寸與原本的戰術配色。
+  drawHudBorder(ctx, x, y, size, size)
 
   // 北方標記：世界 −Z。地圖轉了 −heading，所以它落在這個方向上，字本身不轉。
   // 沿方向推到**剛好碰到方框**——貼著邊比浮在圓周上好讀，而且方框本身就是
@@ -274,11 +272,10 @@ function mapChrome(
     ctx.fill()
   }
 
-  // 比例尺與座標放在框**外**：N 標記貼著框邊跑，某些航向會正好落在角落上
+  // 座標只在開啟進階讀數時顯示。
+  if (!f.flightReadouts) return
   ctx.fillStyle = HUD_COLORS.dim
   ctx.textAlign = 'left'
-  ctx.textBaseline = 'bottom'
-  ctx.fillText(`${(RANGE / 1000).toFixed(0)} km`, x, y - 4 * L.scale)
   ctx.textBaseline = 'top'
   ctx.fillText(
     `X ${(f.worldX / 1000).toFixed(1)}  Z ${(f.worldZ / 1000).toFixed(1)}`,

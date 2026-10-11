@@ -8,7 +8,7 @@ export interface PerfOverlay {
   beginPhysics(): void
   endPhysics(): void
   endFrame(substeps: number): void
-  /** 開發資訊的開關。曲線那一排不受影響 —— 它一直都在 */
+  /** 基本 FPS 常駐，F3 切換詳細效能資訊。 */
   toggle(): void
   readonly visible: boolean
   /** 最近 60 幀的真實幀率（幀間隔平均的倒數） */
@@ -69,6 +69,7 @@ export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
   ].join(';')
 
   const graphs = document.createElement('div')
+  graphs.className = 'perf-graphs'
   graphs.style.cssText = 'display:flex;gap:2px'
   root.appendChild(graphs)
 
@@ -88,6 +89,11 @@ export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
     'white-space:pre', 'margin-top:2px',
   ].join(';')
   root.appendChild(text)
+  const mobileFps = document.createElement('span')
+  mobileFps.className = 'perf-mobile'
+  mobileFps.title = 'FPS'
+  mobileFps.textContent = '—'
+  root.appendChild(mobileFps)
   document.body.appendChild(root)
 
   // 【開發資訊預設關著】draw call 與子步數對玩家沒有意義，而這塊面板在
@@ -103,6 +109,8 @@ export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
 
   const setVisible = (v: boolean) => {
     visible = v
+    root.style.display = 'block'
+    root.dataset.expanded = String(v)
     const d = v ? 'block' : 'none'
     framePanel.dom.style.display = d
     physicsPanel.dom.style.display = d
@@ -111,7 +119,7 @@ export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
   setVisible(false)
 
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'F3') {
+    if (e.code === 'F3' && !e.repeat) {
       e.preventDefault()
       setVisible(!visible)
     }
@@ -134,7 +142,9 @@ export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
       panelFrames++
       const span = now - panelAt
       if (span < PANEL_INTERVAL_MS) return
-      fpsPanel.update((panelFrames * 1000) / span, FPS_CEILING)
+      const fps = (panelFrames * 1000) / span
+      fpsPanel.update(fps, FPS_CEILING)
+      mobileFps.textContent = String(Math.round(fps))
       panelAt = now
       panelFrames = 0
     },

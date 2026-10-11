@@ -31,6 +31,8 @@ function fakeCtx(): {
   const ctx = {
     font: '', textAlign: '', textBaseline: '',
     strokeStyle: '', fillStyle: '', lineWidth: 0,
+    save(): void {}, restore(): void {}, strokeText(): void {},
+    measureText(text: string): TextMetrics { return { width: text.length * 7 } as TextMetrics },
     beginPath(): void {}, moveTo(): void {}, lineTo(): void {},
     ellipse(): void {}, closePath(): void {},
     fill(): void { shapes.push({ filled: true, color: String(ctx.fillStyle) }) },
@@ -58,14 +60,38 @@ function torpedoFrame(): ReturnType<typeof createHudFrame> {
   return f
 }
 
-/** 閘門那三段文字（彈艙格子不畫字，所以剩下的都是它的） */
+/** 單獨檢查閘門／裝填提示，不混入新增的彈量與投放狀態列。 */
 function gateTexts(f: ReturnType<typeof createHudFrame>): {
   text: string; x: number; color: string
 }[] {
   const { ctx, texts } = fakeCtx()
   drawBombBay(ctx, LAYOUT, f)
-  return texts
+  return texts.filter(({ text }) => /^(坡度|俯仰|高度|裝填中)/.test(text))
 }
+
+describe('彈艙狀態文字', () => {
+  it('投放狀態沿用實際 releaseOk，且不重複顯示彈量數字', () => {
+    const f = torpedoFrame()
+    for (const ready of [true, false]) {
+      f.releaseOk = ready
+      const { ctx, texts } = fakeCtx()
+      drawBombBay(ctx, LAYOUT, f)
+      expect(texts.some(t => t.text === (ready ? '可投放' : '無法投放'))).toBe(true)
+      expect(texts.some(t => t.text === '魚雷')).toBe(true)
+      expect(texts.some(t => /\d+\/\d+/.test(t.text))).toBe(false)
+    }
+  })
+
+  it('空艙即使 releaseOk 為真也不顯示可投放或姿態閘門', () => {
+    const f = torpedoFrame()
+    f.bombLoad = 0
+    f.releaseOk = true
+    const { ctx, texts } = fakeCtx()
+    drawBombBay(ctx, LAYOUT, f)
+    expect(texts.some(t => t.text === '已投完')).toBe(true)
+    expect(texts.some(t => /可投放|坡度|俯仰|高度/.test(t.text))).toBe(false)
+  })
+})
 
 describe('releaseGateVisible', () => {
   it('掛魚雷、有艙、沒在裝填 → 畫', () => {
@@ -298,8 +324,9 @@ describe('drawBombBay 畫出來的閘門', () => {
     const { ctx, shapes } = fakeCtx()
     drawBombBay(ctx, LAYOUT, f)
     expect(shapes.filter((s) => s.filled)).toHaveLength(7)
-    expect(shapes.filter((s) => !s.filled)).toHaveLength(3)
-    for (const s of shapes) expect(s.color).toBe(s.filled ? HUD_COLORS.primary : HUD_COLORS.dim)
+    expect(shapes.filter((s) => !s.filled && s.color === HUD_COLORS.dim)).toHaveLength(3)
+    expect(shapes.filter((s) => !s.filled && s.color === 'rgba(20, 29, 31, .65)')).toHaveLength(10)
+    for (const s of shapes.filter(s => s.filled)) expect(s.color).toBe(HUD_COLORS.primary)
   })
 
   /** 【炸彈的「裝填中」是既有行為，不得回歸】 */

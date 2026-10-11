@@ -1,0 +1,620 @@
+{
+  "mission": "germany-m3",
+  "terrain": "asch",
+  "time": 0.0125,
+  "target": null,
+  "aircraft": [
+    {
+      "index": 0,
+      "aircraft": "bf109k4",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        5947.896568949031,
+        200.00109616777453,
+        -2499.9999999951115
+      ],
+      "velocity": [
+        -168.27266538857046,
+        0.1309587413459867,
+        1.1732313627633602e-06
+      ],
+      "orientation": [
+        2.3861307712233682e-05,
+        0.7071113835770735,
+        -1.7811609264789088e-05,
+        0.7071021781391297
+      ]
+    },
+    {
+      "index": 1,
+      "aircraft": "bf109k4",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        6007.896732708972,
+        200.00109618671996,
+        -2700
+      ],
+      "velocity": [
+        -168.25301585339267,
+        0.13097005085083924,
+        -3.720796137190815e-14
+      ],
+      "orientation": [
+        3.824495296753702e-05,
+        0.707106780152279,
+        -3.8244952967536705e-05,
+        0.7071067801522791
+      ]
+    },
+    {
+      "index": 2,
+      "aircraft": "bf109k4",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        6067.891656201991,
+        250.0010962101249,
+        -2250
+      ],
+      "velocity": [
+        -168.65897935173624,
+        0.1309742530322814,
+        -3.7296357656828576e-14
+      ],
+      "orientation": [
+        3.824513108845191e-05,
+        0.7071067801522694,
+        -3.824513108845154e-05,
+        0.7071067801522695
+      ]
+    },
+    {
+      "index": 3,
+      "aircraft": "bf109k4",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        6127.891652881115,
+        250.00109621240262,
+        -2050
+      ],
+      "velocity": [
+        -168.65937782347862,
+        0.13097466287210624,
+        -3.738517549879859e-14
+      ],
+      "orientation": [
+        3.824513027786908e-05,
+        0.7071067801522695,
+        -3.8245130277868894e-05,
+        0.7071067801522696
+      ]
+    },
+    {
+      "index": 4,
+      "aircraft": "bf109k4",
+      "team": "blue",
+      "player": true,
+      "protected": false,
+      "position": [
+        6747.88143896815,
+        350.00109626367527,
+        -2500
+      ],
+      "velocity": [
+        -169.47644235620845,
+        0.1309838703562461,
+        -3.766655268098908e-14
+      ],
+      "orientation": [
+        3.823086906374181e-05,
+        0.7071067801530406,
+        -3.823086906374183e-05,
+        0.7071067801530407
+      ]
+    },
+    {
+      "index": 5,
+      "aircraft": "bf109k4",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        6807.881438968156,
+        350.00109626367527,
+        -2700
+      ],
+      "velocity": [
+        -169.47644235562655,
+        0.13098387035565034,
+        -3.761474227317325e-14
+      ],
+      "orientation": [
+        3.8245483078217006e-05,
+        0.7071067801522505,
+        -3.824548307821686e-05,
+        0.7071067801522506
+      ]
+    },
+    {
+      "index": 6,
+      "aircraft": "bf109k4",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        6867.876308048027,
+        400.00109628699374,
+        -2250
+      ],
+      "velocity": [
+        -169.88675835042508,
+        0.1309880570852911,
+        -3.7655995711773653e-14
+      ],
+      "orientation": [
+        3.824566053566449e-05,
+        0.7071067801522407,
+        -3.824566053566427e-05,
+        0.7071067801522408
+      ]
+    },
+    {
+      "index": 7,
+      "aircraft": "bf109k4",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        6927.87630471296,
+        400.00109628926526,
+        -2050
+      ],
+      "velocity": [
+        -169.8871585254355,
+        0.1309884658181011,
+        -3.759308307371157e-14
+      ],
+      "orientation": [
+        3.824565918024586e-05,
+        0.7071067801522408,
+        -3.824565918024554e-05,
+        0.7071067801522409
+      ]
+    },
+    {
+      "index": 8,
+      "aircraft": "bf109k4",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        7547.8659811761645,
+        500.0010963403526,
+        -2500
+      ],
+      "velocity": [
+        -170.71299299069236,
+        0.13099764018478474,
+        -3.774873190670827e-14
+      ],
+      "orientation": [
+        3.8232845853640266e-05,
+        0.7071067801529337,
+        -3.8232845853639886e-05,
+        0.7071067801529338
+      ]
+    },
+    {
+      "index": 9,
+      "aircraft": "bf109k4",
+      "team": "blue",
+      "player": false,
+      "protected": false,
+      "position": [
+        7607.8659811761645,
+        500.0010963403526,
+        -2700
+      ],
+      "velocity": [
+        -170.71299299069236,
+        0.13099764018478474,
+        -3.774873190670827e-14
+      ],
+      "orientation": [
+        3.824601071886142e-05,
+        0.7071067801522218,
+        -3.824601071886104e-05,
+        0.707106780152222
+      ]
+    }
+  ],
+  "ground": [
+    {
+      "id": "parkedP51",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1020,
+      "y": 0,
+      "z": -2995
+    },
+    {
+      "id": "parkedP51",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1020,
+      "y": 0,
+      "z": -2905
+    },
+    {
+      "id": "parkedP51",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1020,
+      "y": 0,
+      "z": -2815
+    },
+    {
+      "id": "parkedP51",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1020,
+      "y": 0,
+      "z": -2725
+    },
+    {
+      "id": "parkedP51",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1020,
+      "y": 0,
+      "z": -2635
+    },
+    {
+      "id": "parkedP51",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1020,
+      "y": 0,
+      "z": -2545
+    },
+    {
+      "id": "parkedP51",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1020,
+      "y": 0,
+      "z": -2455
+    },
+    {
+      "id": "parkedP51",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1020,
+      "y": 0,
+      "z": -2365
+    },
+    {
+      "id": "parkedP51",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 8,
+      "x": -1019.9,
+      "y": 0,
+      "z": -2275
+    },
+    {
+      "id": "parkedP51",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 8,
+      "x": -1019.9,
+      "y": 0,
+      "z": -2185
+    },
+    {
+      "id": "parkedP51",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 8,
+      "x": -1019.9,
+      "y": 0,
+      "z": -2095
+    },
+    {
+      "id": "parkedP51",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 8,
+      "x": -1019.9,
+      "y": 0,
+      "z": -2005
+    },
+    {
+      "id": "parkedP51",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 8,
+      "x": -779.9,
+      "y": 0,
+      "z": -1852.5
+    },
+    {
+      "id": "parkedP51",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 8,
+      "x": -821.9,
+      "y": 0,
+      "z": -1852.5
+    },
+    {
+      "id": "parkedP51",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 8,
+      "x": -863.9,
+      "y": 0,
+      "z": -1852.5
+    },
+    {
+      "id": "parkedP51",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 8,
+      "x": -905.9,
+      "y": 0,
+      "z": -1852.5
+    },
+    {
+      "id": "fuelDump",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -860,
+      "y": 0,
+      "z": -2800
+    },
+    {
+      "id": "fuelDump",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -860,
+      "y": 0,
+      "z": -2200
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -860,
+      "y": 0,
+      "z": -3000
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -860,
+      "y": 0,
+      "z": -2500
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -860,
+      "y": 0,
+      "z": -2000
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1150,
+      "y": 0,
+      "z": -3100
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1150,
+      "y": 0,
+      "z": -2440
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1150,
+      "y": 0,
+      "z": -1900
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -550,
+      "y": 0,
+      "z": -2500
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -370,
+      "y": 0,
+      "z": -3150
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -370,
+      "y": 0,
+      "z": -1850
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -750,
+      "y": 0,
+      "z": -3340
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -650,
+      "y": 0,
+      "z": -1420
+    },
+    {
+      "id": "usFlakTrack",
+      "team": "red",
+      "alive": true,
+      "arrived": false,
+      "dormant": false,
+      "scripted": false,
+      "speed": 0,
+      "x": -1150,
+      "y": 0,
+      "z": -1600
+    }
+  ],
+  "ships": [],
+  "bounds": {
+    "west": -2650.000000000001,
+    "east": 9107.865981176164,
+    "north": -11198.399485882124,
+    "south": 6438.399485882124
+  },
+  "projection": "orthographic",
+  "image": {
+    "width": 1200,
+    "height": 800
+  },
+  "imageRight": "-Z",
+  "imageUp": "-X",
+  "occlusionRemoved": [
+    "clouds",
+    "fog",
+    "HUD",
+    "effects"
+  ]
+}

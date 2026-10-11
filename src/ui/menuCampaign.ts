@@ -1,9 +1,11 @@
 import { CAMPAIGNS, MISSIONS, type Campaign, type MissionCard, type ReadyMissionCard } from '../battle/missions'
 import { assetUrl } from '../core/asset'
-import { t, type MessageKey } from '../i18n'
+import { t, formatMonth, type MessageKey } from '../i18n'
+import { shortName } from '../i18n/names'
 import { briefingOf, missionTypeName, type Briefing } from './briefing'
 import { escapeHtml } from './menuOptions'
 import { campaignLabel, silBadge } from './menuAircraft'
+import { renderMissionDiagram } from './missionDiagram'
 
 const CAMPAIGN_BLURB: Record<Campaign, { readonly lineKey: MessageKey }> = {
   allies: { lineKey: 'campaign.allies.blurb' },
@@ -24,11 +26,15 @@ export function createMenuCampaign(
     el.campaignCards.innerHTML = ''
     for (const c of CAMPAIGNS) {
       const b = document.createElement('button')
-      b.className = 'tallcard paperbit'
+      b.className = 'campaign-card dossier-paper'
       b.dataset['campaign'] = c
       const blurb = CAMPAIGN_BLURB[c]
-      b.innerHTML = `<span class="photo"><i class="tape tl"></i><img src="${assetUrl(`/ui/${c}.jpg`)}" alt=""></span>`
-        + `<span class="t">${escapeHtml(campaignLabel(c))}</span><span class="d">${escapeHtml(t(blurb.lineKey))}</span>`
+      const count = MISSIONS[c].filter(m => m.battle !== null).length
+      b.innerHTML = `<span class="photo"><i class="tape tl" aria-hidden="true"></i><img src="${assetUrl(`/ui/${c}.jpg`)}" alt=""></span>`
+        + `<span class="campaign-card-body"><span class="campaign-card-heading"><span class="t">${escapeHtml(campaignLabel(c))}</span>`
+        + `<span class="campaign-count">${escapeHtml(t('campaign.count', { n: count }))}</span></span>`
+        + `<span class="d">${escapeHtml(t(blurb.lineKey))}</span>`
+        + `</span>`
       // 【卡片用自己的監聽器而不是 data-act】`data-act` 只帶得了一個字串，
       // 這裡要帶「哪一條線」。先記下來，再送畫面事件 —— 資料先於事件
       b.addEventListener('click', () => {
@@ -45,23 +51,25 @@ export function createMenuCampaign(
   }
   function renderBrief(card: MissionCard): void {
     const b = briefingOf(card)
-    const head = `<h2>${escapeHtml(b.title)}</h2><div class="lbl" style="margin:4px 0 12px">${escapeHtml(b.kind)}</div>`
-    if (!b.ready) {
-      el.brief.innerHTML = head
-        + `<p style="color:var(--dim)">${escapeHtml(b.summary)}</p>`
-        + `<div class="soonbox"><b>${escapeHtml(t('brief.soon'))}</b><br>${escapeHtml(t('brief.soonBody'))}</div>`
+    const head = `<header class="mission-head"><div><span class="mission-kind">${escapeHtml(b.kind)}</span><h2>${escapeHtml(b.title)}</h2>`
+      + `<div class="mission-meta">${escapeHtml(formatMonth(card.period.year, card.period.month))} · ${escapeHtml(t(card.placeKey))}</div></div>`
+      + `<span class="mission-stamp">${escapeHtml(t('brief.stamp'))}</span></header>`
+    el.brief.classList.toggle('mission-unready', card.battle === null)
+    if (card.battle === null) {
+      el.brief.innerHTML = `<div class="brief-intel">${head}<p class="mission-summary">${escapeHtml(b.summary)}</p>`
+        + `<div class="soonbox"><b>${escapeHtml(t('brief.soon'))}</b><br>${escapeHtml(t('brief.soonBody'))}</div></div>`
       return
     }
-    el.brief.innerHTML = head
-      + `<span class="stamp">${escapeHtml(t('brief.stamp'))}</span>`
-      + `<div class="obj">${escapeHtml(b.objective ?? '')}</div>`
-      + `<p style="margin:0 0 4px;color:var(--dim)">${escapeHtml(b.summary)}</p>`
-      + `<div class="forces"><div><div class="lbl" style="margin-bottom:8px">${escapeHtml(t('side.mine'))}</div>${(b.mine ?? []).map(unitRow).join('')}</div>`
-      + `<div class="vs">${escapeHtml(t('brief.versus'))}</div>`
-      + `<div><div class="lbl" style="margin-bottom:8px">${escapeHtml(t('side.foe'))}</div>${(b.foe ?? []).map(unitRow).join('')}</div></div>`
-      + `<div class="facts">${(b.facts ?? []).map((f) =>
-        `<div class="fact"><div class="lbl">${escapeHtml(f.label)}</div><div class="v">${escapeHtml(f.value)}</div></div>`).join('')}</div>`
-      + `<div class="actions"><button class="go" id="brief-go">${escapeHtml(t('brief.go'))}</button></div>`
+    el.brief.innerHTML = `<div class="brief-intel">${head}<div class="brief-details">`
+      + `<div class="mission-objective">${escapeHtml(b.objective ?? '')}</div>`
+      + `<p class="mission-summary">${escapeHtml(b.summary)}</p>`
+      + `<aside class="mission-sidebar"><section class="mission-forces"><h3>${escapeHtml(t('brief.forces'))}</h3><div class="mission-force-columns">`
+      + `<div class="mission-force mine"><h4>${escapeHtml(t('side.mine'))}</h4>${(b.mine ?? []).map(unitRow).join('')}</div>`
+      + `<div class="mission-force foe"><h4>${escapeHtml(t('side.foe'))}</h4>${(b.foe ?? []).map(unitRow).join('') || `<span class="lbl">${escapeHtml(t('brief.noAircraft'))}</span>`}</div></div></section>`
+      + `</aside></div></div>`
+      + renderMissionDiagram(card as ReadyMissionCard)
+      + `<footer class="mission-actions"><div class="mission-seat">${silBadge(card.battle.blueSpec.id)}<span><small>${escapeHtml(t('brief.player'))}</small><b>${escapeHtml(shortName(card.battle.blueSpec))}</b></span></div>`
+      + `<button class="dossier-action" id="brief-go">${escapeHtml(t('brief.go'))}</button></footer>`
     const go = el.brief.querySelector('#brief-go') as HTMLButtonElement
     go.addEventListener('click', () => {
       // 【先送卡，再送 fight】呼叫端要先知道打哪一關，才建得出戰鬥
@@ -81,7 +89,8 @@ export function createMenuCampaign(
       const b = document.createElement('button')
       // 【每一關都是紙】不再只有選中的那一份是紙 —— 那一疊本來就是四份文件，
       // 沒翻開的那幾份靠 `.stop:not(.on)` 壓暗一階
-      b.className = `stop paperbit ${ready ? 'ready' : 'soon'}${i === k ? ' on' : ''}`
+      b.className = `mission-tab dossier-paper ${ready ? 'ready' : 'soon'}${i === k ? ' on' : ''}`
+      b.setAttribute('aria-pressed', String(i === k))
       // 【e2e 用 id 選卡】標題會改，id 不會
       b.dataset['mission'] = m.id
       b.innerHTML = `<div class="k">${escapeHtml(t('menu.stage', { n: i + 1 }))} ${escapeHtml(missionTypeName(m.type))}</div><div class="n">${escapeHtml(t(m.titleKey))}</div>`
@@ -89,6 +98,11 @@ export function createMenuCampaign(
       b.addEventListener('click', () => {
         picked[campaign] = i
         renderMission()
+        // Re-rendering replaces the tabs; keep keyboard focus and horizontal
+        // scroll on the chosen mission rather than jumping back to the page.
+        const active = el.route.querySelector<HTMLButtonElement>('.on')
+        active?.focus({ preventScroll: true })
+        active?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
       })
       el.route.appendChild(b)
     })
