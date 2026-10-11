@@ -1,4 +1,5 @@
-import { LANGS, LANG_NAME, type Lang } from '../i18n'
+import { LANGS, LANG_NAME, withLang, type Lang } from '../i18n'
+import { applyStaticText } from '../i18n/dom'
 import {
   ANTIALIAS_LEVELS, DEFAULT_ANTIALIAS, DEFAULT_QUALITY, QUALITY_LEVELS, qualityAvailable,
 } from '../render/quality'
@@ -80,8 +81,20 @@ export function createMenuSettings(
     el.mouseValue.textContent = `${draftMouse.toFixed(1)}x`
   })
 
-  /** 【沒有小圖示】畫質、抗鋸齒、音量都是抽象的，畫不出剪影；`.opt` 對純文字按鈕照樣成立 */
+  /**
+   * 【用草稿的語言畫】點了語言，設定頁與它的重載確認框馬上換成那個語言，好讓玩家
+   * 確認看得懂；其他頁面按確定才換（`onLang`）。
+   */
   function drawSettingRows(): void {
+    withLang(draftLang, () => {
+      applyStaticText(settings)
+      applyStaticText(reloadAsk)
+      drawRows()
+    })
+  }
+
+  /** 【沒有小圖示】畫質、抗鋸齒、音量都是抽象的，畫不出剪影；`.opt` 對純文字按鈕照樣成立 */
+  function drawRows(): void {
     optRow(el.lang, LANGS.map((l) => ({ label: LANG_NAME[l], value: l, sil: '' })),
       draftLang, (v) => { draftLang = v; drawSettingRows() })
     optRow(el.aimAssist,

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createMenuSettings } from '../../src/ui/menuSettings'
+import { getLang, setLang } from '../../src/i18n'
 
 /** 只有選項列會用到的那一點 DOM 介面；不牽涉遊戲渲染 */
 class Element {
@@ -14,6 +15,9 @@ class Element {
   appendChild(child: Element) { this.children.push(child) }
   addEventListener(_type: string, handler: () => void) { this.clickHandler = handler }
   click() { if (!this.disabled) this.clickHandler() }
+  /** 設定頁與重載確認框裡的固定文字（`applyStaticText` 掃的那些） */
+  statics: { dataset: Record<string, string>; textContent: string }[] = []
+  querySelectorAll(sel: string) { return sel === '[data-i18n]' ? this.statics : [] }
 }
 
 /** 拉桿：只有 value 與 input 事件 */
@@ -186,5 +190,48 @@ describe('設定頁的恢復預設值', () => {
     f.settings.hidden = true
     f.view.openSettings()
     expect(f.rows.volume.children[1]!.className).toBe('on')
+  })
+})
+
+describe('設定頁的語言預覽', () => {
+  afterEach(() => setLang('zh'))
+
+  it('點了語言，設定頁與重載確認框馬上換；全域語言不動、不送事件', () => {
+    const f = fixture()
+    const title = { dataset: { i18n: 'settings.title' }, textContent: '' }
+    const ask = { dataset: { i18n: 'common.cancel' }, textContent: '' }
+    f.settings.statics.push(title)
+    f.reload.statics.push(ask)
+    f.view.renderLang('zh')
+    f.view.openSettings()
+    expect(title.textContent).toBe('設定')
+    f.rows.lang.children[1]!.click()
+    expect(title.textContent).toBe('Settings')
+    expect(ask.textContent).toBe('Cancel')
+    expect(f.rows.aimAssist.children[0]!.innerHTML).toContain('On')
+    expect(getLang()).toBe('zh')
+    expect(f.events).toEqual([])
+  })
+
+  it('取消再打開回到已套用的語言', () => {
+    const f = fixture()
+    const title = { dataset: { i18n: 'settings.title' }, textContent: '' }
+    f.settings.statics.push(title)
+    f.view.renderLang('zh')
+    f.view.openSettings()
+    f.rows.lang.children[1]!.click()
+    f.settings.hidden = true
+    f.view.openSettings()
+    expect(title.textContent).toBe('設定')
+    expect(f.rows.aimAssist.children[0]!.innerHTML).toContain('開啟')
+  })
+
+  it('按確定才換全域語言', () => {
+    const f = fixture()
+    f.view.renderLang('zh')
+    f.view.openSettings()
+    f.rows.lang.children[1]!.click()
+    f.view.applySettings()
+    expect(f.events).toEqual([['lang', 'en', true]])
   })
 })

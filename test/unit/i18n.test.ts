@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  formatMonth, formatNumber, getLang, onLangChange, readLang, saveLang, setLang, t, LANG_STORAGE_KEY,
+  formatMonth, formatNumber, getLang, onLangChange, readLang, saveLang, setLang, t, withLang, LANG_STORAGE_KEY,
 } from '../../src/i18n'
 
 /**
@@ -48,6 +48,18 @@ describe('切換', () => {
     setLang('en')
     expect(seen).toEqual(['en', 'zh'])
     expect(getLang()).toBe('en')
+  })
+
+  it('withLang 只在區塊內換語言、不通知；區塊拋例外也會換回來', () => {
+    const seen: string[] = []
+    const off = onLangChange((lang) => seen.push(lang))
+    expect(withLang('en', () => t('common.ok'))).toBe('OK')
+    expect(getLang()).toBe('zh')
+    expect(() => withLang('en', () => { throw new Error('x') })).toThrow('x')
+    expect(getLang()).toBe('zh')
+    expect(t('common.ok')).toBe('確定')
+    off()
+    expect(seen).toEqual([])
   })
 })
 

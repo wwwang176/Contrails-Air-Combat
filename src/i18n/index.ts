@@ -71,6 +71,21 @@ export function setLang(lang: Lang): void {
   for (const fn of [...listeners]) fn(lang)
 }
 
+/**
+ * 在 `fn` 執行期間把目前的語言換成 `lang`，結束（含拋例外）就換回來。**不通知訂閱者、
+ * 不改 `<html lang>`**：給設定頁預覽還沒按確定的語言用。`fn` 必須是同步的 ——
+ * 等待中別的程式呼叫 `t()` 會拿到預覽的語言。
+ */
+export function withLang<T>(lang: Lang, fn: () => T): T {
+  const saved = current
+  current = lang
+  try {
+    return fn()
+  } finally {
+    current = saved
+  }
+}
+
 /** 訂閱語言切換。回傳取消訂閱的函數 */
 export function onLangChange(fn: (lang: Lang) => void): () => void {
   listeners.add(fn)
