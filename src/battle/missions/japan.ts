@@ -159,8 +159,8 @@ export const JAPAN: readonly MissionCard[] = [
         ...LEYTE_FLAK_SITES.map((s): GroundEntry => ({
           unit: s.unit, team: 'red', x: s.x, z: s.z, heading: 0,
         })),
-        // 【灘頭的卡車停放場】九輛停著的卡車，與車隊的卡車一起算進摧毀數；不會開到前線，
-        // 不算抵達。在灘頭重高砲的正上方
+        // 【灘頭卸貨區旁的卡車】九輛停著的卡車，與車隊的卡車一起算進摧毀數；不會開到前線，
+        // 不算抵達。在灘頭重高砲的射界裡
         ...LEYTE_BEACH.depot.map((v): GroundEntry => ({
           unit: v.unit, team: 'red', x: v.x, z: v.z, heading: v.heading,
         })),

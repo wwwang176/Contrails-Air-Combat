@@ -137,26 +137,22 @@ export type BeachDump = CrateField
 /** 一台停著不動的車 */
 export type BeachVehicle = ParkedVehicle
 
-/** 卡車停放場：幾排、每排幾輛 */
-const DEPOT_ROWS = 3
-const DEPOT_COLS = 3
-/**
- * 卡車停放場的車距，m。炸彈對卡車的致死半徑約 30.6 m（`bombBlastDamage`，120 血），
- * 方格間距要大過它的 √2 倍，一顆炸彈才最多炸掉相鄰的兩輛 —— 排密了一顆清半場
- */
-const DEPOT_SPACING = 45
+/** 卸貨區旁停著的卡車（`depot`）有幾輛 */
+const DEPOT_COUNT = 9
+/** 卸貨區卡車附近這麼遠之內不放佈景的車，m —— 長得一樣、炸了卻不算的車混在旁邊會認錯 */
+const DEPOT_DECOR_CLEAR = 40
 
 /**
  * 灘頭的佈景（`dumps`、`vehicles`：**不是目標、沒有碰撞**，`render/leyteBeach.ts`
  * 合併成一顆網格）：
  *
- * - 每艘 LST 跳板上岸處一大片卸貨區，中間留跳板上來的車道，旁邊停幾輛卡車
+ * - 每艘 LST 跳板上岸處一大片卸貨區，中間留跳板上來的車道
  * - 沿灘頭散布的補給堆
- * - 公路起點西側一近一遠、東側遠處各一個車輛集結場：雪曼、M16、卡車一排排停好
+ * - 公路起點兩側各一個、再往外各一個車輛集結場：雪曼、M16、卡車一排排停好
  *
- * 另外 `depot` 是公路起點東側的**卡車停放場**：日 M2 的任務目標（`usTruck`，紅隊、
- * 不動），三排三輛、拉開 `DEPOT_SPACING`。它佔掉東側近處那個集結場的位置 ——
- * 旁邊有佈景卡車的話，玩家分不出哪幾輛炸了才算。
+ * 另外 `depot` 是**卸貨區旁停著等裝卸的卡車**：日 M2 的任務目標（`usTruck`，紅隊、
+ * 不動）。每個卸貨區一輛，停在兩旁幾個候選位置之一，`DEPOT_COUNT` 輛為止；卸貨區旁
+ * 不另外停佈景卡車。
  *
  * 全部避開公路、灘頭砲位、氣球的地面絞車與水線（`beachClear`）。**位置、數量
  * 都是起始值；亂數有種子**，同一張地圖每次都長一樣。
@@ -199,21 +195,29 @@ export const LEYTE_BEACH: {
       if (beachClear(cx, cz, 23)) {
         dumps.push({ x: cx, z: cz, heading: l.heading, width: 40, depth: 46, lane: 8, seed: dumps.length + 1 })
       }
-      // 卸貨區兩旁停著等裝卸的卡車
+      // 卸貨區兩旁停著等裝卸的卡車：四個候選位置挑離已經停好的最遠那一個。叢內的 LST
+      // 並排擠在一起，照固定順序挑的話，相鄰兩艘的卡車會停在彼此之間、一顆炸彈炸兩輛
+      const slots: BeachVehicle[] = []
       for (let k = 0; k < 4; k++) {
         const side = k % 2 === 0 ? -1 : 1
         const along = 22 + 16 * Math.floor(k / 2) + 3 * jit()
         const x = tx + fx * along + rx * side * (26 + 2 * jit())
         const z = tz + fz * along + rz * side * (26 + 2 * jit())
         if (beachClear(x, z, 4)) {
-          vehicles.push({ unit: 'usTruck', x, z, heading: l.heading + Math.PI / 2 * side + 0.3 * jit() })
+          slots.push({ unit: 'usTruck', x, z, heading: l.heading + Math.PI / 2 * side + 0.3 * jit() })
         }
       }
+      if (slots.length > 0 && depot.length < DEPOT_COUNT) {
+        const gap = (s: BeachVehicle): number =>
+          depot.reduce((m, v) => Math.min(m, Math.hypot(v.x - s.x, v.z - s.z)), Infinity)
+        depot.push(slots.reduce((a, b) => (gap(b) > gap(a) ? b : a)))
+      }
     }
+    const nearDepot = (x: number, z: number): boolean =>
+      depot.some((v) => Math.hypot(v.x - x, v.z - z) < DEPOT_DECOR_CLEAR)
 
-    // 2. 車輛集結場：公路起點兩側各一個、再往外各一個。三排、每排七台，面朝內陸。
-    //    東側近處那一個換成卡車停放場（`depot`）
-    const parks: { x: number; z: number; r: number }[] = []
+    // 2. 車輛集結場：公路起點兩側各一個、再往外各一個。三排、每排七台，面朝內陸
+    const parks: { x: number; z: number }[] = []
     for (const [sign, arc] of [[-1, 110], [1, 110], [-1, 650], [1, 650]] as const) {
       const x0 = walkCoast(BEACHHEAD.x, sign, arc)
       const h = inland(x0)
@@ -221,20 +225,7 @@ export const LEYTE_BEACH: {
       const [rx, rz] = right(h)
       const bx = x0 + fx * 120
       const bz = coastZ(x0) + fz * 120
-      if (sign === 1 && arc === 110) {
-        parks.push({ x: bx, z: bz, r: DEPOT_SPACING * Math.SQRT2 })
-        for (let r = 0; r < DEPOT_ROWS; r++) {
-          for (let c = 0; c < DEPOT_COLS; c++) {
-            const lat = (c - (DEPOT_COLS - 1) / 2) * DEPOT_SPACING
-            const dep = (r - (DEPOT_ROWS - 1) / 2) * DEPOT_SPACING
-            const x = bx + rx * lat + fx * dep
-            const z = bz + rz * lat + fz * dep
-            if (beachClear(x, z, 4)) depot.push({ unit: 'usTruck', x, z, heading: h })
-          }
-        }
-        continue
-      }
-      parks.push({ x: bx, z: bz, r: 0 })
+      parks.push({ x: bx, z: bz })
       const rows: BeachVehicle['unit'][][] = [
         ['usTank', 'usTank', 'usTank', 'usTank', 'usTank', 'usTank', 'usTank'],
         ['usFlakTrack', 'usTruck', 'usTruck', 'usFlakTrack', 'usTruck', 'usTruck', 'usFlakTrack'],
@@ -246,7 +237,7 @@ export const LEYTE_BEACH: {
           const dep = (r - 1) * 12
           const x = bx + rx * lat + fx * dep
           const z = bz + rz * lat + fz * dep
-          if (beachClear(x, z, 4)) vehicles.push({ unit, x, z, heading: h + 0.03 * jit() })
+          if (beachClear(x, z, 4) && !nearDepot(x, z)) vehicles.push({ unit, x, z, heading: h + 0.03 * jit() })
         })
       })
     }
@@ -268,8 +259,9 @@ export const LEYTE_BEACH: {
       const r = Math.hypot(width, depth) / 2
       if (!beachClear(x, z, r)) continue
       if (dumps.some((o) => Math.hypot(o.x - x, o.z - z) < r + Math.hypot(o.width, o.depth) / 2 + 8)) continue
-      if (parks.some((p) => Math.hypot(p.x - x, p.z - z) < r + p.r + 35)) continue
+      if (parks.some((p) => Math.hypot(p.x - x, p.z - z) < r + 35)) continue
       if (vehicles.some((v) => Math.hypot(v.x - x, v.z - z) < r + 5)) continue
+      if (depot.some((v) => Math.hypot(v.x - x, v.z - z) < r + 5)) continue
       dumps.push({ x, z, heading: h, width, depth, lane: 0, seed: dumps.length + 1 })
       placed++
       // 補給堆旁邊停一兩台
@@ -277,7 +269,7 @@ export const LEYTE_BEACH: {
       for (const side of rand() < 0.5 ? [1] : [1, -1]) {
         const vx = x + rx * side * (width / 2 + 5)
         const vz = z + rz * side * (width / 2 + 5)
-        if (beachClear(vx, vz, 4)) {
+        if (beachClear(vx, vz, 4) && !nearDepot(vx, vz)) {
           vehicles.push({ unit: rand() < 0.8 ? 'usTruck' : 'usTank', x: vx, z: vz, heading: h + 0.4 * jit() })
         }
       }

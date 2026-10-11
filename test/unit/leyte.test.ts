@@ -443,7 +443,7 @@ describe('灘頭的佈景', () => {
   })
 })
 
-describe('灘頭的卡車停放場（日 M2 的目標）', () => {
+describe('卸貨區旁的卡車（日 M2 的目標）', () => {
   const depot = LEYTE_BEACH.depot
 
   it('九輛卡車全部放得下', () => {
@@ -451,22 +451,29 @@ describe('灘頭的卡車停放場（日 M2 的目標）', () => {
     for (const v of depot) expect(v.unit).toBe('usTruck')
   })
 
-  /** 炸彈對 120 血的卡車致死半徑約 30.6 m：任兩輛隔得比它的 √2 倍遠，一顆最多炸兩輛 */
-  it('拉開：任兩輛至少隔 44 m', () => {
+  /** 每一輛都停在 LST 的跳板前方（跳板末端往內陸 70 m 之內） */
+  it('停在 LST 的卸貨區旁', () => {
+    const tips = LEYTE_LSTS.map((l) => ({
+      x: l.x - Math.sin(l.heading) * LST_RAMP_REACH, z: l.z - Math.cos(l.heading) * LST_RAMP_REACH,
+    }))
+    for (const v of depot) {
+      expect(Math.min(...tips.map((t) => Math.hypot(t.x - v.x, t.z - v.z)))).toBeLessThan(70)
+    }
+  })
+
+  /** 炸彈對 120 血的卡車致死半徑約 30.6 m：任兩輛隔得比它遠，一顆炸不到兩輛 */
+  it('任兩輛至少隔 31 m', () => {
     for (let i = 0; i < depot.length; i++) {
       for (let j = i + 1; j < depot.length; j++) {
-        expect(Math.hypot(depot[i]!.x - depot[j]!.x, depot[i]!.z - depot[j]!.z)).toBeGreaterThan(44)
+        expect(Math.hypot(depot[i]!.x - depot[j]!.x, depot[i]!.z - depot[j]!.z)).toBeGreaterThan(31)
       }
     }
   })
 
   /** 佈景卡車混在旁邊的話，玩家分不出哪幾輛炸了才算 */
-  it('停放場周圍 40 m 內沒有佈景的車與補給堆', () => {
+  it('周圍 40 m 內沒有佈景的車', () => {
     for (const v of depot) {
       for (const o of LEYTE_BEACH.vehicles) expect(Math.hypot(o.x - v.x, o.z - v.z)).toBeGreaterThan(40)
-      for (const d of LEYTE_BEACH.dumps) {
-        expect(Math.hypot(d.x - v.x, d.z - v.z)).toBeGreaterThan(40 + Math.hypot(d.width, d.depth) / 2)
-      }
     }
   })
 
