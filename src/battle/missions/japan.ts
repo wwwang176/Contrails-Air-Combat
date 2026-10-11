@@ -128,7 +128,7 @@ export const JAPAN: readonly MissionCard[] = [
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       entry: 'headOn',
       terrain: 'leyte',
-      // 灘頭到撤離點（0, +5 km）的走廊與開場位置
+      // 灘頭到撤離點（0, +2.5 km）的走廊與開場位置（z = +5 km）
       arena: { x: 2000, z: 2000, radius: 11000 },
       // 暴雨的雲低又多；暗色雲與天空接近，要多才看得出來
       clouds: { yMin: 400, yMax: 900, amount: 'many' },
@@ -193,11 +193,11 @@ export const JAPAN: readonly MissionCard[] = [
        *           敵機一口氣湧上來。一波從灘頭外的海上、一波從內陸
        *
        * 【撤離時三組全在前方堵截】低空的 F6F 比疾風慢，從背後追永遠追不上；
-       * 攔截要靠高度與擋在歸途上。三組都在撤退路線前方、撤離點（z = +5,000）之前、
+       * 攔截要靠高度與擋在歸途上。三組都在撤退路線前方、撤離點（z = +2,500）之前、
        * 比任務高度高 1,500 m，由 `warnLead` 錯開、左右錯開：
-       *   0 秒   左前方（`starboard` π + 0.4），z ≈ +1,800
-       *   10 秒  正前方，z ≈ +3,000
-       *   20 秒  右前方（`starboard` π − 0.4），z ≈ +3,800，撤離點前
+       *   0 秒   左前方（`starboard` π + 0.4），z ≈ +400
+       *   10 秒  正前方，z ≈ +1,100
+       *   20 秒  右前方（`starboard` π − 0.4），z ≈ +1,800，撤離點前
        * 三組與返航同一步觸發。`stepBeats` 依陣列順序寫訊息、返航排在最後，
        * 所以畫面上是「撤離戰區」，預警文字就寫同一句。
        *
@@ -226,19 +226,19 @@ export const JAPAN: readonly MissionCard[] = [
           when: { kind: 'destroyed', atLeast: 12, unit: 'usTruck' },
           warnKey: 'mission.japan-m2.withdraw',
           warnLead: 0,
-          side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI + 0.4, along: 0.18, altitude: 3000,
+          side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI + 0.4, along: 0.04, altitude: 3000,
         },
         {
           when: { kind: 'destroyed', atLeast: 12, unit: 'usTruck' },
           warnKey: 'mission.japan-m2.withdraw',
           warnLead: 10,
-          side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI, along: 0.3, altitude: 3000,
+          side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI, along: 0.11, altitude: 3000,
         },
         {
           when: { kind: 'destroyed', atLeast: 12, unit: 'usTruck' },
           warnKey: 'mission.japan-m2.withdraw',
           warnLead: 20,
-          side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI - 0.4, along: 0.38, altitude: 3000,
+          side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI - 0.4, along: 0.18, altitude: 3000,
         },
       ],
       withdraw: {
