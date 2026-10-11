@@ -1,5 +1,6 @@
 import type { HudFrame, HudLayout } from '../types'
 import { HUD_COLORS } from '../style'
+import { CIRCLE_WIDTH } from './reticle'
 
 /**
  * 圓的半徑，px（未乘 `L.scale`）。
@@ -93,7 +94,8 @@ export function drawBombsight(
   const y = L.cy - (f.bombY * L.height) / 2
 
   ctx.strokeStyle = bombsightColor(style, f.releaseOk)
-  ctx.lineWidth = 1 * L.scale
+  // 與準星的圓同粗：同樣是要拿去對準的圈
+  ctx.lineWidth = CIRCLE_WIDTH * L.scale
   ctx.beginPath()
   ctx.arc(x, y, RADIUS * L.scale, 0, Math.PI * 2)
   ctx.stroke()

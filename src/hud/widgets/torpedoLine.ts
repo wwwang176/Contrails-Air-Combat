@@ -2,6 +2,7 @@ import { TORPEDO_RANGE, TORPEDO_RUN_SAMPLES } from '../../world/torpedo'
 import type { HudFrame, HudLayout } from '../types'
 import { hudFont } from '../style'
 import { bombsightColor } from './bombsight'
+import { CIRCLE_WIDTH } from './reticle'
 
 /** 中間那幾個刻度的半長，px（未乘 `L.scale`） */
 const TICK = 4
@@ -93,12 +94,14 @@ export function drawTorpedoLine(
   }
 
   ctx.strokeStyle = color
-  ctx.lineWidth = 1 * L.scale
+  // 線與落點圈、準星的圓同粗；刻度維持細線，是讀距離用的尺標
+  ctx.lineWidth = CIRCLE_WIDTH * L.scale
   ctx.beginPath()
   ctx.moveTo(PX[0]!, PY[0]!)
   for (let k = 1; k < n; k++) ctx.lineTo(PX[k]!, PY[k]!)
   ctx.stroke()
 
+  ctx.lineWidth = 1 * L.scale
   // 【入水點不畫刻度】落點圈已經在那裡了
   for (let k = 1; k < n; k++) {
     // 【方向取自前一段】刻度要垂直於線在**那一點**的走向

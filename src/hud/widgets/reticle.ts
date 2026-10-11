@@ -28,7 +28,7 @@ const HIT_X_SHRINK_SECONDS = 0.05
  * 【連線最細】它只是把兩個準星連起來，讀的是**方向**不是位置。與準星
  * 同粗的話，畫面中央會變成一個三件東西打結的圖案。
  */
-const CIRCLE_WIDTH = 1.6
+export const CIRCLE_WIDTH = 1.6
 const CROSS_WIDTH = 1.6
 const HIT_X_WIDTH = 2.2
 const LINK_WIDTH = 1
