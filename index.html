@@ -457,7 +457,7 @@
          就等於白紙上寫白字 */
       .paperbit .sil { color: var(--paper-ink); }
 
-      /* 過渡畫面共用深棕底與細框。樣式直接放在 HTML，首次載入不必等 JS 才套用。 */
+      /* 過渡畫面樣式直接放在 HTML，首次載入不必等 JS 才套用。 */
       #loading, #rotate {
         box-sizing: border-box;
         background: radial-gradient(ellipse at 50% 42%, #493c284d, transparent 70%), #191711;
@@ -469,11 +469,6 @@
         border: 1px solid #8e7853;
         background: url('/ui/materials/grain.svg'), linear-gradient(125deg, #393125, #211e18);
         box-shadow: inset 0 0 0 3px #bda57512, 0 18px 50px #0005;
-      }
-      .transition-brand {
-        margin-bottom: 22px; padding-bottom: 14px; border-bottom: 1px solid #a18b5c55;
-        color: #cdbb99; font: 500 12px/1.5 var(--f-ui); letter-spacing: .08em;
-        white-space: nowrap;
       }
       /* 開場與進關卡沿用 ui/loading.ts 的實際進度，不加額外等待或假進度。 */
       #loading {
@@ -541,11 +536,10 @@
          【條件要與 input/touch.ts 的 PHONE_PORTRAIT 一字不差】那一份負責在戰鬥中
          轉直時暫停；兩邊不一致的話，會有「被蓋住了但還在打」的那一段 */
       #rotate { display: none; position: fixed; inset: 0; z-index: 9500;
-        align-items: center; justify-content: center; }
-      #rotate .transition-panel { width: min(340px, 100%); text-align: center; }
-      #rotate .transition-brand { text-align: left; }
-      #rotate svg { display: block; margin: 4px auto 18px; color: #d6bd8a; }
-      #rotate .rotate-hint { font: 600 16px/1.7 var(--f-body); letter-spacing: .04em; }
+        flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+        background: #191711; text-align: center; }
+      #rotate svg { display: block; flex: none; color: #cdbb99; }
+      #rotate .rotate-hint { font: 500 16px/1.7 var(--f-ui); letter-spacing: .04em; }
       @media (pointer: coarse) and (orientation: portrait) and (max-width: 600px) {
         #rotate { display: flex; }
       }
@@ -714,9 +708,7 @@
 
     <!-- 手機直放的提示。顯示與否全在 CSS 的 media query -->
     <div id="rotate">
-      <div class="transition-panel">
-        <div class="transition-brand">CONTRAILS AIR: COMBAT</div>
-        <svg width="88" height="88" viewBox="0 0 72 72" fill="none" stroke="currentColor" stroke-width="1.8"
+        <svg width="72" height="72" viewBox="0 0 72 72" fill="none" stroke="currentColor" stroke-width="1.8"
           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
           <rect x="12" y="24" width="48" height="28" rx="4"/>
           <path d="M54 34v8" opacity=".6"/>
@@ -724,14 +716,12 @@
           <path d="M48 5v7h-7"/>
         </svg>
         <div class="rotate-hint" data-i18n="rotate.hint">請將手機橫放</div>
-      </div>
     </div>
 
     <!-- 載入畫面：一開始就蓋著，預載完才收（main.ts）。不加 hidden —— 模型還沒
          載完時選單不能點 -->
     <div id="loading" role="status" aria-live="polite">
       <div class="transition-panel">
-        <div class="transition-brand" aria-hidden="true">CONTRAILS AIR: COMBAT</div>
         <div class="load-bar"><i id="loading-fill"></i></div>
         <div class="load-row"><span id="loading-step" data-i18n="loading.preparing">準備中</span><span id="loading-pct">0%</span></div>
       </div>
