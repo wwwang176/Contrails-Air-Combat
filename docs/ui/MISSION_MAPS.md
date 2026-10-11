@@ -1,6 +1,6 @@
 # 任務圖製作與維護指南
 
-更新：2026-10-10。適用於目前十個可玩任務的分層作戰簡報圖。
+更新：2026-10-12。適用於目前十個可玩任務的分層作戰簡報圖。
 
 本檔是任務圖製作與維護的唯一說明文件，整合製作流程、擺位紀錄及素材來源；`public/ui/maps/` 不另放維護文件。
 
@@ -25,7 +25,7 @@
 | `public/ui/sil/` | 空中飛機使用的既有剪影 |
 | `public/textures/cloud-puffs.png` | 遊戲既有 4 × 4 雲圖集 |
 
-上表路徑以專案根目錄為準。舊 `campaign-layouts.json`、`model-layouts.json` 仍是歷史資料，不是現行調整入口；舊合成圖片已清除。
+上表路徑以專案根目錄為準。舊 `campaign-layouts.json`、`model-layouts.json` 與舊合成圖片已清除；位置調整以 `review-layouts.json` 為準。
 
 ## 修改既有任務
 
@@ -185,7 +185,9 @@ npx tsc --noEmit
 
 舊模型烘圖（`*-models.webp`）、合成 SVG（`*-runtime.svg`）、深色試作圖（`*-local-dark.webp`）、`berlin-local.webp` 與原始任務插畫已刪除。現行純地形、模型剪影及遊戲俯拍參考仍保留。
 
-`public/ui/maps/tactical/dark-prompts.json`、`prompts.json` 只保留早期生成紀錄，當中的舊圖片路徑不代表檔案仍存在；現行地形紀錄見 `public/ui/maps/reference/campaign-prompts.json`。
+舊區域地圖 8 張 SVG、`tactical/germany-m4-terrain.webp`、`reference/campaign-layouts.json`、`reference/model-layouts.json`、`tactical/dark-prompts.json` 與 `tactical/prompts.json` 已刪除，需要歷史版本時查閱 Git 紀錄。
+
+地形生成紀錄仍保留在 `public/ui/maps/reference/campaign-prompts.json`；它記錄生成當時的輸出，不代表所有輸出仍在使用。其中勒熱夫的舊 tactical 圖已刪除，現行畫面由 `missionArtwork.ts` 指向 `reference/germany-m4-terrain.webp`，不可刪除這張雪地圖。
 
 舊預覽指令 `node scripts/preview-campaign-briefings.mjs` 已轉接現行分層預覽，輸出位置與 `preview-layered-briefings.mjs` 相同。
 
@@ -193,6 +195,6 @@ npx tsc --noEmit
 
 ## 舊流程的界線
 
-`build-briefing-maps.py` 的區域地圖、`build-briefing-reference.mjs`／`build-campaign-briefings.mjs` 的合成 SVG，以及 `bake-model-briefings.mjs` 的烘圖都是歷史製作工具。日常維護**不要執行這些腳本取代目前畫面**，也不要修改舊 layout 後期待 UI 更新。
+`build-briefing-maps.py` 的區域地圖、`build-briefing-reference.mjs`／`build-campaign-briefings.mjs` 的合成 SVG，以及 `bake-model-briefings.mjs` 的烘圖都是歷史製作工具。日常維護**不要執行這些腳本取代目前畫面**。其中 `build-campaign-briefings.mjs` 與 `bake-model-briefings.mjs` 依賴的舊 layout 已刪除，不能直接執行；若需研究舊流程，應在獨立歷史 checkout 還原當時的工具與輸入資料。
 
 以此文件與 `reference/review-layouts.json` 為準。若未來確實要烘圖，應另行評估並保留可編輯來源；目前沒有烘圖需求。
