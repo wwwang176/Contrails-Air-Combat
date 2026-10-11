@@ -422,6 +422,7 @@ describe('灘頭的佈景', () => {
     const spots = [
       ...LEYTE_BEACH.dumps.map((d) => ({ x: d.x, z: d.z, r: Math.hypot(d.width, d.depth) / 2 })),
       ...LEYTE_BEACH.vehicles.map((v) => ({ x: v.x, z: v.z, r: 4 })),
+      ...LEYTE_BEACH.depot.map((v) => ({ x: v.x, z: v.z, r: 4 })),
     ]
     expect(spots.length).toBeGreaterThan(40)
     for (const s of spots) {
@@ -436,7 +437,44 @@ describe('灘頭的佈景', () => {
   it('補給堆與車上不長樹；離開灘頭就不算', () => {
     for (const d of LEYTE_BEACH.dumps) expect(isInBeachClearing(d.x, d.z)).toBe(true)
     for (const v of LEYTE_BEACH.vehicles) expect(isInBeachClearing(v.x, v.z)).toBe(true)
+    for (const v of LEYTE_BEACH.depot) expect(isInBeachClearing(v.x, v.z)).toBe(true)
     expect(isInBeachClearing(0, 3000)).toBe(false)
     expect(isInBeachClearing(BEACHHEAD.x, BEACHHEAD.z + 1500)).toBe(false)
+  })
+})
+
+describe('灘頭的卡車停放場（日 M2 的目標）', () => {
+  const depot = LEYTE_BEACH.depot
+
+  it('九輛卡車全部放得下', () => {
+    expect(depot.length).toBe(9)
+    for (const v of depot) expect(v.unit).toBe('usTruck')
+  })
+
+  /** 炸彈對 120 血的卡車致死半徑約 30.6 m：任兩輛隔得比它的 √2 倍遠，一顆最多炸兩輛 */
+  it('拉開：任兩輛至少隔 44 m', () => {
+    for (let i = 0; i < depot.length; i++) {
+      for (let j = i + 1; j < depot.length; j++) {
+        expect(Math.hypot(depot[i]!.x - depot[j]!.x, depot[i]!.z - depot[j]!.z)).toBeGreaterThan(44)
+      }
+    }
+  })
+
+  /** 佈景卡車混在旁邊的話，玩家分不出哪幾輛炸了才算 */
+  it('停放場周圍 40 m 內沒有佈景的車與補給堆', () => {
+    for (const v of depot) {
+      for (const o of LEYTE_BEACH.vehicles) expect(Math.hypot(o.x - v.x, o.z - v.z)).toBeGreaterThan(40)
+      for (const d of LEYTE_BEACH.dumps) {
+        expect(Math.hypot(d.x - v.x, d.z - v.z)).toBeGreaterThan(40 + Math.hypot(d.width, d.depth) / 2)
+      }
+    }
+  })
+
+  it('日 M2 把它們放成紅隊、不動的卡車', () => {
+    const ground = MISSIONS.japan.find((c) => c.id === 'japan-m2')!.battle!.ground!
+    for (const v of depot) {
+      expect(ground.some((g) => g.unit === 'usTruck' && g.team === 'red' && g.x === v.x && g.z === v.z
+        && g.heading === v.heading && g.motion === undefined)).toBe(true)
+    }
   })
 })

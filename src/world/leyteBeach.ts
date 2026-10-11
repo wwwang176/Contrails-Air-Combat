@@ -137,22 +137,41 @@ export type BeachDump = CrateField
 /** 一台停著不動的車 */
 export type BeachVehicle = ParkedVehicle
 
+/** 卡車停放場：幾排、每排幾輛 */
+const DEPOT_ROWS = 3
+const DEPOT_COLS = 3
 /**
- * 灘頭的佈景（**不是目標、沒有碰撞**，`render/leyteBeach.ts` 合併成一顆網格）：
+ * 卡車停放場的車距，m。炸彈對卡車的致死半徑約 30.6 m（`bombBlastDamage`，120 血），
+ * 方格間距要大過它的 √2 倍，一顆炸彈才最多炸掉相鄰的兩輛 —— 排密了一顆清半場
+ */
+const DEPOT_SPACING = 45
+
+/**
+ * 灘頭的佈景（`dumps`、`vehicles`：**不是目標、沒有碰撞**，`render/leyteBeach.ts`
+ * 合併成一顆網格）：
  *
  * - 每艘 LST 跳板上岸處一大片卸貨區，中間留跳板上來的車道，旁邊停幾輛卡車
  * - 沿灘頭散布的補給堆
- * - 公路起點兩側各一個車輛集結場：雪曼、M16、卡車一排排停好
+ * - 公路起點西側一近一遠、東側遠處各一個車輛集結場：雪曼、M16、卡車一排排停好
+ *
+ * 另外 `depot` 是公路起點東側的**卡車停放場**：日 M2 的任務目標（`usTruck`，紅隊、
+ * 不動），三排三輛、拉開 `DEPOT_SPACING`。它佔掉東側近處那個集結場的位置 ——
+ * 旁邊有佈景卡車的話，玩家分不出哪幾輛炸了才算。
  *
  * 全部避開公路、灘頭砲位、氣球的地面絞車與水線（`beachClear`）。**位置、數量
  * 都是起始值；亂數有種子**，同一張地圖每次都長一樣。
  */
-export const LEYTE_BEACH: { readonly dumps: readonly BeachDump[]; readonly vehicles: readonly BeachVehicle[] } =
+export const LEYTE_BEACH: {
+  readonly dumps: readonly BeachDump[]
+  readonly vehicles: readonly BeachVehicle[]
+  readonly depot: readonly BeachVehicle[]
+} =
   /* @__PURE__ */ (() => {
     const rand = makeRand(1944_10_22)
     const jit = (): number => 2 * rand() - 1
     const dumps: BeachDump[] = []
     const vehicles: BeachVehicle[] = []
+    const depot: BeachVehicle[] = []
     const winches = LEYTE_BALLOONS.flatMap((b) => ('ship' in b.anchor ? [] : [b.anchor]))
     /** 半徑 `r` 的一塊地放得下嗎：不壓公路、砲位、絞車，也不下水 */
     const beachClear = (x: number, z: number, r: number): boolean =>
@@ -192,8 +211,9 @@ export const LEYTE_BEACH: { readonly dumps: readonly BeachDump[]; readonly vehic
       }
     }
 
-    // 2. 車輛集結場：公路起點兩側各一個、再往外各一個。三排、每排七台，面朝內陸
-    const parks: { x: number; z: number }[] = []
+    // 2. 車輛集結場：公路起點兩側各一個、再往外各一個。三排、每排七台，面朝內陸。
+    //    東側近處那一個換成卡車停放場（`depot`）
+    const parks: { x: number; z: number; r: number }[] = []
     for (const [sign, arc] of [[-1, 110], [1, 110], [-1, 650], [1, 650]] as const) {
       const x0 = walkCoast(BEACHHEAD.x, sign, arc)
       const h = inland(x0)
@@ -201,7 +221,20 @@ export const LEYTE_BEACH: { readonly dumps: readonly BeachDump[]; readonly vehic
       const [rx, rz] = right(h)
       const bx = x0 + fx * 120
       const bz = coastZ(x0) + fz * 120
-      parks.push({ x: bx, z: bz })
+      if (sign === 1 && arc === 110) {
+        parks.push({ x: bx, z: bz, r: DEPOT_SPACING * Math.SQRT2 })
+        for (let r = 0; r < DEPOT_ROWS; r++) {
+          for (let c = 0; c < DEPOT_COLS; c++) {
+            const lat = (c - (DEPOT_COLS - 1) / 2) * DEPOT_SPACING
+            const dep = (r - (DEPOT_ROWS - 1) / 2) * DEPOT_SPACING
+            const x = bx + rx * lat + fx * dep
+            const z = bz + rz * lat + fz * dep
+            if (beachClear(x, z, 4)) depot.push({ unit: 'usTruck', x, z, heading: h })
+          }
+        }
+        continue
+      }
+      parks.push({ x: bx, z: bz, r: 0 })
       const rows: BeachVehicle['unit'][][] = [
         ['usTank', 'usTank', 'usTank', 'usTank', 'usTank', 'usTank', 'usTank'],
         ['usFlakTrack', 'usTruck', 'usTruck', 'usFlakTrack', 'usTruck', 'usTruck', 'usFlakTrack'],
@@ -235,7 +268,7 @@ export const LEYTE_BEACH: { readonly dumps: readonly BeachDump[]; readonly vehic
       const r = Math.hypot(width, depth) / 2
       if (!beachClear(x, z, r)) continue
       if (dumps.some((o) => Math.hypot(o.x - x, o.z - z) < r + Math.hypot(o.width, o.depth) / 2 + 8)) continue
-      if (parks.some((p) => Math.hypot(p.x - x, p.z - z) < r + 35)) continue
+      if (parks.some((p) => Math.hypot(p.x - x, p.z - z) < r + p.r + 35)) continue
       if (vehicles.some((v) => Math.hypot(v.x - x, v.z - z) < r + 5)) continue
       dumps.push({ x, z, heading: h, width, depth, lane: 0, seed: dumps.length + 1 })
       placed++
@@ -249,7 +282,7 @@ export const LEYTE_BEACH: { readonly dumps: readonly BeachDump[]; readonly vehic
         }
       }
     }
-    return { dumps, vehicles }
+    return { dumps, vehicles, depot }
   })()
 
 /** 補給堆與車子周圍這麼寬不長樹，m */
@@ -263,6 +296,7 @@ const BEACH_BOX = /* @__PURE__ */ (() => {
   }
   for (const d of LEYTE_BEACH.dumps) grow(d.x, d.z, Math.hypot(d.width, d.depth) / 2 + BEACH_TREE_CLEAR)
   for (const v of LEYTE_BEACH.vehicles) grow(v.x, v.z, 4 + BEACH_TREE_CLEAR)
+  for (const v of LEYTE_BEACH.depot) grow(v.x, v.z, 4 + BEACH_TREE_CLEAR)
   return { x0, x1, z0, z1 }
 })()
 
@@ -284,6 +318,9 @@ export function isInBeachClearing(x: number, z: number): boolean {
     if (Math.abs(lat) < d.width / 2 + BEACH_TREE_CLEAR && Math.abs(dep) < d.depth / 2 + BEACH_TREE_CLEAR) return true
   }
   for (const v of LEYTE_BEACH.vehicles) {
+    if (Math.hypot(x - v.x, z - v.z) < 4 + BEACH_TREE_CLEAR) return true
+  }
+  for (const v of LEYTE_BEACH.depot) {
     if (Math.hypot(x - v.x, z - v.z) < 4 + BEACH_TREE_CLEAR) return true
   }
   return false

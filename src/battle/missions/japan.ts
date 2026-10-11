@@ -4,7 +4,7 @@ import { F6F5 } from '../../specs/f6f5'
 import { KI84_BOMB_LOADOUT } from '../../weapons/stores'
 import { GROUND_FLAK_SPEC } from '../../world/shipGuns'
 import {
-  EVACUATE_Z, LEYTE_BALLOONS, LEYTE_FLAK_SITES, LEYTE_LSTS, LEYTE_ROAD, LST_BALLOON_DECK,
+  EVACUATE_Z, LEYTE_BALLOONS, LEYTE_BEACH, LEYTE_FLAK_SITES, LEYTE_LSTS, LEYTE_ROAD, LST_BALLOON_DECK,
 } from '../../world/leyte'
 import { KI84 } from '../../specs/ki84'
 import { A6M5 } from '../../specs/a6m5'
@@ -128,7 +128,7 @@ export const JAPAN: readonly MissionCard[] = [
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       entry: 'headOn',
       terrain: 'leyte',
-      // 灘頭到撤離點（0, +9 km）的走廊；最遠的是最後一個波次（7.7, +7.5 km）
+      // 灘頭到撤離點（0, +5 km）的走廊與開場位置
       arena: { x: 2000, z: 2000, radius: 11000 },
       // 暴雨的雲低又多；暗色雲與天空接近，要多才看得出來
       clouds: { yMin: 400, yMax: 900, amount: 'many' },
@@ -154,10 +154,17 @@ export const JAPAN: readonly MissionCard[] = [
           { units: ['usFlakTrack', 'usTruck', 'usTruck', 'usTank', 'usTruck', 'usFlakTrack'] },
         ],
       },
-      // 【灘頭與前線的固定砲位】位置在 `world/leyte.ts`。不在截斷的池裡，打掉不算
-      ground: LEYTE_FLAK_SITES.map((s): GroundEntry => ({
-        unit: s.unit, team: 'red', x: s.x, z: s.z, heading: 0,
-      })),
+      ground: [
+        // 【灘頭與前線的固定砲位】位置在 `world/leyte.ts`。不在截斷的池裡，打掉不算
+        ...LEYTE_FLAK_SITES.map((s): GroundEntry => ({
+          unit: s.unit, team: 'red', x: s.x, z: s.z, heading: 0,
+        })),
+        // 【灘頭的卡車停放場】九輛停著的卡車，與車隊的卡車一起算進摧毀數；不會開到前線，
+        // 不算抵達。在灘頭重高砲的正上方
+        ...LEYTE_BEACH.depot.map((v): GroundEntry => ({
+          unit: v.unit, team: 'red', x: v.x, z: v.z, heading: v.heading,
+        })),
+      ],
       // 【灘頭搶灘的 LST】不會動的船：撞得到、打得沉、防空砲會開火。沒有
       // `vital`、沒有 `sinkCount` —— 不是任務目標，沉幾艘都不影響勝負
       fleet: LEYTE_LST_FLEET,
@@ -173,8 +180,9 @@ export const JAPAN: readonly MissionCard[] = [
       },
       // 【雷雨】雨、閃電與雷聲（`render/rain.ts`、`render/storm.ts`）。雷伊泰戰役正值雨季
       timeOfDay: 'storm',
-      // 【9 輛卡車：炸 6 輛、放走 4 輛就輸】6 + 4 > 9，兩條不會同時可能
-      interdict: { count: 6, leak: 4, unit: 'usTruck' },
+      // 【18 輛卡車（車隊 9、灘頭 9）：炸 12 輛、放走 7 輛就輸】12 + 7 > 18，兩條不會
+      // 同時可能。只有車隊那 9 輛開得到前線
+      interdict: { count: 12, leak: 7, unit: 'usTruck' },
       /**
        * 【每波兩架、一波一波來】一次來四架的話玩家還在找車就被咬住。
        *
@@ -185,11 +193,11 @@ export const JAPAN: readonly MissionCard[] = [
        *           敵機一口氣湧上來。一波從灘頭外的海上、一波從內陸
        *
        * 【撤離時三組全在前方堵截】低空的 F6F 比疾風慢，從背後追永遠追不上；
-       * 攔截要靠高度與擋在歸途上。三組都在撤退路線前方、比任務高度高 1,500 m，
-       * 由 `warnLead` 錯開、左右錯開：
-       *   0 秒   左前方（`starboard` π + 0.4），z ≈ +3,500
-       *   20 秒  正前方，撤退路線的半途（z ≈ +5,000）
-       *   40 秒  右前方（`starboard` π − 0.4），z ≈ +7,500，撤離點前
+       * 攔截要靠高度與擋在歸途上。三組都在撤退路線前方、撤離點（z = +5,000）之前、
+       * 比任務高度高 1,500 m，由 `warnLead` 錯開、左右錯開：
+       *   0 秒   左前方（`starboard` π + 0.4），z ≈ +1,800
+       *   10 秒  正前方，z ≈ +3,000
+       *   20 秒  右前方（`starboard` π − 0.4），z ≈ +3,800，撤離點前
        * 三組與返航同一步觸發。`stepBeats` 依陣列順序寫訊息、返航排在最後，
        * 所以畫面上是「撤離戰區」，預警文字就寫同一句。
        *
@@ -215,26 +223,26 @@ export const JAPAN: readonly MissionCard[] = [
           side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI, altitude: 2500,
         },
         {
-          when: { kind: 'destroyed', atLeast: 6, unit: 'usTruck' },
+          when: { kind: 'destroyed', atLeast: 12, unit: 'usTruck' },
           warnKey: 'mission.japan-m2.withdraw',
           warnLead: 0,
-          side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI + 0.4, along: 0.35, altitude: 3000,
+          side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI + 0.4, along: 0.18, altitude: 3000,
         },
         {
-          when: { kind: 'destroyed', atLeast: 6, unit: 'usTruck' },
+          when: { kind: 'destroyed', atLeast: 12, unit: 'usTruck' },
+          warnKey: 'mission.japan-m2.withdraw',
+          warnLead: 10,
+          side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI, along: 0.3, altitude: 3000,
+        },
+        {
+          when: { kind: 'destroyed', atLeast: 12, unit: 'usTruck' },
           warnKey: 'mission.japan-m2.withdraw',
           warnLead: 20,
-          side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI, along: 0.5, altitude: 3000,
-        },
-        {
-          when: { kind: 'destroyed', atLeast: 6, unit: 'usTruck' },
-          warnKey: 'mission.japan-m2.withdraw',
-          warnLead: 40,
-          side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI - 0.4, along: 0.75, altitude: 3000,
+          side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI - 0.4, along: 0.38, altitude: 3000,
         },
       ],
       withdraw: {
-        when: { kind: 'destroyed', atLeast: 6, unit: 'usTruck' },
+        when: { kind: 'destroyed', atLeast: 12, unit: 'usTruck' },
         messageKey: 'mission.japan-m2.withdraw',
         // 【負值 = 在開局位置的後方】撤離點在 Ki-84 來的方向
         distance: -EVACUATE_Z,

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { MISSIONS, CAMPAIGNS, convoyGround, missionConfigFrom } from '../../src/battle/missions'
-import { EVACUATE_Z, LEYTE_ROAD } from '../../src/world/leyte'
+import { BEACHHEAD, EVACUATE_Z, LEYTE_ROAD } from '../../src/world/leyte'
 import { FIELD_CENTER, HOLD_ROWS, RUNWAY } from '../../src/world/asch'
 import { ALL_SPECS, MAX_SIDE } from '../../src/battle/skirmish'
 import { createBattle, stepBattle } from '../../src/battle/setup'
@@ -506,6 +506,8 @@ describe('日 M2 雷伊泰前線', () => {
     for (const { beat } of atWithdraw) {
       if (beat.kind !== 'reinforce') continue
       expect(beat.flight.entry.along, 'along 為正 = 撤退的方向').toBeGreaterThan(0)
+      // 堵在撤離點之前；生在它後面的話玩家已經撤出去了
+      expect(beat.flight.entry.along * cfg.entryRange, '在撤離點之前').toBeLessThan(EVACUATE_Z)
       expect(beat.flight.entry.climb, '比任務高度高').toBeGreaterThan(0)
       across.push(beat.flight.entry.across)
     }
@@ -543,7 +545,8 @@ describe('日 M2 雷伊泰前線', () => {
   })
 
   it('灘頭與前線有固定防空砲位（不動）', () => {
-    const fixed = (missionConfigFrom(card).ground ?? []).filter((g) => g.motion === undefined)
+    const fixed = (missionConfigFrom(card).ground ?? [])
+      .filter((g) => g.motion === undefined && g.unit !== 'usTruck')
     expect(fixed.length).toBeGreaterThan(0)
     // 美軍的灘頭：重高砲是 90 mm，不是德軍的 Flak 18
     for (const g of fixed) expect(['usFlakTrack', 'usFlakHeavy']).toContain(g.unit)
@@ -570,8 +573,10 @@ describe('有 interdict 的卡一定打得贏', () => {
       expect(w.when.unit).toBe(rule.unit)
     })
 
+    /** 總數連停著不動的那幾輛一起算（日 M2 灘頭的卡車停放場）：它們一樣算進摧毀數 */
     it(`${card.id}：count 不超過那一種車的總數，count + leak 大於總數`, () => {
-      const total = b.vehicleConvoy!.batches.reduce(
+      const parked = (b.ground ?? []).filter((g) => g.unit === rule.unit && g.team === 'red').length
+      const total = parked + b.vehicleConvoy!.batches.reduce(
         (n, x) => n + x.units.filter((u) => u === rule.unit).length, 0)
       expect(rule.count).toBeLessThanOrEqual(total)
       expect(rule.count + rule.leak).toBeGreaterThan(total)
@@ -608,6 +613,8 @@ describe('有 interdict 的卡一定打得贏', () => {
     trucks[0]!.alive = false
     trucks[1]!.alive = false
     trucks[1]!.arrived = true
+    // 玩家開場的位置離撤離點不遠，先移到灘頭上空 —— 這裡驗的是判定的先後，不是撤離成功
+    battle.player.aircraft.state.position.set(BEACHHEAD.x, 1500, BEACHHEAD.z)
     stepBattle(battle, 1 / 240)
     // 【兩個都要看】返航會重設 `mission`；判敗若先發生，定案的是 `outcome` 那一份
     expect(battle.outcome).toBe('fighting')
