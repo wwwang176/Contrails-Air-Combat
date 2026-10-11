@@ -49,6 +49,7 @@
 #skirmish .side .count b { font-weight: 500; }
 #skirmish .side .count small { font: 11px/1.3 var(--f-ui); color: #b5a78c; }
 #skirmish .flight {
+  position: relative; isolation: isolate;
   grid-template-columns: 62px minmax(0, 1fr) 30px auto;
   gap: 5px 8px; padding: 10px var(--flight-inset); min-width: 0;
   background: linear-gradient(110deg, #b49a6410, #15151150);
@@ -69,20 +70,17 @@
 #skirmish .flight .nm { color: #e9dec5; font-size: 14px; line-height: 1.4; }
 #skirmish .flight .meta { color: #b8aa90; font-size: 11px; line-height: 1.5; }
 #skirmish .flight.lead .meta { color: #bed4de; }
-#skirmish .flight .pick, #skirmish .flight-index {
+#skirmish .flight-index {
   box-sizing: border-box; display: grid; place-items: center;
   width: 30px; height: 30px; border-radius: 0; font: 12px var(--f-title);
   border: 1px solid #a99b784d; color: #c2b595; background: #17181244;
 }
 #skirmish .flight-index { border-color: transparent; background: none; color: #a6977b; }
-#skirmish .flight .pick { border: 0; background: none; }
-#skirmish .flight .pick::before {
-  content: ''; width: 16px; height: 16px; border-radius: 50%; border: 1px solid #b5aa91;
-}
-#skirmish .flight.lead .pick::before { border-color: #b9d7df; background: radial-gradient(circle, #b9d7df 0 4px, transparent 5px); }
-#skirmish .flight.lead .pick::after { content: none; }
+#skirmish .flight.selectable .who { grid-column: 2 / 4; }
+#skirmish .flight .flight-select { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; }
+#skirmish .flight .flight-select:focus-visible { outline-offset: -2px; }
 #skirmish .flight .qty {
-  justify-content: flex-end; gap: 0;
+  position: relative; z-index: 3; justify-content: flex-end; gap: 0;
 }
 #skirmish .flight .qty .n {
   min-width: 30px; color: #f1e3c9; font: 500 14px/30px var(--f-ui);
@@ -113,6 +111,7 @@
   border: 1px solid #a68b565c; background: var(--setting-surface);
 }
 #skirmish .setting-art { grid-column: 1 / -1; display: flex; align-items: center; min-height: 26px; }
+#skirmish .setting-image, .skirmish-picker .setting-image { display: block; flex: none; object-fit: cover; }
 #skirmish .setting-value { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 #skirmish .setting-caption { display: none; }
 #skirmish .setting-value b { color: #eee0be; font: 500 14px/1.4 var(--f-ui); }
@@ -135,7 +134,7 @@
 #skirmish button:focus-visible { outline: 2px solid #efcf91; outline-offset: 2px; }
 @media (hover: hover) {
   #skirmish .presets button:hover, #skirmish .setting-summary:hover,
-  #skirmish .flight button:hover:not(:disabled), #skirmish .add:hover:not(:disabled) { border-color: #cbb383; background-color: #70604366; }
+  #skirmish .flight .qty button:hover:not(:disabled), #skirmish .add:hover:not(:disabled) { border-color: #cbb383; background-color: #70604366; }
   #skirmish .flight.selectable:hover { border-color: #b9d7df88; }
 }
 
@@ -162,7 +161,7 @@
   #skirmish .flight .sil .mk { height: 15px; }
   #skirmish .flight .nm { font-size: 12px; }
   #skirmish .flight .meta { font-size: 10px; }
-  #skirmish .flight .pick, #skirmish .flight-index { width: 28px; height: 32px; }
+  #skirmish .flight-index { width: 28px; height: 32px; }
   #skirmish .flight .qty { grid-column: 1 / -1; }
   #skirmish .flight .qty .rm { margin-left: 7px; }
   #skirmish .setup { padding: 10px; gap: 10px; }
@@ -170,7 +169,7 @@
   #skirmish .setting-caption { display: block; color: #b9aa8b; font: 10px/1.3 var(--f-ui); }
   #skirmish .setting-summary { grid-template-columns: 42px minmax(0, 1fr) 9px; padding: 7px; gap: 7px; min-height: 44px; }
   #skirmish .setting-art { grid-column: auto; min-height: 0; }
-  #skirmish .setting-art svg { zoom: .55; }
+  #skirmish .setting-art .setting-image { zoom: .55; }
   #skirmish .setting-value b { font-size: 12px; }
   #skirmish .setting-value small { display: none; }
   #skirmish .foot { padding: 7px 12px; }
@@ -230,7 +229,7 @@
   .skirmish-picker .command-heading h2 { font-size: 17px; }
   .skirmish-picker .sk-picker-options { gap: 6px; }
   .skirmish-picker .sk-picker-options button { min-height: 63px; padding: 5px; gap: 2px; }
-  .skirmish-picker .sk-picker-options button svg { zoom: .7; }
+  .skirmish-picker .sk-picker-options button svg, .skirmish-picker .sk-picker-options .setting-image { zoom: .7; }
   .skirmish-picker .sk-picker-options button span { font-size: 12px; }
   .skirmish-picker .sk-picker-options button small { font-size: 10px; }
   .skirmish-picker .plane .sil { width: 53px; }
