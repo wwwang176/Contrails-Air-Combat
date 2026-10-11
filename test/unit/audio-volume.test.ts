@@ -15,8 +15,9 @@ describe('音量設定', () => {
   })
   afterEach(() => { delete (globalThis as Record<string, unknown>)['localStorage'] })
 
-  it('沒設定過是「中」', () => {
+  it('沒設定過是「高」', () => {
     expect(readVolume()).toBe(DEFAULT_VOLUME_DB)
+    expect(DEFAULT_VOLUME_DB).toBe(VOLUME_LEVELS.at(-1)!.db)
   })
 
   it('存了讀得回來，包括「關閉」', () => {
@@ -33,7 +34,7 @@ describe('音量設定', () => {
     expect(readVolume()).toBe(DEFAULT_VOLUME_DB)
   })
 
-  /** 【空字串不是 0】Number('') 是 0，會被當成「高」 —— 最大聲開場 */
+  /** 【空字串不是 0】Number('') 是 0，會被當成存過的「高」 */
   it('空字串、空白、十六進位都當成沒設定', () => {
     for (const v of ['', '  ', '0x0']) {
       store.set('audio.volume', v)

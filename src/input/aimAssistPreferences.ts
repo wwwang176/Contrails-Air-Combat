@@ -8,25 +8,16 @@ export const AIM_ASSIST_LEVELS: readonly { labelKey: MessageKey; value: boolean 
 
 const AIM_ASSIST_KEY = 'input.aimAssist'
 
-/**
- * 沒有設定過時：**觸控裝置開、滑鼠關。** 滑鼠本來就瞄得準，被拉住反而干擾；
- * 玩家改過一次就以玩家的為準。
- */
-export function defaultAimAssist(): boolean {
-  try {
-    return window.matchMedia('(pointer: coarse)').matches
-  } catch {
-    return false
-  }
-}
+/** 沒有設定過時開；玩家改過一次就以玩家的為準 */
+const DEFAULT_AIM_ASSIST = true
 
 /** 讀寫都包 try，理由同 `render/quality.ts` 的 `readQuality` */
 export function readAimAssist(): boolean {
   try {
     const v = localStorage.getItem(AIM_ASSIST_KEY)
-    return v === null ? defaultAimAssist() : v === '1'
+    return v === null ? DEFAULT_AIM_ASSIST : v === '1'
   } catch {
-    return defaultAimAssist()
+    return DEFAULT_AIM_ASSIST
   }
 }
 
