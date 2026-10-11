@@ -131,6 +131,7 @@ import { attachTouch } from './input/touch'
 import { enterFullscreen } from './input/fullscreen'
 import { AimAssist } from './input/aimAssist'
 import { readAimAssist, saveAimAssist } from './input/aimAssistPreferences'
+import { readMouseSensitivity, saveMouseSensitivity } from './input/mouseSensitivity'
 import { teamSlot } from './world/team'
 import type { Combatant } from './world/combatant'
 import type { World } from './world/World'
@@ -283,6 +284,7 @@ ctx.scene.add(tracers.object)
 const glareTexture = makeGlareTexture()
 
 const input = createInputState()
+input.mouseSensitivity = readMouseSensitivity()
 const bindings = attachInput(canvas, input)
 const touch = attachTouch(document.getElementById('touch') as HTMLElement, input)
 
@@ -2081,6 +2083,11 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     saveAimAssist(on)
     menu.renderAimAssist(on)
   },
+  onMouseSensitivity(v) {
+    input.mouseSensitivity = v
+    saveMouseSensitivity(v)
+    menu.renderMouseSensitivity(v)
+  },
   onLang(lang) {
     saveLang(lang)
     setLang(lang)
@@ -2095,6 +2102,7 @@ menu.renderQuality(startQuality)
 menu.renderAntialias(readAntialias())
 menu.renderVolume(readVolume())
 menu.renderAimAssist(aimAssist.enabled)
+menu.renderMouseSensitivity(input.mouseSensitivity)
 menu.renderLang(getLang())
 menu.renderSetup(setup)
 menu.show(screen)

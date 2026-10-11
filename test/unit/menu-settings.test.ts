@@ -16,12 +16,21 @@ class Element {
   click() { if (!this.disabled) this.clickHandler() }
 }
 
+/** 拉桿：只有 value 與 input 事件 */
+class Range {
+  value = ''
+  private inputHandler = () => {}
+  addEventListener(type: string, handler: () => void) { if (type === 'input') this.inputHandler = handler }
+  drag(value: string) { this.value = value; this.inputHandler() }
+}
+
 function fixture() {
   vi.stubGlobal('document', { createElement: () => new Element() })
   vi.stubGlobal('window', { devicePixelRatio: 1 })
   const rows = {
     lang: new Element(), aimAssist: new Element(), quality: new Element(),
     antialias: new Element(), volume: new Element(),
+    mouse: new Range(), mouseValue: { textContent: '' },
   }
   const settings = new Element()
   const reload = new Element()
@@ -33,6 +42,7 @@ function fixture() {
       onQuality: v => { events.push(['quality', v]); view.renderQuality(v) },
       onVolume: v => { events.push(['volume', v]); view.renderVolume(v) },
       onAimAssist: v => { events.push(['assist', v]); view.renderAimAssist(v) },
+      onMouseSensitivity: v => { events.push(['mouse', v]); view.renderMouseSensitivity(v) },
       onLang: v => { events.push(['lang', v, settings.hidden]); view.renderLang(v) },
       onAntialias: v => { events.push(['reload', v]); view.renderAntialias(v) },
     },
@@ -68,16 +78,18 @@ describe('設定頁的確定才套用', () => {
     f.rows.volume.children[0]!.click()
     f.rows.lang.children.find(e => e.className !== 'on')!.click()
     f.rows.aimAssist.children.find(e => e.className !== 'on')!.click()
+    f.rows.mouse.drag('3.2')
     f.rows.antialias.children[1]!.click()
     f.view.applySettings()
     expect(f.events).toEqual([])
     expect(f.reload.hidden).toBe(false)
     expect(f.settings.hidden).toBe(false)
     f.view.commitReload()
-    expect(f.events.map(e => e[0])).toEqual(['quality', 'volume', 'assist', 'lang', 'reload'])
+    expect(f.events.map(e => e[0])).toEqual(['quality', 'volume', 'assist', 'mouse', 'lang', 'reload'])
+    expect(f.events[3]).toEqual(['mouse', 3.2])
     expect(f.events[0]).toEqual(['quality', 0.5])
     expect(f.events[1]).toEqual(['volume', null])
-    expect(f.events[4]).toEqual(['reload', false])
+    expect(f.events[5]).toEqual(['reload', false])
     expect(f.reload.hidden).toBe(true)
   })
 
@@ -97,5 +109,40 @@ describe('設定頁的確定才套用', () => {
     f.view.applySettings()
     expect(f.events.map(e => e[0])).toEqual(['quality', 'lang'])
     expect(f.events[1]![2]).toBe(true)
+  })
+})
+
+describe('設定頁的滑鼠靈敏度拉桿', () => {
+  it('拉動只改草稿與讀數；取消再打開回到已套用的值', () => {
+    const f = fixture()
+    f.view.renderMouseSensitivity(1.5)
+    expect(f.rows.mouse.value).toBe('1.5')
+    expect(f.rows.mouseValue.textContent).toBe('1.5x')
+    f.view.openSettings()
+    f.rows.mouse.drag('2.3')
+    expect(f.rows.mouseValue.textContent).toBe('2.3x')
+    expect(f.events).toEqual([])
+    f.settings.hidden = true
+    f.view.openSettings()
+    expect(f.rows.mouse.value).toBe('1.5')
+    expect(f.rows.mouseValue.textContent).toBe('1.5x')
+  })
+
+  it('按確定才送出，值對齊到 0.1', () => {
+    const f = fixture()
+    f.view.renderMouseSensitivity(1)
+    f.view.openSettings()
+    f.rows.mouse.drag('2.3000000000000003')
+    f.view.applySettings()
+    expect(f.events).toEqual([['mouse', 2.3]])
+    expect(f.settings.hidden).toBe(true)
+  })
+
+  it('沒拉動就按確定不送事件', () => {
+    const f = fixture()
+    f.view.renderMouseSensitivity(1)
+    f.view.openSettings()
+    f.view.applySettings()
+    expect(f.events).toEqual([])
   })
 })

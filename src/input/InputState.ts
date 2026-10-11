@@ -58,6 +58,11 @@ export interface InputState {
    */
   lookScale: number
   /**
+   * 設定頁的滑鼠靈敏度倍率，瞄準與自由視角都乘。**只乘在滑鼠上**，觸控不吃。
+   * 由 `main.ts` 開場讀存檔、設定確定時寫入
+   */
+  mouseSensitivity: number
+  /**
    * 這一台飛機掛得了彈嗎。**由 `main.ts` 在玩家換飛機時寫入。**
    *
    * 【為什麼不是 bindings 自己判斷】`bindings.ts` 是純 DOM 外殼，對飛機
@@ -178,6 +183,7 @@ export function createInputState(): InputState {
     viewMode: 'third',
     zoom: false,
     lookScale: 1,
+    mouseSensitivity: 1,
     bombCapable: false,
     bombRelease: false,
     bombTaps: 0,

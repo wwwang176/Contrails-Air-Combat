@@ -243,6 +243,7 @@ export const en: Record<MessageKey, string> = {
   'settings.aa': 'Anti-aliasing',
   'settings.volume': 'Volume',
   'settings.assist': 'Aim assist',
+  'settings.mouse': 'Mouse sensitivity',
   'reload.title': 'Reload required',
   'reload.body': 'Anti-aliasing takes effect after a reload. A battle in progress will be lost.',
   'reload.yes': 'Save and reload',

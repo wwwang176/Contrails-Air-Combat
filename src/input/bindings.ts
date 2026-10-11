@@ -48,7 +48,9 @@ export function attachInput(
 
   const onMouseMove = (e: MouseEvent) => {
     if (document.pointerLockElement !== canvas) return
-    const half = window.innerHeight / 2
+    // 半個畫面高為 1；再乘上設定頁的滑鼠靈敏度（瞄準與自由視角都乘）
+    const dx = (e.movementX / (window.innerHeight / 2)) * state.mouseSensitivity
+    const dy = (e.movementY / (window.innerHeight / 2)) * state.mouseSensitivity
     // 【上帝視角下右鍵不接管滑鼠】自由視角是「相機繞著飛機轉」，而上帝
     // 視角的相機根本不在飛機上，那個概念不存在。照舊接管的話這一段會提早
     // return，`aimDelta` 不再累積 —— 而上帝視角餵給鏡頭的就是那兩個值，
@@ -57,14 +59,14 @@ export function attachInput(
     // 擊殺者身上拉走；瞄準位移也不累積，那 2 秒沒有飛機可以操縱。
     // 上帝視角例外：死亡不影響它，而它的鏡頭吃的正是下面那兩個累積值
     if (state.lookActive && !state.godView) {
-      slewLook(state, e.movementX / half, e.movementY / half)
+      slewLook(state, dx, dy)
       return
     }
     // 世界固定瞄準點：這裡只累積「本幀的螢幕相對位移」，真正的旋轉由飛行
     // 迴圈以 slewAimWorld 執行——旋轉軸取自相機，而相機不歸輸入層管
     // （bindings 是純 DOM 外殼，對 render/ 沒有依賴）。
-    state.aimDeltaX += (e.movementX / half) * MOUSE_SENSITIVITY
-    state.aimDeltaY -= (e.movementY / half) * MOUSE_SENSITIVITY
+    state.aimDeltaX += dx * MOUSE_SENSITIVITY
+    state.aimDeltaY -= dy * MOUSE_SENSITIVITY
   }
 
   /**

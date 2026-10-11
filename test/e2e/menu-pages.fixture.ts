@@ -32,6 +32,7 @@ export function mount() {
     onAntialias(value) { events.push(['antialias', value]) },
     onVolume(value) { events.push(['volume', value]) },
     onAimAssist(value) { events.push(['assist', value]) },
+    onMouseSensitivity(value) { events.push(['mouse', value]) },
     onLang(value) { setLang(value) },
   })
   menu.renderSetup(setup)

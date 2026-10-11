@@ -4,6 +4,7 @@ import {
 } from '../render/quality'
 import { DEFAULT_VOLUME_DB, VOLUME_LEVELS } from '../audio/volume'
 import { AIM_ASSIST_LEVELS } from '../input/aimAssistPreferences'
+import { DEFAULT_MOUSE_SENSITIVITY, snapMouseSensitivity } from '../input/mouseSensitivity'
 import { optRow } from './menuOptions'
 
 export interface MenuSettingsHooks {
@@ -24,6 +25,8 @@ export interface MenuSettingsHooks {
   onVolume(db: number | null): void
   /** 設定裡按了確定、瞄準輔助有變。呼叫端負責套用與記住 */
   onAimAssist(on: boolean): void
+  /** 設定裡按了確定、滑鼠靈敏度有變。呼叫端負責套用與記住 */
+  onMouseSensitivity(v: number): void
   /**
    * 設定裡按了確定、語言有變。呼叫端負責套用（`setLang`）與記住；選單自己訂閱
    * `onLangChange` 重畫
@@ -37,6 +40,10 @@ interface SettingElements {
   readonly quality: HTMLElement
   readonly antialias: HTMLElement
   readonly volume: HTMLElement
+  /** 滑鼠靈敏度的拉桿（`<input type="range">`），範圍與步距寫在 index.html */
+  readonly mouse: Pick<HTMLInputElement, 'value' | 'addEventListener'>
+  /** 拉桿旁的讀數 */
+  readonly mouseValue: Pick<HTMLElement, 'textContent'>
 }
 
 /** 設定草稿、套用順序與重新載入確認；不持有其他選單頁面的狀態。 */
@@ -59,11 +66,19 @@ export function createMenuSettings(
   let appliedAa = DEFAULT_ANTIALIAS
   let appliedVolume: number | null = DEFAULT_VOLUME_DB
   let appliedAssist = false
+  let appliedMouse = DEFAULT_MOUSE_SENSITIVITY
   let draftLang: Lang = appliedLang
   let draftQuality = appliedQuality
   let draftAa = appliedAa
   let draftVolume: number | null = appliedVolume
   let draftAssist = appliedAssist
+  let draftMouse = appliedMouse
+
+  // 【拉桿不跟著 `drawSettingRows` 重建】拖曳中換掉元素會讓拖曳斷掉；監聽器只掛一次
+  el.mouse.addEventListener('input', () => {
+    draftMouse = snapMouseSensitivity(Number(el.mouse.value))
+    el.mouseValue.textContent = `${draftMouse.toFixed(1)}x`
+  })
 
   /** 【沒有小圖示】畫質、抗鋸齒、音量都是抽象的，畫不出剪影；`.opt` 對純文字按鈕照樣成立 */
   function drawSettingRows(): void {
@@ -84,6 +99,8 @@ export function createMenuSettings(
     optRow(el.volume,
       VOLUME_LEVELS.map((lv) => ({ labelKey: lv.labelKey, value: lv.db, sil: '' })),
       draftVolume, (v) => { draftVolume = v; drawSettingRows() })
+    el.mouse.value = String(draftMouse)
+    el.mouseValue.textContent = `${draftMouse.toFixed(1)}x`
   }
 
   /** 【每次打開都從已生效的值重來】上一次按取消留下的挑選不該跟著回來 */
@@ -93,6 +110,7 @@ export function createMenuSettings(
     draftAa = appliedAa
     draftVolume = appliedVolume
     draftAssist = appliedAssist
+    draftMouse = appliedMouse
     drawSettingRows()
     closeOverlay(reloadAsk)
     openOverlay(settings)
@@ -107,6 +125,7 @@ export function createMenuSettings(
     if (draftQuality !== appliedQuality) hooks.onQuality(draftQuality)
     if (draftVolume !== appliedVolume) hooks.onVolume(draftVolume)
     if (draftAssist !== appliedAssist) hooks.onAimAssist(draftAssist)
+    if (draftMouse !== appliedMouse) hooks.onMouseSensitivity(draftMouse)
     closeOverlay(settings)
     // 【最後才換語言】換語言會重畫整個選單，放在關設定之後，重畫的是關好的畫面
     if (draftLang !== appliedLang) hooks.onLang(draftLang)
@@ -116,13 +135,15 @@ export function createMenuSettings(
    * 警告框上按了「儲存並重新載入」。
    *
    * 【其餘的要先送】`onAntialias` 會重新載入，它之後的程式碼不保證跑得到；漏送的話
-   * 玩家同時改的畫質、音量、瞄準輔助會在重整後消失，而那看起來像是「確定沒有生效」。
+   * 玩家同時改的畫質、音量、瞄準輔助、滑鼠靈敏度會在重整後消失，而那看起來像是
+   * 「確定沒有生效」。
    */
   function commitReload(): void {
     closeOverlay(reloadAsk)
     if (draftQuality !== appliedQuality) hooks.onQuality(draftQuality)
     if (draftVolume !== appliedVolume) hooks.onVolume(draftVolume)
     if (draftAssist !== appliedAssist) hooks.onAimAssist(draftAssist)
+    if (draftMouse !== appliedMouse) hooks.onMouseSensitivity(draftMouse)
     if (draftLang !== appliedLang) hooks.onLang(draftLang)
     hooks.onAntialias(draftAa)
   }
@@ -157,6 +178,12 @@ export function createMenuSettings(
     drawSettingRows()
   }
 
+  function renderMouseSensitivity(v: number): void {
+    appliedMouse = v
+    draftMouse = v
+    drawSettingRows()
+  }
+
   function cancelReload(): void {
     closeOverlay(reloadAsk)
     draftAa = appliedAa
@@ -165,6 +192,6 @@ export function createMenuSettings(
 
   return {
     openSettings, applySettings, commitReload, cancelReload, drawSettingRows,
-    renderLang, renderQuality, renderAntialias, renderVolume, renderAimAssist,
+    renderLang, renderQuality, renderAntialias, renderVolume, renderAimAssist, renderMouseSensitivity,
   }
 }

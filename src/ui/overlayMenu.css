@@ -37,7 +37,7 @@
   #ui .command-button:hover { background: #b99c6220; border-color: #bda373; color: #f6e6c3; }
 }
 
-/* 五組設定保留草稿／確定／取消流程；底部操作不隨選項區域捲動。 */
+/* 六組設定保留草稿／確定／取消流程；底部操作不隨選項區域捲動。 */
 #settings .settings-panel {
   display: flex; align-items: stretch; gap: 0;
   width: min(720px, 100%); min-width: 0; max-height: 100%;
@@ -66,6 +66,9 @@
 @media (hover: hover) {
   #settings .opt button:hover:not(:disabled) { border-color: #c6ac78; background-color: #8e744633; }
 }
+.setting-slider { display: flex; align-items: center; gap: 14px; min-width: 0; min-height: 44px; }
+.setting-slider input { flex: 1 1 auto; min-width: 0; margin: 0; accent-color: #c6ac78; cursor: pointer; }
+.setting-slider output { flex: none; width: 3.2em; text-align: right; font: 500 13px/1.35 var(--f-body); color: #fff0cd; }
 #settings .command-footer {
   display: flex; justify-content: flex-end; gap: 12px; flex: none;
   padding-top: 18px; margin-top: 8px; border-top: 1px solid #a48c5555;
@@ -102,7 +105,7 @@
   #ui .command-heading h2 { font-size: 18px; line-height: 1.3; }
   .settings-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 24px; }
   .setting-field { display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 2px 0; }
-  .setting-field:last-child { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(110px, 1fr) minmax(0, 1fr); align-items: center; }
+  .setting-slider { min-height: 38px; }
   .setting-label { font-size: 12px; }
   #settings .opt button { min-height: 38px; padding: 6px 3px; }
   #settings .opt button span { font-size: 11px; }
@@ -116,7 +119,6 @@
 }
 @media (max-width: 480px) and (orientation: portrait) {
   .settings-fields { grid-template-columns: minmax(0, 1fr); }
-  .setting-field:last-child { display: flex; }
 }
 @media (prefers-reduced-motion: reduce) {
   #ui .command-button, #settings .opt button { transition: none; }

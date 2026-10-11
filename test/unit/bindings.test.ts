@@ -163,6 +163,31 @@ describe('attachInput：自由視角（右鍵）不得移動瞄準點', () => {
     expect(state.lookPitch).toBeCloseTo(full.pitch * 0.4, 12)
   })
 
+  it('滑鼠靈敏度同時乘在瞄準與自由視角上', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    dom.win.fire('mousemove', move(0.02, 0.01))
+    const aim = { x: state.aimDeltaX, y: state.aimDeltaY }
+    state.aimDeltaX = 0
+    state.aimDeltaY = 0
+    state.mouseSensitivity = 2.5
+    dom.win.fire('mousemove', move(0.02, 0.01))
+    expect(state.aimDeltaX).toBeCloseTo(aim.x * 2.5, 12)
+    expect(state.aimDeltaY).toBeCloseTo(aim.y * 2.5, 12)
+
+    state.mouseSensitivity = 1
+    dom.canvas.fire('mousedown', { button: 2 })
+    dom.win.fire('mousemove', move(0.02, 0.01))
+    const full = { yaw: state.lookYaw, pitch: state.lookPitch }
+    state.lookYaw = 0
+    state.lookPitch = 0
+    state.mouseSensitivity = 0.5
+    dom.win.fire('mousemove', move(0.02, 0.01))
+    expect(state.lookYaw).toBeCloseTo(full.yaw * 0.5, 12)
+    expect(state.lookPitch).toBeCloseTo(full.pitch * 0.5, 12)
+  })
+
   it('放開右鍵後視角歸零，瞄準位移恢復累積', () => {
     const dom = setupDom()
     const state = createInputState()

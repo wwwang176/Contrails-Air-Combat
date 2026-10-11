@@ -73,6 +73,8 @@ export interface Menu {
   renderVolume(db: number | null): void
   /** 同上，瞄準輔助目前**已生效**的值 */
   renderAimAssist(on: boolean): void
+  /** 同上，滑鼠靈敏度目前**已生效**的倍率 */
+  renderMouseSensitivity(v: number): void
 }
 
 /**
@@ -183,6 +185,8 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     antialias: q('set-aa'),
     volume: q('set-volume'),
     aimAssist: q('set-assist'),
+    mouse: q('set-mouse') as HTMLInputElement,
+    mouseValue: q('set-mouse-value'),
     lang: q('set-lang'),
     rack: q('hangar-rack'),
     sheet: q('hangar-sheet'),
@@ -246,7 +250,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
 
   const {
     openSettings, applySettings, commitReload, cancelReload, drawSettingRows,
-    renderLang, renderQuality, renderAntialias, renderVolume, renderAimAssist,
+    renderLang, renderQuality, renderAntialias, renderVolume, renderAimAssist, renderMouseSensitivity,
   } = createMenuSettings(el, settings, reloadAsk, hooks, openOverlay, closeOverlay)
 
   renderCampaign()
@@ -303,6 +307,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     renderQuality,
     renderAntialias,
     renderAimAssist,
+    renderMouseSensitivity,
     renderVolume,
   }
 }

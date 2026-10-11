@@ -961,6 +961,14 @@
             <div class="setting-label" id="set-assist-label" data-i18n="settings.assist">瞄準輔助</div>
             <div class="opt narrow" id="set-assist" role="group" aria-labelledby="set-assist-label"></div>
           </div>
+          <div class="setting-field">
+            <div class="setting-label" id="set-mouse-label" data-i18n="settings.mouse">滑鼠靈敏度</div>
+            <!-- 範圍與步距同 input/mouseSensitivity.ts -->
+            <div class="setting-slider">
+              <input type="range" id="set-mouse" min="0.5" max="4" step="0.1" value="1" aria-labelledby="set-mouse-label">
+              <output id="set-mouse-value" for="set-mouse">1.0x</output>
+            </div>
+          </div>
           </div>
           <!-- 【選了不算數，按確定才套用】要重新載入的項目得先問過；
                改一下就立刻重整會讓玩家在毫無預期之下丟掉進行中的戰鬥 -->
