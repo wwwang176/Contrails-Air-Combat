@@ -1,0 +1,241 @@
+/* 遭遇戰的編組桌：雙方清單與戰場設定各自捲動，出擊列固定可見。 */
+#ui #skirmish {
+  --setting-surface: linear-gradient(110deg, #6c593327, #15161055);
+  padding: 104px 32px 24px;
+  overflow: hidden;
+  background: linear-gradient(90deg, #17150fbb, #17150f80);
+}
+#skirmish .pane { width: min(1180px, 100%); height: min(690px, 100%); min-height: 0; }
+#skirmish .back { top: -44px; left: 0; padding: 6px 14px; }
+#skirmish .board {
+  box-sizing: border-box;
+  width: 100%; height: 100%; min-height: 0; padding: 0;
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
+  border: 1px solid #8e7853;
+  background: var(--dossier-grain), linear-gradient(115deg, #352e23f5, #1e1d18f7);
+  box-shadow: inset 0 0 0 3px #bda57512, 0 18px 50px #0006;
+}
+#skirmish .board .head {
+  margin: 0; padding: 18px 20px 16px; gap: 8px 16px; flex-wrap: wrap;
+  border-bottom: 1px solid #a18b5c55;
+}
+#skirmish .head h2 { margin: 0; font: 600 21px/1.4 var(--f-body); letter-spacing: .08em; }
+#skirmish .head .sub { font-size: 11px; color: #b5a78c; }
+#skirmish .presets { gap: 10px; }
+#sk-presets { display: flex; flex-wrap: wrap; gap: 4px; }
+#skirmish .presets button {
+  padding: 6px 10px; font-size: 12px; box-shadow: none;
+  border-color: #9b83544d; background: #15151055; color: #d9c9aa;
+}
+#skirmish .skirmish-body {
+  display: grid; grid-template-columns: minmax(0, 1fr) 230px; min-height: 0;
+}
+#skirmish .sides {
+  grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px;
+  padding: 0 20px 18px; overflow-y: auto; min-height: 0;
+  align-items: stretch; align-content: start; scrollbar-gutter: stable;
+}
+#skirmish .side { min-width: 0; gap: 7px; --team: #9cbccc; --flight-inset: 10px; }
+#skirmish .side.foe { --team: #d1a08d; }
+#skirmish .side > header {
+  position: sticky; top: 0; z-index: 3;
+  box-sizing: border-box; min-height: 48px; padding: 8px var(--flight-inset);
+  background: #302b22; border-bottom: 2px solid var(--team);
+  border-left: 2px solid transparent; border-right: 1px solid transparent;
+  align-items: center;
+}
+#skirmish .side h3 { margin: 0; font: 600 14px/1.4 var(--f-body); color: var(--team); }
+#skirmish .side .count { display: inline-flex; align-items: center; gap: 3px; font: 500 20px/1.3 var(--f-ui); font-variant-numeric: tabular-nums; color: #eee0c2; }
+#skirmish .side .count b { font-weight: 500; }
+#skirmish .side .count small { font: 11px/1.3 var(--f-ui); color: #b5a78c; }
+#skirmish .flight {
+  grid-template-columns: 62px minmax(0, 1fr) 30px auto;
+  gap: 5px 8px; padding: 10px var(--flight-inset); min-width: 0;
+  background: linear-gradient(110deg, #b49a6410, #15151150);
+  border: 1px solid #9c875c40; border-left: 2px solid #9c875c55;
+  box-shadow: 0 2px 3px #0002;
+}
+#skirmish .flight.lead {
+  border-color: #a8c5cc88; border-left-color: #b7d8e4;
+  background: linear-gradient(110deg, #53636a66, #303a3c55);
+  box-shadow: inset 0 0 0 1px #b7d8e410;
+}
+#skirmish .flight.selectable { cursor: pointer; }
+#skirmish .flight.selectable:focus-within { border-color: #b9d7df; }
+#skirmish .flight .sil { width: 62px; height: 32px; color: #c6baa0; }
+#skirmish .flight.lead .sil { color: #e0e7dc; }
+#skirmish .flight .sil .mk { height: 18px; }
+#skirmish .flight .who { min-width: 0; }
+#skirmish .flight .nm { color: #e9dec5; font-size: 14px; line-height: 1.4; }
+#skirmish .flight .meta { color: #b8aa90; font-size: 11px; line-height: 1.5; }
+#skirmish .flight.lead .meta { color: #bed4de; }
+#skirmish .flight .pick, #skirmish .flight-index {
+  box-sizing: border-box; display: grid; place-items: center;
+  width: 30px; height: 30px; border-radius: 0; font: 12px var(--f-title);
+  border: 1px solid #a99b784d; color: #c2b595; background: #17181244;
+}
+#skirmish .flight-index { border-color: transparent; background: none; color: #a6977b; }
+#skirmish .flight .pick { border: 0; background: none; }
+#skirmish .flight .pick::before {
+  content: ''; width: 16px; height: 16px; border-radius: 50%; border: 1px solid #b5aa91;
+}
+#skirmish .flight.lead .pick::before { border-color: #b9d7df; background: radial-gradient(circle, #b9d7df 0 4px, transparent 5px); }
+#skirmish .flight.lead .pick::after { content: none; }
+#skirmish .flight .qty {
+  justify-content: flex-end; gap: 0;
+}
+#skirmish .flight .qty .n {
+  min-width: 30px; color: #f1e3c9; font: 500 14px/30px var(--f-ui);
+  border-block: 1px solid #9c875c50; background: #10120f33;
+}
+#skirmish .flight .qty button {
+  box-sizing: border-box; width: 32px; height: 32px; padding: 0;
+  font: 16px/1 var(--f-ui); color: #d8c7a7;
+  background: #18181244; border-color: #9c875c50; box-shadow: none;
+}
+#skirmish .flight .qty .rm { margin-left: 12px; color: #d6a591; border-color: transparent; background: none; font-size: 13px; }
+#skirmish .side .add {
+  margin-top: 2px; min-height: 38px; padding: 7px;
+  border: 1px solid #a68b565c; background: var(--setting-surface);
+  color: #cdbd9c; box-shadow: none; font-size: 12px;
+}
+#skirmish .setup {
+  margin: 0; padding: 16px; border: 0; border-left: 1px solid #a18b5c55;
+  display: flex; flex-direction: column; flex-wrap: nowrap;
+  gap: 14px; overflow-y: auto; min-width: 0; min-height: 0;
+  background: #14161144;
+}
+#skirmish .setup > div { min-width: 0; }
+#skirmish .setup .lbl { margin-bottom: 7px; color: #c7b595; font: 600 12px/1.5 var(--f-body); letter-spacing: .08em; }
+#skirmish .setting-summary {
+  display: grid; grid-template-columns: minmax(0, 1fr) 12px; gap: 10px 6px;
+  width: 100%; padding: 14px; text-align: left;
+  border: 1px solid #a68b565c; background: var(--setting-surface);
+}
+#skirmish .setting-art { grid-column: 1 / -1; display: flex; align-items: center; min-height: 26px; }
+#skirmish .setting-value { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+#skirmish .setting-caption { display: none; }
+#skirmish .setting-value b { color: #eee0be; font: 500 14px/1.4 var(--f-ui); }
+#skirmish .setting-value small { color: #b9aa8b; font: 11px/1.4 var(--f-ui); }
+#skirmish .setting-chevron { align-self: center; color: #ceaf7a; font: 24px/1 var(--f-ui); }
+#skirmish .foot {
+  padding: 12px 20px; margin: 0; gap: 12px; border-top: 1px solid #a18b5c55;
+  background: #201e17; min-width: 0;
+}
+#skirmish .versus { flex-direction: row; padding: 0; gap: 14px; min-width: 0; }
+#skirmish .versus .vs { font: 12px var(--f-body); color: #b8a788; }
+#skirmish .odds { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 18px; font-size: 11px; color: #bbae93; }
+#skirmish .totals { display: flex; align-items: center; gap: 10px; }
+#skirmish .totals b { font: 20px/1 var(--f-title); }
+#skirmish .role-odds { white-space: nowrap; }
+#skirmish .foot .right { margin-left: auto; flex: none; }
+#ui #skirmish .dossier-action { min-height: 44px; min-width: 150px; padding: 8px 20px; font-size: 15px; }
+#skirmish button { transition: border-color .15s, background-color .15s, color .15s; }
+#ui #skirmish button:active { transform: none; }
+#skirmish button:focus-visible { outline: 2px solid #efcf91; outline-offset: 2px; }
+@media (hover: hover) {
+  #skirmish .presets button:hover, #skirmish .setting-summary:hover,
+  #skirmish .flight button:hover:not(:disabled), #skirmish .add:hover:not(:disabled) { border-color: #cbb383; background-color: #70604366; }
+  #skirmish .flight.selectable:hover { border-color: #b9d7df88; }
+}
+
+/* 橫向手機也保留雙方並列；清單與環境欄獨立捲動，不把出擊鍵推離螢幕。 */
+@media (max-width: 1100px), (max-height: 540px) {
+  #ui #skirmish { padding: 104px 12px 12px; }
+  #skirmish .pane { height: 100%; }
+  #skirmish .back { position: absolute; top: -44px; left: 0; padding: 6px 12px; font-size: 13px; }
+  #skirmish .board .head { padding: 9px 10px; gap: 6px 12px; }
+  #skirmish .head h2 { font-size: 17px; }
+  #skirmish .head .sub { display: none; }
+  #skirmish .presets { gap: 6px; }
+  #skirmish .presets button { font-size: 11px; padding: 5px 7px; min-height: 32px; }
+  #skirmish .skirmish-body { grid-template-columns: minmax(0, 1fr) 190px; }
+  #skirmish .sides { padding: 0 10px 10px; gap: 8px; scrollbar-gutter: auto; }
+  #skirmish .side { gap: 5px; --flight-inset: 7px; }
+  #skirmish .side > header { min-height: 36px; padding: 6px var(--flight-inset); gap: 4px; }
+  #skirmish .side h3 { font-size: 12px; }
+  #skirmish .side .count { font-size: 18px; }
+  #skirmish .side .count small { font-size: 9px; }
+  #skirmish .flight { grid-template-columns: 40px minmax(0, 1fr) 28px; gap: 5px; padding: 7px var(--flight-inset); }
+  #skirmish .flight .sil { width: 40px; height: 30px; }
+  #skirmish .flight .sil i { height: 23px; }
+  #skirmish .flight .sil .mk { height: 15px; }
+  #skirmish .flight .nm { font-size: 12px; }
+  #skirmish .flight .meta { font-size: 10px; }
+  #skirmish .flight .pick, #skirmish .flight-index { width: 28px; height: 32px; }
+  #skirmish .flight .qty { grid-column: 1 / -1; }
+  #skirmish .flight .qty .rm { margin-left: 7px; }
+  #skirmish .setup { padding: 10px; gap: 10px; }
+  #skirmish .setup .lbl { display: none; }
+  #skirmish .setting-caption { display: block; color: #b9aa8b; font: 10px/1.3 var(--f-ui); }
+  #skirmish .setting-summary { grid-template-columns: 42px minmax(0, 1fr) 9px; padding: 7px; gap: 7px; min-height: 44px; }
+  #skirmish .setting-art { grid-column: auto; min-height: 0; }
+  #skirmish .setting-art svg { zoom: .55; }
+  #skirmish .setting-value b { font-size: 12px; }
+  #skirmish .setting-value small { display: none; }
+  #skirmish .foot { padding: 7px 12px; }
+  #skirmish .versus { gap: 8px; }
+  #skirmish .odds { gap: 4px 10px; font-size: 10px; }
+  #skirmish .totals { gap: 7px; }
+  #skirmish .totals b { font-size: 18px; }
+  #ui #skirmish .dossier-action { min-height: 36px; min-width: 112px; padding: 5px 14px; font-size: 13px; gap: 16px; }
+}
+@media (pointer: coarse) and (max-height: 540px) {
+  #skirmish .back { position: fixed; top: 6px; left: max(12px, env(safe-area-inset-left)); }
+  #ui #skirmish { padding-top: 50px; padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+}
+@media (max-width: 700px) {
+  #skirmish .board .head { gap: 6px; padding-inline: 7px; }
+  #skirmish .presets .lbl { display: none; }
+  #skirmish .presets button { padding-inline: 5px; }
+  #skirmish .skirmish-body { grid-template-columns: minmax(0, 1fr) 170px; }
+  #skirmish .sides { padding-inline: 7px; gap: 6px; }
+  #skirmish .side { --flight-inset: 6px; }
+  #skirmish .flight { grid-template-columns: 34px minmax(0, 1fr) 26px; padding: 6px var(--flight-inset); gap: 4px; }
+  #skirmish .flight .sil { width: 34px; }
+  #skirmish .role-odds { font-size: 10px; }
+}
+
+/* 三種設定共用同一個彈窗；選項大小與主頁無關，手機也有足夠的點選面積。 */
+#ui .skirmish-picker { padding: 24px; }
+.skirmish-picker .sk-option-panel {
+  display: flex; flex-direction: column; gap: 20px; box-sizing: border-box;
+  width: min(640px, 100%); max-height: 100%; padding: 24px;
+}
+.skirmish-picker .command-heading { flex: none; padding-bottom: 12px; }
+.skirmish-picker .command-heading h2 { font-size: 20px; }
+.skirmish-picker .sk-picker-options {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px; overflow-y: auto; min-height: 0; padding: 3px;
+}
+.skirmish-picker .sk-picker-options button {
+  width: auto; min-width: 0; padding: 14px 8px; gap: 6px; min-height: 94px;
+  background: #18191377; border: 1px solid #9e875955;
+}
+.skirmish-picker .sk-picker-options button span { color: #e4d6b5; font: 500 14px/1.4 var(--f-ui); }
+.skirmish-picker .sk-picker-options button small { color: #bcae92; font: 11px/1.4 var(--f-ui); }
+.skirmish-picker .sk-picker-options button.on { background: #89724755; border-color: #d4b678; box-shadow: inset 0 -2px #d4b678; }
+#plane-pick .sk-picker-options { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.skirmish-picker .plane { display: flex; flex-direction: column; justify-content: center; text-align: center; }
+.skirmish-picker .plane .nm { white-space: normal; font: 500 12px/1.4 var(--f-ui); }
+.skirmish-picker .plane .st { white-space: normal; font: 10px/1.4 var(--f-ui); }
+.skirmish-picker .plane .sil { width: 62px; }
+.skirmish-picker .sk-picker-options button:focus-visible { outline: 2px solid #e4c690; outline-offset: 1px; }
+.skirmish-picker footer { display: flex; justify-content: flex-end; flex: none; }
+@media (hover: hover) { .skirmish-picker .sk-picker-options button:hover { border-color: #d4b678; background-color: #89724733; } }
+@media (max-height: 540px) {
+  #ui .skirmish-picker { padding: 12px max(16px, env(safe-area-inset-left)); }
+  .skirmish-picker .sk-option-panel { padding: 12px 16px; gap: 8px; }
+  .skirmish-picker .command-heading { padding-bottom: 8px; }
+  .skirmish-picker .command-heading h2 { font-size: 17px; }
+  .skirmish-picker .sk-picker-options { gap: 6px; }
+  .skirmish-picker .sk-picker-options button { min-height: 63px; padding: 5px; gap: 2px; }
+  .skirmish-picker .sk-picker-options button svg { zoom: .7; }
+  .skirmish-picker .sk-picker-options button span { font-size: 12px; }
+  .skirmish-picker .sk-picker-options button small { font-size: 10px; }
+  .skirmish-picker .plane .sil { width: 53px; }
+  .skirmish-picker .plane .sil .mk { zoom: 1; }
+  .skirmish-picker .plane .nm { font-size: 11px; }
+  .skirmish-picker .plane .st { font-size: 9px; white-space: normal; }
+  .skirmish-picker .command-button { min-height: 34px; padding: 4px 18px; font-size: 12px; }
+}

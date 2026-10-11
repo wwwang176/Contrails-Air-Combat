@@ -672,6 +672,7 @@
     <link rel="stylesheet" href="/src/ui/hangarMenu.css">
     <link rel="stylesheet" href="/src/ui/scoreboard.css">
     <link rel="stylesheet" href="/src/ui/tutorialMenu.css">
+    <link rel="stylesheet" href="/src/ui/skirmishMenu.css">
     <link rel="stylesheet" href="/src/ui/combatControls.css">
   </head>
   <body>
@@ -836,18 +837,20 @@
               <span class="sub" data-i18n="skirmish.sub">最多五個小隊，每隊四架</span>
               <div class="presets"><span class="lbl" data-i18n="skirmish.presets">想定</span><span id="sk-presets"></span></div>
             </div>
-            <div class="sides">
-              <section class="side mine" id="sk-mine"></section>
-              <div class="versus" id="sk-versus"></div>
-              <section class="side foe" id="sk-foe"></section>
-            </div>
-            <div class="setup">
-              <div><div class="lbl" style="margin-bottom:7px" data-i18n="skirmish.terrain">戰場</div><div class="opt wrap" id="sk-terrain"></div></div>
-              <div><div class="lbl" style="margin-bottom:7px" data-i18n="skirmish.altitude">開場高度</div><div class="opt" id="sk-alt"></div></div>
-              <div><div class="lbl" style="margin-bottom:7px" data-i18n="skirmish.tod">時段</div><div class="opt narrow" id="sk-tod"></div></div>
+            <div class="skirmish-body">
+              <div class="sides">
+                <section class="side mine" id="sk-mine"></section>
+                <section class="side foe" id="sk-foe"></section>
+              </div>
+              <div class="setup">
+                <div><div class="lbl" id="sk-terrain-label" data-i18n="skirmish.terrain">戰場</div><div class="setting-choice" id="sk-terrain"></div></div>
+                <div><div class="lbl" id="sk-alt-label" data-i18n="skirmish.altitude">開場高度</div><div class="setting-choice" id="sk-alt"></div></div>
+                <div><div class="lbl" id="sk-tod-label" data-i18n="skirmish.tod">時段</div><div class="setting-choice" id="sk-tod"></div></div>
+              </div>
             </div>
             <div class="foot">
-              <div class="right"><button class="go" data-act="fight" data-i18n="skirmish.fight">戰鬥</button></div>
+              <div class="versus" id="sk-versus"></div>
+              <div class="right"><button class="go dossier-action" data-act="fight" data-i18n="skirmish.fight">戰鬥</button></div>
             </div>
           </div>
         </div>
@@ -897,11 +900,19 @@
       </section>
       <!-- 編組頁「加一個小隊」的機種選單。overlay，menu.ts 自己開關；
            點外面的遮罩也會收起來 -->
-      <section id="plane-pick" class="screen" style="--v:.60" hidden>
-        <div class="ask pick">
-          <h2 id="plane-pick-title"></h2>
-          <div class="palette" id="plane-pick-list"></div>
-          <div class="row"><button class="btn cancel" data-act="planePickCancel" data-i18n="common.cancel">取消</button></div>
+      <section id="sk-option-pick" class="screen command-overlay skirmish-picker" hidden>
+        <div class="command-panel sk-option-panel" role="dialog" aria-modal="true" aria-labelledby="sk-option-title" tabindex="-1">
+          <header class="command-heading"><h2 id="sk-option-title"></h2><span class="command-heading-rule" aria-hidden="true"></span></header>
+          <div class="opt sk-picker-options" id="sk-option-list"></div>
+          <footer><button class="command-button sk-option-cancel" data-i18n="common.cancel">取消</button></footer>
+        </div>
+      </section>
+
+      <section id="plane-pick" class="screen command-overlay skirmish-picker" style="--v:.60" hidden>
+        <div class="command-panel sk-option-panel" role="dialog" aria-modal="true" aria-labelledby="plane-pick-title">
+          <header class="command-heading"><h2 id="plane-pick-title"></h2><span class="command-heading-rule" aria-hidden="true"></span></header>
+          <div class="palette sk-picker-options" id="plane-pick-list"></div>
+          <footer><button class="command-button" data-act="planePickCancel" data-i18n="common.cancel">取消</button></footer>
         </div>
       </section>
       <!-- 回主選單的確認。遭遇戰的出口，與放棄任務同一類 -->

@@ -1,16 +1,17 @@
 import { specOf } from '../specs/catalog'
+import { SCHWARM_SIZE } from '../battle/flights'
 import {
   addFlight, setCount, removeFlight, setLead, applyPreset, flightsTotal,
   PRESETS, ALTITUDES, MAX_SIDE, MAX_FLIGHTS, type SkirmishSetup, type Flight, type PresetKey,
 } from '../battle/skirmish'
-import { formatNumber, t } from '../i18n'
+import { formatNumber, t, type MessageKey } from '../i18n'
 import type { AircraftSpec } from '../specs/types'
 import type { TerrainKind } from '../world/terrainKind'
 import type { TimeOfDay } from '../world/timeOfDay'
 import { strengthOf, SIDE_OF } from './dossier'
 import { shortName } from '../i18n/names'
 import { optRow, escapeHtml, type OptItem } from './menuOptions'
-import { campaignLabel, fullName, HANGAR_SPECS, roleWord, silBadge } from './menuAircraft'
+import { campaignLabel, HANGAR_SPECS, roleWord, silBadge } from './menuAircraft'
 
 /** 場地的選項。**順序即按鈕順序。**群島在前：它是預設，也是有東西可看的那一個 */
 const TERRAINS: readonly OptItem<TerrainKind>[] = [
@@ -64,6 +65,7 @@ export function createMenuSkirmish(
   el: { presets: HTMLElement; mine: HTMLElement; foe: HTMLElement; versus: HTMLElement;
     terrain: HTMLElement; alt: HTMLElement; tod: HTMLElement; go: HTMLButtonElement },
   planePick: HTMLElement,
+  optionPick: HTMLElement,
   hooks: { onSetup(setup: SkirmishSetup): void },
   openOverlay: (element: HTMLElement) => void,
   closeOverlay: (element: HTMLElement) => void,
@@ -73,21 +75,85 @@ export function createMenuSkirmish(
   let lastSetup: SkirmishSetup | null = null
   /** 機種彈窗最後一次打開時的參數；換語言時照它重畫 */
   let lastPick: { readonly setup: SkirmishSetup; readonly team: 'blue' | 'red' } | null = null
+  let optionHost: HTMLElement | null = null
+  const optionList = optionPick.querySelector<HTMLElement>('#sk-option-list')!
+  const optionTitle = optionPick.querySelector<HTMLElement>('#sk-option-title')!
+  function focusSetting(): void {
+    optionHost?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
+  }
+  function cancelSetting(): void {
+    closeOverlay(optionPick)
+    focusSetting()
+  }
+  optionPick.querySelector('.sk-option-cancel')!.addEventListener('click', cancelSetting)
+  optionPick.addEventListener('click', (e) => { if (e.target === optionPick) cancelSetting() })
+  optionPick.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      cancelSetting()
+    }
+    if (e.key !== 'Tab') return
+    const buttons = Array.from(optionPick.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+    const first = buttons[0]
+    const last = buttons[buttons.length - 1]
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus() }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus() }
+  })
+  /** 主頁只呈現目前設定；彈窗沿用既有資料與套用流程。 */
+  function settingChoice<T>(host: HTMLElement, label: MessageKey, items: readonly OptItem<T>[], current: T, onPick: (value: T) => void): void {
+    const selected = items.find((item) => item.value === current) ?? items[0]!
+    const name = selected.labelKey === undefined ? selected.label ?? '' : t(selected.labelKey)
+    const hint = selected.hintKey === undefined ? selected.hint ?? '' : t(selected.hintKey)
+    const reading = host === el.alt ? hint : name
+    const detail = host === el.alt ? name : hint
+    const button = document.createElement('button')
+    button.className = 'setting-summary'
+    button.setAttribute('aria-haspopup', 'dialog')
+    button.setAttribute('aria-controls', 'sk-option-pick')
+    button.setAttribute('aria-label', `${t(label)}: ${name}${hint ? ` · ${hint}` : ''}`)
+    button.innerHTML = `<span class="setting-art" aria-hidden="true">${selected.sil}</span>`
+      + `<span class="setting-value"><span class="setting-caption">${escapeHtml(t(label))}</span><b>${escapeHtml(reading)}</b><small>${escapeHtml(detail)}</small></span>`
+      + '<span class="setting-chevron" aria-hidden="true">›</span>'
+    button.addEventListener('click', () => {
+      optionHost = host
+      optionTitle.textContent = t(label)
+      optRow(optionList, items, current, (value) => {
+        closeOverlay(optionPick)
+        onPick(value)
+        focusSetting()
+      })
+      optionList.dataset.kind = host.id
+      optionList.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.classList.contains('on'))))
+      openOverlay(optionPick)
+      optionList.querySelector<HTMLButtonElement>('button.on')?.focus({ preventScroll: true })
+    })
+    host.replaceChildren(button)
+  }
   // ── 編組頁 ───────────────────────────────────────────
   function flightRow(setup: SkirmishSetup, team: 'blue' | 'red', f: Flight, i: number): HTMLElement {
     const spec = specOf(f.id)
     const lead = team === 'blue' && setup.lead === i
     const row = document.createElement('div')
-    row.className = `flight${lead ? ' lead paperbit' : ''}`
+    row.className = `flight${team === 'blue' ? ' selectable' : ''}${lead ? ' lead' : ''}`
     row.innerHTML =
-      (team === 'blue'
-        ? `<button class="pick" title="${escapeHtml(t('skirmish.myFlight'))}"></button>` : '<span></span>')
-      + `<div class="who"><div class="nm">${escapeHtml(shortName(spec))} <span class="full">${escapeHtml(fullName(spec))}</span></div>`
-      + `<div class="meta">${escapeHtml(roleWord(spec.role))} · ${escapeHtml(strengthOf(spec.id))}</div></div>`
-      + `<div class="dots">${[1, 2, 3, 4].map((n) => `<i class="${n <= f.count ? 'on' : ''}"></i>`).join('')}</div>`
+      silBadge(spec.id)
+      + `<div class="who" title="${escapeHtml(roleWord(spec.role))} · ${escapeHtml(strengthOf(spec.id))}"><div class="nm">${escapeHtml(shortName(spec))}</div>`
+      + `<div class="meta">${escapeHtml(lead ? t('skirmish.myFlight') : roleWord(spec.role))}</div></div>`
+      + (team === 'blue'
+        ? `<button class="pick" aria-pressed="${lead}" aria-label="${escapeHtml(t('skirmish.myFlight'))} · ${i + 1} · ${escapeHtml(shortName(spec))}" title="${escapeHtml(t('skirmish.myFlight'))}"></button>`
+        : `<span class="flight-index">${String(i + 1).padStart(2, '0')}</span>`)
       + `<div class="qty"><button class="btn tiny minus">−</button><span class="n">${f.count}</span>`
       + `<button class="btn tiny plus">+</button><button class="btn tiny rm">✕</button></div>`
+    const plus = row.querySelector<HTMLButtonElement>('.plus')!
+    plus.disabled = f.count >= SCHWARM_SIZE || flightsTotal(team === 'blue' ? setup.blue : setup.red) >= MAX_SIDE
     row.querySelector('.pick')?.addEventListener('click', () => hooks.onSetup(setLead(setup, i)))
+    if (team === 'blue') {
+      row.addEventListener('click', (e) => {
+        // 整張卡都能選取；加減與刪除維持獨立，不能順便換掉玩家小隊。
+        if (!(e.target as Element).closest('button')) hooks.onSetup(setLead(setup, i))
+      })
+    }
     row.querySelector('.minus')!.addEventListener('click', () => hooks.onSetup(setCount(setup, team, i, f.count - 1)))
     row.querySelector('.plus')!.addEventListener('click', () => hooks.onSetup(setCount(setup, team, i, f.count + 1)))
     row.querySelector('.rm')!.addEventListener('click', () => hooks.onSetup(removeFlight(setup, team, i)))
@@ -140,14 +206,12 @@ export function createMenuSkirmish(
   function renderVersus(setup: SkirmishSetup): void {
     const m = flightsTotal(setup.blue)
     const f = flightsTotal(setup.red)
-    const hi = Math.max(m, f, 1)
     const byRole = (list: readonly Flight[], role: AircraftSpec['role']) =>
       list.filter((x) => specOf(x.id).role === role).reduce((n, x) => n + x.count, 0)
     el.versus.innerHTML = `<div class="vs">${escapeHtml(t('skirmish.versus'))}</div>`
-      + `<div class="bar"><i class="m" style="height:${(m / hi) * 50}%"></i><i class="f" style="height:${(f / hi) * 50}%"></i></div>`
-      + `<div class="odds"><b class="m">${m}</b> : <b class="f">${f}</b><br>`
-      + `${escapeHtml(t('skirmish.fighters', { a: byRole(setup.blue, 'fighter'), b: byRole(setup.red, 'fighter') }))}<br>`
-      + `${escapeHtml(t('skirmish.bombers', { a: byRole(setup.blue, 'bomber'), b: byRole(setup.red, 'bomber') }))}</div>`
+      + `<div class="odds"><span class="totals"><b class="m">${m}</b><span>:</span><b class="f">${f}</b></span>`
+      + `<span class="role-odds">${escapeHtml(t('skirmish.fighters', { a: byRole(setup.blue, 'fighter'), b: byRole(setup.red, 'fighter') }))}</span>`
+      + `<span class="role-odds">${escapeHtml(t('skirmish.bombers', { a: byRole(setup.blue, 'bomber'), b: byRole(setup.red, 'bomber') }))}</span></div>`
   }
   function renderSetup(setup: SkirmishSetup): void {
     lastSetup = setup
@@ -162,10 +226,10 @@ export function createMenuSkirmish(
     renderSide(setup, 'blue')
     renderSide(setup, 'red')
     renderVersus(setup)
-    optRow(el.terrain, TERRAINS, setup.terrain, (v) => hooks.onSetup({ ...setup, terrain: v }))
-    optRow(el.alt, ALTITUDES.map((a, i) => ({ labelKey: a.labelKey, hint: `${formatNumber(a.value)} m`, value: a.value, sil: altSil(ALT_Y[i] ?? 12) })),
+    settingChoice(el.terrain, 'skirmish.terrain', TERRAINS, setup.terrain, (v) => hooks.onSetup({ ...setup, terrain: v }))
+    settingChoice(el.alt, 'skirmish.altitude', ALTITUDES.map((a, i) => ({ labelKey: a.labelKey, hint: `${formatNumber(a.value)} m`, value: a.value, sil: altSil(ALT_Y[i] ?? 12) })),
       setup.altitude, (v) => hooks.onSetup({ ...setup, altitude: v }))
-    optRow(el.tod, TIMES, setup.timeOfDay, (v) => hooks.onSetup({ ...setup, timeOfDay: v }))
+    settingChoice(el.tod, 'skirmish.tod', TIMES, setup.timeOfDay, (v) => hooks.onSetup({ ...setup, timeOfDay: v }))
     // 【任一邊空著就禁用】不靠 `battleConfigFrom` 補一架 —— 那是防禦，不是 UI 的行為
     // 【只禁用，不寫一行字】一邊空著的時候那一欄本身就是空的、按鈕也灰了，
     // 再寫一句「兩邊都要有人才打得起來」是多的
