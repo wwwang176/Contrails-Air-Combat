@@ -119,6 +119,8 @@
 }
 @media (max-width: 480px) and (orientation: portrait) {
   .settings-fields { grid-template-columns: minmax(0, 1fr); }
+  #settings .command-footer { gap: 8px; }
+  #ui #settings .command-footer button { white-space: nowrap; padding-inline: 12px; }
 }
 @media (prefers-reduced-motion: reduce) {
   #ui .command-button, #settings .opt button { transition: none; }

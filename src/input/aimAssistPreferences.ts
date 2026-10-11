@@ -9,7 +9,7 @@ export const AIM_ASSIST_LEVELS: readonly { labelKey: MessageKey; value: boolean 
 const AIM_ASSIST_KEY = 'input.aimAssist'
 
 /** 沒有設定過時開；玩家改過一次就以玩家的為準 */
-const DEFAULT_AIM_ASSIST = true
+export const DEFAULT_AIM_ASSIST = true
 
 /** 讀寫都包 try，理由同 `render/quality.ts` 的 `readQuality` */
 export function readAimAssist(): boolean {

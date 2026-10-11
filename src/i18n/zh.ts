@@ -246,6 +246,7 @@ export const zh = {
   'settings.volume': '音量',
   'settings.assist': '瞄準輔助',
   'settings.mouse': '滑鼠靈敏度',
+  'settings.reset': '恢復預設值',
   'reload.title': '需要重新載入',
   'reload.body': '抗鋸齒要重新載入才會生效，進行中的戰鬥會遺失。',
   'reload.yes': '儲存並重新載入',

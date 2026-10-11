@@ -219,6 +219,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     // 【設定是 overlay，不是畫面】與暫停、確認同一類，見 ui/screens.ts
     if (act === 'settings') { openSettings(); return }
     if (act === 'settingsApply') { applySettings(); return }
+    if (act === 'settingsReset') { resetSettings(); return }
     // 【取消就整批丟掉】選擇只存在選單內部，沒有任何東西套用過，所以不必還原畫面
     if (act === 'settingsCancel') { closeOverlay(settings); return }
     // 要重新載入的設定，套用前的最後一問
@@ -249,7 +250,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   })
 
   const {
-    openSettings, applySettings, commitReload, cancelReload, drawSettingRows,
+    openSettings, applySettings, resetSettings, commitReload, cancelReload, drawSettingRows,
     renderLang, renderQuality, renderAntialias, renderVolume, renderAimAssist, renderMouseSensitivity,
   } = createMenuSettings(el, settings, reloadAsk, hooks, openOverlay, closeOverlay)
 

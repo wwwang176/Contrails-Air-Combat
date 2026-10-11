@@ -146,3 +146,45 @@ describe('設定頁的滑鼠靈敏度拉桿', () => {
     expect(f.events).toEqual([])
   })
 })
+
+describe('設定頁的恢復預設值', () => {
+  it('草稿回到預設值（語言不動），按確定才送出', () => {
+    const f = fixture()
+    f.view.renderLang('en')
+    f.view.renderQuality(0.5)
+    f.view.renderVolume(-12)
+    f.view.renderAimAssist(false)
+    f.view.renderMouseSensitivity(3)
+    f.view.openSettings()
+    f.view.resetSettings()
+    expect(f.events).toEqual([])
+    expect(f.rows.quality.children.find(e => e.className === 'on')).toBe(f.rows.quality.children[2])
+    expect(f.rows.volume.children[3]!.className).toBe('on')
+    expect(f.rows.aimAssist.children[0]!.className).toBe('on')
+    expect(f.rows.mouse.value).toBe('1')
+    expect(f.rows.mouseValue.textContent).toBe('1.0x')
+    expect(f.rows.lang.children[1]!.className).toBe('on')
+    f.view.applySettings()
+    expect(f.events).toEqual([['quality', 1], ['volume', 0], ['assist', true], ['mouse', 1]])
+  })
+
+  it('抗鋸齒回到預設時照樣先問重新載入', () => {
+    const f = fixture()
+    f.view.renderAntialias(false)
+    f.view.openSettings()
+    f.view.resetSettings()
+    f.view.applySettings()
+    expect(f.reload.hidden).toBe(false)
+    expect(f.events).toEqual([])
+  })
+
+  it('恢復之後按取消，再打開還是原本已套用的值', () => {
+    const f = fixture()
+    f.view.renderVolume(-12)
+    f.view.openSettings()
+    f.view.resetSettings()
+    f.settings.hidden = true
+    f.view.openSettings()
+    expect(f.rows.volume.children[1]!.className).toBe('on')
+  })
+})

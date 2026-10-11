@@ -3,7 +3,7 @@ import {
   ANTIALIAS_LEVELS, DEFAULT_ANTIALIAS, DEFAULT_QUALITY, QUALITY_LEVELS, qualityAvailable,
 } from '../render/quality'
 import { DEFAULT_VOLUME_DB, VOLUME_LEVELS } from '../audio/volume'
-import { AIM_ASSIST_LEVELS } from '../input/aimAssistPreferences'
+import { AIM_ASSIST_LEVELS, DEFAULT_AIM_ASSIST } from '../input/aimAssistPreferences'
 import { DEFAULT_MOUSE_SENSITIVITY, snapMouseSensitivity } from '../input/mouseSensitivity'
 import { optRow } from './menuOptions'
 
@@ -117,6 +117,19 @@ export function createMenuSettings(
   }
 
   /**
+   * 按下恢復預設值：只改草稿，按確定才套用（抗鋸齒有變一樣先問重新載入）。
+   * 語言不在內：恢復預設不該把介面換成玩家看不懂的語言。
+   */
+  function resetSettings(): void {
+    draftQuality = DEFAULT_QUALITY
+    draftAa = DEFAULT_ANTIALIAS
+    draftVolume = DEFAULT_VOLUME_DB
+    draftAssist = DEFAULT_AIM_ASSIST
+    draftMouse = DEFAULT_MOUSE_SENSITIVITY
+    drawSettingRows()
+  }
+
+  /**
    * 按下確定。**動到要重新載入的項目就先問過再套用** —— 沒問就重整會讓玩家
    * 在毫無預期之下丟掉進行中的戰鬥。
    */
@@ -191,7 +204,7 @@ export function createMenuSettings(
   }
 
   return {
-    openSettings, applySettings, commitReload, cancelReload, drawSettingRows,
+    openSettings, applySettings, resetSettings, commitReload, cancelReload, drawSettingRows,
     renderLang, renderQuality, renderAntialias, renderVolume, renderAimAssist, renderMouseSensitivity,
   }
 }
