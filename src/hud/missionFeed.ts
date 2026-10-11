@@ -3,6 +3,7 @@ import type { ReadyMissionCard } from '../battle/missions/types'
 import type { MessageKey } from '../i18n'
 import type { AudioEngine } from '../audio/engine'
 import type { HudFrame } from './types'
+import { hasAttackTargets } from '../battle/objectiveQueries'
 
 type MissionDisplay = Pick<Battle, 'mission' | 'objectiveKey' | 'message' | 'rules'>
   & { alert: Pick<NonNullable<Battle['alert']>, 'alerted'> | null }
@@ -12,7 +13,7 @@ type MissionFrame = Pick<HudFrame,
   | 'objectiveBannerAge' | 'objectiveBannerTypeAge' | 'objectiveHasTarget'
   | 'objectiveMetric' | 'objectiveMetricKind' | 'objectiveMetricTotal' | 'objectiveNeed'
   | 'objectiveRemaining' | 'objectiveSeconds' | 'objectiveText' | 'objectiveWorldX' | 'objectiveWorldZ'
-  | 'enemyUnaware'>
+  | 'enemyUnaware' | 'objectiveTargets'>
 
 /** 任務 HUD 的資料組裝與訊息時鐘；只讀戰局，輸出寫入既有的 HUD 緩衝。 */
 export function createMissionHud(
@@ -90,6 +91,8 @@ export function createMissionHud(
     hudFrame.messageAge = messageKey === null || messageStart <= langChangedAt ? -1 : elapsed - messageStart
     // 【敵方還沒警戒】敵方的框與標記用黃色；沒有警戒的關卡恆為假
     hudFrame.enemyUnaware = battle.alert !== null && !battle.alert.alerted
+    // 【讀當下的規則】返航節拍換成撤離之後，其餘敵方的淡化一起取消
+    hudFrame.objectiveTargets = mode === 'mission' && hasAttackTargets(battle.rules)
   }
 
   function resetMissionBanner(): void {

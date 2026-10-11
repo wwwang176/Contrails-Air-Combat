@@ -11,11 +11,13 @@ interface ContactFeedDependencies {
   camera: PerspectiveCamera
   visuals: { get(combatant: Combatant): { readonly position: Vector3 } | undefined }
   projectDistance: number
+  /** 這一架是不是任務的主要目標（`battle/objectiveQueries.ts` 的 `isObjectiveAircraft`） */
+  isObjective: (c: Combatant) => boolean
 }
 
 /** 只更新接觸點池；暫存與投影依賴在建構時綁定，每幀不配置。 */
 export function createContactFeed({
-  hudFrame, camera, visuals, projectDistance: HUD_PROJECT_DISTANCE,
+  hudFrame, camera, visuals, projectDistance: HUD_PROJECT_DISTANCE, isObjective,
 }: ContactFeedDependencies) {
   const probe = new Vector3()
   const relPos = new Vector3()
@@ -85,6 +87,7 @@ export function createContactFeed({
       contact.radius = ((c.aircraft.spec.wing.span / 2) / Math.max(contact.range, 1))
         / Math.tan((camera.fov * DEG) / 2)
       contact.hostile = c.team !== player.team
+      contact.objective = isObjective(c)
       // 【`playerFlightIndex >= 0` 這道守衛不能省】玩家退場時它是 −1，而場上
       // 每一架已退場者的 `flightOf` 也是 −1 —— 少了守衛就會 `-1 === -1`，
       // 一整批飛機被畫成隊友色。

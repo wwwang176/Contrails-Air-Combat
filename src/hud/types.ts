@@ -64,6 +64,8 @@ export interface HudContact {
   flightAlive: number
   /** 它那個分隊的編制員額。`flightAlive` 的分母 */
   flightSize: number
+  /** 任務的主要目標（`isObjectiveAircraft`）：目標框畫成四角括號 */
+  objective: boolean
 }
 
 /**
@@ -79,7 +81,7 @@ export function createHudContact(): HudContact {
     active: false, x: 0, y: 0, behind: false, radius: 0, hostile: true, flightMate: false,
     deltaY: 0, worldX: 0, worldZ: 0, range: 0,
     leadX: 0, leadY: 0, leadValid: false, leadBehind: false,
-    flightLeader: false, flightAlive: 0, flightSize: 0,
+    flightLeader: false, flightAlive: 0, flightSize: 0, objective: false,
   }
 }
 
@@ -104,6 +106,14 @@ export interface HudMarker {
   objective: boolean
   /** 與量距基準點（自機，上帝視角是鏡頭）的距離，m。`objective` 為真才填 */
   range: number
+  /**
+   * 物體在畫面上的半徑，螢幕半高單位（與 `HudContact.radius` 同一套），主要目標的
+   * 括號照它縮放。`objective` 為真才填
+   */
+  radius: number
+  /** 物體中心的螢幕座標（`x`／`y` 是頂上的標記點）。主要目標的括號框在這裡 */
+  centerX: number
+  centerY: number
   /** 物體的世界座標，m。小地圖用（螢幕座標畫不了小地圖，相機背後的也要畫） */
   worldX: number
   worldZ: number
@@ -123,7 +133,8 @@ export const HUD_MAX_MARKERS = 200
 
 export function createHudMarker(): HudMarker {
   return {
-    active: false, x: 0, y: 0, behind: false, hostile: true, objective: false, range: 0, worldX: 0, worldZ: 0,
+    active: false, x: 0, y: 0, behind: false, hostile: true, objective: false, range: 0, radius: 0,
+    centerX: 0, centerY: 0, worldX: 0, worldZ: 0,
   }
 }
 
@@ -467,6 +478,11 @@ export interface HudFrame {
   messageAge: number
   /** 敵方還沒警戒（倫內爾島，`battle/alert.ts`）：敵方的框與標記用黃色 */
   enemyUnaware: boolean
+  /**
+   * 這一關的當下規則有要玩家去打的東西（`hasAttackTargets`）。成立時主要目標以外的
+   * 敵方淡化；不成立時（護航、守艦隊、撤離）照常不淡化
+   */
+  objectiveTargets: boolean
   /** 前機槍的熱度（`control/gunHeat.ts`）：十字準星綠／黃／紅。代飛與上帝視角時恆為冷 */
   gunHeat: GunHeatLevel
   /** 過熱閃爍的這一幀亮不亮。只有 `gunHeat === 'hot'` 時有意義 */
@@ -544,6 +560,7 @@ export function createHudFrame(): HudFrame {
     message: '',
     messageAge: -1,
     enemyUnaware: false,
+    objectiveTargets: false,
     gunHeat: 'cool',
     gunHeatBlink: true,
   }

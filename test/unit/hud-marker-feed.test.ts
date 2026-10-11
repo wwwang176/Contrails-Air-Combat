@@ -68,7 +68,7 @@ const TOP = 27
 const topOf = (): number => TOP
 
 /** 沒有主要目標 */
-const NONE: MarkerObjectives = { ship: () => false, ground: () => false, ref: { x: 0, y: 0, z: 0 } }
+const NONE: MarkerObjectives = { ship: () => false, ground: () => false, ref: { x: 0, y: 0, z: 0 }, tanHalfFov: 1 }
 
 describe('戰鬥幀的 HUD 標記', () => {
   function dependencies(): BattleHudMarkersDependencies {
@@ -307,6 +307,7 @@ describe('fillMarkers：地面目標', () => {
       ship: (x) => x === s,
       ground: (t) => t === plant,
       ref: { x: 0, y: plant.impactY, z: 0 },
+      tanHalfFov: 0.5,
     }
     fillMarkers(f, [s], [plant, flak], [pool([{ x: 0, y: 0, z: 0, team: 1 }])], 0, FLAT, topOf, objectives)
     expect(f.markers[0]!.objective).toBe(true)
@@ -315,6 +316,10 @@ describe('fillMarkers：地面目標', () => {
     expect(f.markers[1]!.range).toBeCloseTo(5000, 6)
     expect(f.markers[2]!.objective).toBe(false)
     expect(f.markers[3]!.objective).toBe(false)
+    // 括號的大小：包圍球半徑換成螢幕半高單位，與目標框同一條式子
+    expect(f.markers[0]!.radius).toBeCloseTo(s.cls.radius / f.markers[0]!.range / 0.5, 9)
+    expect(f.markers[1]!.radius).toBeCloseTo(plant.radius / 5000 / 0.5, 9)
+    expect(f.markers[2]!.radius).toBe(0)
   })
 
   it('船與地面目標都在時兩種都進池，船的標記不受影響', () => {

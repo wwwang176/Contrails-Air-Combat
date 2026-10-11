@@ -14,6 +14,17 @@ export const HUD_COLORS = {
   edgeShadow: '#252c29',
 } as const
 
+/**
+ * 有主要目標的關裡，其他敵方的透明度：還看得到，但不搶主要目標的眼。主要目標
+ * 與其他敵方同色，靠形狀（括號）與這一層淡化分開
+ */
+export const NON_OBJECTIVE_ALPHA = 0.45
+
+/** 這一個要不要淡化：這一關有主要目標，而它是不屬於主要目標的敵方 */
+export function dimmedHostile(objectiveTargets: boolean, hostile: boolean, objective: boolean): boolean {
+  return objectiveTargets && hostile && !objective
+}
+
 /** 地圖與狀態條共用細框，線條收在給定範圍內，不擴張遮擋面積。 */
 export function drawHudBorder(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
   ctx.strokeStyle = HUD_COLORS.edgeShadow

@@ -97,3 +97,18 @@ describe('任務 HUD 的資料', () => {
     expect(JSON.stringify(f.battle)).toBe(before)
   })
 })
+
+/** 有要玩家去打的目標時，主要目標畫白色、其餘敵方淡化 */
+describe('任務 HUD：這一關有沒有主要目標', () => {
+  it('任務模式照規則判；遭遇戰恆為假；返航換成撤離之後為假', () => {
+    const f = fixture()
+    f.battle.rules = { kind: 'destroy', count: 6 }
+    f.feed.fillMissionHud(f.battle, 'mission', f.card, 0)
+    expect(f.frame.objectiveTargets).toBe(true)
+    f.feed.fillMissionHud(f.battle, 'skirmish', null, 1)
+    expect(f.frame.objectiveTargets).toBe(false)
+    f.battle.rules = { kind: 'evacuate', point: f.battle.mission.target, radius: 600, seconds: Infinity }
+    f.feed.fillMissionHud(f.battle, 'mission', f.card, 2)
+    expect(f.frame.objectiveTargets).toBe(false)
+  })
+})

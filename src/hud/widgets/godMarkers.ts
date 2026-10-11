@@ -1,5 +1,6 @@
 import type { HudContact, HudFrame, HudLayout } from '../types'
-import { contactBoxRadius, contactColor, hudFont } from '../style'
+import { contactBoxRadius, contactColor, dimmedHostile, hudFont, NON_OBJECTIVE_ALPHA } from '../style'
+import { drawBrackets, OBJECTIVE_BRACKET_PAD, OBJECTIVE_BRACKET_WIDTH } from './contacts'
 
 /**
  * 這個接觸點要不要畫分隊標示。
@@ -42,7 +43,7 @@ export function godMarkerColor(hostile: boolean, enemyUnaware = false): string {
 }
 
 /**
- * 上帝視角的分隊標示：長機外面一個方框，框下是 `(存活/編制)`。
+ * 上帝視角的分隊標示：長機外面一個方框（主要目標是四角括號），框下是 `(存活/編制)`。
  *
  * 框的線寬、字級、間距全部沿用座艙目標框（`contacts.ts`），因為兩者是同一套
  * 視覺語言 —— 只是框底下那個讀數的意思由「距離」換成「這一隊還剩幾架」。
@@ -67,13 +68,21 @@ export function drawGodMarkers(
     const y = L.cy - c.y * L.unit
     const r = contactBoxRadius(c.radius, L.unit, L.scale)
     const color = godMarkerColor(c.hostile, f.enemyUnaware)
+    // 【主要目標與淡化比照座艙】長機是主要目標就畫括號；有主要目標的關，其餘敵方分隊淡化
+    ctx.globalAlpha = dimmedHostile(f.objectiveTargets, c.hostile, c.objective) ? NON_OBJECTIVE_ALPHA : 1
 
     ctx.strokeStyle = color
-    ctx.lineWidth = 1.5 * L.scale
-    ctx.strokeRect(x - r, y - r, r * 2, r * 2)
+    if (c.objective) {
+      ctx.lineWidth = OBJECTIVE_BRACKET_WIDTH * L.scale
+      drawBrackets(ctx, x, y, r + OBJECTIVE_BRACKET_PAD * L.scale)
+    } else {
+      ctx.lineWidth = 1.5 * L.scale
+      ctx.strokeRect(x - r, y - r, r * 2, r * 2)
+    }
 
     // 【間距也要乘 scale】不乘的話高 DPI 下字會貼到框上
     ctx.fillStyle = color
     ctx.fillText(flightStrengthLabel(c.flightAlive, c.flightSize), x, y + r + 3 * L.scale)
   }
+  ctx.globalAlpha = 1
 }

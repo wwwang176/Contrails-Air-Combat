@@ -46,6 +46,8 @@ export interface MarkerObjectives {
   ship(s: Ship): boolean
   ground(t: GroundTarget): boolean
   readonly ref: { readonly x: number; readonly y: number; readonly z: number }
+  /** 鏡頭垂直半視角的正切。包圍球半徑換成螢幕大小用（望遠時跟著變） */
+  readonly tanHalfFov: number
 }
 
 /** 投影結果的暫存。熱路徑不配置 */
@@ -82,8 +84,9 @@ export function fillMarkers(
     if (n >= HUD_MAX_MARKERS) break
     // 【抬到整艘船的最高點】`Ship.position.y` 恆為 0（水線），而甲板高與
     // 砲位盒的頂都不夠 —— 桅杆比它們高兩三倍
-    n = put(f, n, s.position.x, shipTop(s), s.position.z,
-      teamSlot(s.team), own, project, objectives.ship(s), objectives.ref)
+    const top = shipTop(s)
+    n = put(f, n, s.position.x, top, s.position.z,
+      teamSlot(s.team), own, project, objectives.ship(s), objectives, s.cls.radius, top / 2)
   }
   for (const t of groundTargets) {
     // 【炸毀的不畫】與沉船同一個理由；殘骸只是佈景
@@ -92,13 +95,13 @@ export function fillMarkers(
     // 【高度用盒頂】建築沒有桅杆，命中盒的頂就是模型的頂 —— 不像船要
     // 問模型。`impactY` 已經是地面高度加盒頂
     n = put(f, n, t.position.x, t.impactY, t.position.z, teamSlot(t.team), own, project,
-      objectives.ground(t), objectives.ref)
+      objectives.ground(t), objectives, t.radius, (t.position.y + t.impactY) / 2)
   }
   for (const p of pools) {
     for (let i = 0; i < p.capacity; i++) {
       if (p.active[i] === 0) continue
       if (n >= HUD_MAX_MARKERS) break
-      n = put(f, n, p.x[i]!, p.y[i]!, p.z[i]!, p.team[i]!, own, project, false, objectives.ref)
+      n = put(f, n, p.x[i]!, p.y[i]!, p.z[i]!, p.team[i]!, own, project, false, objectives, 0, p.y[i]!)
     }
   }
   // 【收尾要把用過的格子關掉】`markerCount` 縮小時，上一幀留在後面那幾格的
@@ -108,10 +111,16 @@ export function fillMarkers(
   f.markerCount = n
 }
 
+/**
+ * @param y 標記的高度（物體頂上）
+ * @param worldRadius 包圍球半徑，m。主要目標的括號大小
+ * @param centerY 物體中心的高度，m。主要目標的括號框在這裡，不是框在頂上的標記點
+ */
 function put(
   f: HudFrame, i: number,
   x: number, y: number, z: number, team: number, own: number,
-  project: MarkerProject, objective: boolean, ref: MarkerObjectives['ref'],
+  project: MarkerProject, objective: boolean, objectives: MarkerObjectives,
+  worldRadius: number, centerY: number,
 ): number {
   const m = f.markers[i]!
   m.behind = project(x, y, z, OUT)
@@ -119,7 +128,17 @@ function put(
   m.y = OUT.y
   m.hostile = team !== own
   m.objective = objective
+  const ref = objectives.ref
   m.range = objective ? Math.hypot(x - ref.x, y - ref.y, z - ref.z) : 0
+  // 【與目標框同一條式子】`HudContact.radius` 也是半徑 ÷ 距離 ÷ tan(半視角)
+  m.radius = objective ? worldRadius / Math.max(m.range, 1) / objectives.tanHalfFov : 0
+  m.centerX = m.x
+  m.centerY = m.y
+  if (objective) {
+    project(x, centerY, z, OUT)
+    m.centerX = OUT.x
+    m.centerY = OUT.y
+  }
   m.worldX = x
   m.worldZ = z
   m.active = true

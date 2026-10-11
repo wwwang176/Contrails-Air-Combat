@@ -148,7 +148,9 @@ import { DEFAULT_DOCTRINE } from './ai/doctrine'
 import { createBattle } from './battle/createBattle'
 import { resetBattle, stepBattle } from './battle/battleRuntime'
 import { settleAtSpawn } from './battle/flightSpawn'
-import { isObjectiveGround, isObjectiveShip } from './battle/objectiveQueries'
+import {
+  isObjectiveAircraft, isObjectiveGround, isObjectiveShip,
+} from './battle/objectiveQueries'
 import { getLang, onLangChange, readLang, saveLang, setLang, t } from './i18n'
 import { applyStaticText } from './i18n/dom'
 import { lineAbreast, sideSummary } from './battle/order'
@@ -939,6 +941,8 @@ const probe = new Vector3()
 const HUD_PROJECT_DISTANCE = 1000
 const fillContacts = createContactFeed({
   hudFrame, camera: ctx.camera, visuals, projectDistance: HUD_PROJECT_DISTANCE,
+  // 讀當下的 `battle.rules`：返航節拍換掉規則之後就沒有主要目標
+  isObjective: (c) => isObjectiveAircraft(c, battle.rules, world.groundTargets),
 })
 const bombSightHudScratch: BombSightHudScratch = {
   probe,
@@ -993,6 +997,8 @@ const markerObjectives: MarkerObjectives & { ref: Vector3 } = {
   ship: (s) => isObjectiveShip(s, battle.rules),
   ground: (t) => isObjectiveGround(t, battle.rules),
   ref: new Vector3(),
+  // 每次讀當下的鏡頭：望遠會改 FOV
+  get tanHalfFov() { return Math.tan((ctx.camera.fov * Math.PI) / 360) },
 }
 const battleHudMarkersDeps: BattleHudMarkersDependencies = {
   markerPools: MARKER_POOLS,

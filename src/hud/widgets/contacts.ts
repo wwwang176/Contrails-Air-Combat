@@ -1,5 +1,7 @@
 import type { HudFrame, HudLayout } from '../types'
-import { contactBoxRadius, contactColor, HUD_COLORS, hudFont } from '../style'
+import {
+  contactBoxRadius, contactColor, dimmedHostile, HUD_COLORS, hudFont, NON_OBJECTIVE_ALPHA,
+} from '../style'
 
 /**
  * 畫面外指示的箭頭離邊緣的內縮量，螢幕半高單位。
@@ -30,6 +32,29 @@ export function edgeIndicatorPosition(
   return { x: dx * s, y: dy * s, angle: Math.atan2(dy, dx) }
 }
 
+/** 主要目標的四角括號：線寬與比目標框外擴多少，px（未乘 `L.scale`） */
+export const OBJECTIVE_BRACKET_WIDTH = 2
+export const OBJECTIVE_BRACKET_PAD = 3
+/** 括號每一臂佔邊長的比例。四角之間留空，與完整的方框一眼分得開 */
+const BRACKET_ARM = 0.4
+
+/** 以 (x, y) 為中心、半邊長 r 的四角括號 */
+export function drawBrackets(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  const a = r * 2 * BRACKET_ARM
+  ctx.beginPath()
+  // 四個角依序是 (−,−) (+,−) (−,+) (+,+)；用位元取號，迴圈裡不造陣列
+  for (let i = 0; i < 4; i++) {
+    const sx = (i & 1) === 0 ? -1 : 1
+    const sy = (i & 2) === 0 ? -1 : 1
+    const cx = x + sx * r
+    const cy = y + sy * r
+    ctx.moveTo(cx - sx * a, cy)
+    ctx.lineTo(cx, cy)
+    ctx.lineTo(cx, cy - sy * a)
+  }
+  ctx.stroke()
+}
+
 /** 目標框底下的距離讀數：一律 km、小數一位（`0.9 km`、`0.0 km`） */
 export function contactRangeLabel(range: number): string {
   return `${(range / 1000).toFixed(1)} km`
@@ -53,6 +78,8 @@ export function drawContacts(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hud
     const color = contactColor(c.hostile, c.flightMate, f.enemyUnaware)
     const aspect = L.width / L.height
     const onScreen = !c.behind && Math.abs(c.x) <= aspect && Math.abs(c.y) <= 1
+    // 【預瞄環不淡化】護航機咬上來時還是要打得到它
+    ctx.globalAlpha = dimmedHostile(f.objectiveTargets, c.hostile, c.objective) ? NON_OBJECTIVE_ALPHA : 1
 
     if (onScreen) {
       const x = L.cx + c.x * L.unit
@@ -60,8 +87,13 @@ export function drawContacts(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hud
       const r = contactBoxRadius(c.radius, L.unit, L.scale)
 
       ctx.strokeStyle = color
-      ctx.lineWidth = 1.5 * L.scale
-      ctx.strokeRect(x - r, y - r, r * 2, r * 2)
+      if (c.objective) {
+        ctx.lineWidth = OBJECTIVE_BRACKET_WIDTH * L.scale
+        drawBrackets(ctx, x, y, r + OBJECTIVE_BRACKET_PAD * L.scale)
+      } else {
+        ctx.lineWidth = 1.5 * L.scale
+        ctx.strokeRect(x - r, y - r, r * 2, r * 2)
+      }
 
       // 距離讀數貼在框底下。沒有血量——那是刻意的（spec §8）。
       ctx.fillStyle = color
@@ -86,6 +118,7 @@ export function drawContacts(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hud
       ctx.fill()
       ctx.restore()
     }
+    ctx.globalAlpha = 1
 
     if (c.leadValid && !c.leadBehind) {
       const lx = L.cx + c.leadX * L.unit

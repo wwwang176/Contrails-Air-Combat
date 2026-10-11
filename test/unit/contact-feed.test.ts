@@ -22,7 +22,9 @@ function fixture(count = 4) {
   const camera = new PerspectiveCamera(90, 2, 1, 100000)
   camera.updateMatrixWorld()
   const flights = createFlights(world.combatants, player.index)
-  const feed = createContactFeed({ hudFrame, camera, visuals, projectDistance: 1000 })
+  const feed = createContactFeed({
+    hudFrame, camera, visuals, projectDistance: 1000, isObjective: (c) => c.index === 3,
+  })
   const renderPos = visuals.get(player)!.position
   const godPosition = new Vector3(100, 300, 400)
   const fill = (godView = false, activePlayer = player) => feed(
@@ -96,5 +98,14 @@ describe('HUD 接觸目標的資料', () => {
     compactFlights(f.flights, f.world.combatants)
     f.fill(true)
     expect(f.hudFrame.contactCount).toBe(0)
+  })
+})
+
+describe('HUD 接觸目標的主要目標旗標', () => {
+  it('照 isObjective 逐架填', () => {
+    const f = fixture()
+    f.fill()
+    const flags = Array.from({ length: f.hudFrame.contactCount }, (_, i) => f.hudFrame.contacts[i]!.objective)
+    expect(flags).toEqual([false, false, true])
   })
 })
