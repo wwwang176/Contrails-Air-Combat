@@ -45,31 +45,35 @@ const AIR_DEFENCE: ReadonlySet<GroundUnitId> = new Set<GroundUnitId>([
  * 這一關的**當下規則**有沒有要玩家自己去打的東西。HUD 依它決定要不要把主要目標
  * 以外的敵方淡化；沒有的關（護航、守艦隊、撤離、殲滅）照常不淡化。
  *
- * 【護航陸攻的擊沉關不算】玩家開的是護航戰鬥機，打不了船；敵艦標成「去打這個」
- * 會把新玩家引到艦隊的砲口前。
+ * 【護航陸攻的擊沉關不算】玩家開的是護航戰鬥機，打不了船；淡化其他敵機會把
+ * 真正會咬人的戰鬥機壓暗。
  */
 export function hasAttackTargets(rules: MissionRules): boolean {
   switch (rules.kind) {
     case 'destroy': case 'interdict': case 'hunt': return true
     case 'sink': return rules.escorts !== true
+    case 'convoy': return rules.owner === 'red'
     default: return false
   }
 }
 
 /**
- * 這一艘是不是**當下規則**的主要目標：玩家自己擊沉的關的敵艦。HUD 在它的標記上
- * 標距離、加括號。讀 `b.rules`，返航節拍換掉規則之後就不是了。
+ * 這一艘是不是**當下規則**的任務目標：擊沉關的敵艦、守艦隊關的要害艦。HUD 在它的
+ * 標記上加括號、標距離。讀 `b.rules`，返航節拍換掉規則之後就不是了。
  */
 export function isObjectiveShip(s: Ship, rules: MissionRules): boolean {
-  return rules.kind === 'sink' && hasAttackTargets(rules) && s.team === 'red'
+  if (rules.kind === 'sink') return s.team === 'red'
+  return rules.kind === 'defend' && s.vital
 }
 
 /**
- * 這一架是不是**當下規則**的主要目標。HUD 的目標框畫成四角括號。
+ * 這一架是不是**當下規則**的任務目標。HUD 的目標框畫成四角括號，顏色照敵我。
  *
  * ```
- *   擊落關     指定角色的敵機（省略角色 = 每一架敵機）
- *   炸毀關     從炸毀池裡起飛的那一架 —— 它在池裡，打下來才算數（`destroyedInPool`）
+ *   擊落關         指定角色的敵機（省略角色 = 每一架敵機）
+ *   炸毀關         從炸毀池裡起飛的那一架 —— 它在池裡，打下來才算數（`destroyedInPool`）
+ *   護送／攔截     規則那一隊的轟炸機
+ *   護航陸攻擊沉   我方的轟炸機（攻擊隊）
  * ```
  *
  * 【逐座掃地面目標，不建索引】每幀每架一次，地面目標最多幾十座；建 Set 的話
@@ -78,6 +82,9 @@ export function isObjectiveShip(s: Ship, rules: MissionRules): boolean {
 export function isObjectiveAircraft(
   c: Combatant, rules: MissionRules, targets: readonly GroundTarget[],
 ): boolean {
+  const bomber = c.aircraft.spec.role === 'bomber'
+  if (rules.kind === 'convoy') return c.team === rules.owner && bomber
+  if (rules.kind === 'sink') return rules.escorts === true && c.team === 'blue' && bomber
   if (c.team !== 'red') return false
   if (rules.kind === 'hunt') return rules.role === undefined || c.aircraft.spec.role === rules.role
   if (rules.kind !== 'destroy') return false

@@ -88,10 +88,41 @@ describe('這一關有沒有要玩家去打的目標', () => {
     expect(hasAttackTargets({ kind: 'defend' })).toBe(false)
     expect(hasAttackTargets(EVACUATE)).toBe(false)
     expect(hasAttackTargets({ kind: 'annihilate' })).toBe(false)
+    expect(hasAttackTargets({ kind: 'convoy', owner: 'blue', point: new Vector3(), radius: 1 })).toBe(false)
+    expect(hasAttackTargets({ kind: 'convoy', owner: 'red', point: new Vector3(), radius: 1 })).toBe(true)
   })
 
-  it('護航陸攻的擊沉關，敵艦不標成主要目標（玩家是護航，打不了船）', () => {
+  it('護航陸攻的擊沉關，敵艦照樣是任務目標', () => {
     const enemy = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, 0, 0, 0)
-    expect(isObjectiveShip(enemy, { kind: 'sink', count: 3, escorts: true })).toBe(false)
+    expect(isObjectiveShip(enemy, { kind: 'sink', count: 3, escorts: true })).toBe(true)
+  })
+})
+
+describe('要保護的任務目標', () => {
+  const ESCORT: MissionRules = { kind: 'convoy', owner: 'blue', point: new Vector3(), radius: 1000 }
+  const INTERCEPT: MissionRules = { kind: 'convoy', owner: 'red', point: new Vector3(), radius: 1000 }
+  const SINK_ESCORTS: MissionRules = { kind: 'sink', count: 3, escorts: true }
+
+  it('護送：我方的轟炸機是，我方戰鬥機與敵方轟炸機不是', () => {
+    expect(isObjectiveAircraft(plane(0, 'blue', 'bomber'), ESCORT, [])).toBe(true)
+    expect(isObjectiveAircraft(plane(1, 'blue', 'fighter'), ESCORT, [])).toBe(false)
+    expect(isObjectiveAircraft(plane(2, 'red', 'bomber'), ESCORT, [])).toBe(false)
+  })
+
+  it('攔截：敵方的轟炸機是', () => {
+    expect(isObjectiveAircraft(plane(0, 'red', 'bomber'), INTERCEPT, [])).toBe(true)
+    expect(isObjectiveAircraft(plane(1, 'red', 'fighter'), INTERCEPT, [])).toBe(false)
+  })
+
+  it('護航陸攻的擊沉關：我方的陸攻是，我方戰鬥機不是', () => {
+    expect(isObjectiveAircraft(plane(0, 'blue', 'bomber'), SINK_ESCORTS, [])).toBe(true)
+    expect(isObjectiveAircraft(plane(1, 'blue', 'fighter'), SINK_ESCORTS, [])).toBe(false)
+  })
+
+  it('守艦隊：要害艦是，其他船不是', () => {
+    const carrier = createShip(0, SHIP_CLASSES.fletcher, 'blue', 0, 0, 0, 0, true)
+    const escort = createShip(1, SHIP_CLASSES.fletcher, 'blue', 0, 0, 0, 0)
+    expect(isObjectiveShip(carrier, { kind: 'defend' })).toBe(true)
+    expect(isObjectiveShip(escort, { kind: 'defend' })).toBe(false)
   })
 })
