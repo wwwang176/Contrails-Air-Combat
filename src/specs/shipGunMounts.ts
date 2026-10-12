@@ -4,16 +4,19 @@ import type { GunMount } from '../weapons/gunMount'
 type Bounds = readonly [number, number, number, number, number, number]
 export interface ShipGunMount extends GunMount {
   readonly id: string
+  /** Authored yaw node with its barrel/mantlet elevation child, already split in the GLB. */
+  readonly modelNode?: string
   readonly restYaw: number
   readonly restPitch: number
-  readonly bodyBounds: Bounds
-  readonly barrelBounds: Bounds
+  /** Extraction bounds are only needed for legacy merged meshes. */
+  readonly bodyBounds?: Bounds
+  readonly barrelBounds?: Bounds
   /** Ship-relative yaw firing sectors. Parking at restYaw remains possible outside them. */
   readonly yawSectors?: readonly (readonly [number, number])[]
 }
 
-/** Fletcher GLB measurements, in ship coordinates. Build these once, never in the frame loop. */
-function mount(
+/** Convert measured GLB pivots and barrel endpoints once, never in the frame loop. */
+export function createShipGunMount(
   id: string, tier: GunMount['tier'], pivot: Vector3, root: Vector3, tip: Vector3,
   bodyBounds: Bounds, barrelBounds: Bounds, spacing = 0, sectors?: readonly (readonly [number, number])[],
 ): ShipGunMount {
@@ -30,6 +33,8 @@ function mount(
     ...(sectors ? { yawSectors: sectors.map(([lo, hi]) => [lo * Math.PI / 180, hi * Math.PI / 180] as const) } : {}),
   }
 }
+
+const mount = createShipGunMount
 
 /**
  * All ten physical mounts share six batteries. Main-gun sectors are conservative horizontal

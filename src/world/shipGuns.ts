@@ -2,7 +2,7 @@ import { Quaternion, Vector3 } from 'three'
 import { gunMountMuzzle, type GunMount } from '../weapons/gunMount'
 import { selectShipMount, stepShipMounts } from './shipGunMounts'
 import { GUN_YAW_HOLD } from '../weapons/gunAim'
-import { FLETCHER_GUN_GROUPS } from '../specs/shipGunMounts'
+import { SHIP_GUN_LAYOUTS } from '../specs/shipGunLayouts'
 import { DEG } from '../core/math'
 import { hash01 } from '../core/hash'
 import { resetBurst, stepGunnerBurst, BURST_ON } from '../weapons/burst'
@@ -346,10 +346,11 @@ export function createShipGuns(cls: ShipClass): ShipGun[] {
     const zone = cls.zones[i]!
     const spec = SHIP_GUN_SPECS[zone.tier]
     const axis = axisOf(zone.position.x, zone.tier, new Vector3())
+    const projectileMounts = SHIP_GUN_LAYOUTS[cls.id]?.groups[zone.id]
     out.push({
       zone,
-      projectileMounts: cls.id === 'fletcher' ? FLETCHER_GUN_GROUPS[zone.id] : undefined,
-      mountPoses: cls.id === 'fletcher' ? FLETCHER_GUN_GROUPS[zone.id]?.map(m => ({ yaw: m.restYaw, pitch: m.restPitch, ready: false })) : undefined,
+      projectileMounts,
+      mountPoses: projectileMounts?.map(m => ({ yaw: m.restYaw, pitch: m.restPitch, ready: false })),
       spec,
       aim: axis.clone(),
       axis,

@@ -334,7 +334,7 @@ const SHIPS: readonly (readonly [ShipClassId, Readonly<Record<string, number>>])
   // 射控 1、彈射器 2、吊車 3
   ['wichita', {
     tub: 12, boat: 4, funnel: 2, barbette: 4, bridge: 5, house: 12,
-    turret: 12, secondary: 16, aa: 26, mast: 5, director: 1, catapult: 2, crane: 3,
+    turret: 12, secondary: 24, aa: 26, mast: 5, director: 1, catapult: 2, crane: 3,
   }],
   // 艦島 8（四層、煙囪、主桅、雷達板、方位儀）、走廊 39 段、舷台 11；
   // 5 吋 20（四座雙聯裝各一塔兩管、四座單裝各一塔一管）、

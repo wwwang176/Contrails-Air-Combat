@@ -1,19 +1,35 @@
 import { BufferGeometry, Float32BufferAttribute, Mesh, Quaternion, Vector3, type Object3D } from 'three'
-import { FLETCHER_GUN_MOUNTS } from '../../specs/shipGunMounts'
+import { SHIP_GUN_LAYOUTS } from '../../specs/shipGunLayouts'
+import type { ShipClassId } from '../../world/ships'
 
 export const SHIP_GUN_PREFIX = 'shipGun.'
 const EPSILON = 0.00015
 
 /** Split animated mounts after livery projection so UVs and vertex tones survive. */
-export function prepareFletcherGuns(root: Object3D): void {
-  if (root.getObjectByName(SHIP_GUN_PREFIX + 'flak_c1')) return
-  const source = root.getObjectByName('FLETCHER_Guns') as Mesh | undefined
-  if (!source?.isMesh) throw new Error('Fletcher is missing FLETCHER_Guns')
+export function prepareShipGuns(root: Object3D, shipClass: ShipClassId): void {
+  const layout = SHIP_GUN_LAYOUTS[shipClass]
+  if (!layout) return
+  const definitions = Object.entries(layout.mounts).filter(([id, def]) => {
+    const name = SHIP_GUN_PREFIX + id
+    if (root.getObjectByName(name)) return false
+    if (!def.modelNode) {
+      if (!def.bodyBounds || !def.barrelBounds) throw new Error(`${shipClass} has no extraction bounds for ${id}`)
+      return true
+    }
+    const body = root.getObjectByName(def.modelNode) as Mesh | undefined
+    const barrel = body?.children[0] as Mesh | undefined
+    if (!body?.isMesh || !barrel?.isMesh) throw new Error(`${shipClass} is missing authored mount ${def.modelNode}`)
+    body.name = name
+    barrel.name = name + '.barrels'
+    return false
+  })
+  if (definitions.length === 0) return
+  const source = root.getObjectByName(layout.mesh) as Mesh | undefined
+  if (!source?.isMesh) throw new Error(`${shipClass} is missing ${layout.mesh}`)
   root.updateMatrixWorld(true)
   const geometry = source.geometry.index ? source.geometry.toNonIndexed() : source.geometry.clone()
   geometry.applyMatrix4(source.matrixWorld)
   const positions = geometry.getAttribute('position')
-  const definitions = Object.entries(FLETCHER_GUN_MOUNTS)
   const buckets = Array.from({ length: definitions.length * 2 + 1 }, () => [] as number[])
   function contains(bounds: readonly number[], first: number): boolean {
     for (let v = first; v < first + 3; v++) {
@@ -27,8 +43,8 @@ export function prepareFletcherGuns(root: Object3D): void {
     let bucket = buckets.length - 1
     for (let k = 0; k < definitions.length; k++) {
       const def = definitions[k]![1]
-      if (contains(def.barrelBounds, first)) { bucket = k * 2 + 1; break }
-      if (contains(def.bodyBounds, first)) { bucket = k * 2; break }
+      if (contains(def.barrelBounds!, first)) { bucket = k * 2 + 1; break }
+      if (contains(def.bodyBounds!, first)) { bucket = k * 2; break }
     }
     buckets[bucket]!.push(first, first + 1, first + 2)
   }
@@ -47,7 +63,7 @@ export function prepareFletcherGuns(root: Object3D): void {
   const yAxis = new Vector3(0, 1, 0), xAxis = new Vector3(1, 0, 0), elevation = new Vector3()
   for (let k = 0; k < definitions.length; k++) {
     const [id, def] = definitions[k]!
-    if (!buckets[k * 2]!.length || !buckets[k * 2 + 1]!.length) throw new Error(`Fletcher gun geometry not found: ${id}`)
+    if (!buckets[k * 2]!.length || !buckets[k * 2 + 1]!.length) throw new Error(`${shipClass} gun geometry not found: ${id}`)
     yaw.setFromAxisAngle(yAxis, def.restYaw)
     pitch.setFromAxisAngle(xAxis, def.restPitch)
     const bodyGeo = piece(buckets[k * 2]!)

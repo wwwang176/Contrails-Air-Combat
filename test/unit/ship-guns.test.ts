@@ -110,7 +110,8 @@ describe('stepGunPlatform', () => {
     expect(idle.guns.every((g) => g.shots === 0)).toBe(true)
     for (const tier of ['mg', 'autocannon', 'flak'] as const) {
       const s = shipWith(tier)
-      run(s, [target(0, 0, tier === 'flak' ? 2500 : 600, 0)], 6)
+      // Outboard target: individual physical mounts now respect deck/bridge blind sectors.
+      run(s, [target(0, -100, tier === 'flak' ? 2500 : 600, 0)], 6)
       expect(s.guns.reduce((n, g) => n + g.shots, 0), tier).toBeGreaterThan(0)
     }
   })
@@ -139,7 +140,7 @@ describe('stepGunPlatform', () => {
   it('停火時三層都一發不打、照常鎖定；解除後開火', () => {
     for (const tier of ['mg', 'autocannon', 'flak'] as const) {
       const ship = shipWith(tier)
-      const all = [target(0, 0, 600, 0)]
+      const all = [target(0, -100, 600, 0)]
       const p = new Projectiles(4096)
       const flak = createFlak()
       const dt = 1 / 240

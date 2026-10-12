@@ -163,12 +163,6 @@ const WICHITA_GUN_PARTS: readonly ShipPartKind[] = [
     { x: [0, 4], y: [6, 12], z: [-62, -33] },
     { x: [0, 4], y: [6, 10], z: [44, 62] },
   ] },
-  // 八座 5 吋單裝（一舷四座）：砲身與砲管
-  { name: 'secondary', tone: 0.8, boxes: [
-    { x: [4.5, 10], y: [6, 11], z: [-34, -17] },
-    { x: [4.5, 10], y: [6, 11], z: [29, 33] },
-    { x: [4.5, 10], y: [6, 10], z: [85, 90] },
-  ] },
   // 翼台的四聯裝 40 mm、舯部與艏樓的 20 mm
   { name: 'aa', tone: 0.6, boxes: [
     { x: [5, 8], y: [10.5, 13], z: [-14, -10] },
@@ -201,7 +195,12 @@ const WICHITA: ShipLiveryDef = {
   },
   kinds: { WICHITA_Body: 'body', WICHITA_Deck: 'deck', WICHITA_Accent: 'accent' },
   accentColor: 0x8d949f,
-  parts: { WICHITA_Super: WICHITA_SUPER_PARTS, WICHITA_Guns: WICHITA_GUN_PARTS },
+  parts: {
+    WICHITA_Super: WICHITA_SUPER_PARTS, WICHITA_Guns: WICHITA_GUN_PARTS,
+    // Authored 5-inch nodes use local coordinates: body, barrel and mantlet retain their tone.
+    ...Object.fromEntries(['p1', 's1', 'p2', 's2', 'p3', 's3', 'p4', 's4'].flatMap(id =>
+      ['', '_barrel'].map(suffix => [`WICHITA_5in_${id}${suffix}`, [{ name: 'secondary', tone: 0.8, boxes: [{}] }]]))),
+  },
 }
 
 // ── Essex ───────────────────────────────────────────────

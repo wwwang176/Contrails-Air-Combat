@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { Matrix4, Mesh, Quaternion, Vector3, type Object3D } from 'three'
 import { createGltfLoader } from '../../src/render/geometry/gltfLoader'
-import { prepareFletcherGuns, SHIP_GUN_PREFIX } from '../../src/render/geometry/shipGuns'
+import { prepareShipGuns, SHIP_GUN_PREFIX } from '../../src/render/geometry/shipGuns'
 import { applyShipLivery } from '../../src/render/shipAssets'
 import { SHIP_LIVERIES } from '../../src/render/shipLiveries'
 import { createShipGunModels } from '../../src/render/shipGunModels'
@@ -24,7 +24,7 @@ beforeAll(async () => {
 function model(): Object3D {
   const root = original.clone(true)
   root.traverse(o => { if (o instanceof Mesh) o.geometry = o.geometry.clone() })
-  prepareFletcherGuns(root)
+  prepareShipGuns(root, 'fletcher')
   return root
 }
 function ship() {
@@ -60,7 +60,7 @@ describe('Fletcher animated gun geometry', () => {
     })
     expect(root.getObjectByName('FLETCHER_Hull')).toBeDefined()
     const count = root.children.length
-    prepareFletcherGuns(root)
+    prepareShipGuns(root, 'fletcher')
     expect(root.children.length).toBe(count)
     dispose(root)
   })
