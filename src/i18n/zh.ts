@@ -169,7 +169,7 @@ export const zh = {
   'mission.germany-m3.summary': '駕駛 Bf 109 K-4 貼著樹梢衝進機場，趁野馬還沒起飛把它們打掉。',
   'mission.germany-m3.place': '比利時 阿什 Y-29 機場',
   'mission.germany-m3.objective': '擊毀全部野馬',
-  'mission.germany-m3.banner': '野馬還在地上，快衝進去',
+  'mission.germany-m3.banner': '低空突襲機場，趁敵機升空前摧毀它們',
   'mission.germany-m3.wave.taxi': '野馬開始滑向跑道',
   'mission.germany-m3.wave.more': '更多野馬準備起飛',
   'mission.germany-m3.wave.last': '剩下的野馬全部出動',

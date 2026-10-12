@@ -1,6 +1,6 @@
 import { Quaternion, Vector3 } from 'three'
 import { PARKED_TAIL_DOWN } from '../specs/ground'
-import { GEAR_CLEARANCE } from '../control/takeoffRoll'
+import { GEAR_CLEARANCE, takeoffOriginBlend } from '../control/takeoffRoll'
 import type { AircraftSpec } from '../specs/types'
 import type { GroundTarget } from './groundTargets'
 
@@ -14,8 +14,7 @@ import type { GroundTarget } from './groundTargets'
  * - **停著、滑行**：與停放模型的烘焙同一套（`render/geometry/ground/parked.ts`）
  *   —— 繞 X 下沉 `PARKED_TAIL_DOWN`，再平移到底面貼地、前後置中。平移量由
  *   部位盒算（模型的網格不在這一層），與網格差幾十公分。
- * - **滾行**：機身水平，原點在地面上 `GEAR_CLEARANCE` —— 與離地之後那一架
- *   飛機同一個姿態，交接時接得上。
+ * - **滾行**：維持抬頭，原點逐漸移到地面上 `GEAR_CLEARANCE`，離地時與飛行姿態接上。
  */
 
 const TAIL_DOWN = /* @__PURE__ */ new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), PARKED_TAIL_DOWN)
@@ -54,12 +53,8 @@ export function parkedOffset(spec: AircraftSpec): Vector3 {
  * `t.airframe` 必須不是 null。熱路徑，不配置。
  */
 export function airframePose(t: GroundTarget, pos: Vector3, quat: Quaternion): void {
-  if (t.rolling) {
-    quat.copy(t.orientation)
-    pos.copy(t.position)
-    pos.y += GEAR_CLEARANCE
-    return
-  }
   quat.copy(t.orientation).multiply(TAIL_DOWN)
-  pos.copy(parkedOffset(t.airframe!)).applyQuaternion(t.orientation).add(t.position)
+  const k = t.rolling ? takeoffOriginBlend(t.taxi) : 0
+  pos.copy(parkedOffset(t.airframe!)).applyQuaternion(t.orientation).multiplyScalar(1 - k).add(t.position)
+  pos.y += GEAR_CLEARANCE * k
 }

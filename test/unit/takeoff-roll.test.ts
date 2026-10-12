@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
+import { PARKED_TAIL_DOWN } from '../../src/specs/ground'
 import {
   CLIMB_SECONDS, createTakeoffRoll, GEAR_CLEARANCE, LIFTOFF_SPEED, ROLL_SECONDS, stepTakeoff,
   TAKEOFF_ROLL_GAP, TAKEOFF_STAGGER, TAKEOFF_TRAIL, TAXI_SPEED, TAXI_TURN_RADIUS, TAXI_TURN_RATE, taxiSeconds,
@@ -18,7 +19,7 @@ import type { Command, Controller } from '../../src/control/Controller'
 /**
  * # 滾行起飛
  *
- * 守兩件事：腳本本身的剖面（貼地滾行 → 抬頭 → 爬升 → 交還），以及腳本期間
+ * 守兩件事：腳本本身的剖面（抬頭滾行 → 離地放平 → 交還），以及腳本期間
  * 那一架仍然是戰場上的一架 —— 打得到、不被撞地判定殺掉、AI 不去追它、
  * 交還時速度接得上物理。
  */
@@ -45,12 +46,12 @@ describe('滾行腳本的剖面', () => {
     if (steps > 240 * 60) throw new Error('腳本沒有結束')
   }
 
-  it('滾行段貼在跑道面上方 GEAR_CLEARANCE、機身水平、沿航向前進', () => {
+  it('滾行段貼在跑道面上方 GEAR_CLEARANCE、維持 10° 抬頭、沿航向前進', () => {
     const rolling = samples.filter((s) => s.t < ROLL_SECONDS)
     expect(rolling.length).toBeGreaterThan(0)
     for (const s of rolling) {
       expect(s.y).toBeCloseTo(12 + GEAR_CLEARANCE, 6)
-      expect(s.pitch).toBeCloseTo(0, 6)
+      expect(s.pitch).toBeCloseTo(PARKED_TAIL_DOWN, 6)
       expect(s.x).toBeCloseTo(100, 6)
     }
     // heading 0 = 朝 −Z
@@ -64,10 +65,15 @@ describe('滾行腳本的剖面', () => {
     expect(at.speed).toBeLessThan(LIFTOFF_SPEED * 1.05)
   })
 
-  it('交還前俯仰在 8–10°、已經離地、總長 ROLL_SECONDS + CLIMB_SECONDS', () => {
+  it('離地後逐漸放平、交還時已經離地，總長 ROLL_SECONDS + CLIMB_SECONDS', () => {
     const last = samples.at(-1)!
-    expect(last.pitch / (Math.PI / 180)).toBeGreaterThanOrEqual(8)
-    expect(last.pitch / (Math.PI / 180)).toBeLessThanOrEqual(10)
+    const airborne = samples.filter((s) => s.t > ROLL_SECONDS)
+    expect(airborne[0]!.pitch).toBeCloseTo(PARKED_TAIL_DOWN, 3)
+    for (let i = 1; i < airborne.length; i++) {
+      expect(airborne[i]!.pitch).toBeLessThanOrEqual(airborne[i - 1]!.pitch + 1e-9)
+      expect(airborne[i - 1]!.pitch - airborne[i]!.pitch).toBeLessThan(0.002)
+    }
+    expect(last.pitch).toBeCloseTo(0, 6)
     expect(last.y).toBeGreaterThan(12 + GEAR_CLEARANCE + 5)
     expect((steps + 1) * DT).toBeCloseTo(ROLL_SECONDS + CLIMB_SECONDS, 1)
   })
@@ -122,6 +128,26 @@ describe('滑行', () => {
   /** L 形：往 +X 50 m，再往 −Z 80 m。起點機首朝 +X（−π/2），終點機首朝 −Z（0） */
   const path = [{ x: 0, z: 0 }, { x: 50, z: 0 }, { x: 50, z: -80 }] as const
   const start = -Math.PI / 2
+
+  it('抵達跑道就加速時承接 8 m/s，位置與速度都連續，12 秒後到離地速度', () => {
+    const a = new Aircraft(P51D, 0, 0)
+    const taxi = taxiSeconds(path, start, 0)
+    const roll = createTakeoffRoll(50, -80, 0, 12, taxi, { path, startHeading: start })
+    roll.elapsed = taxi - DT
+    stepTakeoff(roll, a.state, 0)
+    const before = a.state.position.clone()
+    stepTakeoff(roll, a.state, DT)
+    expect(a.state.velocity.length()).toBeCloseTo(TAXI_SPEED, 6)
+    expect(a.state.position.distanceTo(before)).toBeCloseTo(TAXI_SPEED * DT, 6)
+    const boundary = a.state.position.clone()
+    stepTakeoff(roll, a.state, DT)
+    expect(a.state.velocity.length()).toBeGreaterThan(TAXI_SPEED)
+    expect(a.state.position.distanceTo(boundary)).toBeCloseTo(TAXI_SPEED * DT, 3)
+    roll.elapsed = taxi + ROLL_SECONDS
+    stepTakeoff(roll, a.state, 0)
+    expect(a.state.velocity.length()).toBeCloseTo(LIFTOFF_SPEED, 6)
+    expect(a.state.position.z).toBeCloseTo(-80 - (TAXI_SPEED + LIFTOFF_SPEED) * ROLL_SECONDS / 2, 6)
+  })
 
   /**
    * 【轉角是圓弧，不是原地轉】弧上的時間與原地轉相同（`|轉角| ÷ 角速度`），

@@ -167,7 +167,7 @@ export const en: Record<MessageKey, string> = {
   'mission.germany-m3.summary': 'Fly the Bf 109 K-4 in at treetop height and catch the Mustangs before they take off.',
   'mission.germany-m3.place': 'Y-29 airfield, Asch, Belgium',
   'mission.germany-m3.objective': 'Destroy every Mustang',
-  'mission.germany-m3.banner': 'Mustangs on the ground. Go!',
+  'mission.germany-m3.banner': 'Strike the airfield at low altitude. Destroy the fighters before they take off.',
   'mission.germany-m3.wave.taxi': 'Mustangs taxiing to the runway',
   'mission.germany-m3.wave.more': 'More Mustangs getting ready',
   'mission.germany-m3.wave.last': 'The last Mustangs are rolling',

@@ -1,6 +1,6 @@
 import { BufferGeometry, Group, Mesh, MeshStandardMaterial, Quaternion, Vector3 } from 'three'
 import type { GroundTarget } from '../world/groundTargets'
-import { GEAR_CLEARANCE } from '../control/takeoffRoll'
+import { GEAR_CLEARANCE, takeoffOriginBlend } from '../control/takeoffRoll'
 import { GROUND_MODELS, groundGeometry, groundLodGeometry } from './geometry/ground'
 import { PARKED_TAIL_DOWN, type GroundLivery } from '../specs/ground'
 import {
@@ -13,9 +13,8 @@ import {
   GUN_PITCH_MAX, GUN_PITCH_MIN, TANK_PITCH_MAX, TANK_PITCH_MIN, TANK_TRAVERSE_RATE, aimAngles, slewYaw,
 } from './gunAim'
 
-/** 停放模型烘進去的機尾下沉，與它的反向 */
+/** 停放模型烘進去的機尾下沉 */
 const TILT = /* @__PURE__ */ new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), PARKED_TAIL_DOWN)
-const UNTILT = /* @__PURE__ */ TILT.clone().invert()
 const OFF = /* @__PURE__ */ new Vector3()
 const Z_AXIS = /* @__PURE__ */ new Vector3(0, 0, 1)
 const SPIN = /* @__PURE__ */ new Quaternion()
@@ -149,7 +148,7 @@ export function createGroundModels(targets: readonly GroundTarget[], livery?: Gr
     meshes.push(m)
     pairs.push(pair)
     far.push(false)
-    // 拆開的槳葉掛成子網格，跟著機身的變換走（滾行改平也一起）
+    // 拆開的槳葉掛成子網格，跟著機身的變換走。
     const pp = pair.hi.userData[PARKED_PROP_KEY] as ParkedProp | undefined
     let prop: Mesh | null = null
     if (pp !== undefined) {
@@ -249,15 +248,13 @@ export function createGroundModels(targets: readonly GroundTarget[], livery?: Gr
         m.position.copy(t.position)
         m.quaternion.copy(t.orientation)
         const lo = pairs[k]!.lo
-        // 【滾行時機身改平】停放模型烘進了機尾下沉與貼地的平移，滾行的姿態是
-        // 機身水平、原點在地面上 `GEAR_CLEARANCE` —— 與離地後接手的那一架相同，
-        // 不扣回來的話交接那一幀機頭會跳 10°
+        // 滾行維持烘好的 10° 抬頭；只將貼地原點漸變到飛行原點，避免起步與離地跳位。
         const off = m.geometry.userData[PARKED_OFFSET_KEY] as { x: number; y: number; z: number } | undefined
         if (t.rolling && off !== undefined) {
-          m.quaternion.multiply(UNTILT)
           OFF.set(off.x, off.y, off.z).applyQuaternion(m.quaternion)
-          m.position.y += GEAR_CLEARANCE
-          m.position.sub(OFF)
+          const k = takeoffOriginBlend(t.taxi)
+          m.position.y += GEAR_CLEARANCE * k
+          m.position.addScaledVector(OFF, -k)
         }
         if (lo !== null) {
           const want = useAircraftLod(t.position.distanceToSquared(cam), far[k]!)

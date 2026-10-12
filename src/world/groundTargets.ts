@@ -228,7 +228,7 @@ export interface GroundTarget extends StrikeTarget {
    * 索敵、威脅與 HUD 的空中接觸點都看不到它。
    */
   taxi: TakeoffRoll | null
-  /** 滑行腳本正在滾行段（機身水平）。停著與滑行時機尾下沉 */
+  /** 滑行腳本正在跑道加速段；地面姿態維持尾輪機抬頭。 */
   rolling: boolean
   /**
    * 這一台是一架飛機：血量、部位與防護力照飛機算（`World.resolveHits`）。

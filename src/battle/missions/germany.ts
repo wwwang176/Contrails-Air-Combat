@@ -431,6 +431,35 @@ export const GERMANY: readonly MissionCard[] = [
        */
       altitude: 500,
       ground: ASCH_GROUND,
+      /**
+       * 【開場導覽】停機位上的目標、正在滑行的野馬，再接玩家低空進場：
+       *
+       * ```
+       *   1  北側停機墊 P-51 在 (−1,020, 0, −2,995)，從機首前側離地 6 m 近拍
+       *   2  跑道入口第一架 P-51 第 6 秒約在 (−750, 0, −1,876)，從東北前側拍，
+       *      交代野馬由橫向滑行道轉北、進入跑道，後景帶入排隊的飛機
+       *   3  玩家 Bf 109 第 6 秒約在 (5,748, 367, −2,500)，右前上方特寫，
+       *      讓樹林與田野在機身後方掠過，交代低空進場，收尾跟隨玩家漸變回操作視角
+       * ```
+       *
+       * 地面近景用離地高度；跑道鏡頭沿滑行路徑移動，飛行鏡頭跟隨玩家。**鏡位與秒數是起始值。**
+       */
+      intro: [
+        {
+          kind: 'pan', seconds: 3, aboveGround: true, fov: 42,
+          from: { x: -995, y: 6, z: -2980 }, to: { x: -999, y: 6, z: -2977 },
+          lookFrom: { x: -1020, y: 2, z: -2995 }, lookTo: { x: -1020, y: 2, z: -2995 },
+        },
+        {
+          kind: 'pan', seconds: 3, aboveGround: true, fov: 42,
+          from: { x: -727, y: 5, z: -1886 }, to: { x: -727, y: 5, z: -1894 },
+          lookFrom: { x: -754, y: 1.5, z: -1854 }, lookTo: { x: -750, y: 1.5, z: -1865 },
+        },
+        {
+          kind: 'follow', seconds: 2.5, subject: { player: true },
+          back: -14, backTo: -10, up: 6, side: 26, lead: 0, lookUp: 0, fov: 34,
+        },
+      ],
       // 【第三張任務卡限定】先完成機場掃射；已升空的 P-51 只有形成直接射擊威脅
       // 時才插隊。AI 核心只看單位 id，不知道 germany-m3，也不污染其他關卡。
       priorityGroundUnit: 'parkedP51',

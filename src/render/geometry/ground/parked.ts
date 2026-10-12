@@ -137,8 +137,8 @@ export function bakeParkedAircraft(id: string, spinProp = false): BufferGeometry
   }
   const offset = { x: 0, y: -bb.min.y, z: -(bb.min.z + bb.max.z) / 2 }
   geo.translate(offset.x, offset.y, offset.z)
-  // 【滾行要把烘進去的姿態扣回來】機身改平時由 `render/groundTargets.ts` 讀它；
-  // `clone()` 帶得過去
+  // 滾行時由 `render/groundTargets.ts` 將這份平移逐漸扣回，離地接上飛行原點；
+  // 烘好的抬頭角保留，`clone()` 會帶過這份資料。
   geo.userData[PARKED_OFFSET_KEY] = offset
   if (prop !== null) {
     const out: ParkedProp = {

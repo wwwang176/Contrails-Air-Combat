@@ -1,5 +1,6 @@
 import { Quaternion, Vector3 } from 'three'
 import { DEG } from '../core/math'
+import { PARKED_TAIL_DOWN } from '../specs/ground'
 import { walkRoute, type PoseState, type RouteMotion, type RoutePoint as TaxiPoint } from '../core/routeMotion'
 
 export type { PoseState, RoutePoint as TaxiPoint } from '../core/routeMotion'
@@ -7,13 +8,13 @@ export type { PoseState, RoutePoint as TaxiPoint } from '../core/routeMotion'
 /**
  * # 滑行與滾行起飛腳本
  *
- * 停在地上的飛機起飛加入戰鬥：沿滑行道滑到跑道上排隊 → 等小隊到齊 → 貼地滾行
- * → 抬頭離地 → 初期爬升 → 交還物理。
+ * 停在地上的飛機起飛加入戰鬥：沿滑行道進入跑道 → 保持抬頭加速
+ * → 離地後逐漸放平 → 交還物理。
  * **位置由這一支驅動，物理積分跳過**（`World.step` 讀 `Combatant.takeoff`）——
  * 飛行模型沒有地面與起落架，讓它自己在跑道上加速會陷進地面或直接被撞地判定
  * 殺掉。
  *
- * 【交還時速度要接得上】速度一直沿著機首方向、大小照剖面走，交還那一步
+ * 【交還時速度要接得上】地面速度沿跑道，離地後沿機首方向，交還那一步
  * 物理拿到的就是當下的速度向量。歸零或換成開局速度的話，飛機會在跑道頭
  * 失速掉下來或瞬間彈出去。
  *
@@ -24,9 +25,9 @@ export type { PoseState, RoutePoint as TaxiPoint } from '../core/routeMotion'
 export const ROLL_SECONDS = 12
 /** 離地速度，m/s（約 180 km/h） */
 export const LIFTOFF_SPEED = 50
-/** 抬頭的目標俯仰角 */
-export const ROTATE_PITCH = 9 * DEG
-/** 由水平拉到 `ROTATE_PITCH` 的秒數 */
+/** 地面維持尾輪機的抬頭姿態；離地後由這個角度逐漸放平。 */
+export const ROTATE_PITCH = PARKED_TAIL_DOWN
+/** 離地後由抬頭漸變成水平的秒數 */
 export const ROTATE_SECONDS = 1.5
 /** 離地之後到交還的秒數 */
 export const CLIMB_SECONDS = 3.5
@@ -48,7 +49,7 @@ export const TAKEOFF_STAGGER = 1
  *
  * 【為什麼要比 `TAKEOFF_STAGGER` 大得多】滑行過來的那一種是四架滑到**同一點**
  * 才滾行，位置上沒有間隔。加速度是 `LIFTOFF_SPEED / ROLL_SECONDS`（約
- * 4.2 m/s²），5 秒後前一架已經跑出 52 m —— 比 `TAKEOFF_TRAIL` 還寬。
+ * 4.2 m/s²）；從靜止起步 5 秒後已經跑出 52 m，承接滑行速度時更遠。
  */
 export const TAKEOFF_ROLL_GAP = 5
 /** 滑行速度，m/s（約 29 km/h）。**起始值，由試飛裁定** */
@@ -122,8 +123,12 @@ export function taxiSeconds(path: readonly TaxiPoint[], startHeading: number, en
   return walkRoute(path, startHeading, endHeading, Infinity, 0, null, TAXI_MOTION)
 }
 
-/** 滾行段的加速度，m/s²。整段等加速 */
-const ACCEL = LIFTOFF_SPEED / ROLL_SECONDS
+/** 地面模型的原點在滾行期間平順移到飛行原點；兩端斜率為零。 */
+export function takeoffOriginBlend(roll: TakeoffRoll | null): number {
+  if (roll === null) return 0
+  const k = Math.min(1, Math.max(0, (roll.elapsed - roll.delay) / ROLL_SECONDS))
+  return k * k * (3 - 2 * k)
+}
 
 const UP = /* @__PURE__ */ new Vector3(0, 1, 0)
 const RIGHT = /* @__PURE__ */ new Vector3(1, 0, 0)
@@ -135,13 +140,14 @@ const QP = /* @__PURE__ */ new Quaternion()
  */
 function taxiPose(roll: TakeoffRoll, plan: TaxiPlan, time: number, state: PoseState): void {
   walkRoute(plan.path, plan.startHeading, roll.heading, time, roll.groundY + GEAR_CLEARANCE, state, TAXI_MOTION)
+  state.orientation.multiply(QP.setFromAxisAngle(RIGHT, ROTATE_PITCH))
 }
 
 /**
  * 推進一步，就地寫 `state`。回傳 **false = 這一步走完了**，呼叫端解開座標鎖。
  *
  * `taxiTime` 之內沿折線滑行；之後到 `delay` 之前停在排隊位置、速度為零。滾行段
- * 的位置取解析解（`½at²`），高度釘在跑道面上方 `GEAR_CLEARANCE`；離地之後沿速度
+ * 的位置取解析解（`v₀t + ½at²`），高度釘在跑道面上方 `GEAR_CLEARANCE`；離地之後沿速度
  * 積分。
  */
 export function stepTakeoff(roll: TakeoffRoll, state: PoseState, dt: number): boolean {
@@ -151,20 +157,26 @@ export function stepTakeoff(roll: TakeoffRoll, state: PoseState, dt: number): bo
     return true
   }
   const t = roll.elapsed - roll.delay
-  if (t <= 0) {
-    state.orientation.setFromAxisAngle(UP, roll.heading)
+  if (t < 0) {
+    state.orientation.setFromAxisAngle(UP, roll.heading).multiply(QP.setFromAxisAngle(RIGHT, ROTATE_PITCH))
     state.velocity.set(0, 0, 0)
     state.angularVelocity.set(0, 0, 0)
     state.position.set(roll.x, roll.groundY + GEAR_CLEARANCE, roll.z)
     return true
   }
+  // 滑到就走承接滑行速度；實際停等過或直接生在跑道的飛機從靜止起步。
+  const initialSpeed = roll.taxi !== null && roll.delay <= roll.taxiTime + 1e-9 ? TAXI_SPEED : 0
+  const accel = (LIFTOFF_SPEED - initialSpeed) / ROLL_SECONDS
   const lift = t - ROLL_SECONDS
-  const pitch = lift <= 0 ? 0 : ROTATE_PITCH * Math.min(1, lift / ROTATE_SECONDS)
+  const k = Math.min(1, Math.max(0, lift / ROTATE_SECONDS))
+  const pitch = ROTATE_PITCH * (1 - k * k * (3 - 2 * k))
   state.orientation.setFromAxisAngle(UP, roll.heading).multiply(QP.setFromAxisAngle(RIGHT, pitch))
-  state.velocity.set(0, 0, -1).applyQuaternion(state.orientation).multiplyScalar(ACCEL * t)
+  const flightPitch = lift > 0 ? pitch : 0
+  state.velocity.set(-Math.sin(roll.heading) * Math.cos(flightPitch), Math.sin(flightPitch), -Math.cos(roll.heading) * Math.cos(flightPitch))
+    .multiplyScalar(initialSpeed + accel * t)
   state.angularVelocity.set(0, 0, 0)
   if (lift <= 0) {
-    const s = 0.5 * ACCEL * t * t
+    const s = initialSpeed * t + 0.5 * accel * t * t
     state.position.set(
       roll.x - Math.sin(roll.heading) * s,
       roll.groundY + GEAR_CLEARANCE,

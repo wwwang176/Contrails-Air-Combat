@@ -1,5 +1,5 @@
 import { Quaternion, Vector3 } from 'three'
-import { GEAR_CLEARANCE, ROLL_SECONDS, stepTakeoff, type PoseState, type TakeoffRoll } from '../control/takeoffRoll'
+import { GEAR_CLEARANCE, ROLL_SECONDS, ROTATE_PITCH, stepTakeoff, type PoseState, type TakeoffRoll } from '../control/takeoffRoll'
 import type { GroundTarget } from './groundTargets'
 
 /** 起飛交接只修改飛行狀態，不依賴世界的武器、碰撞或計分系統。 */
@@ -20,6 +20,7 @@ export interface TakeoffSeat {
 const TAXI_POSE: PoseState = {
   position: new Vector3(), velocity: new Vector3(), orientation: new Quaternion(), angularVelocity: new Vector3(),
 }
+const UNTILT = /* @__PURE__ */ new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -ROTATE_PITCH)
 
 /**
  * 有 taxi 腳本的地面飛機推進一步，離地時交給 departedAs 指定的席位。
@@ -41,7 +42,8 @@ export function stepGroundTaxi(
   const taxiDone = roll.taxi === null || roll.elapsed >= roll.taxiTime
   const tRoll = roll.elapsed - roll.delay
   t.position.set(TAXI_POSE.position.x, TAXI_POSE.position.y - GEAR_CLEARANCE, TAXI_POSE.position.z)
-  t.orientation.copy(TAXI_POSE.orientation)
+  // 地面模型與命中盒已含尾輪機抬頭，地面目標只保留航向，避免重複套角度。
+  t.orientation.copy(TAXI_POSE.orientation).multiply(UNTILT)
   t.speed = TAXI_POSE.velocity.length()
   t.rolling = taxiDone && tRoll > 0
   if (!(taxiDone && tRoll >= ROLL_SECONDS)) return
