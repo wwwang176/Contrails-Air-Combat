@@ -30,7 +30,7 @@ export function groundGunMuzzleOf(barrel: Mesh): Vector3 {
   return new Vector3((minX + maxX) * 0.5, (minY + maxY) * 0.5, z)
 }
 
-/** Flak 38 的四個共面管口：以前端截面中心分成四區，各取自己的截面中心。只在建場量測。 */
+/** Flak 38 與 M16 的四個共面管口：以前端截面中心分成四區，各取自己的截面中心。只在建場量測。 */
 export function groundQuadGunMuzzlesOf(barrel: Mesh): Vector3[] {
   const center = groundGunMuzzleOf(barrel)
   const bounds = Array.from({ length: 4 }, () => ({ minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }))

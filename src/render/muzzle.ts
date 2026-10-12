@@ -97,7 +97,7 @@ export interface Muzzles<T> {
  * 兩片 × 兩個三角形 = 4 個三角形，滿編 40 架 × 8 管是 1,280 個 —— 與曳光彈
  * 同一個量級。材質是 `DoubleSide`，因為梯形是平的、兩面都要看得見。
  */
-function crossFlare(): BufferGeometry {
+export function crossFlare(): BufferGeometry {
   /** 外端的半寬 */
   const w = MUZZLE_HALF_WIDTH
   /** 根部的半寬。窄的那一端貼著槍口 —— 見 `MUZZLE_ROOT_RATIO` */
@@ -115,6 +115,14 @@ function crossFlare(): BufferGeometry {
   const g = new BufferGeometry()
   g.setAttribute('position', new BufferAttribute(v, 3))
   return g
+}
+
+/** 固定槍、機載砲塔與地面連射武器共用的加法槍焰材質。 */
+export function createMuzzleMaterial(): MeshBasicMaterial {
+  return new MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.95, fog: false,
+    depthWrite: false, blending: AdditiveBlending, side: DoubleSide, forceSinglePass: true,
+  })
 }
 
 const UNIT_Z = new Vector3(0, 0, 1)
@@ -147,10 +155,7 @@ export function createMuzzles(aircraftCapacity: number): Muzzles<MuzzleSource> {
   // 【forceSinglePass】透明雙面預設分兩趟、每次繪製重算兩次 shader program。
   // 加法混色與順序無關，一趟畫出來的像素相同。
   // 【不吃霧】槍焰是自己發光的，見 `tracers.ts` 的材質
-  const material = new MeshBasicMaterial({
-    color: 0xffffff, transparent: true, opacity: 0.95, fog: false,
-    depthWrite: false, blending: AdditiveBlending, side: DoubleSide, forceSinglePass: true,
-  })
+  const material = createMuzzleMaterial()
 
   const capacity = aircraftCapacity * MAX_MOUNTS
   const object = new InstancedMesh(geometry, material, capacity)
@@ -285,10 +290,7 @@ export function createTurretMuzzles(aircraftCapacity: number): Muzzles<TurretMuz
   // 【forceSinglePass】透明雙面預設分兩趟、每次繪製重算兩次 shader program。
   // 加法混色與順序無關，一趟畫出來的像素相同。
   // 【不吃霧】槍焰是自己發光的，見 `tracers.ts` 的材質
-  const material = new MeshBasicMaterial({
-    color: 0xffffff, transparent: true, opacity: 0.95, fog: false,
-    depthWrite: false, blending: AdditiveBlending, side: DoubleSide, forceSinglePass: true,
-  })
+  const material = createMuzzleMaterial()
 
   const capacity = aircraftCapacity * MAX_TURRETS
   const object = new InstancedMesh(geometry, material, capacity)

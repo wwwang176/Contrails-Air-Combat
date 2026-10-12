@@ -10,6 +10,7 @@ import { useAircraftLod } from './geometry/buildAircraft'
 import { GUN_TURRET_KEY, type GunTurretParts } from './geometry/ground/turret'
 import { disposeLivery, liveryGeometry } from './geometry/ground/livery'
 import { createGroundGunShots, groundGunMuzzleOf, groundQuadGunMuzzlesOf, readGroundGunMuzzle, type GroundGunSource } from './groundGunShots'
+import { createGroundMuzzles } from './groundMuzzles'
 import {
   GUN_PITCH_MAX, GUN_PITCH_MIN, TANK_PITCH_MAX, TANK_PITCH_MIN, TANK_TRAVERSE_RATE, aimAngles, slewYaw,
 } from './gunAim'
@@ -151,6 +152,7 @@ export function createGroundModels(
   const yaws = new Float64Array(targets.length)
   const pitches = new Float64Array(targets.length)
   const gunSources: GroundGunSource[] = []
+  const muzzleSources: GroundGunSource[] = []
 
   for (const t of targets) {
     let pair = byId.get(t.unit.id)
@@ -204,8 +206,8 @@ export function createGroundModels(
       m.add(trav)
       if (t.unit.id === 'usFlakHeavy' || t.unit.id === 'flakHeavy') {
         gunSources.push({ index: meshes.length - 1, barrel: elev })
-      } else if (t.unit.id === 'flakLight') {
-        gunSources.push({ index: meshes.length - 1, barrel: elev, scale: 0.16, muzzles: groundQuadGunMuzzlesOf(elev) })
+      } else if (t.unit.id === 'flakLight' || t.unit.id === 'usFlakTrack') {
+        muzzleSources.push({ index: meshes.length - 1, barrel: elev, muzzles: groundQuadGunMuzzlesOf(elev) })
       }
     }
     turrets.push(trav)
@@ -217,6 +219,8 @@ export function createGroundModels(
 
   const gunShots = gunSources.length > 0 && onGunShot !== undefined
     ? createGroundGunShots(gunSources, targets, onGunShot) : null
+  const muzzles = muzzleSources.length > 0 ? createGroundMuzzles(muzzleSources, targets) : null
+  if (muzzles !== null) object.add(muzzles.object)
 
   /** 第 k 台砲塔這一幀的角度寫進 `yaws`／`pitches`。死了的不動 */
   function aimTurret(list: readonly GroundTarget[], k: number, seconds: number, aim: GroundAimSource | null): void {
@@ -321,9 +325,11 @@ export function createGroundModels(
         m.visible = !t.departed && !t.arrived && !t.dormant && (t.alive || t.unit.personnel !== true)
       }
       gunShots?.update(list, seconds)
+      muzzles?.update(list, seconds)
     },
     resetTurrets() {
       gunShots?.reset()
+      muzzles?.reset()
       yaws.fill(0)
       pitches.fill(0)
       for (const trav of turrets) {
@@ -343,6 +349,7 @@ export function createGroundModels(
       return { withLod, far: n }
     },
     dispose() {
+      muzzles?.dispose()
       for (const g of owned) g.dispose()
       for (const [base, g] of liveried) if (g !== base) disposeLivery(g)
       // 貼圖由飛行模型快取持有；只釋放這裡建立的材質。

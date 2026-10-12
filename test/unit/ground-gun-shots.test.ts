@@ -1,6 +1,8 @@
 import { beforeAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { Vector3 } from 'three'
+import { InstancedMesh, Matrix4, MeshBasicMaterial, Vector3 } from 'three'
+import { FLASH_SECONDS } from '../../src/weapons/muzzleFlash'
+import { createMuzzles } from '../../src/render/muzzle'
 import { preloadGroundModels } from '../../src/render/geometry/ground'
 import { createGroundModels } from '../../src/render/groundTargets'
 import { createGroundTarget } from '../../src/world/groundTargets'
@@ -16,7 +18,7 @@ beforeAll(async () => {
 })
 afterEach(() => vi.restoreAllMocks())
 
-function setup(id: 'usFlakHeavy' | 'flakHeavy' | 'flakLight' = 'usFlakHeavy') {
+function setup(id: 'usFlakHeavy' | 'flakHeavy' | 'flakLight' | 'usFlakTrack' = 'usFlakHeavy') {
   const target = createGroundTarget(0, id, 'red', 100, 200, 0)
   target.position.y = 10
   target.guns = createGroundBattery()
@@ -87,7 +89,7 @@ describe('地面砲口開火事件', () => {
     } finally { models.dispose() }
   })
 
-  it.each(['usFlakHeavy', 'flakHeavy', 'flakLight'] as const)('%s 短閃光已過仍按發數通報；暫停、停火不重複，擊毀與隱藏時不通報', id => {
+  it.each(['usFlakHeavy', 'flakHeavy'] as const)('%s 短閃光已過仍按發數通報；暫停、停火不重複，擊毀與隱藏時不通報', id => {
     const { target, emit, models, gun } = setup(id)
     try {
       gun.flash = 0
@@ -111,7 +113,7 @@ describe('地面砲口開火事件', () => {
     } finally { models.dispose() }
   })
 
-  it.each(['flakHeavy', 'flakLight'] as const)('%s 在模型管口開火、尺度正確，四聯砲每發輪替管口並跟隨仰角', id => {
+  it.each(['flakHeavy'] as const)('%s 在模型管口開火、尺度正確並跟隨仰角', id => {
     const { target, emit, models, gun } = setup(id)
     try {
       gun.aim.set(0, 0, -1)
@@ -122,15 +124,7 @@ describe('地面砲口開火事件', () => {
       for (const call of calls) {
         expect(call[2]).toBeLessThan(199)
         expect(call[1]).toBeGreaterThan(10)
-        expect(call.slice(3)).toEqual([0, 0, -1, id === 'flakLight' ? 0.16 : 1])
-      }
-      if (id === 'flakLight') {
-        expect(new Set(calls.map(c => c.slice(0, 3).join(','))).size).toBe(4)
-        expect(new Set(calls.map(c => Math.sign(c[0] - 100))).size).toBe(2)
-        expect(new Set(calls.map(c => c[1].toFixed(4))).size).toBe(2)
-        gun.shots++
-        models.update([target], camera, 1 / 60)
-        expect(emit.mock.calls[4]).toEqual(calls[0])
+        expect(call.slice(3)).toEqual([0, 0, -1, 1])
       }
       target.orientation.setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 2)
       gun.aim.set(0, 1, -1).normalize()
@@ -143,6 +137,60 @@ describe('地面砲口開火事件', () => {
       expect(last[4]).toBeCloseTo(Math.SQRT1_2, 4)
       expect(last[5]).toBeCloseTo(0, 4)
     } finally { models.dispose() }
+  })
+
+  it.each(['flakLight', 'usFlakTrack'] as const)('%s 沿用戰鬥機槍焰、輪替四管，跟隨移動且不觸發砲口火球', id => {
+    const { target, emit, models, gun } = setup(id)
+    const fighter = createMuzzles(1)
+    const object = models.object.getObjectByName('groundModels.muzzles') as InstancedMesh
+    const matrix = new Matrix4(), point = new Vector3()
+    const points: Vector3[] = []
+    try {
+      expect(object).toBeInstanceOf(InstancedMesh)
+      expect(object.geometry.getAttribute('position').array).toEqual(fighter.object.geometry.getAttribute('position').array)
+      const fighterMaterial = fighter.object.material as MeshBasicMaterial
+      expect(object.material).toMatchObject({ blending: fighterMaterial.blending, opacity: fighterMaterial.opacity })
+      expect(object.count).toBe(0)
+      gun.aim.set(0, 0, -1)
+      for (let i = 0; i < 5; i++) {
+        gun.shots++
+        gun.flash = 0 // 物理閃光已過，低幀率仍至少呈現一幀。
+        models.update([target], camera, 1 / 30)
+        expect(object.count).toBe(1)
+        object.getMatrixAt(0, matrix)
+        points.push(new Vector3().setFromMatrixPosition(matrix))
+      }
+      expect(new Set(points.slice(0, 4).map(p => p.toArray().join(','))).size).toBe(4)
+      expect(new Set(points.slice(0, 4).map(p => Math.sign(p.x - 100))).size).toBe(2)
+      expect(new Set(points.slice(0, 4).map(p => p.y.toFixed(4))).size).toBe(2)
+      expect(points[4]!.distanceTo(points[0]!)).toBeLessThan(1e-5)
+      expect(points.every(p => p.y > 10)).toBe(true)
+      models.muzzle(0, point, new Vector3())
+      for (const p of points) expect(p.z).toBeCloseTo(point.z, 4)
+      target.position.x += 10
+      models.update([target], camera, 0)
+      object.getMatrixAt(0, matrix)
+      expect(point.setFromMatrixPosition(matrix).x).toBeCloseTo(points[4]!.x + 10, 4)
+      models.update([target], camera, FLASH_SECONDS + 0.001)
+      expect(object.count).toBe(0)
+      gun.shots++
+      models.update([target], camera, 1 / 60)
+      expect(object.count).toBe(1)
+      target.dormant = true
+      models.update([target], camera, 0)
+      expect(object.count).toBe(0)
+      target.dormant = false
+      models.resetTurrets()
+      gun.shots = 1
+      models.update([target], camera, 0)
+      expect(object.count).toBe(0)
+      models.update([target], camera, 1 / 60)
+      expect(object.count).toBe(1)
+      target.alive = false
+      models.update([target], camera, 0)
+      expect(object.count).toBe(0)
+      expect(emit).not.toHaveBeenCalled()
+    } finally { fighter.dispose(); models.dispose() }
   })
 
   it('重開清掉發數，下一場第一發照樣通報', () => {
