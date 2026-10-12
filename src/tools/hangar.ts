@@ -1,6 +1,9 @@
 import { countModelTriangles } from './hangarMeasurements'
 import { buildArcs, buildBarrels, buildShipArcs, disposeBarrels } from './hangarWeapons'
 import { disposeHangarShip, prepareHangarShip } from './hangarShipLoading'
+import { selectShipArc, shipArcDescription, SHIP_ARC_LABELS } from './hangarShipArcs'
+import { SHIP_GUN_LAYOUTS } from '../specs/shipGunLayouts'
+import type { ShipClassId } from '../world/ships'
 import {
   AmbientLight, AxesHelper, Box3, Color,
   DirectionalLight, GridHelper, HemisphereLight,
@@ -163,6 +166,38 @@ let arcs: Group | null = null
 let arcsOn = false
 
 let shipGroup: Group | null = null
+let shipArcs: Group | null = null
+let activeShipId: ShipClassId | null = null
+const shipArcControls = $<HTMLDivElement>('shipArcControls')
+const shipMount = $<HTMLSelectElement>('shipMount')
+const shipArcDetail = $<HTMLDivElement>('shipArcDetail')
+const mountFocus = $<HTMLButtonElement>('mountFocus')
+
+function syncShipArcs(): void {
+  shipArcControls.hidden = !shipArcs || !arcsOn
+  if (!shipArcs) return
+  shipArcs.visible = arcsOn
+  selectShipArc(shipArcs, shipMount.value)
+  const mount = activeShipId ? SHIP_GUN_LAYOUTS[activeShipId]?.mounts[shipMount.value] : undefined
+  shipArcDetail.textContent = mount ? shipArcDescription(mount) : `全部 ${shipArcs.children.length} 座砲；可選單座檢視`
+  mountFocus.disabled = !mount
+}
+shipMount.onchange = () => {
+  syncShipArcs(); frameOrtho()
+  shipArcControls.scrollIntoView({ block: 'nearest' })
+}
+mountFocus.onclick = () => {
+  const mount = activeShipId ? SHIP_GUN_LAYOUTS[activeShipId]?.mounts[shipMount.value] : undefined
+  if (!mount) return
+  orthoView = null; autoRotate = false
+  for (const id of ['vSide', 'vTop', 'vFront']) $(id).classList.remove('on')
+  const radius = mount.tier === 'flak' ? 52 : mount.tier === 'autocannon' ? 38 : 28
+  controls.target.copy(mount.pivot)
+  camera.up.set(0, 1, 0)
+  camera.position.copy(mount.pivot).add(new Vector3(Math.sign(mount.pivot.x) || 1, 0.85, 1).multiplyScalar(radius))
+  controls.update()
+  shipArcControls.scrollIntoView({ block: 'nearest' })
+}
 
 /** 把飛機那一組（機體、砲管、射界錐）全部拿掉並釋放。 */
 function clearAircraft(): void {
@@ -173,12 +208,14 @@ function clearAircraft(): void {
 
 function clearShip(): void {
   if (shipGroup) { scene.remove(shipGroup); disposeHangarShip(shipGroup); shipGroup = null }
+  shipArcs = null; activeShipId = null
+  shipArcControls.hidden = true
 }
 
 /**
- * 切到某一艘船：載 GLB、依 `world/shipAA.ts` 的併區表擺射界錐。
+ * 切到某一艘船：載 GLB，依遊戲的實體砲座表顯示各自的可轉角度。
  *
- * 【相機的遠平面要拉開】500 不夠 —— 265 m 的 Essex 加上 42 m 的射界錐，
+ * 【相機的遠平面要拉開】500 不夠 —— 265 m 的 Essex 加上周圍的射界，
  * 用預設值會被遠平面切掉一半，而且**畫面上看起來像船尾被削平了**。
  */
 function rebuildShip(id: string): void {
@@ -189,11 +226,16 @@ function rebuildShip(id: string): void {
   orthoCam.far = 4000; orthoCam.updateProjectionMatrix()
   const g = new Group()
   shipGroup = g
+  activeShipId = id as ShipClassId
   scene.add(g)
-  g.add(buildShipArcs(id))
+  shipArcs = buildShipArcs(id)
+  g.add(shipArcs)
+  const mounts = Object.values(SHIP_GUN_LAYOUTS[activeShipId]?.mounts ?? {})
+  shipMount.replaceChildren(new Option('全部砲座', ''), ...mounts.map(m => new Option(`${SHIP_ARC_LABELS[m.tier]} · ${m.id}`, m.id)))
+  syncShipArcs()
   const zones = SHIP_AA_ZONES[id] ?? []
   const n: Record<string, number> = {}
-  for (const z of zones) n[z.tier] = (n[z.tier] ?? 0) + z.mountsInZone
+  for (const mount of mounts) n[mount.tier] = (n[mount.tier] ?? 0) + 1
   stats.textContent =
     `${cfg.name}
 ` +
@@ -201,13 +243,13 @@ function rebuildShip(id: string): void {
 ` +
     `砲區      ${zones.length}（上限 8）
 ` +
-    `兩用砲    ${n['flak'] ?? 0} 門 → 遠距空炸（黑霧）
+    `兩用砲    ${n['flak'] ?? 0} 座
 ` +
-    `40 mm     ${n['autocannon'] ?? 0} 門 → 中距曳光
+    `40 mm     ${n['autocannon'] ?? 0} 座
 ` +
-    `20 mm     ${n['mg'] ?? 0} 門 → 近距曳光
+    `20 mm     ${n['mg'] ?? 0} 座
 ` +
-    `射界是起始值，由試飛裁定`
+    `射界依遊戲砲座設定；雙管算一座`
   createGltfLoader().load(assetUrl(cfg.url), async (gltf) => {
     // 【塗裝與遊戲同一支】自己載的 GLB 不經過 `preloadShipModels`
     try {
@@ -329,7 +371,7 @@ function frameBox(box: Box3): void {
 
   // 每個視圖的畫面寬高各取自哪兩根機體軸
   const [w, h] = orthoView === 'side' ? [size.z, size.y]
-    : orthoView === 'top' ? [size.z, size.x]
+    : orthoView === 'top' ? [size.x, size.z]
       : [size.x, size.y]
   const aspect = window.innerWidth / window.innerHeight
   const half = Math.max(w / aspect, h) * 0.54   // 0.5 + 8% 邊界
@@ -354,7 +396,12 @@ function frameOrtho(): void {
   if (!orthoView) return
   if (shipGroup) {
     shipGroup.updateMatrixWorld(true)
-    frameBox(new Box3().setFromObject(shipGroup))
+    const box = new Box3()
+    for (const child of shipGroup.children) {
+      if (child !== shipArcs) box.expandByObject(child)
+      else if (child.visible) for (const mount of child.children) if (mount.visible) box.expandByObject(mount)
+    }
+    if (!box.isEmpty()) frameBox(box)
     return
   }
   if (!model) return
@@ -388,6 +435,8 @@ const arcBtn = $<HTMLButtonElement>('arcs')
 arcBtn.onclick = () => {
   arcsOn = !arcsOn
   if (arcs) arcs.visible = arcsOn
+  syncShipArcs()
+  frameOrtho()
   arcBtn.classList.toggle('on', arcsOn)
 }
 
@@ -494,8 +543,10 @@ rebuild()
 ;(window as unknown as Record<string, unknown>)['__hangarArcs'] = (on: boolean) => {
   arcsOn = on
   if (arcs) arcs.visible = on
+  syncShipArcs()
+  frameOrtho()
   arcBtn.classList.toggle('on', on)
-  return arcs ? arcs.children.length : 0
+  return shipArcs?.children.length ?? arcs?.children.length ?? 0
 }
 
 ;(window as unknown as Record<string, unknown>)['__hangarSpin'] = () => ({

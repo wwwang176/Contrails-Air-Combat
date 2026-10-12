@@ -2,11 +2,10 @@ import {
   BufferAttribute, BufferGeometry, DoubleSide, Group, type Material,
   Mesh, MeshBasicMaterial, Vector3,
 } from 'three'
-import { DEG } from '../core/math'
 import { barrelGeometry } from '../render/turretBarrels'
 import { BARREL_SPACING } from '../world/turrets'
 import { turretPivot, wobbleBasis } from '../weapons/turret'
-import { SHIP_AA_ARC_DEFAULTS, SHIP_AA_ZONES, type ShipAAZone } from '../world/shipAA'
+export { buildShipArcs } from './hangarShipArcs'
 import type { AircraftSpec } from '../specs/types'
 
 /**
@@ -112,39 +111,6 @@ export function buildArcs(spec: Pick<AircraftSpec, 'turrets'>): Group {
     }))
     mesh.position.copy(turretPivot(t, pivot))
     mesh.quaternion.setFromUnitVectors(UNIT_Z, t.axis)
-    g.add(mesh)
-  }
-  return g
-}
-
-/** 一層一個顏色：遠（黑霧）暖色、中距黃、近距青。 */
-const TIER_COLOR: Record<string, number> = {
-  flak: 0xff7043, autocannon: 0xffd54f, mg: 0x4fc3f7,
-}
-/** 射界錐的斜邊，m。船比飛機大一個量級，8 m 的錐在 265 m 的船上看不見。 */
-const SHIP_ARC_LENGTH = 42
-
-/**
- * 一個砲位的射界錐軸：水平分量朝**舷外**，抬 `elevationDeg`。
- * 中線上的砲（Fletcher 的 5 吋）沒有「舷外」可言，改成朝正上。
- */
-function shipArcAxis(z: ShipAAZone): Vector3 {
-  const e = SHIP_AA_ARC_DEFAULTS[z.tier].elevationDeg * DEG
-  const out = Math.abs(z.position.x) < 0.6 ? 0 : Math.sign(z.position.x)
-  if (out === 0) return new Vector3(0, 1, 0)
-  return new Vector3(out * Math.cos(e), Math.sin(e), 0).normalize()
-}
-
-export function buildShipArcs(shipId: string): Group {
-  const g = new Group()
-  for (const z of SHIP_AA_ZONES[shipId] ?? []) {
-    const half = SHIP_AA_ARC_DEFAULTS[z.tier].halfAngleDeg * DEG
-    const mesh = new Mesh(arcGeometry(half, SHIP_ARC_LENGTH), new MeshBasicMaterial({
-      color: TIER_COLOR[z.tier] ?? 0xffffff, transparent: true, opacity: 0.13,
-      depthWrite: false, side: DoubleSide,
-    }))
-    mesh.position.copy(z.position)
-    mesh.quaternion.setFromUnitVectors(UNIT_Z, shipArcAxis(z))
     g.add(mesh)
   }
   return g

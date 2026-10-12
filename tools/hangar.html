@@ -15,9 +15,19 @@
         position: fixed; top: 12px; left: 12px; width: 268px; padding: 12px 14px;
         background: rgba(10,18,26,0.82); border: 1px solid #2b3f52; border-radius: 6px;
         backdrop-filter: blur(4px);
+        max-height: calc(100dvh - 50px); overflow-y: auto; overflow-x: hidden;
       }
       #panel h1 { margin: 0 0 10px; font-size: 13px; letter-spacing: .08em; color: #8fb8d8; }
-      .row { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
+      .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 7px 0; }
+      #specRow, #shipRow { flex-wrap: wrap; }
+      [hidden] { display: none !important; }
+      select { min-width: 0; width: 100%; font: inherit; color: #cfe0ef; background: #16283a;
+        border: 1px solid #4f6c85; border-radius: 4px; padding: 5px; }
+      #shipArcControls { margin-top: 10px; padding-top: 8px; border-top: 1px solid #2b3f52; }
+      #shipArcDetail { white-space: pre-wrap; color: #cfe0ef; margin: 7px 0; }
+      .arc-note { color: #9eb6ca; margin-top: 6px; font-size: 12px; }
+      .arc-legend { display: flex; gap: 12px; margin-top: 7px; }
+      @media (max-height: 500px) { #panel { width: 230px; } #hint { display: none; } }
       .row label { flex: 0 0 62px; color: #8ea6bb; }
       .row input[type=range] { flex: 1; min-width: 0; }
       .row .val { flex: 0 0 46px; text-align: right; color: #e6f0f8; }
@@ -56,6 +66,13 @@
         <button id="axes">軸向</button>
         <button id="arcs">射界</button>
         <button id="lit">打光</button>
+      </div>
+      <div id="shipArcControls" hidden>
+        <div class="row"><label for="shipMount">檢視砲座</label><button id="mountFocus">定位</button></div>
+        <select id="shipMount" aria-label="選擇砲座射界"></select>
+        <div class="arc-legend"><span style="color:#ff7043">5 吋砲</span><span style="color:#ffd54f">40 mm</span><span style="color:#4fc3f7">20 mm</span></div>
+        <div id="shipArcDetail"></div>
+        <div class="arc-note">船首 0° · 左舷 +90° · 右舷 −90°<br>只畫可轉角度，空白處為死角。<br>半徑僅供展示，不代表射程或索敵範圍。</div>
       </div>
       <div id="stats"></div>
     </div>

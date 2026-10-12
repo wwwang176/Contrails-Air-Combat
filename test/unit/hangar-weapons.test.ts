@@ -4,7 +4,9 @@ import { buildArcs, buildBarrels, buildShipArcs, disposeBarrels } from '../../sr
 import { B17G } from '../../src/specs/b17g'
 import { P51D } from '../../src/specs/p51d'
 import { turretPivot } from '../../src/weapons/turret'
-import { SHIP_AA_ZONES } from '../../src/world/shipAA'
+import { SHIP_GUN_LAYOUTS } from '../../src/specs/shipGunLayouts'
+import { disposeHangarShip } from '../../src/tools/hangarShipLoading'
+import type { ShipClassId } from '../../src/world/ships'
 
 describe('機庫的武器幾何', () => {
   it('飛機的射界弧放在每一座砲塔真正的轉軸上，幾何有限而且有界', () => {
@@ -38,17 +40,16 @@ describe('機庫的武器幾何', () => {
     for (const spy of disposed) expect(spy).toHaveBeenCalledOnce()
   })
 
-  it('船用砲區的位置；不認得的船回空的群組', () => {
+  it('船用射界逐座放在實體轉軸上；不認得的船回空的群組', () => {
     expect(buildShipArcs('unknown').children).toHaveLength(0)
     for (const id of ['essex', 'fletcher', 'wichita', 'lst']) {
       const group = buildShipArcs(id)
-      const zones = SHIP_AA_ZONES[id] ?? []
-      expect(group.children).toHaveLength(zones.length)
-      for (let i = 0; i < zones.length; i++) {
-        expect(group.children[i]!.position.equals(zones[i]!.position)).toBe(true)
-        expect(group.children[i]!.quaternion.length()).toBeCloseTo(1, 10)
+      const mounts = Object.values(SHIP_GUN_LAYOUTS[id as ShipClassId]!.mounts)
+      expect(group.children).toHaveLength(mounts.length)
+      for (const mount of mounts) {
+        expect(group.getObjectByName(mount.id)!.position.equals(mount.pivot)).toBe(true)
       }
-      disposeBarrels(group)
+      disposeHangarShip(group)
     }
   })
 })

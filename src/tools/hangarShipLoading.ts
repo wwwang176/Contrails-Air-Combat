@@ -1,11 +1,11 @@
-import { Mesh, type BufferGeometry, type Material, type Object3D } from 'three'
+import { LineSegments, Mesh, type BufferGeometry, type Material, type Object3D } from 'three'
 
 /** 僅釋放這次載入擁有的幾何與材質；塗裝貼圖由 shipAssets 共用。 */
 export function disposeHangarShip(root: Object3D): void {
   const geometries = new Set<BufferGeometry>()
   const materials = new Set<Material>()
   root.traverse((child) => {
-    if (!(child instanceof Mesh)) return
+    if (!(child instanceof Mesh) && !(child instanceof LineSegments)) return
     geometries.add(child.geometry)
     if (Array.isArray(child.material)) {
       for (const material of child.material) materials.add(material)
