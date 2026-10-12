@@ -124,6 +124,30 @@ describe('開場導覽的每幀接線', () => {
 })
 
 describe('導覽與滑回', () => {
+  it.each([false, true])('混音交接進度與鏡頭共用曲線，暫停與重開不殘留（跳過：%s）', (skip) => {
+    const f = fixture()
+    expect(f.director.returnWeight).toBe(1)
+    f.director.begin([PAN], f.input, new Quaternion())
+    expect(f.director.returnWeight).toBe(0)
+    f.director.frameStart(f.input, f.camera, 1)
+    f.director.applyCamera(f.camera, NO_SCENE, 0)
+    const startX = f.camera.position.x
+    f.input.skipRequested = skip
+    f.director.frameStart(f.input, f.camera, skip ? 0 : 1)
+    for (const dt of [0, 0.375, 0, 0.375, 0.375, 0.375]) {
+      f.camera.position.set(0, 0, 0)
+      f.director.applyCamera(f.camera, NO_SCENE, dt)
+      expect(f.director.returnWeight).toBeCloseTo(1 - f.camera.position.x / startX, 10)
+    }
+    expect(f.director.returnWeight).toBe(1)
+    f.director.begin([PAN], f.input, new Quaternion())
+    expect(f.director.returnWeight).toBe(0)
+    f.director.stop()
+    expect(f.director.returnWeight).toBe(1)
+    f.director.begin(undefined, f.input, new Quaternion())
+    expect(f.director.returnWeight).toBe(1)
+  })
+
   it.each([false, true])('高速飛機從前側繞回機尾時留在畫面內（跳過：%s）', (skip) => {
     const f = fixture()
     const position = new Vector3(0, 4300, 0)

@@ -33,10 +33,45 @@ function setup() {
   const controller = createBattleAudioController(deps as unknown as Parameters<typeof createBattleAudioController>[0])
   const player = { index: 1, alive: true } as unknown as Combatant
   const world = { combatants: [], ships: [], groundTargets: [], projectiles: {}, bombs: {} } as never
-  return { controller, camera, ear, plane, player, world, listenerMotion, seenAtBegin }
+  return { controller, camera, ear, plane, player, world, listenerMotion, seenAtBegin, deps }
 }
 
 describe('聽者的位置', () => {
+  it('導覽與滑回共用連續混音增益，滑回不產生聽者速度', () => {
+    const { controller, camera, plane, ear, player, world, deps, listenerMotion } = setup()
+    for (const [x, gain] of [[5000, 0.5], [3000, 0.6], [1000, 0.75], [100, 0.9], [10, 0.999]] as const) {
+      camera.set(x, 80, -300)
+      plane.z -= 2
+      controller.update(world, player, 1, 1 / 60, true, false, gain)
+      expect(ear.toArray()).toEqual(camera.toArray())
+      expect(listenerMotion.velocity.length()).toBe(0)
+      expect(deps.audio.beginFrame).toHaveBeenLastCalledWith(gain)
+      expect(deps.flightAudio.update).toHaveBeenLastCalledWith(world, player, 1, 1 / 60, false, true, gain)
+    }
+    controller.update(world, player, 2, 1 / 60, false, false)
+    expect(deps.audio.beginFrame).toHaveBeenLastCalledWith(1)
+    expect(listenerMotion.velocity.length()).toBe(0)
+    expect(ear.toArray()).toEqual(plane.toArray())
+    controller.update(world, player, 3, 1 / 60, true, false)
+    expect(deps.audio.beginFrame).toHaveBeenLastCalledWith(1)
+  })
+
+  it('鏡頭聽音模式同步位置、定位引擎與自機音效，切鏡不帶入聽者速度', () => {
+    const { controller, camera, ear, player, world, deps, listenerMotion, seenAtBegin } = setup()
+    for (const x of [5000, -2000, 100]) {
+      camera.set(x, 80, -300)
+      controller.update(world, player, 1, 1 / 60, true, false)
+      expect(ear.toArray()).toEqual(camera.toArray())
+      expect(seenAtBegin.at(-1)!.toArray()).toEqual(camera.toArray())
+      expect(listenerMotion.velocity.length()).toBe(0)
+      expect(deps.aircraftLoopAudio.update.mock.calls.at(-1)![4]).toBe(false)
+      expect(deps.flightAudio.update).toHaveBeenLastCalledWith(world, player, 1, 1 / 60, false, true, 1)
+    }
+    controller.update(world, player, 2, 1 / 60, false, false)
+    expect(deps.flightAudio.update).toHaveBeenLastCalledWith(world, player, 2, 1 / 60, false, false, 1)
+    expect(listenerMotion.velocity.length()).toBe(0)
+  })
+
   it('自己在飛：耳朵在機身上，而且在音訊引擎讀方位之前就寫好', () => {
     const { controller, ear, plane, player, world, seenAtBegin } = setup()
     controller.update(world, player, 1, 1 / 60, false, false)

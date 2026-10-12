@@ -31,7 +31,7 @@ import {
  *   （空氣吸收，見 `curves.ts` 的 `absorptionDb`）；單次音效要等音波傳到才開始播。
  *   等待中與播放中都是每一幀用當下的距離重算 —— 遠方的爆炸要好幾秒才傳到、
  *   聲音本身又有好幾秒，這期間聽者會飛掉好幾百公尺。
- * - **聽者**：位置是 `ear`（戰鬥中是自機），朝向是鏡頭。第三人稱轉頭只改左右聲道，
+ * - **聽者**：位置是 `ear`（操作中是自機，導覽與自由視角是鏡頭），朝向是鏡頭。第三人稱轉頭只改左右聲道，
  *   距離、音波延遲、都卜勒都不跟著鏡頭繞機身晃。
  *
  * 【暫停與音量關閉是兩個旗標】任一個成立就 suspend；兩個都不成立、而且使用者
@@ -86,7 +86,8 @@ export interface AudioEngine {
   playUi(file: string, extraDb?: number): void
   /** 自己身上的循環。file 為 null 表示停。每一幀都呼叫 */
   selfLoop(slot: SelfSlot, file: string | null, rate: number, gainDb: number, cutoffHz?: number): void
-  beginFrame(): void
+  /** 定位聲音的混音增益；不影響自機循環與介面音效。預設 1，導覽用 0.5。 */
+  beginFrame(positionedGain?: number): void
   /**
    * key 是 combatant 的 index；同一個 key 會拿回同一個聲道。
    * `gainDb` 是這一架自己的增益，疊在類別音量之上（預設 0）—— 音量隨狀態變的循環用（警笛隨空速）。
@@ -216,7 +217,7 @@ interface LoopVoice {
 
 /**
  * @param ear 聽者的**位置**（距離、衰減、音波延遲都量到這裡）。朝向一律讀鏡頭 ——
- *   左右聲道看的是玩家面對哪裡。戰鬥中由 `battleAudioController` 每幀寫成自機的位置，
+ *   左右聲道看的是玩家面對哪裡。`battleAudioController` 在操作中每幀寫成自機的位置，導覽與滑回期間寫成鏡頭位置；
  *   第三人稱鏡頭轉頭時只換耳朵的方向、不搬耳朵。省略時就是鏡頭的位置
  */
 export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position): AudioEngine {
@@ -256,6 +257,8 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
   const pose: ListenerPose = { px: 0, py: 0, pz: 0, fx: 0, fy: 0, fz: -1, ux: 0, uy: 1, uz: 0 }
   /** 左右矩陣的暫存，逐幀重用 */
   const panOut = new Float32Array(4)
+  /** 導覽的鏡頭聲與自機底聲分開混音；定位增益套在 HDR 之後。 */
+  let positionedGain = 1
 
   const { buffers, makeup, envelopes, load } = createAudioAssets(ctx)
   const uiAudio = createUiAudio(buffers, makeup)
@@ -328,7 +331,7 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
     now: number, smooth: number): void {
     const p = a.position
     const az = positioned ? azimuthDeg(p.x, p.y, p.z, pose) : 0
-    const g = positioned ? inverseDistanceGain(distance, ref, rolloff) : 1
+    const g = positioned ? inverseDistanceGain(distance, ref, rolloff) * positionedGain : 1
     equalPowerMatrix(az, a.stereo, g, panOut)
     a.setPan(panOut, now, smooth)
   }
@@ -566,7 +569,8 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
   /** 上一次 `beginFrame` 的 context 時間，算 HDR 的釋放用。−1 = 還沒跑過 */
   let lastFrameAt = -1
 
-  function beginFrame(): void {
+  function beginFrame(gain = 1): void {
+    positionedGain = gain
     const now = ctx.currentTime
     const dt = lastFrameAt < 0 ? 0 : Math.max(0, now - lastFrameAt)
     lastFrameAt = now
@@ -664,6 +668,7 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
   }
 
   function stopAll(): void {
+    positionedGain = 1
     for (const v of voices) {
       if (v.audio.isPlaying) v.audio.stop()
       v.audio.sleep()

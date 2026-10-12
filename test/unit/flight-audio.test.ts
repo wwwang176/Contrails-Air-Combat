@@ -31,6 +31,53 @@ function setup(spec = P51D) {
  * 【保留餘數】音效每畫面幀才跑一次；每響一次就重設整個間隔的話，間隔會被進位到整數幀
  * （30 fps 下 0.1875 s 變 0.2 s），一分鐘少二十聲
  */
+describe('導覽的自機音效', () => {
+  it('導覽混音只保留半量引擎與風聲，回到操作時還原，陣亡後不留底聲', () => {
+    const { flight, audio, world, me } = setup()
+    flight.update(world, me, 0, 1 / 60, false, false)
+    const normal = audio.selfLoop.mock.calls.map(c => [...c])
+    audio.selfLoop.mockClear()
+    flight.update(world, me, 1, 1 / 60, true, true, 0.5)
+    for (const slot of ['engine', 'wind']) {
+      const base = normal.find(c => c[0] === slot)!
+      const mixed = audio.selfLoop.mock.calls.find(c => c[0] === slot)!
+      expect(mixed[1]).toBe(base[1])
+      expect(mixed[2]).toBe(base[2])
+      expect(10 ** ((mixed[3] - base[3]) / 20)).toBeCloseTo(0.5, 8)
+    }
+    expect(audio.selfLoop.mock.calls.filter(c => c[0] === 'siren' || c[0] === 'warn').map(c => c[1])).toEqual([null, null])
+    for (const gain of [0.6, 0.75, 0.9, 0.999]) {
+      audio.selfLoop.mockClear()
+      flight.update(world, me, 1.5, 1 / 60, false, true, gain)
+      for (const slot of ['engine', 'wind']) {
+        const base = normal.find(c => c[0] === slot)!
+        const mixed = audio.selfLoop.mock.calls.find(c => c[0] === slot)!
+        expect(mixed[1]).toBe(base[1])
+        expect(10 ** ((mixed[3] - base[3]) / 20)).toBeCloseTo(gain, 8)
+      }
+    }
+    audio.selfLoop.mockClear()
+    flight.update(world, me, 2, 1 / 60, false, false)
+    expect(audio.selfLoop.mock.calls.slice(0, 2)).toEqual(normal.slice(0, 2))
+    me.alive = false
+    audio.selfLoop.mockClear()
+    flight.update(world, me, 3, 1 / 60, false, true, 0.5)
+    expect(audio.selfLoop.mock.calls.map(c => c[1])).toEqual([null, null, null, null])
+  })
+
+  it('未開上帝視角也能切成鏡頭聽音，關掉貼身循環，結束後恢復', () => {
+    const { flight, audio, world, me, input } = setup()
+    expect(input.godView).toBe(false)
+    flight.update(world, me, 1, 1 / 60, false, true)
+    expect(audio.selfLoop.mock.calls.map(c => [c[0], c[1]])).toEqual([
+      ['engine', null], ['wind', null], ['siren', null], ['warn', null],
+    ])
+    audio.selfLoop.mockClear()
+    flight.update(world, me, 2, 1 / 60, false, false)
+    expect(audio.selfLoop.mock.calls.find(c => c[0] === 'engine')![1]).not.toBeNull()
+  })
+})
+
 describe('過熱的空響', () => {
   const jams = (audio: { playPool: ReturnType<typeof vi.fn> }, pool?: string) =>
     audio.playPool.mock.calls.filter((c) => String(c[0]).startsWith('gun-jam-') && (pool === undefined || c[0] === pool)).length

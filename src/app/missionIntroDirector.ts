@@ -183,6 +183,10 @@ export function createMissionIntroDirector(overlay: IntroOverlay, fovBase: numbe
     get active(): boolean { return state.active },
     /** 導覽中或還在滑回玩家。教學卡等這個變 false 才彈 —— 彈在滑回途中的話鏡頭會停在半路 */
     get busy(): boolean { return state.active || blend.active },
+    /** 與鏡頭共用的滑回權重：導覽中為 0，滑回完成或未播導覽為 1。 */
+    get returnWeight(): number {
+      return state.active ? 0 : blend.active ? blendWeight(blend.elapsed / blend.duration) : 1
+    },
     begin, stop, frameStart, applyCamera,
   }
 }

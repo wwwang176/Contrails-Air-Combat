@@ -89,14 +89,18 @@ export function createFlightAudio(
   function update(
     world: Pick<World, 'projectiles' | 'bombs'>, me: Combatant,
     elapsed: number, worldSeconds: number, arenaWarning: boolean,
+    cameraView = input.godView,
+    introGain = 1,
   ): void {
-    const flying = me.alive && !input.godView
-    // 自己身上的循環
+    const flying = me.alive && !cameraView
+    // 導覽與滑回只保留引擎、風聲底聲；警笛與警告仍依操作狀態決定。
+    const selfBed = me.alive && (flying || introGain < 1)
+    const selfDb = 20 * Math.log10(introGain)
     const spec = me.aircraft.spec
-    audio.selfLoop('engine', flying ? engineFile(spec.id) : null, engineRate(me.command.throttle), 0)
+    audio.selfLoop('engine', selfBed ? engineFile(spec.id) : null, engineRate(me.command.throttle), selfDb)
     const vneRatio = indicatedAirspeed(me.aircraft.diag.aero.tas, me.aircraft.diag.air.sigma) / spec.limits.vne
     windParams(vneRatio, WIND)
-    audio.selfLoop('wind', flying ? SINGLE_FILES.wind : null, 1, WIND.gainDb, WIND.cutoffHz)
+    audio.selfLoop('wind', selfBed ? SINGLE_FILES.wind : null, 1, WIND.gainDb + selfDb, WIND.cutoffHz)
     // 俯衝警笛：自己的（不定位）。機頭朝下 10° 以上才響（10–45° 漸變），音量與音高隨空速；沒有警笛檔的機種是 null
     const sirenSelf = sirenFile(spec.id)
     sirenParams(vneRatio, noseDownRad(me.aircraft.state.orientation), SIREN)
@@ -125,10 +129,10 @@ export function createFlightAudio(
     }
 
     // 【擦過看的是聽者】`cam` 是聽者的位置（`battleAudioController` 寫入）：自己在飛
-    // 時是機身，上帝視角時是在世界裡自由飛的鏡頭 —— 從它旁邊掠過的子彈一樣該有聲音
+    // 時是機身，導覽與上帝視角時是鏡頭 —— 從它旁邊掠過的子彈一樣該有聲音
     const eye = cam
     if (elapsed - lastFlyby >= FLYBY_GAP) {
-      const team = input.godView ? -1 : teamSlot(me.team)
+      const team = cameraView ? -1 : teamSlot(me.team)
       const k = nearMiss(world.projectiles, team, eye.x, eye.y, eye.z, FLYBY_RADIUS)
       if (k >= 0) {
         lastFlyby = elapsed

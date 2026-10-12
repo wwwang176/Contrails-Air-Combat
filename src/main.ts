@@ -1603,7 +1603,9 @@ function setPlayer(c: Combatant): void {
  * 受創、晃動、風切、警告、裝填。
  */
 function updateAudio(worldSeconds: number): void {
-  battleAudio.update(world, player, elapsed, worldSeconds, input.godView, hudFrame.arenaShow && arena.outside)
+  battleAudio.update(world, player, elapsed, worldSeconds,
+    input.godView || missionIntro.busy, hudFrame.arenaShow && arena.outside,
+    0.5 + 0.5 * missionIntro.returnWeight)
 }
 /**
  * 戰鬥中的一幀：推進、內插、特效、HUD、記分板。
@@ -1644,7 +1646,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     const pp = player.aircraft.state.position
     stepArena(arena, arenaBounds, pp.x, pp.y, pp.z, dt)
     hitsThisFrame += player.hitsDealt
-    presentBattleEvents(world, player, terrain, elapsed, input.godView)
+    presentBattleEvents(world, player, terrain, elapsed, input.godView || missionIntro.busy)
     perf.endPhysics()
   })
 
