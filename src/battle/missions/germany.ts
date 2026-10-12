@@ -178,21 +178,32 @@ export const GERMANY: readonly MissionCard[] = [
       altitude: 2000,
       ground: RZHEV_GROUND,
       /**
-       * 【開場導覽】先站在蘇軍砲線西端外 60 m、離地 3 m，順著砲線往東看、長焦，十門砲前後疊成一排，
-       * 鏡頭慢慢往前推；再從領頭 Ju 87 的後上方跟拍，往前下方看它要去的戰場。砲線大致由
-       * (−4,498, 2,827) 走向 (−2,832, 3,390)，方向約 (0.97, 0.22)。
+       * 【開場導覽】三段：
        *
-       * 【看的點是第三門砲，不是遠端】砲線往南彎，對著遠端的話近處幾門會偏到畫面右邊。
-       * **鏡位與秒數是起始值。**
+       * ```
+       *   1  俯視特寫蘇軍一門反坦克砲 (−3,593, 3,241)：鏡頭在它正上方偏南，由 24 m 慢慢降到 15 m
+       *   2  德軍最前面那輛 IV 號 (−3,495, 2,794) 後方約 120 m、離地 9 m，往南看過它、看進砲擊區與
+       *      蘇軍陣地。它旁邊有一處燒著的煙火（`RZHEV_SMOKES`）；再近的話火的低多邊形會穿幫。
+       *      它是唯一停在砲擊區（`ARTILLERY_ZONE`，中心 (−3,398, 2,952)）裡的德軍戰車，
+       *      砲彈一直落在它附近
+       *   3  領頭 Ju 87 的後上方跟拍，往前下方看它要去的戰場
+       * ```
+       *
+       * 砲擊區的縱軸（往南）約 (−0.22, 0.97)。**鏡位與秒數是起始值。**
        */
       intro: [
         {
-          kind: 'pan', seconds: 3.5, aboveGround: true, fov: 22,
-          from: { x: -4560, y: 3, z: 2828 }, to: { x: -4521, y: 3, z: 2837 },
-          lookFrom: { x: -4050, y: 2, z: 3110 }, lookTo: { x: -4050, y: 2, z: 3110 },
+          kind: 'pan', seconds: 3, aboveGround: true, fov: 40,
+          from: { x: -3593, y: 24, z: 3249 }, to: { x: -3593, y: 15, z: 3246 },
+          lookFrom: { x: -3593, y: 0, z: 3236 }, lookTo: { x: -3593, y: 0, z: 3236 },
         },
         {
-          kind: 'follow', seconds: 3.5, subject: { air: 'blue', role: 'bomber' },
+          kind: 'pan', seconds: 3, aboveGround: true, fov: 40,
+          from: { x: -3454, y: 9, z: 2680 }, to: { x: -3457, y: 9, z: 2692 },
+          lookFrom: { x: -3529, y: 2, z: 2940 }, lookTo: { x: -3529, y: 2, z: 2940 },
+        },
+        {
+          kind: 'follow', seconds: 3, subject: { air: 'blue', role: 'bomber' },
           back: 45, up: 25, side: 20, lead: 1500, lookUp: -700,
         },
       ],
