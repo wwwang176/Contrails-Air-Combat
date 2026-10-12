@@ -100,7 +100,7 @@ export interface BlastLights {
    */
   flash(x: number, y: number, z: number, scale: number, cam: V3, amplify?: boolean): void
   /** 小範圍砲口閃光，位置就在管口，不套爆心的高度補償。 */
-  flashMuzzle(x: number, y: number, z: number, cam: V3): void
+  flashMuzzle(x: number, y: number, z: number, cam: V3, scale?: number): void
   /** 推進畫面時間。每一渲染幀一次 */
   step(dt: number): void
   /** 全部熄掉。換一場戰鬥時呼叫 */
@@ -172,9 +172,10 @@ export function createBlastLights(): BlastLights {
       const s = amplify ? blastLightScale(scale) : scale > 0 ? scale : 0
       ignite(x, y, z, s, BLAST_LIGHT_DISTANCE * s, blastLightSeconds(scale), cam, BLAST_LIGHT_LIFT)
     },
-    flashMuzzle(x, y, z, cam) {
-      ignite(x, y, z, MUZZLE_LIGHT_INTENSITY / BLAST_LIGHT_INTENSITY,
-        MUZZLE_LIGHT_DISTANCE, MUZZLE_LIGHT_SECONDS, cam, 0)
+    flashMuzzle(x, y, z, cam, scale = 1) {
+      if (!(scale > 0)) return
+      ignite(x, y, z, MUZZLE_LIGHT_INTENSITY * scale * scale / BLAST_LIGHT_INTENSITY,
+        MUZZLE_LIGHT_DISTANCE * scale, MUZZLE_LIGHT_SECONDS, cam, 0)
     },
     step(dt) {
       for (let k = 0; k < BLAST_LIGHT_COUNT; k++) {

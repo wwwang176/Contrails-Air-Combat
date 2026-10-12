@@ -31,7 +31,7 @@ function fixture() {
     createShipModels: vi.fn(() => model('ships')),
     createShipWakes: vi.fn(() => ({ ...model('wakes'), bindOcean: vi.fn(), step: vi.fn() })),
     shipFoamTexture: vi.fn(() => foam),
-    createGroundModels: vi.fn(() => ({ ...model('ground'), lodState: () => ({ withLod: 0, far: 0 }), resetTurrets: vi.fn() })),
+    createGroundModels: vi.fn(() => ({ ...model('ground'), muzzle: vi.fn(() => true), lodState: () => ({ withLod: 0, far: 0 }), resetTurrets: vi.fn() })),
     createSearchlights: vi.fn(() => model('searchlights')),
     createGroundBattle: vi.fn<BattleSceneryBuilders['createGroundBattle']>(() => {
       const m = model('theater')
@@ -70,6 +70,7 @@ describe('戰場佈景的所有權', () => {
     expect(builders.createBalloonModels).toHaveBeenCalledWith(world.balloons)
     expect(builders.createGroundBattle).toHaveBeenCalledWith(
       theater, assets.burn, assets.smokeTexture, assets.impact, assets.fired, assets.landed,
+      { muzzle: scenery.groundModels!.muzzle, fire: assets.gunFired },
     )
     expect(scenery.battleFogOn).toBe(true)
     expect(BATTLE_FOG.a.w).toBeGreaterThan(0)

@@ -9,7 +9,7 @@ import {
 import { useAircraftLod } from './geometry/buildAircraft'
 import { GUN_TURRET_KEY, type GunTurretParts } from './geometry/ground/turret'
 import { disposeLivery, liveryGeometry } from './geometry/ground/livery'
-import { createGroundGunShots, type GroundGunSource } from './groundGunShots'
+import { createGroundGunShots, groundGunMuzzleOf, readGroundGunMuzzle, type GroundGunSource } from './groundGunShots'
 import {
   GUN_PITCH_MAX, GUN_PITCH_MIN, TANK_PITCH_MAX, TANK_PITCH_MIN, TANK_TRAVERSE_RATE, aimAngles, slewYaw,
 } from './gunAim'
@@ -66,6 +66,8 @@ export const PARKED_PROP_SPIN = 8
  */
 export interface GroundModels {
   readonly object: Group
+  /** 寫出目前模型砲口的位置與方向；無砲管或模型隱藏時回傳 false。 */
+  muzzle(index: number, position: Vector3, direction: Vector3): boolean
   /**
    * `cam` 是鏡頭的世界座標，距離 LOD 用。`seconds` 是這一幀的物理時間（暫停為 0），
    * 地上的槳與 T-34 的砲塔照它轉。`aim` 是沒有模擬砲位的單位（T-34、反坦克砲）的瞄準目標；
@@ -140,6 +142,7 @@ export function createGroundModels(
   const props: (Mesh | null)[] = []
   /** 逐台一格：會轉的砲塔（水平轉那一顆，上下抬那一顆是它的孩子），沒有就是 null */
   const turrets: (Mesh | null)[] = []
+  const muzzlePoints: (Vector3 | null)[] = []
   /** 逐台一格：拆開的兩塊與轉軸，坦克算方位與仰角用 */
   const turretParts: (GunTurretParts | null)[] = []
   /** 逐台一格：左右射界的半角，rad；轉得了一整圈是 Infinity */
@@ -202,6 +205,7 @@ export function createGroundModels(
       if (t.unit.id === 'usFlakHeavy') gunSources.push({ index: meshes.length - 1, barrel: elev })
     }
     turrets.push(trav)
+    muzzlePoints.push(trav === null ? null : groundGunMuzzleOf(trav.children[0] as Mesh))
     turretParts.push(gt ?? null)
     const reg = GROUND_MODELS[t.unit.id].model
     yawLimits.push('glb' in reg ? reg.turret?.yawLimit ?? Infinity : Infinity)
@@ -256,6 +260,13 @@ export function createGroundModels(
 
   return {
     object,
+    muzzle(index, position, direction) {
+      const trav = turrets[index]
+      const local = muzzlePoints[index]
+      if (trav == null || local == null || !meshes[index]!.visible) return false
+      readGroundGunMuzzle(trav.children[0] as Mesh, local, position, direction)
+      return true
+    },
     update(list, cam, seconds = 0, aim = null) {
       spin = (spin + seconds * PARKED_PROP_SPIN) % (Math.PI * 2)
       SPIN.setFromAxisAngle(Z_AXIS, spin)

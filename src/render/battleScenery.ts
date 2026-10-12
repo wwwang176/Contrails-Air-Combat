@@ -24,8 +24,8 @@ export interface BattleSceneryAssets {
   fired(unit: GroundUnitId, x: number, y: number, z: number, index: number): void
   /** 戰車與反坦克砲打偏、砲彈落地（`createGroundBattle` 的 `landed`） */
   landed(x: number, y: number, z: number): void
-  /** 模擬防空砲開火的實際模型管口與方向，供砲口小爆炸使用。 */
-  gunFired?(x: number, y: number, z: number, dx: number, dy: number, dz: number): void
+  /** 防空砲與直射砲的模型管口、方向及視覺尺度。 */
+  gunFired?(x: number, y: number, z: number, dx: number, dy: number, dz: number, scale?: number): void
 }
 
 export interface BattleSceneryBuilders {
@@ -91,7 +91,10 @@ export function createBattleScenery(
     // 地面戰的戲：純畫面，從卡片讀（不進 `BattleConfig`）。每一場重建
     releaseGroundBattle()
     if (theater !== undefined && world.groundTargets.length > 0) {
-      state.groundBattle = builders.createGroundBattle(theater, assets.burn, assets.smokeTexture, assets.impact, assets.fired, assets.landed)
+      const cannon = state.groundModels !== null && assets.gunFired !== undefined
+        ? { muzzle: state.groundModels.muzzle, fire: assets.gunFired } : undefined
+      state.groundBattle = builders.createGroundBattle(theater, assets.burn, assets.smokeTexture,
+        assets.impact, assets.fired, assets.landed, cannon)
       for (const o of state.groundBattle.objects) scene.add(o)
       if (theater.haze !== undefined) {
         setBattleFog({ ...theater.haze, tint: battleFogTint((scene.fog as FogExp2).color, theater.fogColor) })

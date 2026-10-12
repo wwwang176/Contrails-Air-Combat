@@ -8,10 +8,10 @@ export interface GroundGunSource {
 }
 
 /**
- * 90 mm 的最前端是砲管口（模型前方 −Z）。取前端截面的中心，座標屬於耳軸，
+ * 地面砲模型的最前端是砲管口（模型前方 −Z）。取前端截面的中心，座標屬於耳軸，
  * 開火時再套用整條砲塔階層的變換；不使用模擬中固定高度的近似出膛點。
  */
-function muzzleOf(barrel: Mesh): Vector3 {
+export function groundGunMuzzleOf(barrel: Mesh): Vector3 {
   const geometry = barrel.geometry
   if (geometry.boundingBox === null) geometry.computeBoundingBox()
   const z = geometry.boundingBox!.min.z
@@ -27,6 +27,13 @@ function muzzleOf(barrel: Mesh): Vector3 {
   return new Vector3((minX + maxX) * 0.5, (minY + maxY) * 0.5, z)
 }
 
+/** 更新整條模型階層後讀出砲口；輸出向量由呼叫端重用。 */
+export function readGroundGunMuzzle(barrel: Mesh, local: Vector3, position: Vector3, direction: Vector3): void {
+  barrel.updateWorldMatrix(true, false)
+  position.copy(local).applyMatrix4(barrel.matrixWorld)
+  direction.set(0, 0, -1).transformDirection(barrel.matrixWorld)
+}
+
 /**
  * 讀累計發數，而不是只有 0.03 秒的槍焰旗標，低幀率也不漏發。
  * 每台一幀最多補八次；只在建場配置，更新幀重用座標。
@@ -35,7 +42,7 @@ export function createGroundGunShots(
   sources: readonly GroundGunSource[], targets: readonly GroundTarget[],
   onShot: (x: number, y: number, z: number, dx: number, dy: number, dz: number) => void,
 ) {
-  const muzzles = sources.map(s => muzzleOf(s.barrel))
+  const muzzles = sources.map(s => groundGunMuzzleOf(s.barrel))
   const previous = sources.map(s => targets[s.index]?.guns[0]?.shots ?? 0)
   const position = new Vector3()
   const direction = new Vector3()
@@ -52,9 +59,7 @@ export function createGroundGunShots(
           previous[k] = shots
           if (count === 0 || target === undefined || !target.alive || target.dormant
             || target.departed || target.arrived || gun?.alive !== true) continue
-          source.barrel.updateWorldMatrix(true, false)
-          position.copy(muzzles[k]!).applyMatrix4(source.barrel.matrixWorld)
-          direction.set(0, 0, -1).transformDirection(source.barrel.matrixWorld)
+          readGroundGunMuzzle(source.barrel, muzzles[k]!, position, direction)
           for (let n = 0; n < count; n++) {
             onShot(position.x, position.y, position.z, direction.x, direction.y, direction.z)
           }

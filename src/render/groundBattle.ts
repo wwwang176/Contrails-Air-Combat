@@ -1,4 +1,4 @@
-import { AdditiveBlending, NormalBlending, type Color, type Object3D, type Texture } from 'three'
+import { AdditiveBlending, NormalBlending, Vector3, type Color, type Object3D, type Texture } from 'three'
 import type { GroundUnitId } from '../specs/ground'
 import type { GroundTarget } from '../world/groundTargets'
 import type { MissionTheater } from '../battle/missions/types'
@@ -12,6 +12,12 @@ import { createArcTrails } from './arcTrails'
 import { createGroundDustClouds } from './groundDustClouds'
 import { hash01 } from '../core/hash'
 import { burstTimesBetween, shotTimesBetween } from './groundBattleSchedule'
+import { groundCannonScale } from './muzzleBlast'
+
+export interface GroundCannonEffects {
+  muzzle(index: number, position: Vector3, direction: Vector3): boolean
+  fire(x: number, y: number, z: number, dx: number, dy: number, dz: number, scale: number): void
+}
 
 export {
   DUST_CLOUD_EVERY, DUST_CLOUD_LIFE, DUST_CLOUD_LIFE_JITTER,
@@ -246,11 +252,14 @@ export function createGroundBattle(
   impact: (x: number, y: number, z: number) => void = () => {},
   fired: (unit: GroundUnitId, x: number, y: number, z: number, index: number) => void = () => {},
   landed?: (x: number, y: number, z: number) => void,
+  cannon?: GroundCannonEffects,
 ): GroundBattle {
   const shooters = new Set<GroundUnitId>(theater.shooters)
   const isTarget = (id: GroundUnitId): boolean => shooters.has(id)
   /** 劇本打掉的最後一發由戰車與砲打（直射的砲彈）：步兵的槍打不穿，迫擊砲的彈是高拋的 */
   const isTank = (id: GroundUnitId): boolean => shooters.has(id) && id !== 'infantry' && !ARC_SHOOTERS.has(id)
+  const muzzlePosition = new Vector3()
+  const muzzleDirection = new Vector3()
 
   // 【比真的大一號】玩家在 1.5～2 km 外往下看，照實的 3 m 槍焰只有兩三個像素
   const flash = createParticles({
@@ -398,12 +407,18 @@ export function createGroundBattle(
     if (d < 1) return
     const ux = dx / d
     const uz = dz / d
-    // 【砲口用近似】朝目標方向、離車心半個車長、車高八成。畫面上的砲塔照 `aimTarget` 慢慢轉，
-    // 剛換目標時還沒轉到，槍焰會短暫不在砲口上
+    // 有模型時使用目前砲管的實際位置；沒有模型的工具頁維持近似出膛點。
     const reach = infantry ? 0 : me.unit.realLength / 2
-    const ox = me.position.x + ux * reach
-    const oz = me.position.z + uz * reach
-    const oy = me.position.y + (infantry ? 1.4 : me.unit.realHeight * 0.8)
+    let ox = me.position.x + ux * reach
+    let oz = me.position.z + uz * reach
+    let oy = me.position.y + (infantry ? 1.4 : me.unit.realHeight * 0.8)
+    const cannonScale = groundCannonScale(me.unit.id)
+    const modeled = cannonScale > 0 && cannon?.muzzle(s, muzzlePosition, muzzleDirection) === true
+    if (modeled) {
+      ox = muzzlePosition.x
+      oy = muzzlePosition.y
+      oz = muzzlePosition.z
+    }
     const seed = s * 7919 + k
     const hit = missOffset === null && (victim >= 0 || hash01(seed) < HIT_CHANCE)
     let tx = them.position.x
@@ -425,8 +440,12 @@ export function createGroundBattle(
       bullets.fire(ox, oy, oz, tx, ty, tz, BULLET_SPEED, hit)
       return
     }
-    flash.emit(ox, oy, oz, 0, 0, 0, 1)
-    gunSmoke.emit(ox, oy, oz, ux * 2, 0.5, uz * 2, 1)
+    if (modeled) {
+      cannon!.fire(ox, oy, oz, muzzleDirection.x, muzzleDirection.y, muzzleDirection.z, cannonScale)
+    } else {
+      flash.emit(ox, oy, oz, 0, 0, 0, 1)
+      gunSmoke.emit(ox, oy, oz, ux * 2, 0.5, uz * 2, 1)
+    }
     fired(me.unit.id, ox, oy, oz, s)
     shells.fire(ox, oy, oz, tx, ty, tz, SHELL_SPEED, hit)
   }

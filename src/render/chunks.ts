@@ -325,6 +325,17 @@ export function createChunks(cfg: ChunkConfig): Particles {
         const na = old + dt
         age[i] = na
         if (na >= life) {
+          // 短命火焰可能一幀跨過淡出區間，仍在淡出門檻的位置與尺寸交棒一次。
+          if (cfg.onFade !== undefined && faded[i] === 0) {
+            faded[i] = 1
+            const fadeDt = Math.max(0, life * CHUNK_FADE - old)
+            const fadeDamp = Math.exp(-cfg.drag * fadeDt)
+            const fx = vx[i]! * fadeDamp
+            const fy = vy[i]! * fadeDamp + cfg.gravity * fadeDt
+            const fz = vz[i]! * fadeDamp
+            cfg.onFade(px[i]! + fx * fadeDt, py[i]! + fy * fadeDt, pz[i]! + fz * fadeDt,
+              fx, fy, fz, cfg.size * sizeMul[i]! * chunkScale(CHUNK_FADE), i)
+          }
           M.compose(ZERO, ROT.identity(), ZERO)
           object.setMatrixAt(i, M)
           a[i] = 0

@@ -30,7 +30,17 @@ describe('90 mm 短促砲口火焰', () => {
     expect(fire[2]!.size.x).toBeGreaterThan(4.4)
     expect(fire[2]!.size.x).toBeLessThan(5.2)
     expect(fire[4]!.size.x).toBeLessThan(fire[2]!.size.x * 0.4)
-    expect(smoke.emit).toHaveBeenCalledTimes(3)
+    expect(smoke.emit).not.toHaveBeenCalled()
+    blast.step(0.075)
+    const fading = frames(blast.object.children[0] as InstancedMesh)
+    expect(smoke.emit).toHaveBeenCalledTimes(20)
+    for (let k = 0; k < fading.length; k++) {
+      const core = smoke.emit.mock.calls[k * 4]!
+      expect(new Vector3(core[0], core[1], core[2]).distanceTo(fading[k]!.position)).toBeLessThan(1e-4)
+      expect(core[6]).toBeGreaterThan(fading[k]!.size.x)
+    }
+    blast.step(0.05)
+    expect(smoke.emit).toHaveBeenCalledTimes(20)
     blast.dispose()
   })
 
@@ -48,7 +58,7 @@ describe('90 mm 短促砲口火焰', () => {
     blast.step(MUZZLE_FIRE_SECONDS)
     expect(frames(fire).every(f => f.size.lengthSq() === 0)).toBe(true)
     expect(frames(glow).every(f => f.size.lengthSq() === 0)).toBe(true)
-    expect(smoke.emit).toHaveBeenCalledTimes(3)
+    expect(smoke.emit).toHaveBeenCalledTimes(20)
     blast.reset()
     blast.emit(0, 0, 0, 0, 0, -1)
     blast.step(0.02)

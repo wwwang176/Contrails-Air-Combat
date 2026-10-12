@@ -1,9 +1,31 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { Color, ShaderLib, Vector3 } from 'three'
 import {
   CHUNK_FADE, CHUNK_GROW, CHUNK_SEED,
-  blastFireColor, chunkAlpha, chunkColorRate, chunkScale, chunkSpin, injectFacetShade,
+  blastFireColor, chunkAlpha, chunkColorRate, chunkScale, chunkSpin, injectFacetShade, createChunks,
 } from '../../src/render/chunks'
+
+describe('火球跨幀交棒', () => {
+  it('一幀跨過壽命仍只交棒一次，reset 不補煙', () => {
+    const onFade = vi.fn()
+    const chunks = createChunks({ capacity: 4, life: 0.12, size: 2,
+      gravity: 0, drag: 0, color: blastFireColor, onFade })
+    chunks.emit(10, 20, 30, 5, 0, 0)
+    chunks.step(0.2)
+    expect(onFade).toHaveBeenCalledTimes(1)
+    const [x, y, z, vx, vy, vz, diameter] = onFade.mock.calls[0]!
+    expect(x).toBeCloseTo(10 + 5 * 0.12 * CHUNK_FADE)
+    expect([y, z, vx, vy, vz]).toEqual([20, 30, 5, 0, 0])
+    expect(diameter).toBeCloseTo(2 * chunkScale(CHUNK_FADE))
+    expect(chunks.live).toBe(0)
+    chunks.step(0.2)
+    chunks.emit(0, 0, 0, 0, 0, 0)
+    chunks.reset()
+    chunks.step(0.2)
+    expect(onFade).toHaveBeenCalledTimes(1)
+    chunks.dispose()
+  })
+})
 
 describe('chunkScale：瞬間脹滿，之後只微微續脹', () => {
   it('出生是種子尺寸，膨脹結束時是滿的', () => {

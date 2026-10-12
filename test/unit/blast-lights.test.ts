@@ -55,6 +55,17 @@ describe('blastLightFalloff：閃光的衰減', () => {
 })
 
 describe('createBlastLights：固定幾盞的燈池', () => {
+  it('直射砲按尺寸縮放照射範圍與光強，零尺度不點燈', () => {
+    const b = createBlastLights()
+    b.flashMuzzle(0, 0, 0, CAM, 0.85)
+    expect(lit(b)[0]!.intensity).toBeCloseTo(MUZZLE_LIGHT_INTENSITY * 0.85 ** 2, 2)
+    expect(lit(b)[0]!.distance).toBeCloseTo(MUZZLE_LIGHT_DISTANCE * 0.85, 4)
+    b.reset()
+    b.flashMuzzle(0, 0, 0, CAM, 0)
+    expect(lit(b)).toHaveLength(0)
+    b.dispose()
+  })
+
   it('砲口在原位短暫照亮周圍，光源與煙同步衰減，重用後恢復炸彈範圍', () => {
     const b = createBlastLights()
     b.flashMuzzle(10, 5, 20, CAM)

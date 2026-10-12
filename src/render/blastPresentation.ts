@@ -111,9 +111,9 @@ export function createBlastPresentation({
   let mortarSeed = 0
 
   /** 砲口小爆炸搭配短暫近距離閃光；不震鏡頭、不追加音效。 */
-  function emitMuzzleBlast(x: number, y: number, z: number, dx: number, dy: number, dz: number): void {
-    muzzleBlast.emit(x, y, z, dx, dy, dz)
-    blastLights.flashMuzzle(x, y, z, cameraPosition)
+  function emitMuzzleBlast(x: number, y: number, z: number, dx: number, dy: number, dz: number, scale = 1): void {
+    muzzleBlast.emit(x, y, z, dx, dy, dz, scale)
+    blastLights.flashMuzzle(x, y, z, cameraPosition, scale)
   }
 
   /** 火星的種子。每噴一次推一格，同一幀的兩團爆炸才不會噴成一樣的形狀 */

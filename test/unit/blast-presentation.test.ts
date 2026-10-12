@@ -36,7 +36,7 @@ describe('爆炸呈現的事件邊界', () => {
     const { presentation, pools, fireball, blastLights, muzzleBlast, blastSparks, groundFires, cameraPosition } = setup()
     presentation.emitMuzzleBlast(10, 20, 30, 0, 0, -1)
     expect(muzzleBlast.emit).toHaveBeenCalledTimes(1)
-    expect(muzzleBlast.emit).toHaveBeenCalledWith(10, 20, 30, 0, 0, -1)
+    expect(muzzleBlast.emit).toHaveBeenCalledWith(10, 20, 30, 0, 0, -1, 1)
     expect(fireball.emit).not.toHaveBeenCalled()
     expect(pools.glow!.emit).not.toHaveBeenCalled()
     expect(pools.smoke.emit).not.toHaveBeenCalled()
@@ -45,9 +45,12 @@ describe('爆炸呈現的事件邊界', () => {
     expect(pools.jets!.emit).not.toHaveBeenCalled()
     expect(blastLights.flash).not.toHaveBeenCalled()
     expect(blastLights.flashMuzzle).toHaveBeenCalledTimes(1)
-    expect(blastLights.flashMuzzle).toHaveBeenCalledWith(10, 20, 30, cameraPosition)
+    expect(blastLights.flashMuzzle).toHaveBeenCalledWith(10, 20, 30, cameraPosition, 1)
     expect(blastSparks.burst).not.toHaveBeenCalled()
     expect(groundFires.live.some(Boolean)).toBe(false)
+    presentation.emitMuzzleBlast(30, 40, 50, 1, 0, 0, 0.85)
+    expect(muzzleBlast.emit).toHaveBeenLastCalledWith(30, 40, 50, 1, 0, 0, 0.85)
+    expect(blastLights.flashMuzzle).toHaveBeenLastCalledWith(30, 40, 50, cameraPosition, 0.85)
   })
 
   it('艦砲殉爆使用原火球池，固定回呼讀取目前鏡頭位置', () => {
