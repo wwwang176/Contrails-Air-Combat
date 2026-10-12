@@ -212,7 +212,8 @@ export const GERMANY: readonly MissionCard[] = [
        *      第 1.1 秒它朝德軍 IV 號 (−2,892, 2,761) 開一發；德軍的回擊落在它周圍
        *   2  跳切到那輛 IV 號，15° 俯視，鏡頭在它側面 50 m（與彈道垂直）。砲彈飛 550 m 約 1.2 秒，
        *      切過來 0.3 秒就落在它前方 14 m（偏向砲那一側）；之後還有三發陸續落在它周圍
-       *   3  領頭 Ju 87 的後上方跟拍，往前下方看它要去的戰場
+       *   3  玩家 Ju 87 後方 45 m、上方 25 m 跟拍；第 6 秒約在 (−2,790, 1,687, 311)，
+       *      以機身為中心俯看前方戰場，收尾保持跟隨玩家並漸變到操作視角
        * ```
        *
        * 砲→IV 號的方向約 (0.27, −0.96)，與它垂直的是 (0.96, 0.27)。這一發只有畫面，不扣血。
@@ -245,8 +246,8 @@ export const GERMANY: readonly MissionCard[] = [
           ],
         },
         {
-          kind: 'follow', seconds: 3, subject: { air: 'blue', role: 'bomber' },
-          back: 45, up: 25, side: 20, lead: 1500, lookUp: -700,
+          kind: 'follow', seconds: 3, subject: { player: true },
+          back: 45, up: 25, side: 20, lead: 0, lookUp: 0,
         },
       ],
       /**

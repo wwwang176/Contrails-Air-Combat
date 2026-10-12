@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { PerspectiveCamera, Quaternion, Vector3 } from 'three'
 import { createMissionIntroDirector, INTRO_BAR_SECONDS } from '../../src/app/missionIntroDirector'
 import type { IntroShot } from '../../src/battle/missions/types'
+import type { Combatant } from '../../src/world/combatant'
 import { createInputState } from '../../src/input/InputState'
 
 const NO_SCENE = { groundTargets: [], ships: [], combatants: [] }
@@ -123,6 +124,59 @@ describe('開場導覽的每幀接線', () => {
 })
 
 describe('導覽與滑回', () => {
+  it.each([false, true])('高速飛機從前側繞回機尾時留在畫面內（跳過：%s）', (skip) => {
+    const f = fixture()
+    const position = new Vector3(0, 4300, 0)
+    const player = {
+      alive: true,
+      aircraft: { state: { position, orientation: new Quaternion() } },
+    } as unknown as Combatant
+    const scene = { ...NO_SCENE, player }
+    const shot: IntroShot = {
+      kind: 'follow', seconds: 2, subject: { player: true },
+      back: -10, up: -8, side: 26, lead: 0, lookUp: 0, fov: 34,
+    }
+    f.director.begin([shot], f.input, new Quaternion())
+    f.director.frameStart(f.input, f.camera, 1.99)
+    f.director.applyCamera(f.camera, scene, 0)
+    const start = f.camera.position.clone()
+    const startQuat = f.camera.quaternion.clone()
+    f.input.skipRequested = skip
+    f.director.frameStart(f.input, f.camera, skip ? 0 : 0.01)
+    const chase = () => {
+      f.camera.position.copy(position).add(new Vector3(0, 8, 45))
+      f.camera.lookAt(position.clone().add(new Vector3(0, 0, -150)))
+      f.camera.fov = 70
+      f.camera.updateProjectionMatrix()
+    }
+    chase()
+    f.director.applyCamera(f.camera, scene, 0)
+    expect(f.camera.position.distanceTo(start)).toBeLessThan(1e-8)
+    expect(f.camera.quaternion.angleTo(startQuat)).toBeLessThan(1e-7)
+    // 德 M1 約 185 m/s；逐幀檢查機身中心與兩側機翼，不只檢查結束姿態。
+    for (let i = 0; i < 90; i++) {
+      position.z -= 185 / 60
+      chase()
+      f.director.applyCamera(f.camera, scene, 1 / 60)
+      f.camera.updateMatrixWorld(true)
+      for (const x of [-5, 0, 5]) {
+        const ndc = position.clone().add(new Vector3(x, 0, 0)).project(f.camera)
+        expect(Math.abs(ndc.x)).toBeLessThan(0.9)
+        expect(Math.abs(ndc.y)).toBeLessThan(0.9)
+        expect(ndc.z).toBeLessThan(1)
+      }
+      expect(f.camera.position.distanceTo(position)).toBeGreaterThan(20)
+    }
+    chase()
+    const end = f.camera.position.clone()
+    const endQuat = f.camera.quaternion.clone()
+    f.director.applyCamera(f.camera, scene, 0.01)
+    expect(f.director.busy).toBe(false)
+    expect(f.camera.position.distanceTo(end)).toBe(0)
+    expect(f.camera.quaternion.angleTo(endQuat)).toBeLessThan(1e-7)
+    expect(f.camera.fov).toBe(70)
+  })
+
   it('滑回途中 busy 仍為真，滑完才變假', () => {
     const f = fixture()
     f.director.begin([PAN], f.input, new Quaternion())

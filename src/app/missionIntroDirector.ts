@@ -1,6 +1,6 @@
 import { Vector3, type PerspectiveCamera, type Quaternion } from 'three'
 import type { IntroFire, IntroShot } from '../battle/missions/types'
-import { applyBlend, createCameraBlend, startBlend } from '../camera/cameraBlend'
+import { applyBlend, blendWeight, createCameraBlend, startBlend } from '../camera/cameraBlend'
 import type { InputState } from '../input/InputState'
 import {
   createIntroState, holdIntroInput, introCameraPose, introShotAt, skipIntro, startIntro, stepIntro,
@@ -55,6 +55,12 @@ export function createMissionIntroDirector(overlay: IntroOverlay, fovBase: numbe
   let throttle = 0
   const pos = new Vector3()
   const look = new Vector3()
+  const returnFocus = new Vector3()
+  const chaseFocus = new Vector3()
+  const orbit = new Vector3()
+  let lastPlayerShot: IntroShot | null = null
+  let lastLocal = 0
+  let returnDistance = 0
   /** 黑邊進場的程度，見 `IntroOverlay` */
   let bars = 0
 
@@ -68,6 +74,7 @@ export function createMissionIntroDirector(overlay: IntroOverlay, fovBase: numbe
     startIntro(state, shots)
     fired = state.shots.map((s) => (s.fires ?? []).map(() => false))
     blend.active = false
+    lastPlayerShot = null
     nose.set(0, 0, -1).applyQuaternion(orientation)
     throttle = input.throttle
     setBars(0)
@@ -78,6 +85,7 @@ export function createMissionIntroDirector(overlay: IntroOverlay, fovBase: numbe
   function stop(): void {
     state.active = false
     blend.active = false
+    lastPlayerShot = null
     setBars(0)
     overlay.classList.toggle('on', false)
   }
@@ -96,6 +104,7 @@ export function createMissionIntroDirector(overlay: IntroOverlay, fovBase: numbe
       if (stepIntro(state, dt)) {
         // 【幀首的相機還停在上一幀的鏡位】那正是玩家眼前的畫面，從這裡滑回
         startBlend(blend, camera)
+        returnDistance = camera.position.distanceTo(returnFocus)
         overlay.classList.toggle('on', false)
         ended = true
       } else {
@@ -135,6 +144,9 @@ export function createMissionIntroDirector(overlay: IntroOverlay, fovBase: numbe
     const at = introShotAt(state)
     const shot = at === null ? null : state.shots[at.index]!
     if (at !== null && shot !== null && introCameraPose(shot, at.local, scene, pos, look)) {
+      lastPlayerShot = shot.kind === 'follow' && 'player' in shot.subject ? shot : null
+      lastLocal = at.local
+      returnFocus.copy(look)
       camera.position.copy(pos)
       camera.up.set(0, 1, 0)
       camera.lookAt(look)
@@ -146,7 +158,25 @@ export function createMissionIntroDirector(overlay: IntroOverlay, fovBase: numbe
       }
       return
     }
-    applyBlend(blend, camera, dt)
+    if (state.active) lastPlayerShot = null
+    if (blend.active && lastPlayerShot !== null && scene.player !== undefined) {
+      // 玩家跟拍的焦點繼續隨主體移動；主體消失時保留最後的焦點。
+      if (introCameraPose(lastPlayerShot, lastLocal, scene, pos, look)) returnFocus.copy(look)
+      const distance = camera.position.distanceTo(scene.player.aircraft.state.position)
+      orbit.set(0, 0, 1).applyQuaternion(camera.quaternion)
+      chaseFocus.copy(camera.position).addScaledVector(orbit, -distance)
+      applyBlend(blend, camera, dt)
+      if (blend.active) {
+        const w = blendWeight(blend.elapsed / blend.duration)
+        // 以插值後的朝向及視距反推鏡位，讓位置與注視點一起繞行。
+        // 直線插值鏡位會切過機身附近，且高速飛機會飛離固定的起點。
+        orbit.set(0, 0, 1).applyQuaternion(camera.quaternion)
+        camera.position.lerpVectors(returnFocus, chaseFocus, w)
+          .addScaledVector(orbit, returnDistance + (distance - returnDistance) * w)
+      }
+    } else {
+      applyBlend(blend, camera, dt)
+    }
   }
 
   return {
