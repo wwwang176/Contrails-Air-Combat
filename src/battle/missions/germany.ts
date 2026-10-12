@@ -435,9 +435,9 @@ export const GERMANY: readonly MissionCard[] = [
        * 【開場導覽】停機位上的目標、正在滑行的野馬，再接玩家低空進場：
        *
        * ```
-       *   1  北側停機墊 P-51 在 (−1,020, 0, −2,995)，從機首前側離地 6 m 近拍
-       *   2  跑道入口第一架 P-51 第 6 秒約在 (−750, 0, −1,876)，從東北前側拍，
-       *      交代野馬由橫向滑行道轉北、進入跑道，後景帶入排隊的飛機
+       *   1  北側停機墊 P-51 在 (−1,020, 0, −2,995)，從機首前側約 45° 俯拍
+       *   2  跑道入口第一架 P-51 第 6 秒約在 (−750, 0, −1,876)，從東北前側約 45° 俯拍，
+       *      拉遠涵蓋跑道入口的四架野馬，交代前機轉北加速、後機排隊滑行
        *   3  玩家 Bf 109 第 6 秒約在 (5,748, 367, −2,500)，右前上方特寫，
        *      讓樹林與田野在機身後方掠過，交代低空進場，收尾跟隨玩家漸變回操作視角
        * ```
@@ -447,13 +447,13 @@ export const GERMANY: readonly MissionCard[] = [
       intro: [
         {
           kind: 'pan', seconds: 3, aboveGround: true, fov: 42,
-          from: { x: -995, y: 6, z: -2980 }, to: { x: -999, y: 6, z: -2977 },
+          from: { x: -1002, y: 25, z: -2981 }, to: { x: -1005, y: 25, z: -2978 },
           lookFrom: { x: -1020, y: 2, z: -2995 }, lookTo: { x: -1020, y: 2, z: -2995 },
         },
         {
-          kind: 'pan', seconds: 3, aboveGround: true, fov: 42,
-          from: { x: -727, y: 5, z: -1886 }, to: { x: -727, y: 5, z: -1894 },
-          lookFrom: { x: -754, y: 1.5, z: -1854 }, lookTo: { x: -750, y: 1.5, z: -1865 },
+          kind: 'pan', seconds: 3, aboveGround: true, fov: 45,
+          from: { x: -745, y: 100, z: -1934 }, to: { x: -743, y: 100, z: -1943 },
+          lookFrom: { x: -812, y: 1.5, z: -1860 }, lookTo: { x: -800, y: 1.5, z: -1863 },
         },
         {
           kind: 'follow', seconds: 2.5, subject: { player: true },
