@@ -317,6 +317,7 @@ const introScene: IntroScene = {
   get groundTargets() { return world.groundTargets },
   get ships() { return world.ships },
   get combatants() { return world.combatants },
+  get player() { return player },
   groundAt: (x, z) => world.groundAt(x, z),
 }
 

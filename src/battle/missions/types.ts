@@ -277,11 +277,13 @@ export interface IntroPoint { readonly x: number; readonly y: number; readonly z
  *   ground   這種地面單位裡還活著、會動、已經出場的第一座（車隊）
  *   ship     第一艘還浮著的要害艦（守艦隊關要守的那一艘）
  *   air      這一隊（省略角色 = 不分角色）還活著的第一架
+ *   player   目前玩家的飛機；導覽期間保持開場航向，可用來拍穩定進場與收尾
  * ```
  */
 export type IntroSubject =
   | { readonly ground: GroundUnitId }
   | { readonly ship: 'vital' }
+  | { readonly player: true }
   | { readonly air: Team; readonly role?: AircraftSpec['role'] }
 
 /**

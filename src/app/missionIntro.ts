@@ -72,6 +72,7 @@ export interface IntroScene {
   readonly groundTargets: readonly GroundTarget[]
   readonly ships: readonly Ship[]
   readonly combatants: readonly Combatant[]
+  readonly player?: Combatant
   readonly groundAt?: (x: number, z: number) => number
 }
 
@@ -123,6 +124,10 @@ export function introCameraPose(
 
 /** 跟拍的對象，見 `IntroSubject`。沒有就回 null */
 function subjectPose(scene: IntroScene, subject: IntroSubject): Pose | null {
+  if ('player' in subject) {
+    const player = scene.player
+    return player?.alive === true ? player.aircraft.state : null
+  }
   if ('ground' in subject) {
     for (const t of scene.groundTargets) {
       if (t.unit.id === subject.ground && t.alive && !t.dormant && t.motion !== null) return t

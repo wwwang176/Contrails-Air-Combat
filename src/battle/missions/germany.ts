@@ -122,7 +122,7 @@ export const GERMANY: readonly MissionCard[] = [
        *   1  領頭 B-17 開場在 (50, 3,700, −5,000)，其餘七架沿 x 正向每隔 200 m 並排；
        *      從它右前側近拍，沿隊列看過去，前景一架特寫、後景帶出整批轟炸機
        *   2  領頭 P-51 開場在 (3,150, 3,700, −5,000)，從左前上方迎拍，辨識護航機
-       *   3  領頭 Bf 109 開場在 (−1,150, 4,300, 5,000)，從左前下方迎拍進場轉向，接回玩家視角
+       *   3  玩家長機 Bf 109 開場在 (−350, 4,300, 5,000)，從左前下方迎拍穩定進場，接回玩家視角
        * ```
        *
        * 三段都跟著飛機移動並慢慢靠近；只有 B-17 是擊落計數的目標。**鏡位與秒數是起始值。**
@@ -137,7 +137,7 @@ export const GERMANY: readonly MissionCard[] = [
           back: -45, backTo: -32, up: 14, side: -25, lead: 0, fov: 30,
         },
         {
-          kind: 'follow', seconds: 2.5, subject: { air: 'blue', role: 'fighter' },
+          kind: 'follow', seconds: 2.5, subject: { player: true },
           back: -40, backTo: -30, up: -5, side: -15, lead: 0, lookUp: 3, fov: 32,
         },
       ],

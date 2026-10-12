@@ -183,6 +183,41 @@ describe('follow 的其他對象', () => {
     expect(look.toArray()).toEqual([300, 2000, -100])
   })
 
+  it('玩家：跟隨指定的玩家長機，不挑前面的 AI 戰鬥機', () => {
+    const shot: IntroShot = {
+      kind: 'follow', seconds: 3, subject: { player: true }, back: 50, up: 10, side: 0, lead: 100,
+    }
+    const plane = (x: number) => ({
+      team: 'blue', alive: true,
+      aircraft: { spec: { role: 'fighter' }, state: { position: new Vector3(x, 2000, 0), orientation: new Quaternion() } },
+    }) as unknown as Combatant
+    const ai = plane(100)
+    let player = plane(300)
+    const world: IntroScene = { ...scene([], undefined, [], [ai, player]), get player() { return player } }
+    const pos = new Vector3()
+    const look = new Vector3()
+    expect(introCameraPose(shot, 0, world, pos, look)).toBe(true)
+    expect(pos.toArray()).toEqual([300, 2010, 50])
+    expect(look.toArray()).toEqual([300, 2000, -100])
+    // 換席後讀新的玩家，不保留前一架的姿態。
+    player = plane(500)
+    expect(introCameraPose(shot, 0, world, pos, look)).toBe(true)
+    expect(look.toArray()).toEqual([500, 2000, -100])
+  })
+
+  it('玩家不存在或已退場時不改拍其他 AI', () => {
+    const shot: IntroShot = {
+      kind: 'follow', seconds: 3, subject: { player: true }, back: 50, up: 10, side: 0, lead: 0,
+    }
+    const ai = {
+      alive: true, team: 'blue',
+      aircraft: { spec: { role: 'fighter' }, state: { position: new Vector3(), orientation: new Quaternion() } },
+    } as unknown as Combatant
+    const world = scene([], undefined, [], [ai])
+    expect(introCameraPose(shot, 0, world, new Vector3(), new Vector3())).toBe(false)
+    expect(introCameraPose(shot, 0, { ...world, player: { ...ai, alive: false } }, new Vector3(), new Vector3())).toBe(false)
+  })
+
   it('沒有對象就回 false', () => {
     const shot: IntroShot = { kind: 'follow', seconds: 3, subject: { ship: 'vital' }, back: 0, up: 20, side: 200, lead: 0 }
     expect(introCameraPose(shot, 0, scene(), new Vector3(), new Vector3())).toBe(false)
