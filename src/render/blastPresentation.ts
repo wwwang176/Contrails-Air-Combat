@@ -13,6 +13,7 @@ import {
   blastFireRadius, emitBlast, scaleBlast, type BlastParams, type BlastPools,
 } from './blast'
 import { MORTAR_BLAST } from './mortarBlast'
+import type { createMuzzleBlast } from './muzzleBlast'
 import { BLAST_DEBRIS_COLOR, type createDebris } from './debris'
 import { lightGroundFire, type createGroundFires } from './groundFires'
 import type { createBlastLights } from './blastLights'
@@ -27,7 +28,8 @@ export interface BlastPresentationPools {
   readonly BLAST_POOLS: BlastPools
   readonly cameraPosition: Vector3
   readonly cameraShake: ReturnType<typeof createCameraShake>
-  readonly blastLights: Pick<ReturnType<typeof createBlastLights>, 'flash'>
+  readonly blastLights: Pick<ReturnType<typeof createBlastLights>, 'flash' | 'flashMuzzle'>
+  readonly muzzleBlast: Pick<ReturnType<typeof createMuzzleBlast>, 'emit'>
   readonly blastSparks: Pick<ReturnType<typeof createBlastSparks>, 'burst'>
   readonly debris: Pick<ReturnType<typeof createDebris>, 'burst'>
   readonly groundFires: ReturnType<typeof createGroundFires>
@@ -77,7 +79,7 @@ const REEL_TORPEDO_SPLASH = 0.004
 /** 戰鬥與選單共用爆炸呈現。建立一次；配方暫存與種子跨換場保留。
  * 地形、時間與事件由呼叫端傳入，不持有戰局，也不在事件迴圈配置物件。 */
 export function createBlastPresentation({
-  BLAST_POOLS, cameraPosition, cameraShake, blastLights, blastSparks, debris, groundFires, fireball,
+  BLAST_POOLS, cameraPosition, cameraShake, blastLights, muzzleBlast, blastSparks, debris, groundFires, fireball,
 }: BlastPresentationPools) {
   const GUN_LOST_DIR = new Vector3()
 
@@ -107,6 +109,12 @@ export function createBlastPresentation({
    */
   /** 每一發推一格，同一幀的兩團才不會噴成一樣的形狀 */
   let mortarSeed = 0
+
+  /** 砲口小爆炸搭配短暫近距離閃光；不震鏡頭、不追加音效。 */
+  function emitMuzzleBlast(x: number, y: number, z: number, dx: number, dy: number, dz: number): void {
+    muzzleBlast.emit(x, y, z, dx, dy, dz)
+    blastLights.flashMuzzle(x, y, z, cameraPosition)
+  }
 
   /** 火星的種子。每噴一次推一格，同一幀的兩團爆炸才不會噴成一樣的形狀 */
   let sparkSeed = 0
@@ -374,6 +382,7 @@ export function createBlastPresentation({
   }
 
   return {
+    emitMuzzleBlast,
     emitGunLostBlast,
     reelGroundKill,
     emitMortarBlast,

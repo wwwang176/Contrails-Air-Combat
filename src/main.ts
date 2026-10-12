@@ -51,6 +51,7 @@ import { createSplashes } from './render/splash'
 import { TextureLoader } from 'three'
 import { createBombs, createTorpedoes } from './render/bombs'
 import { createFireChunks } from './render/chunks'
+import { createMuzzleBlast } from './render/muzzleBlast'
 import { createFirePuff } from './render/firePuff'
 import { JET_RISE, createWaterJets } from './render/waterJets'
 import {
@@ -708,6 +709,8 @@ const blastGlow = createFireGlow(undefined, BLAST_PACE)
 ctx.scene.add(blastGlow.object)
 const blastEmber = createEmberSmoke(undefined, BLAST_PACE, smokeTexture)
 ctx.scene.add(blastEmber.object)
+const muzzleBlast = createMuzzleBlast(blastEmber)
+ctx.scene.add(muzzleBlast.object)
 const blastSmoke = createBlastSmoke(undefined, BLAST_PACE, smokeTexture)
 ctx.scene.add(blastSmoke.object)
 // 爆炸煙保留黑 → 深灰的年齡曲線，所以只做乘法式迎／背光與核心遮蔽，
@@ -797,7 +800,7 @@ const BLAST_POOLS: BlastPools = {
 const battleAudioCues = createBattleAudioCues(audio, audioEar, CRASH_BLAST_HEIGHT, playerController)
 const blastPresentation = createBlastPresentation({
   BLAST_POOLS, cameraPosition: ctx.camera.position, cameraShake,
-  blastLights, blastSparks, debris, groundFires, fireball,
+  blastLights, muzzleBlast, blastSparks, debris, groundFires, fireball,
 })
 
 /**
@@ -838,6 +841,7 @@ const emitFirePuff = createFirePuff(BLAST_POOLS, shipFireSmoke)
 const battleScenery = createBattleScenery(ctx.scene, {
   glareTexture, smokeTexture, burn: emitFirePuff, impact: onGroundImpact, fired: noteGroundShot,
   landed: onShellLanded,
+  gunFired: blastPresentation.emitMuzzleBlast,
 }, {
   createShipModels, createShipWakes, shipFoamTexture, createGroundModels,
   createSearchlights, createGroundBattle, createBalloonModels,
@@ -854,7 +858,7 @@ const emitWreckFirePuff = createFirePuff(
 const stepEffects = createEffectStepper({
   sparks, dirt, blastSparks, wrecks, debris, emitWreckFirePuff, smoke, spray, BLAST_POOLS,
   splashes, fireball, steam, shipFireSmoke, wreckFireSmoke, blastJets,
-  blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, blastMist, flakBursts, blastLights,
+  blastChunks, blastGlow, muzzleBlast, blastEmber, blastSmoke, blastDust, blastMist, flakBursts, blastLights,
 })
 
 /**
@@ -884,7 +888,7 @@ const burnBalloon = (x: number, y: number, z: number): void => {
  */
 const POOLS = [
   fireball, smoke, spray, sparks, dirt, blastSparks, splashes, debris, vortex, flakBursts, wakes,
-  blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, blastMist, blastJets, reelTrackDust,
+  blastChunks, blastGlow, muzzleBlast, blastEmber, blastSmoke, blastDust, blastMist, blastJets, reelTrackDust,
   // 【船火那兩份也在這裡】漏清煙池的話上一場的煙殘留 12 秒；漏清 `shipFires`
   // 更糟 —— 上一場的火點會用同一個船索引附到新一場的船上，燒滿 60 秒
   shipFireSmoke, wreckFireSmoke, shipFires, groundFires, steam,

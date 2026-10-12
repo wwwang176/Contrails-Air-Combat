@@ -38,7 +38,7 @@ function setup() {
     smoke: pool('smoke'), spray: pool('spray'), splashes: pool('splashes'),
     fireball: pool('fireball'), steam: pool('steam'), shipFireSmoke: pool('shipFireSmoke'),
     wreckFireSmoke: pool('wreckFireSmoke'), blastChunks: pool('blastChunks'),
-    blastGlow: pool('blastGlow'), blastEmber: pool('blastEmber'), blastSmoke: pool('blastSmoke'),
+    blastGlow: pool('blastGlow'), muzzleBlast: pool('muzzleBlast'), blastEmber: pool('blastEmber'), blastSmoke: pool('blastSmoke'),
     blastDust: pool('blastDust'), flakBursts: pool('flakBursts'), blastLights: pool('blastLights'),
     blastJets: { step: () => { mistBorn = true } },
     blastMist: { step: () => { mistStepped = mistBorn } },
@@ -63,6 +63,7 @@ describe('共用特效步進', () => {
     expect(order.indexOf('smoke.emit')).toBeLessThan(order.indexOf('smoke.step'))
     expect(deps.blastChunks.step).toHaveBeenCalledWith(0.1, deps.wrecks.anchors)
     expect(deps.blastGlow.step).toHaveBeenCalledWith(0.1, deps.wrecks.anchors)
+    expect(deps.muzzleBlast.step).toHaveBeenCalledWith(0.1)
     expect(deps.dirt.step).toHaveBeenCalledWith(0.1)
     expect(mistStepped()).toBe(true)
   })
@@ -78,5 +79,6 @@ describe('共用特效步進', () => {
     expect(deps.blastSparks.step).toHaveBeenLastCalledWith(200)
     expect(deps.splashes.emit).toHaveBeenLastCalledWith(deps.debris.sprayEvents, newTerrain.heightAt, 200)
     expect(deps.smoke.step).toHaveBeenLastCalledWith(0)
+    expect(deps.muzzleBlast.step).toHaveBeenLastCalledWith(0)
   })
 })

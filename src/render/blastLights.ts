@@ -41,6 +41,11 @@ export const BLAST_LIGHT_CULL = 4000
 /** 燈放在爆心上方多高，m —— 貼著地面放的話只照得到腳下那一小圈 */
 export const BLAST_LIGHT_LIFT = 10
 
+/** 砲口近距離閃光，與爆炸共用固定燈池，亮度與範圍獨立調整。 */
+export const MUZZLE_LIGHT_INTENSITY = 5000
+export const MUZZLE_LIGHT_DISTANCE = 14
+export const MUZZLE_LIGHT_SECONDS = 0.12
+
 /**
  * 當量尺度 → 閃光的尺度（亮度與照射半徑都乘它）。**與鏡頭震動同一條曲線**
  * （`ordnanceShakeScale`）：基準彈以上原樣，以下大幅放大 —— 線性的話 60 kg
@@ -94,6 +99,8 @@ export interface BlastLights {
    *   火網下每秒好幾發，放大的話整片一直大亮
    */
   flash(x: number, y: number, z: number, scale: number, cam: V3, amplify?: boolean): void
+  /** 小範圍砲口閃光，位置就在管口，不套爆心的高度補償。 */
+  flashMuzzle(x: number, y: number, z: number, cam: V3): void
   /** 推進畫面時間。每一渲染幀一次 */
   step(dt: number): void
   /** 全部熄掉。換一場戰鬥時呼叫 */
@@ -118,6 +125,7 @@ export function createBlastLights(): BlastLights {
   const age = new Float32Array(BLAST_LIGHT_COUNT)
   const seconds = new Float32Array(BLAST_LIGHT_COUNT)
   const size = new Float32Array(BLAST_LIGHT_COUNT)
+  const radius = new Float32Array(BLAST_LIGHT_COUNT)
   /** 每一盞是第幾次點的，越小越早 */
   const born = new Float64Array(BLAST_LIGHT_COUNT)
   let serial = 0
@@ -128,10 +136,33 @@ export function createBlastLights(): BlastLights {
     if (f <= 0) size[k] = 0
     const s = size[k]!
     l.intensity = BLAST_LIGHT_INTENSITY * s * f
-    l.distance = BLAST_LIGHT_DISTANCE * s
+    l.distance = s > 0 ? radius[k]! : 0
     smokeUniforms.uBlastLightPos.value[k]!.copy(l.position)
     smokeUniforms.uBlastLightColor.value[k]!.set(base.r, base.g, base.b).multiplyScalar(s * f)
-    smokeUniforms.uBlastLightRadius.value[k] = BLAST_LIGHT_DISTANCE * s
+    smokeUniforms.uBlastLightRadius.value[k] = l.distance
+  }
+
+  function ignite(x: number, y: number, z: number, s: number, distance: number,
+    duration: number, cam: V3, lift: number): void {
+    if (s <= 0) return
+    const dx = x - cam.x
+    const dy = y - cam.y
+    const dz = z - cam.z
+    if (dx * dx + dy * dy + dz * dz > BLAST_LIGHT_CULL * BLAST_LIGHT_CULL) return
+    // 熄著的燈先用；全亮著就搶最早點的那盞。先後看序號不看年齡 —— 同一幀
+    // 點的幾盞年齡都是 0，比年齡會一直搶同一盞
+    let k = 0
+    for (let i = 1; i < BLAST_LIGHT_COUNT; i++) {
+      if (size[k]! <= 0) break
+      if (size[i]! <= 0 || born[i]! < born[k]!) k = i
+    }
+    born[k] = ++serial
+    lights[k]!.position.set(x, y + lift, z)
+    age[k] = 0
+    seconds[k] = duration
+    size[k] = s
+    radius[k] = distance
+    apply(k)
   }
 
   return {
@@ -139,24 +170,11 @@ export function createBlastLights(): BlastLights {
     smokeUniforms,
     flash(x, y, z, scale, cam, amplify = true) {
       const s = amplify ? blastLightScale(scale) : scale > 0 ? scale : 0
-      if (s <= 0) return
-      const dx = x - cam.x
-      const dy = y - cam.y
-      const dz = z - cam.z
-      if (dx * dx + dy * dy + dz * dz > BLAST_LIGHT_CULL * BLAST_LIGHT_CULL) return
-      // 熄著的燈先用；全亮著就搶最早點的那盞。先後看序號不看年齡 —— 同一幀
-      // 點的幾盞年齡都是 0，比年齡會一直搶同一盞
-      let k = 0
-      for (let i = 1; i < BLAST_LIGHT_COUNT; i++) {
-        if (size[k]! <= 0) break
-        if (size[i]! <= 0 || born[i]! < born[k]!) k = i
-      }
-      born[k] = ++serial
-      lights[k]!.position.set(x, y + BLAST_LIGHT_LIFT, z)
-      age[k] = 0
-      seconds[k] = blastLightSeconds(scale)
-      size[k] = s
-      apply(k)
+      ignite(x, y, z, s, BLAST_LIGHT_DISTANCE * s, blastLightSeconds(scale), cam, BLAST_LIGHT_LIFT)
+    },
+    flashMuzzle(x, y, z, cam) {
+      ignite(x, y, z, MUZZLE_LIGHT_INTENSITY / BLAST_LIGHT_INTENSITY,
+        MUZZLE_LIGHT_DISTANCE, MUZZLE_LIGHT_SECONDS, cam, 0)
     },
     step(dt) {
       for (let k = 0; k < BLAST_LIGHT_COUNT; k++) {

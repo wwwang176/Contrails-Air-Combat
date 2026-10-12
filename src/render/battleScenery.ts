@@ -24,6 +24,8 @@ export interface BattleSceneryAssets {
   fired(unit: GroundUnitId, x: number, y: number, z: number, index: number): void
   /** 戰車與反坦克砲打偏、砲彈落地（`createGroundBattle` 的 `landed`） */
   landed(x: number, y: number, z: number): void
+  /** 模擬防空砲開火的實際模型管口與方向，供砲口小爆炸使用。 */
+  gunFired?(x: number, y: number, z: number, dx: number, dy: number, dz: number): void
 }
 
 export interface BattleSceneryBuilders {
@@ -81,7 +83,7 @@ export function createBattleScenery(
     // 地面目標與船同一個做法：每一場重建
     clearGroundModels()
     if (world.groundTargets.length > 0) {
-      state.groundModels = builders.createGroundModels(world.groundTargets, groundLivery)
+      state.groundModels = builders.createGroundModels(world.groundTargets, groundLivery, assets.gunFired)
       scene.add(state.groundModels.object)
       state.searchlights = builders.createSearchlights(world.groundTargets, assets.glareTexture)
       scene.add(state.searchlights.object)

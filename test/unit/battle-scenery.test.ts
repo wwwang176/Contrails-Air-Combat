@@ -24,7 +24,7 @@ function fixture() {
   }
   const assets = {
     glareTexture: new Texture(), smokeTexture: new Texture(),
-    burn: vi.fn(), impact: vi.fn(), fired: vi.fn(), landed: vi.fn(),
+    burn: vi.fn(), impact: vi.fn(), fired: vi.fn(), landed: vi.fn(), gunFired: vi.fn(),
   }
   const foam = new Texture()
   const builders = {
@@ -65,7 +65,7 @@ describe('戰場佈景的所有權', () => {
     expect(scene.children).toEqual(built.map(x => x.object))
     expect(builders.createShipModels).toHaveBeenCalledWith(world.ships)
     expect(builders.createShipWakes).toHaveBeenCalledWith(world.ships, foam)
-    expect(builders.createGroundModels).toHaveBeenCalledWith(world.groundTargets, 'winter')
+    expect(builders.createGroundModels).toHaveBeenCalledWith(world.groundTargets, 'winter', assets.gunFired)
     expect(builders.createSearchlights).toHaveBeenCalledWith(world.groundTargets, assets.glareTexture)
     expect(builders.createBalloonModels).toHaveBeenCalledWith(world.balloons)
     expect(builders.createGroundBattle).toHaveBeenCalledWith(

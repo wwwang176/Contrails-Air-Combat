@@ -9,6 +9,7 @@ import {
 import { useAircraftLod } from './geometry/buildAircraft'
 import { GUN_TURRET_KEY, type GunTurretParts } from './geometry/ground/turret'
 import { disposeLivery, liveryGeometry } from './geometry/ground/livery'
+import { createGroundGunShots, type GroundGunSource } from './groundGunShots'
 import {
   GUN_PITCH_MAX, GUN_PITCH_MIN, TANK_PITCH_MAX, TANK_PITCH_MIN, TANK_TRAVERSE_RATE, aimAngles, slewYaw,
 } from './gunAim'
@@ -93,8 +94,12 @@ interface Pair {
 
 /**
  * @param livery 這一場地面單位的塗裝（任務卡的 `groundLivery`）。省略 = 預設配色、直接用共用的幾何
+ * @param onGunShot 90 mm 新開火時通報模型管口與方向，爆炸效果由呼叫端持有。
  */
-export function createGroundModels(targets: readonly GroundTarget[], livery?: GroundLivery): GroundModels {
+export function createGroundModels(
+  targets: readonly GroundTarget[], livery?: GroundLivery,
+  onGunShot?: (x: number, y: number, z: number, dx: number, dy: number, dz: number) => void,
+): GroundModels {
   const live = new MeshStandardMaterial({
     vertexColors: true, flatShading: true, roughness: 0.85, metalness: 0.06,
   })
@@ -142,6 +147,7 @@ export function createGroundModels(targets: readonly GroundTarget[], livery?: Gr
   /** 逐台的砲塔角度，rad。死了停在最後那一幀 */
   const yaws = new Float64Array(targets.length)
   const pitches = new Float64Array(targets.length)
+  const gunSources: GroundGunSource[] = []
 
   for (const t of targets) {
     let pair = byId.get(t.unit.id)
@@ -193,12 +199,16 @@ export function createGroundModels(targets: readonly GroundTarget[], livery?: Gr
       elev.position.copy(gt.elevatePivot)
       trav.add(elev)
       m.add(trav)
+      if (t.unit.id === 'usFlakHeavy') gunSources.push({ index: meshes.length - 1, barrel: elev })
     }
     turrets.push(trav)
     turretParts.push(gt ?? null)
     const reg = GROUND_MODELS[t.unit.id].model
     yawLimits.push('glb' in reg ? reg.turret?.yawLimit ?? Infinity : Infinity)
   }
+
+  const gunShots = gunSources.length > 0 && onGunShot !== undefined
+    ? createGroundGunShots(gunSources, targets, onGunShot) : null
 
   /** 第 k 台砲塔這一幀的角度寫進 `yaws`／`pitches`。死了的不動 */
   function aimTurret(list: readonly GroundTarget[], k: number, seconds: number, aim: GroundAimSource | null): void {
@@ -293,9 +303,12 @@ export function createGroundModels(targets: readonly GroundTarget[], livery?: Gr
         // 【起飛離場的不畫】它已經是空中那一架了，留著會是一具不存在的殘骸。
         // 開到前線退場的車也不畫 —— 它是開走了，不是燒在路上。藏著還沒出發的
         // 縱隊也不畫：它還不在場上。死掉的人也不畫：不留焦黑的人形
-        m.visible = !t.departed && !t.arrived && !t.dormant && (t.alive || t.unit.personnel !== true)      }
+        m.visible = !t.departed && !t.arrived && !t.dormant && (t.alive || t.unit.personnel !== true)
+      }
+      gunShots?.update(list, seconds)
     },
     resetTurrets() {
+      gunShots?.reset()
       yaws.fill(0)
       pitches.fill(0)
       for (const trav of turrets) {

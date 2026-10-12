@@ -30,6 +30,7 @@ export interface EffectStepPools {
   readonly blastJets: StepEffect
   readonly blastChunks: StepEffect
   readonly blastGlow: StepEffect
+  readonly muzzleBlast: StepEffect
   readonly blastEmber: StepEffect
   readonly blastSmoke: StepEffect
   readonly blastDust: StepEffect
@@ -42,7 +43,7 @@ export interface EffectStepPools {
 export function createEffectStepper({
   sparks, dirt, blastSparks, wrecks, debris, emitWreckFirePuff, smoke, spray, BLAST_POOLS,
   splashes, fireball, steam, shipFireSmoke, wreckFireSmoke, blastJets,
-  blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, blastMist, flakBursts, blastLights,
+  blastChunks, blastGlow, muzzleBlast, blastEmber, blastSmoke, blastDust, blastMist, flakBursts, blastLights,
 }: EffectStepPools) {
   /**
    * 殘骸、零件與爆炸那一組池子的一幀。**戰鬥與選單的短片共用。**
@@ -104,6 +105,7 @@ export function createEffectStepper({
     // 自己組。不給的話那些火當場收掉 —— 畫面上是「飛機不燒了」
     blastChunks.step(worldSeconds, wrecks.anchors)
     blastGlow.step(worldSeconds, wrecks.anchors)
+    muzzleBlast.step(worldSeconds)
     blastEmber.step(worldSeconds)
     blastSmoke.step(worldSeconds)
     blastDust.step(worldSeconds)

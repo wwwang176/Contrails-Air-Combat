@@ -16,20 +16,40 @@ function setup() {
   // 在粒子池的介面記下發射，不需要 WebGL 環境
   const pools = {
     fireball, smoke: { emit: vi.fn() }, dust: { emit: vi.fn() },
+    glow: { emit: vi.fn() },
     spray: { emit: vi.fn() }, jets: { emit: vi.fn() }, splashEvents: createImpacts(),
   } as unknown as BlastPools
   const cameraPosition = new Vector3(1, 2, 3)
   const groundFires = createGroundFires()
   const blastSparks = { burst: vi.fn() }
-  const blastLights = { flash: vi.fn() }
+  const blastLights = { flash: vi.fn(), flashMuzzle: vi.fn() }
+  const muzzleBlast = { emit: vi.fn() }
   const presentation = createBlastPresentation({
     BLAST_POOLS: pools, cameraPosition, cameraShake: createCameraShake(),
-    groundFires, blastSparks, blastLights, debris: { burst: vi.fn() }, fireball: gunFireball,
+    groundFires, blastSparks, blastLights, muzzleBlast, debris: { burst: vi.fn() }, fireball: gunFireball,
   })
-  return { presentation, fireball, gunFireball, blastSparks, blastLights, groundFires, cameraPosition }
+  return { presentation, pools, fireball, gunFireball, blastSparks, blastLights, muzzleBlast, groundFires, cameraPosition }
 }
 
 describe('爆炸呈現的事件邊界', () => {
+  it('砲口火球朝管口前方擴散，同步短暫點光源，不附帶地面爆炸效果', () => {
+    const { presentation, pools, fireball, blastLights, muzzleBlast, blastSparks, groundFires, cameraPosition } = setup()
+    presentation.emitMuzzleBlast(10, 20, 30, 0, 0, -1)
+    expect(muzzleBlast.emit).toHaveBeenCalledTimes(1)
+    expect(muzzleBlast.emit).toHaveBeenCalledWith(10, 20, 30, 0, 0, -1)
+    expect(fireball.emit).not.toHaveBeenCalled()
+    expect(pools.glow!.emit).not.toHaveBeenCalled()
+    expect(pools.smoke.emit).not.toHaveBeenCalled()
+    expect(pools.dust.emit).not.toHaveBeenCalled()
+    expect(pools.spray.emit).not.toHaveBeenCalled()
+    expect(pools.jets!.emit).not.toHaveBeenCalled()
+    expect(blastLights.flash).not.toHaveBeenCalled()
+    expect(blastLights.flashMuzzle).toHaveBeenCalledTimes(1)
+    expect(blastLights.flashMuzzle).toHaveBeenCalledWith(10, 20, 30, cameraPosition)
+    expect(blastSparks.burst).not.toHaveBeenCalled()
+    expect(groundFires.live.some(Boolean)).toBe(false)
+  })
+
   it('艦砲殉爆使用原火球池，固定回呼讀取目前鏡頭位置', () => {
     const { presentation, fireball, gunFireball, blastLights, cameraPosition } = setup()
     const callback = presentation.emitGunLostBlast

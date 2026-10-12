@@ -3,6 +3,7 @@ import { Vector3, type PointLight } from 'three'
 import {
   BLAST_LIGHT_COUNT, BLAST_LIGHT_CULL, BLAST_LIGHT_INTENSITY, BLAST_LIGHT_SECONDS_MAX,
   BLAST_LIGHT_SECONDS_MIN, blastLightFalloff, blastLightSeconds, createBlastLights,
+  BLAST_LIGHT_DISTANCE, MUZZLE_LIGHT_INTENSITY, MUZZLE_LIGHT_DISTANCE, MUZZLE_LIGHT_SECONDS,
   type BlastLights,
 } from '../../src/render/blastLights'
 import { ordnanceShakeScale } from '../../src/camera/cameraShake'
@@ -54,6 +55,31 @@ describe('blastLightFalloff：閃光的衰減', () => {
 })
 
 describe('createBlastLights：固定幾盞的燈池', () => {
+  it('砲口在原位短暫照亮周圍，光源與煙同步衰減，重用後恢復炸彈範圍', () => {
+    const b = createBlastLights()
+    b.flashMuzzle(10, 5, 20, CAM)
+    const lamp = lit(b)[0]!
+    const k = lightsOf(b).indexOf(lamp)
+    expect(lamp.position.toArray()).toEqual([10, 5, 20])
+    expect(lamp.intensity).toBeCloseTo(MUZZLE_LIGHT_INTENSITY, 3)
+    expect(lamp.distance).toBe(MUZZLE_LIGHT_DISTANCE)
+    expect(b.smokeUniforms.uBlastLightPos.value[k]!.equals(lamp.position)).toBe(true)
+    expect(b.smokeUniforms.uBlastLightRadius.value[k]).toBe(MUZZLE_LIGHT_DISTANCE)
+    b.step(MUZZLE_LIGHT_SECONDS / 2)
+    expect(lamp.intensity).toBeCloseTo(MUZZLE_LIGHT_INTENSITY / 4, 3)
+    b.step(MUZZLE_LIGHT_SECONDS)
+    expect(lit(b)).toHaveLength(0)
+    expect(b.smokeUniforms.uBlastLightColor.value[k]!.lengthSq()).toBe(0)
+    expect(b.smokeUniforms.uBlastLightRadius.value[k]).toBe(0)
+    b.flash(10, 5, 20, 1, CAM)
+    expect(lit(b)[0]!.distance).toBe(BLAST_LIGHT_DISTANCE)
+    expect(lit(b)[0]!.intensity).toBe(BLAST_LIGHT_INTENSITY)
+    expect(lightsOf(b)).toHaveLength(BLAST_LIGHT_COUNT)
+    b.reset()
+    b.flashMuzzle(BLAST_LIGHT_CULL + 500, 0, 0, CAM)
+    expect(lit(b)).toHaveLength(0)
+  })
+
   it('開場就是固定盞數、全部圖層都亮、強度 0', () => {
     const b = createBlastLights()
     expect(lightsOf(b)).toHaveLength(BLAST_LIGHT_COUNT)

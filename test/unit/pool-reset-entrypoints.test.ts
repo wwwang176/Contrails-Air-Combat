@@ -120,7 +120,7 @@ describe('換一場的兩個入口都要清粒子池', () => {
         'spray', 'vortex', 'wakes',
         // 爆炸那一組
         'blastChunks', 'blastGlow', 'blastEmber', 'blastSmoke', 'blastDust',
-        'blastMist', 'blastJets',
+        'blastMist', 'blastJets', 'muzzleBlast',
         // 【炸彈與魚雷的火星】漏清的話上一場還在飄的火星畫在新一場
         'blastSparks',
         // 子彈打進地面的土柱、土塊與煙塵（四池一組）
