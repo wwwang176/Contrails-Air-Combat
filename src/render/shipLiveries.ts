@@ -1,4 +1,5 @@
 import { ESSEX_GUN_MOUNTS } from '../specs/essexGunMounts'
+import { LST_GUN_MOUNTS } from '../specs/lstGunMounts'
 import type { ShipClassId } from '../world/ships'
 import type { ShipLiveryLayout, ShipPartKind } from './shipLivery'
 import type { ShipNumbersDef } from './shipNumbers'
@@ -346,7 +347,8 @@ const LST: ShipLiveryDef = {
   parts: {
     LST_Body_merged: LST_BODY_PARTS,
     // 四座 40 mm（砲架、兩根砲管）與四座 20 mm（柱、砲管、護盾）
-    LST_Steel_merged: [{ name: 'aa', tone: 0.8, boxes: [{}] }],
+    ...Object.fromEntries(Object.values(LST_GUN_MOUNTS).flatMap(mount =>
+      ['', '_barrel'].map(suffix => [mount.modelNode! + suffix, [{ name: 'aa', tone: 0.8, boxes: [{}] }]]))),
   },
 }
 

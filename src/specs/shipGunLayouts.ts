@@ -2,6 +2,7 @@ import type { ShipClassId } from '../world/ships'
 import { FLETCHER_GUN_GROUPS, FLETCHER_GUN_MOUNTS, type ShipGunMount } from './shipGunMounts'
 import { WICHITA_GUN_GROUPS, WICHITA_GUN_MOUNTS } from './wichitaGunMounts'
 import { ESSEX_GUN_GROUPS, ESSEX_GUN_MOUNTS } from './essexGunMounts'
+import { LST_GUN_GROUPS, LST_GUN_MOUNTS } from './lstGunMounts'
 
 interface ShipGunLayout {
   readonly mesh: string
@@ -14,4 +15,5 @@ export const SHIP_GUN_LAYOUTS: Readonly<Partial<Record<ShipClassId, ShipGunLayou
   fletcher: { mesh: 'FLETCHER_Guns', mounts: FLETCHER_GUN_MOUNTS, groups: FLETCHER_GUN_GROUPS },
   wichita: { mesh: 'WICHITA_Guns', mounts: WICHITA_GUN_MOUNTS, groups: WICHITA_GUN_GROUPS },
   essex: { mesh: 'ESSEX_Guns', mounts: ESSEX_GUN_MOUNTS, groups: ESSEX_GUN_GROUPS },
+  lst: { mesh: 'LST_Steel_merged', mounts: LST_GUN_MOUNTS, groups: LST_GUN_GROUPS },
 }
