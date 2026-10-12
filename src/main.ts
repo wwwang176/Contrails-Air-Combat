@@ -112,6 +112,7 @@ import { resetGEffect } from './hud/widgets/gEffect'
 import { TORPEDO_RUN_SAMPLES } from './world/torpedo'
 import { resetDamageMarks } from './hud/damageMarks'
 import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
+import { createMissionIntroDirector } from './app/missionIntroDirector'
 import type { BombState, Impact } from './world/bomb'
 import { resetBombBay, type BombBay } from './weapons/bomb'
 import type { Loadout } from './weapons/stores'
@@ -289,6 +290,23 @@ const input = createInputState()
 input.mouseSensitivity = readMouseSensitivity()
 const bindings = attachInput(canvas, input)
 const touch = attachTouch(document.getElementById('touch') as HTMLElement, input)
+
+/** 開場導覽的黑邊與跳過提示；觸控時點這一層就是跳過 */
+const introEl = document.getElementById('intro') as HTMLElement
+introEl.addEventListener('click', () => { input.skipRequested = true })
+const missionIntro = createMissionIntroDirector(introEl, DEFAULT_CAMERA_OPTIONS.fovBase)
+
+/**
+ * 這一場的開場導覽。**每次進關卡都播**（出擊、再打一場、重新開始）；任務卡沒有
+ * 鏡位的關與遭遇戰不播
+ */
+function beginMissionIntro(): void {
+  introEl.classList.toggle('touch', touch.active)
+  missionIntro.begin(
+    mode === 'mission' ? pendingMission?.battle.intro : undefined,
+    input, player.aircraft.state.orientation,
+  )
+}
 
 const playerController = new PlayerController(input)
 /** 瞄準輔助。開關來自設定頁（`readAimAssist`） */
@@ -1090,6 +1108,7 @@ function fitCameraToPlayer(): void {
 
 function leaveBattle(): void {
   audio.stopAll()
+  missionIntro.stop()
   battleAudioCues.clear()
   resetAudioState()
   tutorialPending = []
@@ -1172,6 +1191,7 @@ function restartBattle(): void {
     // 【強制清，理由與下面那條相同】`playerAi` 跨場重用，而地形沒換 ——
     // 參考比對會跳過它
     wireBattleAi(world, battle.cfg.tuning, player, playerAi, aiTerrain, true)
+    beginMissionIntro()
     return
   }
   resetBattle(battle)
@@ -1191,6 +1211,7 @@ function restartBattle(): void {
   // 就這樣帶進了新的一場
   wireBattleAi(world, battle.cfg.tuning, player, playerAi, aiTerrain, true)
   resetArena()
+  beginMissionIntro()
 }
 
 /**
@@ -1211,6 +1232,7 @@ function enterBattle(): void {
   resetPools()
   buildBattleTerrain()
   startWorld(battleConfig())
+  beginMissionIntro()
 }
 
 /**
@@ -1279,6 +1301,7 @@ async function loadBattle(): Promise<void> {
   // 【載入畫面收掉才淡入】載入期間 context 開著；在前面淡的話，戰場出現時
   // 淡入已經走完，引擎聲還是一下子衝出來
   audio.fadeIn(BATTLE_FADE_IN)
+  beginMissionIntro()
 }
 
 /**
@@ -1500,7 +1523,9 @@ function logTelemetry(): void {
 const loop = new FixedStepAccumulator({ stepHz: 240, maxSubsteps: 8, maxFrameSeconds: MAX_FRAME_SECONDS })
 let lastTime = performance.now()
 let elapsed = 0
-const { fillMissionHud, resetMissionBanner, setMissionHudLanguageTime } = createMissionHud(hudFrame, audio, t)
+const {
+  fillMissionHud, resetMissionBanner, holdMissionBanner, setMissionHudLanguageTime,
+} = createMissionHud(hudFrame, audio, t)
 /** 這一場從 `elapsed` 的哪一刻開始 —— `elapsed` 是全域幀鐘，跨場不歸零 */
 let battleStartedAt = 0
 /** 分出勝負之後經過的真實秒數（不放慢）；打鬥中是 0。慢動作與結算板的時機看它 */
@@ -1570,6 +1595,8 @@ function updateAudio(worldSeconds: number): void {
 function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   const orderController = player.controller
   orderTelemetry.track(orderController instanceof AiController ? orderController.order : null, elapsed)
+  // 【開場導覽排在玩家控制之前】導覽中把這一幀的操縱蓋掉，飛機直直往前飛
+  missionIntro.frameStart(input, ctx.camera, worldSeconds)
   const dying = stepPlayerControl(battle, player, world, worldSeconds)
 
   // 【hitsDealt 必須在回呼裡累加】World.step 在每個**物理步**開頭把它歸零，
@@ -1642,6 +1669,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 【這不影響物理】`terrain.heightAt(x, z, time)` 只吃世界座標與時間，
   // 與 `update` 的中心點無關 —— 撞地判定因此不會被鏡頭改到
   if (input.godView) terrain.update(elapsed, godCam.position.x, godCam.position.z)
+  // 導覽的鏡位離飛機好幾公里：跟著鏡頭（上一幀的位置）
+  else if (missionIntro.active) terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
   else terrain.update(elapsed, renderPos.x, renderPos.z)
   // 【閃電吃世界時間】暫停時 `worldSeconds` 是 0，天也不打雷
   if (sceneWeather.storm !== null) {
@@ -1665,6 +1694,9 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     bombPoint,
     battleCameraFrameOutput,
   )
+  // 【玩家的鏡頭照常算，導覽在後面覆寫】結束後由最後的鏡位滑回時，滑回的目的地
+  // 就是這一幀照常算出來的鏡頭
+  missionIntro.applyCamera(ctx.camera, world.groundTargets, worldSeconds, world.groundAt)
   const {
     attitude: att,
     agl,
@@ -1728,8 +1760,11 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     alphaCrit,
   )
 
+  // 【導覽中量距基準是鏡頭】與上帝視角同一條：鏡頭離飛機好幾公里，任務目標框的
+  // 大小要照鏡頭到目標的距離算，否則貼地拍的卡車外面只有最小的那一號框
   const refPos = fillContacts(
-    world.combatants, player, battle.flights, renderPos, input.godView, godCam.position,
+    world.combatants, player, battle.flights, renderPos,
+    input.godView || missionIntro.active, missionIntro.active ? ctx.camera.position : godCam.position,
   )
 
   // ── 彈藥與艦船的標記 ────────────────────────────────
@@ -1754,7 +1789,10 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   hudFrame.report = battle.report
   hudFrame.reportTime = world.time
 
+  // 【導覽期間橫幅停在中央】結束後才接著滑進任務列
+  if (missionIntro.active) holdMissionBanner(elapsed)
   fillMissionHud(battle, mode, pendingMission, elapsed)
+  hudFrame.intro = missionIntro.active
 
   hud.render(hudFrame, frameSeconds)
   if (audioMeter !== null) {
@@ -2198,7 +2236,8 @@ function frame(now: number) {
       stepAndDrawBattle(sim, world)
       // 【第一幀畫完才彈教學】鏡頭與 HUD 要先就位，卡片後面才是這一場的戰場，
       // 不是上一個畫面。暫停之後主迴圈只重畫這一幀
-      if (tutorialPending.length > 0) {
+      // 【開場導覽播完、鏡頭滑回玩家才彈】導覽是看任務目標，教學卡是教操作，先看再學
+      if (tutorialPending.length > 0 && !missionIntro.busy) {
         setPausedState(true)
         tutorialOpen = true
         // 【看完才放行】最後一張按「了解」才解除暫停、把指標鎖回來

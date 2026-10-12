@@ -80,9 +80,12 @@ export function drawMarkers(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
       ctx.font = hudFont(10 * L.scale)
       ctx.textAlign = 'center'
       ctx.textBaseline = 'top'
-      ctx.fillText(contactRangeLabel(m.range), bx, by + br + 3 * L.scale)
+      // 【導覽中不標距離】那時量的是鏡頭到目標，對玩家沒有意義
+      if (!f.intro) ctx.fillText(contactRangeLabel(m.range), bx, by + br + 3 * L.scale)
       continue
     }
+    // 【開場導覽只畫任務目標框】
+    if (f.intro) continue
 
     markerPath(L.cx + m.x * L.unit, L.cy - m.y * L.unit, L.scale, P)
     ctx.globalAlpha = dimmedHostile(f.objectiveTargets, m.hostile, m.objective) ? NON_OBJECTIVE_ALPHA : 1
@@ -96,7 +99,7 @@ export function drawMarkers(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
     ctx.globalAlpha = 1
   }
   ctx.globalAlpha = 1
-  if (nearest >= 0) drawObjectiveArrow(ctx, L, f, f.markers[nearest]!, aspect)
+  if (nearest >= 0 && !f.intro) drawObjectiveArrow(ctx, L, f, f.markers[nearest]!, aspect)
 }
 
 /**

@@ -93,6 +93,12 @@ const GOD: readonly HudWidget[] = [
 ]
 
 /**
+ * 開場導覽畫的那一套（`HudFrame.intro`）：任務目標框與開場橫幅，其餘全收。
+ * 兩支標記 widget 在導覽中只畫任務目標
+ */
+const INTRO: readonly HudWidget[] = ['markers', 'contacts', 'objective']
+
+/**
  * 投彈模式畫的那一套：**拿掉準星、加一層暗角，其餘照舊。**
  *
  * 【為什麼一定要拿掉 `reticle`】投彈模式下左鍵是投彈、不開槍，而瞄準點
@@ -117,7 +123,8 @@ export const BOMB: readonly HudWidget[] = [
  * 出現」是一條真的會壞、壞了又很難察覺的性質。抽出來就驗得到，順帶把
  * 繪製順序也釘進測試裡。
  */
-export function hudWidgets(godView: boolean, bombing = false): readonly HudWidget[] {
+export function hudWidgets(godView: boolean, bombing = false, intro = false): readonly HudWidget[] {
+  if (intro) return INTRO
   if (godView) return GOD
   return bombing ? BOMB : FULL
 }
@@ -234,7 +241,7 @@ export class Hud {
     const { ctx, maskCtx, layout: L } = this
     ctx.clearRect(0, 0, L.width, L.height)
     maskCtx.clearRect(0, 0, L.width, L.height)
-    for (const w of hudWidgets(f.godView, f.bombing)) {
+    for (const w of hudWidgets(f.godView, f.bombing, f.intro)) {
       WIDGET_DRAW[w](UNSHAKEN.includes(w) ? maskCtx : ctx, L, f, dt)
     }
     this.applyShake(f.shakeAngle, f.shakeX, f.shakeY)

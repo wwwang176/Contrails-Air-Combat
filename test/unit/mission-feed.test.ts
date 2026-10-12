@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createMissionHud } from '../../src/hud/missionFeed'
+import { BANNER_HOLD_SECONDS } from '../../src/hud/widgets/objective'
 import { createHudFrame } from '../../src/hud/types'
 import { createMissionState } from '../../src/battle/mission'
 import type { MessageKey } from '../../src/i18n'
@@ -110,5 +111,21 @@ describe('任務 HUD：這一關有沒有主要目標', () => {
     f.battle.rules = { kind: 'evacuate', point: f.battle.mission.target, radius: 600, seconds: Infinity }
     f.feed.fillMissionHud(f.battle, 'mission', f.card, 2)
     expect(f.frame.objectiveTargets).toBe(false)
+  })
+})
+
+/** 開場導覽期間橫幅停在中央，導覽結束才接著滑進任務列 */
+describe('任務 HUD：導覽期間按住橫幅', () => {
+  it('按住時年齡停在停留段的尾端；放開後從那裡接著走', () => {
+    const f = fixture()
+    f.feed.fillMissionHud(f.battle, 'mission', f.card, 0)
+    for (let t = 1; t <= 10; t++) {
+      f.feed.holdMissionBanner(t)
+      f.feed.fillMissionHud(f.battle, 'mission', f.card, t)
+      expect(f.frame.objectiveBannerAge).toBeLessThan(BANNER_HOLD_SECONDS)
+    }
+    const held = f.frame.objectiveBannerAge
+    f.feed.fillMissionHud(f.battle, 'mission', f.card, 10.25)
+    expect(f.frame.objectiveBannerAge).toBeCloseTo(held + 0.25, 9)
   })
 })

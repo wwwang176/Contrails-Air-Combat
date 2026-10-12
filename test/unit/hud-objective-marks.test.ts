@@ -4,6 +4,7 @@ import { contactBoxRadius, HUD_COLORS, NON_OBJECTIVE_ALPHA } from '../../src/hud
 import { drawContacts } from '../../src/hud/widgets/contacts'
 import { drawMarkers } from '../../src/hud/widgets/markers'
 import { drawGodMarkers } from '../../src/hud/widgets/godMarkers'
+import { hudWidgets } from '../../src/hud/Hud'
 
 const LAYOUT: HudLayout = { width: 1280, height: 720, cx: 640, cy: 360, unit: 360, scale: 1 }
 
@@ -176,5 +177,43 @@ describe('任務目標的邊緣箭頭外面多一圈框', () => {
     const { ctx, ops } = fakeCtx()
     drawMarkers(ctx, LAYOUT, f)
     expect(ops.map(o => o.op)).toEqual(['fill', 'stroke'])
+  })
+})
+
+describe('開場導覽的 HUD', () => {
+  it('只畫標記、目標框與任務列（橫幅）', () => {
+    expect(hudWidgets(false, false, true)).toEqual(['markers', 'contacts', 'objective'])
+    expect(hudWidgets(true, true, true)).toEqual(['markers', 'contacts', 'objective'])
+  })
+
+  it('目標框只畫任務目標；一般目標框、邊緣箭頭不畫', () => {
+    const plain = contactFrame(false, true)
+    plain.intro = true
+    const a = fakeCtx()
+    drawContacts(a.ctx, LAYOUT, plain)
+    expect(a.ops).toEqual([])
+    const off = contactFrame(true, true)
+    off.intro = true
+    off.contacts[0]!.x = 5
+    const b = fakeCtx()
+    drawContacts(b.ctx, LAYOUT, off)
+    expect(b.ops).toEqual([])
+    const on = contactFrame(true, true)
+    on.intro = true
+    const c = fakeCtx()
+    drawContacts(c.ctx, LAYOUT, on)
+    expect(c.ops.some(o => o.op === 'stroke')).toBe(true)
+  })
+
+  it('標記只畫任務目標框；三角形與邊緣箭頭不畫', () => {
+    const f = markerFrame(true)
+    f.intro = true
+    putMarker(f, 0.1, 0, false, true, 900)
+    putMarker(f, -0.1, 0, false, false, 0)
+    putMarker(f, 5, 0, false, true, 100)
+    const { ctx, ops } = fakeCtx()
+    drawMarkers(ctx, LAYOUT, f)
+    // 導覽中不標距離：只剩括號
+    expect(ops.map(o => o.op)).toEqual(['stroke'])
   })
 })

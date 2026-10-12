@@ -169,6 +169,11 @@ export interface InputState {
    * 觸控裝置沒有指標鎖，`pointerLockLost` 永遠不會成立，暫停要另一個入口。
    */
   pauseRequested: boolean
+  /**
+   * 玩家這一幀要求跳過開場導覽（空白鍵；觸控是點導覽層）。**單幀旗標，呼叫端
+   * 每幀消費後清除** —— 沒在播導覽時也要清，否則下一場一開場就被跳掉
+   */
+  skipRequested: boolean
 }
 
 export function createInputState(): InputState {
@@ -201,5 +206,6 @@ export function createInputState(): InputState {
     scoreboardHeld: false,
     pointerLockLost: false,
     pauseRequested: false,
+    skipRequested: false,
   }
 }

@@ -247,6 +247,8 @@ export const zh = {
   'settings.assist': '瞄準輔助',
   'settings.mouse': '滑鼠靈敏度',
   'settings.reset': '恢復預設值',
+  'intro.skip': '空白鍵　跳過',
+  'intro.skipTouch': '點一下跳過',
   'reload.title': '需要重新載入',
   'reload.body': '抗鋸齒要重新載入才會生效，進行中的戰鬥會遺失。',
   'reload.yes': '儲存並重新載入',

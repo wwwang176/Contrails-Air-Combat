@@ -245,6 +245,8 @@ export const en: Record<MessageKey, string> = {
   'settings.assist': 'Aim assist',
   'settings.mouse': 'Mouse sensitivity',
   'settings.reset': 'Restore defaults',
+  'intro.skip': 'Space  Skip',
+  'intro.skipTouch': 'Tap to skip',
   'reload.title': 'Reload required',
   'reload.body': 'Anti-aliasing takes effect after a reload. A battle in progress will be lost.',
   'reload.yes': 'Save and reload',

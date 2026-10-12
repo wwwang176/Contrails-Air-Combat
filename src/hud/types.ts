@@ -383,6 +383,11 @@ export interface HudFrame {
    * 小地圖因此一行都不用改就變成以鏡頭為中心。
    */
   godView: boolean
+  /**
+   * 開場導覽中（`app/missionIntro.ts`）：HUD 只畫任務目標框與開場橫幅，
+   * 一般目標框、標記、邊緣箭頭、預瞄環都不畫
+   */
+  intro: boolean
   /** 顯示進階飛行讀數，預設關閉。 */
   flightReadouts: boolean
   /** 觸控操作層顯示著。按鍵提示那一行寫的是鍵盤，這時不畫 */
@@ -524,6 +529,7 @@ export function createHudFrame(): HudFrame {
     aiExtendWhy: '',
     flightReadouts: false,
     godView: false,
+    intro: false,
     touch: false,
     shakeAngle: 0, shakeX: 0, shakeY: 0,
     arenaShow: false,

@@ -130,6 +130,20 @@ export const JAPAN: readonly MissionCard[] = [
       terrain: 'leyte',
       // 灘頭到撤離點（0, +2.5 km）的走廊與開場位置（z = +5 km）
       arena: { x: 2000, z: 2000, radius: 11000 },
+      // 【開場導覽】先在車隊第一輛卡車的前方路邊貼地拍，卡車由 30 m 外迎面開到 12 m
+      // （它前面 30 m 是半履帶車，鏡頭在兩車之間）；再從內陸高處沿灘頭橫移，LST
+      // 卸貨區旁的九輛目標卡車（x 1,900～3,700）都在畫面裡。**鏡位與秒數是起始值。**
+      intro: [
+        {
+          kind: 'follow', seconds: 3.6, unit: 'usTruck',
+          back: -30, backTo: -12, up: 1.8, side: 6, lead: 0, lookUp: 1.6,
+        },
+        {
+          kind: 'pan', seconds: 3.4,
+          from: { x: 2300, y: 450, z: -2700 }, to: { x: 3300, y: 450, z: -2700 },
+          lookFrom: { x: 2600, y: 0, z: -3700 }, lookTo: { x: 3000, y: 0, z: -3700 },
+        },
+      ],
       // 暴雨的雲低又多；暗色雲與天空接近，要多才看得出來
       clouds: { yMin: 400, yMax: 900, amount: 'many' },
       altitude: 1500,

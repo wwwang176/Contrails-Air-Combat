@@ -83,6 +83,12 @@ export function attachInput(
   const clearHolds = () => clearInputHolds(state, hold)
 
   const onKeyDown = (e: KeyboardEvent) => {
+    // 【兩種視角都要能按】跳過開場導覽；沒有導覽時由呼叫端清掉，不做別的事
+    if (e.code === 'Space') {
+      if (!e.repeat) state.skipRequested = true
+      e.preventDefault()
+      return
+    }
     if (e.code === 'KeyH') {
       if (!e.repeat) state.flightReadouts = !state.flightReadouts
       e.preventDefault()

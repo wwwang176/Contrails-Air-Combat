@@ -267,6 +267,41 @@ export interface MissionCard {
 /** 打得起來的卡。**`missionConfigFrom` 只收這一種。** */
 export type ReadyMissionCard = MissionCard & { readonly battle: MissionBattle }
 
+/** 世界座標，m */
+export interface IntroPoint { readonly x: number; readonly y: number; readonly z: number }
+
+/**
+ * 開場導覽的一個鏡位。
+ *
+ * ```
+ *   follow   跟拍一座地面目標：`unit` 裡還活著、會動、已經出場的第一座。鏡頭在它後方
+ *            `back`（負 = 前方）、右側 `side` 公尺、離鏡頭底下的地面 `up` 公尺，看向它
+ *            前方 `lead`、離地 `lookUp` 公尺的點。有 `backTo` 時距離在這一段裡由
+ *            `back` 線性變到 `backTo` —— 前方拍時由遠到近，就是迎面開過來
+ *   pan      鏡頭由 `from` 等速移到 `to`，看的點由 `lookFrom` 移到 `lookTo`
+ * ```
+ */
+export type IntroShot =
+  | {
+    readonly kind: 'follow'
+    readonly seconds: number
+    readonly unit: GroundUnitId
+    readonly back: number
+    readonly backTo?: number
+    readonly up: number
+    readonly side: number
+    readonly lead: number
+    readonly lookUp?: number
+  }
+  | {
+    readonly kind: 'pan'
+    readonly seconds: number
+    readonly from: IntroPoint
+    readonly to: IntroPoint
+    readonly lookFrom: IntroPoint
+    readonly lookTo: IntroPoint
+  }
+
 /** 一關真的要打起來所需要的一切。 */
 export interface MissionBattle {
   /**
@@ -347,6 +382,10 @@ export interface MissionBattle {
    * 直接瞄準時會先自衛。這是任務目標提示，不改掃射或防墜模型。
    */
   readonly priorityGroundUnit?: GroundUnitId
+  /**
+   * 開場導覽的鏡位，依序播。**省略 = 這一關不播導覽。** 見 `app/missionIntro.ts`
+   */
+  readonly intro?: readonly IntroShot[]
   /**
    * 轟炸機在敵方目標挑選裡值幾倍。**省略 = 1，沒有偏置。** 見 `mission.ts` 的
    * `MissionTuning.bomberPriority`。

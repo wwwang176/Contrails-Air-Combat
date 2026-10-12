@@ -740,3 +740,21 @@ describe('進階讀數開關', () => {
     expect(state.flightReadouts).toBe(false)
   })
 })
+
+describe('空白鍵：跳過開場導覽', () => {
+  const key = (code: string, repeat = false) => ({ code, repeat, preventDefault: () => {} })
+
+  it('座艙與上帝視角都會舉旗；按住的連發不算', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    dom.win.fire('keydown', key('Space'))
+    expect(state.skipRequested).toBe(true)
+    state.skipRequested = false
+    dom.win.fire('keydown', key('Space', true))
+    expect(state.skipRequested).toBe(false)
+    state.godView = true
+    dom.win.fire('keydown', key('Space'))
+    expect(state.skipRequested).toBe(true)
+  })
+})

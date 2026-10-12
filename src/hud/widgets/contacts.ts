@@ -111,6 +111,8 @@ export function drawContacts(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hud
     const color = contactColor(c.hostile, c.flightMate, f.enemyUnaware)
     const aspect = L.width / L.height
     const onScreen = !c.behind && Math.abs(c.x) <= aspect && Math.abs(c.y) <= 1
+    // 【開場導覽只畫畫面內的任務目標框】邊緣箭頭與預瞄環都是開打之後才用得到的
+    if (f.intro && (!c.objective || !onScreen)) continue
     // 【預瞄環不淡化】護航機咬上來時還是要打得到它
     ctx.globalAlpha = dimmedHostile(f.objectiveTargets, c.hostile, c.objective) ? NON_OBJECTIVE_ALPHA : 1
 
@@ -133,14 +135,15 @@ export function drawContacts(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hud
       ctx.font = hudFont(10 * L.scale)
       ctx.textAlign = 'center'
       ctx.textBaseline = 'top'
-      ctx.fillText(contactRangeLabel(c.range), x, y + r + 3 * L.scale)
+      // 【導覽中不標距離】那時量的是鏡頭到目標，對玩家沒有意義
+      if (!f.intro) ctx.fillText(contactRangeLabel(c.range), x, y + r + 3 * L.scale)
     } else {
       // 畫面外指示：**畫全部**，無距離門檻（spec §8）
       drawEdgeArrow(ctx, L, edgeIndicatorPosition(c.x, c.y, c.behind, aspect), color, c.objective)
     }
     ctx.globalAlpha = 1
 
-    if (c.leadValid && !c.leadBehind) {
+    if (c.leadValid && !c.leadBehind && !f.intro) {
       const lx = L.cx + c.leadX * L.unit
       const ly = L.cy - c.leadY * L.unit
       ctx.strokeStyle = color

@@ -4,6 +4,7 @@ import type { MessageKey } from '../i18n'
 import type { AudioEngine } from '../audio/engine'
 import type { HudFrame } from './types'
 import { hasAttackTargets } from '../battle/objectiveQueries'
+import { BANNER_HOLD_SECONDS } from './widgets/objective'
 
 type MissionDisplay = Pick<Battle, 'mission' | 'objectiveKey' | 'message' | 'rules'>
   & { alert: Pick<NonNullable<Battle['alert']>, 'alerted'> | null }
@@ -99,9 +100,18 @@ export function createMissionHud(
     bannerKey = null
   }
 
+  /**
+   * 開場導覽期間每幀呼叫（在 `fillMissionHud` 之前）：橫幅停在中央的「停留」段尾端，
+   * 不滑走。放開之後年齡從那裡接著走，滑進任務列的那一段照常播
+   */
+  function holdMissionBanner(elapsed: number): void {
+    if (bannerKey === null) return
+    bannerStart = Math.max(bannerStart, elapsed - BANNER_HOLD_SECONDS * 0.999)
+  }
+
   function setMissionHudLanguageTime(elapsed: number): void {
     langChangedAt = elapsed
   }
 
-  return { fillMissionHud, resetMissionBanner, setMissionHudLanguageTime }
+  return { fillMissionHud, resetMissionBanner, holdMissionBanner, setMissionHudLanguageTime }
 }
