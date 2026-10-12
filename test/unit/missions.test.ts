@@ -276,8 +276,10 @@ describe('警戒與藍方開場', () => {
     }
   })
 
-  it('倫內爾島的陸攻排成一條橫線、高度 200–300 m、相鄰 400 m', () => {
-    expect(rennell().battle.blueSpawn).toEqual({ altitudeMin: 200, altitudeMax: 300, spacing: 400 })
+  it('倫內爾島的魚雷機分三排、高度 200–300 m、同排間距 400 m、排距 220 m', () => {
+    expect(rennell().battle.blueSpawn).toEqual({
+      altitudeMin: 200, altitudeMax: 300, spacing: 400, rows: { size: 4, depth: 220 },
+    })
     const cfg = missionConfigFrom(rennell())
     const blues = cfg.units.filter((u) => u.team === 'blue')
     expect(blues.length).toBe(11)
@@ -286,7 +288,14 @@ describe('警戒與藍方開場', () => {
       expect(u.tier).toBe(2)
     }
     const step = 400 / cfg.schwarmSpacing
-    for (let i = 1; i < blues.length; i++) expect(blues[i]!.lane - blues[i - 1]!.lane).toBeCloseTo(step, 9)
+    for (let i = 1; i < blues.length; i++) {
+      if (i % 4 === 0) {
+        expect(blues[i]!.depth! - blues[i - 1]!.depth!).toBe(220)
+      } else {
+        expect(blues[i]!.lane - blues[i - 1]!.lane).toBeCloseTo(step, 9)
+        expect(blues[i]!.depth).toBe(blues[i - 1]!.depth)
+      }
+    }
   })
 })
 
