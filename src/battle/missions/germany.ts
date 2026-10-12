@@ -359,6 +359,35 @@ export const GERMANY: readonly MissionCard[] = [
        */
       altitude: 1500,
       ground: POLTAVA_GROUND,
+      /**
+       * 【開場導覽】先看停放的轟炸機，再交代分散停機位與我方進場：
+       *
+       * ```
+       *   1  東南停機位的 B-17 (630, −6,640)，從東北側低角度近拍，機首與機翼朝向月光
+       *   2  西北八架 B-17 分列 x −970、−806，z −7,100～−7,310，從東北側高 55 m 緩緩橫移
+       *   3  玩家 He 111 開場在 (−510, 1,350, 5,250)，從右前下方迎拍，後景保留左後方僚機
+       * ```
+       *
+       * 停機位是任務目標；開場照明彈尚未投下，探照燈也尚未追到飛機，鏡位沿月光方向辨識機身。
+       * 地面鏡頭用離地高度；He 111 收尾鏡位保留前方 45 m 的距離，讓回到操作視角時機身仍在畫面內。
+       * **鏡位與秒數是起始值。**
+       */
+      intro: [
+        {
+          kind: 'pan', seconds: 3, aboveGround: true, fov: 42,
+          from: { x: 675, y: 12, z: -6670 }, to: { x: 668, y: 12, z: -6666 },
+          lookFrom: { x: 630, y: 4, z: -6640 }, lookTo: { x: 630, y: 4, z: -6640 },
+        },
+        {
+          kind: 'pan', seconds: 3, aboveGround: true, fov: 45,
+          from: { x: -700, y: 55, z: -7410 }, to: { x: -720, y: 55, z: -7395 },
+          lookFrom: { x: -830, y: 3, z: -7220 }, lookTo: { x: -830, y: 3, z: -7220 },
+        },
+        {
+          kind: 'follow', seconds: 2.5, subject: { player: true },
+          back: -55, backTo: -45, up: -7, side: 50, lead: 0, lookUp: 0, fov: 40,
+        },
+      ],
       // 【停機線上的 B-17 全部炸毀】堆、砲位、探照燈打得掉但不算。
       // 8 架 × 8 枚 = 64 枚
       destroyCount: POLTAVA_PARKED.length, destroyUnit: 'parkedB17',
