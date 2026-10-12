@@ -138,6 +138,34 @@ export const ALLIES: readonly MissionCard[] = [
       altitude: 1500,
       ground: LEUNA_GROUND,
       /**
+       * 【開場導覽】廠區設施、外圍重高砲，再接回進場的 B-17：
+       *
+       * ```
+       *   1  從西南側低角度橫移，看冷卻塔 (−709, −7,242)、儲氣槽 (−683, −7,125)
+       *      與煙囪 (−560, −7,214)，三座都是可炸的任務目標
+       *   2  貼近南側外圈重高砲 (−113, −1,874)，離地 1.6 m 從東南側慢慢橫移，砲管以天空為背景
+       *   3  前群領頭 B-17 開場在 (−1,230, 1,200, 4,500)，從右後上方跟拍，慢慢靠近
+       * ```
+       *
+       * 廠區與砲位用離地高度，飛機鏡頭跟隨進場。**鏡位與秒數是起始值。**
+       */
+      intro: [
+        {
+          kind: 'pan', seconds: 3, aboveGround: true, fov: 45,
+          from: { x: -880, y: 30, z: -7040 }, to: { x: -850, y: 30, z: -7030 },
+          lookFrom: { x: -650, y: 35, z: -7200 }, lookTo: { x: -650, y: 35, z: -7200 },
+        },
+        {
+          kind: 'pan', seconds: 3, aboveGround: true, fov: 45,
+          from: { x: -99, y: 1.6, z: -1863 }, to: { x: -103, y: 1.6, z: -1860 },
+          lookFrom: { x: -113.2, y: 4, z: -1874 }, lookTo: { x: -113.2, y: 4, z: -1874 },
+        },
+        {
+          kind: 'follow', seconds: 2.5, subject: { air: 'blue', role: 'bomber' },
+          back: 75, backTo: 55, up: 25, side: 35, lead: 0, fov: 40,
+        },
+      ],
+      /**
        * 【這一關的高砲射速是通用值的兩倍】洛伊納是德國本土最密的火網之一，
        * 而 `GROUND_FLAK_SPEC` 的 15 發/分是路邊一座砲位的值。
        *
