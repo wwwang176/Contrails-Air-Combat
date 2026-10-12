@@ -11,6 +11,7 @@ import { GUN_TURRET_KEY, type GunTurretParts } from './geometry/ground/turret'
 import { disposeLivery, liveryGeometry } from './geometry/ground/livery'
 import { createGroundGunShots, groundGunMuzzleOf, groundQuadGunMuzzlesOf, readGroundGunMuzzle, type GroundGunSource } from './groundGunShots'
 import { createGroundMuzzles } from './groundMuzzles'
+import { createRoofGunParts, SHERMAN_ROOF_GUN } from './geometry/ground/roofGun'
 import {
   GUN_PITCH_MAX, GUN_PITCH_MIN, TANK_PITCH_MAX, TANK_PITCH_MIN, TANK_TRAVERSE_RATE, aimAngles, slewYaw,
 } from './gunAim'
@@ -19,6 +20,7 @@ import {
 const TILT = /* @__PURE__ */ new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), PARKED_TAIL_DOWN)
 const OFF = /* @__PURE__ */ new Vector3()
 const Z_AXIS = /* @__PURE__ */ new Vector3(0, 0, 1)
+const FORWARD = /* @__PURE__ */ new Vector3(0, 0, -1)
 const SPIN = /* @__PURE__ */ new Quaternion()
 /** 砲塔角度的暫存。熱路徑：不配置 */
 const ANGLES = { yaw: 0, pitch: 0 }
@@ -153,6 +155,8 @@ export function createGroundModels(
   const pitches = new Float64Array(targets.length)
   const gunSources: GroundGunSource[] = []
   const muzzleSources: GroundGunSource[] = []
+  const roofGuns: (Mesh | null)[] = []
+  let roofParts: ReturnType<typeof createRoofGunParts> | null = null
 
   for (const t of targets) {
     let pair = byId.get(t.unit.id)
@@ -195,6 +199,7 @@ export function createGroundModels(
     // 拆開的砲塔：水平轉那一顆掛在車身、上下抬那一顆掛在它底下，位置都是轉軸
     const gt = pair.hi.userData[GUN_TURRET_KEY] as GunTurretParts | undefined
     let trav: Mesh | null = null
+    let roofGun: Mesh | null = null
     if (gt !== undefined) {
       trav = new Mesh(gt.traverse, live)
       // 【命名】量測出口（`__gfx` 的 `groundTurrets`）靠名字找出這些子網格
@@ -208,8 +213,20 @@ export function createGroundModels(
         gunSources.push({ index: meshes.length - 1, barrel: elev })
       } else if (t.unit.id === 'flakLight' || t.unit.id === 'usFlakTrack') {
         muzzleSources.push({ index: meshes.length - 1, barrel: elev, muzzles: groundQuadGunMuzzlesOf(elev) })
+      } else if (t.unit.id === 'usTank' && t.guns[0]?.zone.tier === 'mg') {
+        roofParts ??= createRoofGunParts()
+        const mount = new Group()
+        mount.position.set(SHERMAN_ROOF_GUN.x - gt.traversePivot.x,
+          SHERMAN_ROOF_GUN.y - gt.traversePivot.y, SHERMAN_ROOF_GUN.z - gt.traversePivot.z)
+        mount.add(new Mesh(roofParts.post, roofParts.material))
+        roofGun = new Mesh(roofParts.gun, roofParts.material)
+        roofGun.name = 'groundModels.roofGun'
+        mount.add(roofGun)
+        trav.add(mount)
+        muzzleSources.push({ index: meshes.length - 1, barrel: roofGun })
       }
     }
+    roofGuns.push(roofGun)
     turrets.push(trav)
     muzzlePoints.push(trav === null ? null : groundGunMuzzleOf(trav.children[0] as Mesh))
     turretParts.push(gt ?? null)
@@ -228,7 +245,7 @@ export function createGroundModels(
     if (!t.alive) return
     const gun = t.guns[0]
     // 【有模擬砲位的照它的瞄準方向】已經是單位本身的座標，而且已照轉速慢慢轉，畫面不再平滑
-    if (gun !== undefined) {
+    if (gun !== undefined && roofGuns[k] === null) {
       const a = gun.aim
       aimAngles(a.x, a.y, a.z, yaws[k]!, pitches[k]!, GUN_PITCH_MIN, GUN_PITCH_MAX, ANGLES)
       yaws[k] = ANGLES.yaw
@@ -297,6 +314,19 @@ export function createGroundModels(
           const mat = t.alive ? live : wreck
           if (trav.material !== mat) trav.material = mat
           if (elev.material !== mat) elev.material = mat
+          const roof = roofGuns[k]!
+          if (roof !== null) {
+            const gun = t.guns[0]
+            if (t.alive && gun?.alive) {
+              // 射向屬於車身座標；扣掉主砲塔方位，車頂機槍獨立瞄準。
+              TO.copy(gun.aim).applyQuaternion(INV.copy(trav.quaternion).invert())
+              roof.quaternion.setFromUnitVectors(FORWARD, TO)
+            }
+            const roofMaterial = t.alive ? roofParts!.material : wreck
+            roof.material = roofMaterial
+            const post = roof.parent!.children[0] as Mesh
+            post.material = roofMaterial
+          }
         }
         m.position.copy(t.position)
         m.quaternion.copy(t.orientation)
@@ -332,6 +362,7 @@ export function createGroundModels(
       muzzles?.reset()
       yaws.fill(0)
       pitches.fill(0)
+      for (const roof of roofGuns) roof?.quaternion.identity()
       for (const trav of turrets) {
         if (trav === null) continue
         trav.rotation.y = 0
@@ -350,6 +381,7 @@ export function createGroundModels(
     },
     dispose() {
       muzzles?.dispose()
+      roofParts?.dispose()
       for (const g of owned) g.dispose()
       for (const [base, g] of liveried) if (g !== base) disposeLivery(g)
       // 貼圖由飛行模型快取持有；只釋放這裡建立的材質。

@@ -1,12 +1,13 @@
 import { beforeAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { InstancedMesh, Matrix4, MeshBasicMaterial, Vector3 } from 'three'
+import { InstancedMesh, Matrix4, MeshBasicMaterial, Vector3, type Mesh } from 'three'
 import { FLASH_SECONDS } from '../../src/weapons/muzzleFlash'
 import { createMuzzles } from '../../src/render/muzzle'
 import { preloadGroundModels } from '../../src/render/geometry/ground'
 import { createGroundModels } from '../../src/render/groundTargets'
 import { createGroundTarget } from '../../src/world/groundTargets'
-import { createGroundBattery } from '../../src/world/shipGuns'
+import { createGroundBattery, GROUND_MG_SPEC } from '../../src/world/shipGuns'
+import { SHERMAN_ROOF_GUN } from '../../src/render/geometry/ground/roofGun'
 import { createGroundBattle } from '../../src/render/groundBattle'
 
 const camera = new Vector3()
@@ -217,5 +218,45 @@ describe('地面砲口開火事件', () => {
     models.update(targets, camera, 1 / 60)
     expect(emit).not.toHaveBeenCalled()
     models.dispose()
+  })
+
+  it('雪曼車頂 .50 的槍焰跟隨獨立槍管，主砲不跟著對空射向抬頭', () => {
+    const target = createGroundTarget(0, 'usTank', 'red', 100, 200, 0)
+    target.position.y = 10
+    target.guns = createGroundBattery(GROUND_MG_SPEC, 'mg', 12.7, 'roof50')
+    const gun = target.guns[0]!
+    const emit = vi.fn()
+    const models = createGroundModels([target], undefined, emit)
+    const flash = models.object.getObjectByName('groundModels.muzzles') as InstancedMesh
+    const roof = models.object.getObjectByName('groundModels.roofGun') as Mesh
+    const liveMaterial = roof.material
+    const matrix = new Matrix4(), position = new Vector3(), direction = new Vector3()
+    try {
+      gun.aim.set(0.6, 0.8, 0)
+      gun.shots = 1
+      models.update([target], camera, 1 / 60)
+      expect(flash.count).toBe(1)
+      flash.getMatrixAt(0, matrix)
+      const expected = new Vector3(SHERMAN_ROOF_GUN.x, SHERMAN_ROOF_GUN.y, SHERMAN_ROOF_GUN.z)
+        .addScaledVector(gun.aim, 0.85).add(target.position)
+      expect(position.setFromMatrixPosition(matrix).distanceTo(expected)).toBeLessThan(1e-4)
+      expect(direction.set(0, 0, 1).transformDirection(matrix).distanceTo(gun.aim)).toBeLessThan(1e-5)
+      expect(models.muzzle(0, position, direction)).toBe(true)
+      expect(direction.distanceTo(new Vector3(0, 0, -1))).toBeLessThan(1e-5)
+      const before = new Vector3().setFromMatrixPosition(matrix).sub(target.position)
+      target.orientation.setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 2)
+      target.position.x += 5
+      models.update([target], camera, 0)
+      flash.getMatrixAt(0, matrix)
+      expect(position.setFromMatrixPosition(matrix).distanceTo(before.applyQuaternion(target.orientation).add(target.position))).toBeLessThan(1e-4)
+      expect(emit).not.toHaveBeenCalled()
+      target.alive = false
+      models.update([target], camera, 0)
+      expect(flash.count).toBe(0)
+      expect(roof.material).not.toBe(liveMaterial)
+      models.resetTurrets()
+      expect(flash.count).toBe(0)
+      expect(roof.quaternion.w).toBe(1)
+    } finally { models.dispose() }
   })
 })
