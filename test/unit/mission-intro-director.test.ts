@@ -156,7 +156,7 @@ describe('鏡位上的開火', () => {
 
   it('播到那一刻開一發、只開一次；之前每幀先把砲塔轉過去', () => {
     const f = fixture()
-    f.director.begin([{ ...PAN, fire: FIRE }, PAN], f.input, new Quaternion())
+    f.director.begin([{ ...PAN, fires: [FIRE] }, PAN], f.input, new Quaternion())
     f.director.frameStart(f.input, f.camera, 0.5)
     f.director.applyCamera(f.camera, NO_SCENE, 0.5)
     expect(f.cues).toEqual(['aim 7'])
@@ -170,10 +170,21 @@ describe('鏡位上的開火', () => {
 
   it('跳過的話不開', () => {
     const f = fixture()
-    f.director.begin([{ ...PAN, fire: FIRE }], f.input, new Quaternion())
+    f.director.begin([{ ...PAN, fires: [FIRE] }], f.input, new Quaternion())
     f.input.skipRequested = true
     f.director.frameStart(f.input, f.camera, 0.5)
     f.director.applyCamera(f.camera, NO_SCENE, 0.5)
     expect(f.cues.filter((c) => c.startsWith('fire'))).toHaveLength(0)
+  })
+})
+
+describe('一段裡排好幾發', () => {
+  it('各自照自己的秒數開、各開一次', () => {
+    const f = fixture()
+    const a = { at: 0.2, from: { x: 1, z: 0 }, to: { x: 0, z: 0 }, miss: { x: 0, z: 0 } }
+    const b = { at: 1.0, from: { x: 2, z: 0 }, to: { x: 0, z: 0 }, miss: { x: 0, z: 0 } }
+    f.director.begin([{ ...PAN, fires: [a, b] }], f.input, new Quaternion())
+    for (let i = 0; i < 15; i++) f.director.frameStart(f.input, f.camera, 0.1)
+    expect(f.cues.filter((c) => c.startsWith('fire'))).toEqual(['fire 1', 'fire 2'])
   })
 })

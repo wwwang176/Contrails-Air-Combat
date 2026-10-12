@@ -48,8 +48,8 @@ export interface IntroCues {
  */
 export function createMissionIntroDirector(overlay: IntroOverlay, fovBase: number, cues: IntroCues) {
   const state = createIntroState()
-  /** 每一段的 `fire` 開過了沒有 */
-  let fired: boolean[] = []
+  /** 每一段的每一發（`fires`）開過了沒有 */
+  let fired: boolean[][] = []
   const blend = createCameraBlend(INTRO_RETURN_SECONDS)
   const nose = new Vector3()
   let throttle = 0
@@ -66,7 +66,7 @@ export function createMissionIntroDirector(overlay: IntroOverlay, fovBase: numbe
   /** 開始播。沒有鏡位就什麼都不做 */
   function begin(shots: readonly IntroShot[] | undefined, input: InputState, orientation: Quaternion): void {
     startIntro(state, shots)
-    fired = state.shots.map(() => false)
+    fired = state.shots.map((s) => (s.fires ?? []).map(() => false))
     blend.active = false
     nose.set(0, 0, -1).applyQuaternion(orientation)
     throttle = input.throttle
@@ -117,12 +117,15 @@ export function createMissionIntroDirector(overlay: IntroOverlay, fovBase: numbe
   function stepCues(): void {
     const at = introShotAt(state)
     for (let i = 0; i < state.shots.length; i++) {
-      const fire = state.shots[i]!.fire
-      if (fire === undefined || fired[i] === true) continue
-      cues.aim(fire)
-      if (at !== null && at.index === i && at.local >= fire.at) {
-        fired[i] = true
-        cues.fire(fire)
+      const fires = state.shots[i]!.fires ?? []
+      for (let k = 0; k < fires.length; k++) {
+        const fire = fires[k]!
+        if (fired[i]![k] === true) continue
+        cues.aim(fire)
+        if (at !== null && at.index === i && at.local >= fire.at) {
+          fired[i]![k] = true
+          cues.fire(fire)
+        }
       }
     }
   }

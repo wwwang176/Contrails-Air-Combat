@@ -298,9 +298,9 @@ export type IntroSubject =
  * `fov` 是這一段的垂直視角，度；省略 = 鏡頭的基準視角。收窄就是長焦：遠處的東西
  * 被壓在一起，一隊飛機看起來擠成一片。
  *
- * `fire` 是這一段裡排給鏡頭拍的一發砲擊，見 `IntroFire`
+ * `fires` 是這一段裡排給鏡頭拍的砲擊，每一發照自己的秒數開，見 `IntroFire`
  */
-export type IntroShot = IntroShotKind & { readonly fov?: number; readonly fire?: IntroFire }
+export type IntroShot = IntroShotKind & { readonly fov?: number; readonly fires?: readonly IntroFire[] }
 
 /**
  * 開場導覽排的一發：這一段播到第 `at` 秒，離 `from` 最近的地面單位朝離 `to` 最近的那一台
