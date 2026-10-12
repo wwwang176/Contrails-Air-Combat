@@ -1,4 +1,6 @@
 import { Quaternion, Vector3 } from 'three'
+import { gunMountMuzzle, type GunMount } from '../weapons/gunMount'
+import { GUN_YAW_HOLD } from '../weapons/gunAim'
 import { DEG } from '../core/math'
 import { hash01 } from '../core/hash'
 import { resetBurst, stepGunnerBurst, BURST_ON } from '../weapons/burst'
@@ -47,6 +49,8 @@ import type { Team } from './team'
  * 收 `Ship` 的話「會開火」與「是一艘船」就綁死了，沒有船的關卡一發都打不出來。
  */
 export interface GunPlatform {
+  /** Optional physical mount for the single ground battery; aiming keeps zone.position. */
+  readonly projectileMount?: GunMount | undefined
   readonly guns: readonly ShipGun[]
   /** 世界座標。砲口是 `zone.position` 經 `orientation` 轉過來再加它 */
   readonly position: Vector3
@@ -445,6 +449,7 @@ function resetGuns(guns: ShipGun[], shipIndex = 0): void {
     g.targetIndex = -1
     g.fired = 0
     g.shots = 0
+    g.muzzleYaw = 0
     g.flash = 0
     // 【讀自己的規格】船的 `spec` 就是表裡那一份；陸砲帶自己的，重設之後
     // 才不會變回艦砲的血量
@@ -462,6 +467,7 @@ function resetGuns(guns: ShipGun[], shipIndex = 0): void {
 
 // ── 模組私有暫存，熱路徑零配置。禁止跨模組共用。 ──────────
 const P = /* @__PURE__ */ new Vector3()
+const SPAWN = /* @__PURE__ */ new Vector3()
 const V = /* @__PURE__ */ new Vector3()
 const LEAD = /* @__PURE__ */ new Vector3()
 const WANT = /* @__PURE__ */ new Vector3()
@@ -555,6 +561,10 @@ export function stepGunPlatform(
     }
 
     // 射速時鐘。**每個砲位每步恰好呼叫一次**，即使 trigger 是 false
+    const mount = i === 0 && ship.projectileMount?.tier === g.zone.tier ? ship.projectileMount : undefined
+    if (mount?.elevationPivot && Math.hypot(g.aim.x, g.aim.z) >= GUN_YAW_HOLD * g.aim.length()) {
+      g.muzzleYaw = Math.atan2(-g.aim.x, -g.aim.z)
+    }
     const shots = stepCadence(ship.gunCooldowns, i, spec.roundsPerMinute, trigger, dt)
     if (shots === 0) continue
     g.flash = TURRET_FLASH_SECONDS
@@ -599,8 +609,12 @@ export function stepGunPlatform(
       // 【不加船速】8 m/s 對 830 m/s 的初速是 1%，而加了就要在預瞄那一側
       // 也減掉它 —— 兩邊都要記得的東西遲早會有一邊忘記。
       VEL.copy(SHOT).multiplyScalar(spec.muzzleVelocity)
+      if (mount) {
+        gunMountMuzzle(mount, g.aim, g.muzzleYaw ?? 0, g.shots - shots + n + 1, SPAWN)
+        SPAWN.applyQuaternion(q).add(ship.position)
+      } else SPAWN.copy(MUZZLE)
       projectiles.spawn(
-        MUZZLE.x, MUZZLE.y, MUZZLE.z, VEL.x, VEL.y, VEL.z,
+        SPAWN.x, SPAWN.y, SPAWN.z, VEL.x, VEL.y, VEL.z,
         // 【傷害就是表上的值】照抄 stepTurrets 會套 TURRET_DAMAGE_SCALE
         // 與 guns —— 四聯裝 40 mm 會從 40 變成 150。
         spec.damage, shipOwner(ship.index),

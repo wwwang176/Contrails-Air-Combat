@@ -114,6 +114,8 @@ export interface ShipGun extends RandomBurstCycle {
    * 0.03 s，低幀率時會在兩幀之間亮了又滅，看槍焰的話那一發就沒有聲音
    */
   shots: number
+  /** Mechanical yaw retained near vertical aim; owned by simulation. */
+  muzzleYaw?: number
   /** 槍焰剩餘秒數。 */
   flash: number
   hp: number

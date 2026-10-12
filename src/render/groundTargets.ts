@@ -9,8 +9,9 @@ import {
 import { useAircraftLod } from './geometry/buildAircraft'
 import { GUN_TURRET_KEY, type GunTurretParts } from './geometry/ground/turret'
 import { disposeLivery, liveryGeometry } from './geometry/ground/livery'
-import { createGroundGunShots, groundGunMuzzleOf, groundQuadGunMuzzlesOf, readGroundGunMuzzle, type GroundGunSource } from './groundGunShots'
+import { createGroundGunShots, groundGunMuzzleOf, readGroundGunMuzzle, type GroundGunSource } from './groundGunShots'
 import { createGroundMuzzles } from './groundMuzzles'
+import { GROUND_GUN_MOUNTS } from '../specs/groundGunMounts'
 import { createRoofGunParts, SHERMAN_ROOF_GUN } from './geometry/ground/roofGun'
 import {
   GUN_PITCH_MAX, GUN_PITCH_MIN, TANK_PITCH_MAX, TANK_PITCH_MIN, TANK_TRAVERSE_RATE, aimAngles, slewYaw,
@@ -212,7 +213,7 @@ export function createGroundModels(
       if (t.unit.id === 'usFlakHeavy' || t.unit.id === 'flakHeavy') {
         gunSources.push({ index: meshes.length - 1, barrel: elev })
       } else if (t.unit.id === 'flakLight' || t.unit.id === 'usFlakTrack') {
-        muzzleSources.push({ index: meshes.length - 1, barrel: elev, muzzles: groundQuadGunMuzzlesOf(elev) })
+        muzzleSources.push({ index: meshes.length - 1, barrel: elev, muzzles: GROUND_GUN_MOUNTS[t.unit.id]!.muzzles })
       } else if (t.unit.id === 'usTank' && t.guns[0]?.zone.tier === 'mg') {
         roofParts ??= createRoofGunParts()
         const mount = new Group()
@@ -223,7 +224,7 @@ export function createGroundModels(
         roofGun.name = 'groundModels.roofGun'
         mount.add(roofGun)
         trav.add(mount)
-        muzzleSources.push({ index: meshes.length - 1, barrel: roofGun })
+        muzzleSources.push({ index: meshes.length - 1, barrel: roofGun, muzzles: GROUND_GUN_MOUNTS.usTank!.muzzles })
       }
     }
     roofGuns.push(roofGun)
@@ -247,7 +248,9 @@ export function createGroundModels(
     // 【有模擬砲位的照它的瞄準方向】已經是單位本身的座標，而且已照轉速慢慢轉，畫面不再平滑
     if (gun !== undefined && roofGuns[k] === null) {
       const a = gun.aim
-      aimAngles(a.x, a.y, a.z, yaws[k]!, pitches[k]!, GUN_PITCH_MIN, GUN_PITCH_MAX, ANGLES)
+      const mount = t.projectileMount
+      const yaw = mount?.elevationPivot && mount.tier === gun.zone.tier ? gun.muzzleYaw ?? yaws[k]! : yaws[k]!
+      aimAngles(a.x, a.y, a.z, yaw, pitches[k]!, GUN_PITCH_MIN, GUN_PITCH_MAX, ANGLES)
       yaws[k] = ANGLES.yaw
       pitches[k] = ANGLES.pitch
       return

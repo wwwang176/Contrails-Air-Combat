@@ -1,4 +1,6 @@
 import { Quaternion, Vector3 } from 'three'
+import { GROUND_GUN_MOUNTS } from '../specs/groundGunMounts'
+import type { GunMount } from '../weapons/gunMount'
 import { boundingRadius, type Box } from './hit'
 import { GROUND_UNITS, type GroundUnit, type GroundUnitId } from '../specs/ground'
 import type { StrikeTarget } from './strikeTarget'
@@ -243,6 +245,7 @@ export interface GroundTarget extends StrikeTarget {
    * 掛上之後它就滿足 `GunPlatform`，跟一艘船一樣走 `stepGunPlatform`。
    */
   guns: ShipGun[]
+  readonly projectileMount?: GunMount | undefined
   /** 射速時鐘，一門砲一格。`GunPlatform` 的約定 */
   readonly gunCooldowns: Float32Array
 }
@@ -306,6 +309,7 @@ export function createGroundTarget(
     // 【預設不還手】掛砲是呼叫端的決定（`battle/setup.ts`）—— 同一個
     // `flakHeavy` 在別的關卡可以只是佈景
     guns: [],
+    projectileMount: GROUND_GUN_MOUNTS[id],
     gunCooldowns: new Float32Array(1),
   }
 }

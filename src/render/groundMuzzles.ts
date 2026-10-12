@@ -1,6 +1,7 @@
 import { Color, DynamicDrawUsage, InstancedMesh, Matrix4, Quaternion, Vector3 } from 'three'
 import type { GroundTarget } from '../world/groundTargets'
 import { FLASH_SECONDS } from '../weapons/muzzleFlash'
+import { gunBarrelIndex } from '../weapons/gunMount'
 import { crossFlare, createMuzzleMaterial } from './muzzle'
 import { groundGunMuzzleOf, readGroundGunMuzzle, type GroundGunSource } from './groundGunShots'
 
@@ -45,7 +46,7 @@ export function createGroundMuzzles(sources: readonly GroundGunSource[], targets
         }
         // 使用目前模型姿態，移動中的 M16 與轉動砲管不會把槍焰留在上一幀的位置。
         const local = muzzles[k]!
-        readGroundGunMuzzle(source.barrel, local[(previous[k]! - 1) % local.length]!, position, direction)
+        readGroundGunMuzzle(source.barrel, local[gunBarrelIndex(previous[k]!, local.length)]!, position, direction)
         const f = Math.min(1, left[k]! / FLASH_SECONDS)
         rotation.setFromUnitVectors(axis, direction)
         scale.setScalar(f)

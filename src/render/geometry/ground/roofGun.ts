@@ -1,8 +1,8 @@
 import { BoxGeometry, CylinderGeometry, MeshStandardMaterial } from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 
-/** M4 GLB 的車長塔頂面約 (0.45, 2.58, 0.15)，加上 0.24 m 槍架。模型座標。 */
-export const SHERMAN_ROOF_GUN = { x: 0.45, y: 2.82, z: 0.15 } as const
+/** M4 砲塔中央轉軸上方的獨立機槍架，位置與物理槍口共用。 */
+export { SHERMAN_ROOF_GUN } from '../../../specs/groundGunMounts'
 
 /** 車頂 .50 的輕量模型：槍管朝 −Z，原點在獨立俯仰轉軸；同場的雪曼共用。 */
 export function createRoofGunParts() {
