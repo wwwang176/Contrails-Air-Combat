@@ -1,6 +1,6 @@
 import {
   BufferAttribute, BufferGeometry, Color, Matrix4, Quaternion, Vector3,
-  type Mesh, type MeshStandardMaterial, type Object3D,
+  type Mesh, type MeshStandardMaterial, type Object3D, type Texture,
 } from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { PARKED_TAIL_DOWN } from '../../../specs/ground'
@@ -8,9 +8,8 @@ import { glbTemplate } from '../glb'
 
 /**
  * 停在地上的飛機：把機種的 GLB 樣板烘成**一顆**地面單位的幾何 —— 每一顆
- * mesh 套上自己的世界矩陣、材質色塗成頂點色、合併。產物與 `parseGroundGlb`
- * 同一種（不共用頂點、頂點色、一個 draw call），`render/groundTargets.ts`
- * 不必分辨。
+ * mesh 套上自己的世界矩陣、材質色塗成頂點色、保留塗裝 UV 後合併。
+ * 貼圖面與單色面各合成一組，最多兩個 draw call；塗裝貼圖由飛行樣板共用。
  *
  * 【停放姿態】尾輪機停著時機尾下沉，然後整台抬到最低點貼 0、前後置中 ——
  * 地面單位的約定是底面在 y = 0、原點在腳印中心。GLB 沒有起落架，從投彈
@@ -36,6 +35,9 @@ export const PARKED_OFFSET_KEY = 'parkedOffset'
  */
 export const PARKED_PROP_KEY = 'parkedProp'
 
+/** 塗裝面使用的共用貼圖（Texture）；材質組 0 是單色面、1 是塗裝面，不由地面模型釋放貼圖。 */
+export const PARKED_LIVERY_KEY = 'parkedLivery'
+
 /**
  * 拆出來的一具螺旋槳。`geometry` 以轉軸為原點、轉軸是 Z（與飛行中的槳轂同一個
  * 座標）；`hub` 是轉軸在烘好的幾何裡的位置。擺上去時先套機尾下沉，再繞 Z 轉。
@@ -50,19 +52,25 @@ const M = /* @__PURE__ */ new Matrix4()
 const IDENTITY = /* @__PURE__ */ new Quaternion()
 const baked = new Map<string, BufferGeometry>()
 
-/** 一顆網格烘成位置＋頂點色、不帶其他屬性。`matrix` 套在頂點上 */
+/** 一顆網格烘成位置、頂點色與 UV。`matrix` 只套在頂點上，UV 保持飛行樣板的版面。 */
 function bakePart(mesh: Mesh, matrix: Matrix4): BufferGeometry {
   // 【不動樣板】`toNonIndexed` 對沒有索引的幾何原樣回傳自己 —— 之後的
   // 套矩陣、刪屬性、dispose 就會打在共用的樣板上
   const g = mesh.geometry.index !== null ? mesh.geometry.toNonIndexed() : mesh.geometry.clone()
+  g.userData = {}
   g.applyMatrix4(matrix)
   for (const attr of Object.keys(g.attributes)) {
-    if (attr !== 'position') g.deleteAttribute(attr)
+    if (attr !== 'position' && attr !== 'uv') g.deleteAttribute(attr)
   }
-  // 吃塗裝的材質本身是白色，顏色在貼圖上；頂點色取它留下的單色
   const mat = mesh.material as MeshStandardMaterial
-  C.set((mat.userData['bakeColor'] as number | undefined) ?? mat.color)
+  C.copy(mat.color)
   const n = g.getAttribute('position').count
+  if (mat.map !== null) {
+    if (!g.hasAttribute('uv')) throw new Error('停放飛機的塗裝面缺少 UV')
+    g.userData[PARKED_LIVERY_KEY] = mat.map
+  }
+  // 合併要求所有零件都有相同屬性；單色面的材質不採樣這組 UV。
+  if (!g.hasAttribute('uv')) g.setAttribute('uv', new BufferAttribute(new Float32Array(n * 2), 2))
   const col = new Float32Array(n * 3)
   for (let i = 0; i < n; i++) {
     col[i * 3] = C.r
@@ -71,6 +79,34 @@ function bakePart(mesh: Mesh, matrix: Matrix4): BufferGeometry {
   }
   g.setAttribute('color', new BufferAttribute(col, 3))
   return g
+}
+
+/** 將單色面與同一張塗裝的面各自排在一起，避免每個零件增加一次繪製。 */
+function mergeParkedParts(parts: readonly BufferGeometry[]): BufferGeometry {
+  const plain: BufferGeometry[] = []
+  const painted: BufferGeometry[] = []
+  let texture: Texture | undefined
+  let plainCount = 0
+  for (const part of parts) {
+    const map = part.userData[PARKED_LIVERY_KEY] as Texture | undefined
+    if (map === undefined) {
+      plain.push(part)
+      plainCount += part.getAttribute('position').count
+    } else {
+      if (texture !== undefined && texture !== map) throw new Error('停放飛機的塗裝面必須共用同一張貼圖')
+      texture = map
+      painted.push(part)
+    }
+  }
+  const geometry = mergeGeometries([...plain, ...painted])
+  if (geometry === null) throw new Error('停放飛機的幾何合併失敗 —— 屬性不一致')
+  for (const part of parts) part.dispose()
+  if (texture !== undefined) {
+    if (plainCount > 0) geometry.addGroup(0, plainCount, 0)
+    geometry.addGroup(plainCount, geometry.getAttribute('position').count - plainCount, 1)
+    geometry.userData[PARKED_LIVERY_KEY] = texture
+  }
+  return geometry
 }
 
 /**
@@ -102,9 +138,7 @@ export function bakeParkedAircraft(id: string, spinProp = false): BufferGeometry
     parts.push(bakePart(mesh, mesh.matrixWorld))
   })
   if (parts.length === 0) throw new Error(`機種 ${id} 的樣板裡沒有任何網格`)
-  const geo = mergeGeometries(parts)
-  if (geo === null) throw new Error('停放飛機的幾何合併失敗 —— 屬性不一致')
-  for (const p of parts) p.dispose()
+  const geo = mergeParkedParts(parts)
   // 繞 X 正轉：+Z（機尾）往下
   const tilt = new Matrix4().makeRotationX(PARKED_TAIL_DOWN)
   geo.applyMatrix4(tilt)
@@ -116,9 +150,7 @@ export function bakeParkedAircraft(id: string, spinProp = false): BufferGeometry
   if (spinProp) {
     const h = hub as Object3D | null
     if (h === null) throw new Error(`機種 ${id} 的樣板裡找不到螺旋槳轉軸`)
-    prop = mergeGeometries(blades)
-    if (prop === null) throw new Error('槳葉的幾何合併失敗 —— 屬性不一致')
-    for (const p of blades) p.dispose()
+    prop = mergeParkedParts(blades)
     // 槳葉在停放姿態下的位置也要進包圍盒（槳尖可能是最低點）
     const inPlace = prop.clone().applyMatrix4(M.multiplyMatrices(tilt, h.matrixWorld))
     inPlace.computeBoundingBox()

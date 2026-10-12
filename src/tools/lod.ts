@@ -1,10 +1,10 @@
 import {
-  Box3, Color, Group, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene, Vector3, WebGLRenderer,
+  Box3, Color, Group, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene, Vector3, WebGLRenderer, type Texture,
 } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { DEG } from '../core/math'
 import { preloadAircraftModels } from '../render/geometry/buildAircraft'
-import { bakeParkedAircraft } from '../render/geometry/ground/parked'
+import { bakeParkedAircraft, PARKED_LIVERY_KEY } from '../render/geometry/ground/parked'
 import { createLights } from '../render/lighting'
 import { DAY_PALETTES, type TimeOfDay } from '../render/timeOfDay'
 
@@ -19,7 +19,7 @@ import { DAY_PALETTES, type TimeOfDay } from '../render/timeOfDay'
  * 都與畫面上相同，看得出切換那一刻會不會跳。
  *
  * 【為什麼走 `bakeParkedAircraft` 而不是 `buildFromTemplate`】停放的飛機在遊戲
- * 裡是烘成一顆、材質色塗進頂點色的（見 `geometry/ground/parked.ts`）。這裡若
+ * 裡是烘成一顆、保留頂點色與塗裝貼圖的（見 `geometry/ground/parked.ts`）。這裡若
  * 另外走一條，看到的就不是畫面上那個東西，這個工具反而會製造錯誤的信心。
  *
  * 【距離滑桿換算的是什麼】把相機退到「這架飛機在 720p、FOV 65° 之下佔幾個
@@ -54,6 +54,9 @@ const wireMaterial = new MeshStandardMaterial({
 interface Side {
   readonly id: string
   readonly mesh: Mesh
+  readonly solid: MeshStandardMaterial | MeshStandardMaterial[]
+  /** 這一側獨有的塗裝材質；貼圖仍由模型載入器共用。 */
+  readonly painted: MeshStandardMaterial | null
   readonly tris: number
 }
 
@@ -80,7 +83,7 @@ const group = new Group()
 scene.add(group)
 
 /** 目前畫的是實體還是線框。**換機種時要沿用**，不然線框會被切回實體 */
-let shown: MeshStandardMaterial = material
+let wireframe = false
 
 /**
  * 可選的時段。**背景要跟著換** —— 剪影在亮底與暗底上讀起來完全不同：暗機身
@@ -106,11 +109,15 @@ function setSky(t: TimeOfDay): void {
 
 function make(id: string): Side {
   const geo = bakeParkedAircraft(id)
-  const mesh = new Mesh(geo, shown)
+  const texture = geo.userData[PARKED_LIVERY_KEY] as Texture | undefined
+  const painted = texture === undefined ? null : material.clone()
+  if (painted !== null) painted.map = texture!
+  const solid = painted === null ? material : [material, painted]
+  const mesh = new Mesh(geo, wireframe ? wireMaterial : solid)
   group.add(mesh)
   const idx = geo.getIndex()
   const pos = geo.getAttribute('position')
-  return { id, mesh, tris: (idx === null ? pos.count : idx.count) / 3 }
+  return { id, mesh, solid, painted, tris: (idx === null ? pos.count : idx.count) / 3 }
 }
 
 let plane: Plane = PLANES[0]!
@@ -170,7 +177,7 @@ const el = (id: string) => document.getElementById(id)!
 function syncButtons(): void {
   for (const [id, on] of [
     ['mSide', mode === 'side'], ['mOver', mode === 'over'], ['mFlip', mode === 'flip'],
-    ['spin', spinning], ['wire', shown === wireMaterial],
+    ['spin', spinning], ['wire', wireframe],
   ] as const) {
     el(id).classList.toggle('on', Boolean(on))
   }
@@ -191,6 +198,7 @@ function loadPlane(p: Plane, apply: () => void): void {
     if (s === undefined) continue
     group.remove(s.mesh)
     s.mesh.geometry.dispose()
+    s.painted?.dispose()
   }
   plane = p
   full = make(p.id)
@@ -245,9 +253,9 @@ async function main(): Promise<void> {
   el('vQtr').addEventListener('click', () => view(new Vector3(0.7, 0.5, 0.5)))
   el('spin').addEventListener('click', () => { spinning = !spinning; syncButtons() })
   el('wire').addEventListener('click', () => {
-    shown = shown === wireMaterial ? material : wireMaterial
-    full.mesh.material = shown
-    lod.mesh.material = shown
+    wireframe = !wireframe
+    full.mesh.material = wireframe ? wireMaterial : full.solid
+    lod.mesh.material = wireframe ? wireMaterial : lod.solid
     syncButtons()
   })
   const skyEl = el('sky')

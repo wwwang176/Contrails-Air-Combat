@@ -3,8 +3,8 @@
  *   npx vite-node test/tools/parked-cost.probe.ts
  *
  * 【在問什麼】玩家回報鏡頭靠近機場（尤其看得到 B-17 時）幀率腰斬。停放的
- * 飛機是 `bakeParkedAircraft` 烘成的**一顆**網格，所以 draw call 只有一架
- * 一個 —— 貴的只可能是三角形。24 架乘起來要跟整個場景的總數比才知道佔多少。
+ * 飛機由 `bakeParkedAircraft` 合併成一顆網格，單色面與塗裝面各一次 draw call。
+ * 此探針只量三角形數；24 架的總數要與整個場景比對，不能據此排除貼圖與繪製成本。
  */
 import { readFileSync } from 'node:fs'
 import { Mesh, type Object3D } from 'three'

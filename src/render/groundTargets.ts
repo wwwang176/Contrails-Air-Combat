@@ -1,10 +1,10 @@
-import { BufferGeometry, Group, Mesh, MeshStandardMaterial, Quaternion, Vector3 } from 'three'
+import { BufferGeometry, Group, Mesh, MeshStandardMaterial, Quaternion, Vector3, type Texture } from 'three'
 import type { GroundTarget } from '../world/groundTargets'
 import { GEAR_CLEARANCE, takeoffOriginBlend } from '../control/takeoffRoll'
 import { GROUND_MODELS, groundGeometry, groundLodGeometry } from './geometry/ground'
 import { PARKED_TAIL_DOWN, type GroundLivery } from '../specs/ground'
 import {
-  PARKED_OFFSET_KEY, PARKED_PROP_KEY, type ParkedProp,
+  PARKED_OFFSET_KEY, PARKED_PROP_KEY, PARKED_LIVERY_KEY, type ParkedProp,
 } from './geometry/ground/parked'
 import { useAircraftLod } from './geometry/buildAircraft'
 import { GUN_TURRET_KEY, type GunTurretParts } from './geometry/ground/turret'
@@ -111,6 +111,26 @@ export function createGroundModels(targets: readonly GroundTarget[], livery?: Gr
   /** 換過塗裝的那一份，依共用的原物一份（共用同一支 GLB 的單位共用它）；這裡建的、這裡放 */
   const liveried = new Map<BufferGeometry, BufferGeometry>()
   const byId = new Map<string, Pair>()
+  /** 幾何對應的存活材質；同貼圖只建立一份，更新幀僅查表。 */
+  const liveMaterials = new Map<BufferGeometry, MeshStandardMaterial | MeshStandardMaterial[]>()
+  const paintedMaterials = new Map<Texture, MeshStandardMaterial[]>()
+
+  function prepareMaterial(geometry: BufferGeometry): void {
+    if (liveMaterials.has(geometry)) return
+    const texture = geometry.userData[PARKED_LIVERY_KEY] as Texture | undefined
+    if (texture === undefined) {
+      liveMaterials.set(geometry, live)
+      return
+    }
+    let materials = paintedMaterials.get(texture)
+    if (materials === undefined) {
+      const painted = live.clone()
+      painted.map = texture
+      materials = [live, painted]
+      paintedMaterials.set(texture, materials)
+    }
+    liveMaterials.set(geometry, materials)
+  }
   /** 逐台一格：拆開的槳葉（停放的 P-51），沒有就是 null */
   const props: (Mesh | null)[] = []
   /** 逐台一格：會轉的砲塔（水平轉那一顆，上下抬那一顆是它的孩子），沒有就是 null */
@@ -142,8 +162,10 @@ export function createGroundModels(targets: readonly GroundTarget[], livery?: Gr
       if (lo !== null && lodModel !== undefined && 'build' in lodModel) owned.push(lo)
       pair = { hi, lo }
       byId.set(t.unit.id, pair)
+      prepareMaterial(hi)
+      if (lo !== null) prepareMaterial(lo)
     }
-    const m = new Mesh(pair.hi, live)
+    const m = new Mesh(pair.hi, liveMaterials.get(pair.hi)!)
     object.add(m)
     meshes.push(m)
     pairs.push(pair)
@@ -152,7 +174,8 @@ export function createGroundModels(targets: readonly GroundTarget[], livery?: Gr
     const pp = pair.hi.userData[PARKED_PROP_KEY] as ParkedProp | undefined
     let prop: Mesh | null = null
     if (pp !== undefined) {
-      prop = new Mesh(pp.geometry, live)
+      prepareMaterial(pp.geometry)
+      prop = new Mesh(pp.geometry, liveMaterials.get(pp.geometry)!)
       prop.position.set(pp.hub.x, pp.hub.y, pp.hub.z)
       prop.quaternion.copy(TILT)
       m.add(prop)
@@ -233,7 +256,8 @@ export function createGroundModels(targets: readonly GroundTarget[], livery?: Gr
         if (prop !== null) {
           // 被打掉的停轉
           if (t.alive) prop.quaternion.multiplyQuaternions(TILT, SPIN)
-          if (prop.material !== (t.alive ? live : wreck)) prop.material = t.alive ? live : wreck
+          const propMaterial = t.alive ? liveMaterials.get(prop.geometry)! : wreck
+          if (prop.material !== propMaterial) prop.material = propMaterial
         }
         const trav = turrets[k]!
         if (trav !== null) {
@@ -264,7 +288,7 @@ export function createGroundModels(targets: readonly GroundTarget[], livery?: Gr
         }
         // 【只換材質，形狀不動，而且雙向】重開一場實體會復活，只換過去不換
         // 回來的話畫面留著焦黑。參考比較，每幀跑也不配置
-        const want = t.alive ? live : wreck
+        const want = t.alive ? liveMaterials.get(m.geometry)! : wreck
         if (m.material !== want) m.material = want
         // 【起飛離場的不畫】它已經是空中那一架了，留著會是一具不存在的殘骸。
         // 開到前線退場的車也不畫 —— 它是開走了，不是燒在路上。藏著還沒出發的
@@ -293,6 +317,8 @@ export function createGroundModels(targets: readonly GroundTarget[], livery?: Gr
     dispose() {
       for (const g of owned) g.dispose()
       for (const [base, g] of liveried) if (g !== base) disposeLivery(g)
+      // 貼圖由飛行模型快取持有；只釋放這裡建立的材質。
+      for (const materials of paintedMaterials.values()) materials[1]!.dispose()
       live.dispose()
       wreck.dispose()
     },

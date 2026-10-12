@@ -193,8 +193,6 @@ export async function parseGlbTemplate(
     color: livery === null ? def.bodyColor : 0xffffff, map: livery,
     flatShading: true, roughness: 0.75,
   })
-  // 烘成頂點色的那幾條路（停機坪）讀不到貼圖，取這個單色
-  if (livery !== null) body.userData['bakeColor'] = def.bodyColor
   const accent = new MeshStandardMaterial({
     color: def.accentColor, flatShading: true, roughness: 0.6,
   })
