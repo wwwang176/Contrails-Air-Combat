@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { PerspectiveCamera, Quaternion, Vector3 } from 'three'
-import { createMissionIntroDirector } from '../../src/app/missionIntroDirector'
+import { createMissionIntroDirector, INTRO_BAR_SECONDS } from '../../src/app/missionIntroDirector'
 import type { IntroShot } from '../../src/battle/missions/types'
 import { createInputState } from '../../src/input/InputState'
 
@@ -14,12 +14,50 @@ const PAN: IntroShot = {
 
 function fixture() {
   const classes = new Set<string>()
-  const overlay = { classList: { toggle: (c: string, on?: boolean) => { if (on) classes.add(c); else classes.delete(c); return !!on } } }
+  const vars = new Map<string, string>()
+  const overlay = {
+    classList: { toggle: (c: string, on?: boolean) => { if (on) classes.add(c); else classes.delete(c); return !!on } },
+    style: { setProperty: (k: string, v: string) => { vars.set(k, v) } },
+  }
   const director = createMissionIntroDirector(overlay, 60)
   const camera = new PerspectiveCamera(70, 2, 1, 1e5)
   const input = createInputState()
-  return { classes, director, camera, input }
+  const bars = () => Number(vars.get('--k') ?? 'NaN')
+  return { classes, director, camera, input, bars }
 }
+
+describe('黑邊吃遊戲時間', () => {
+  it('開始時收著，照遊戲時間滑入；不推進（暫停）就不動', () => {
+    const f = fixture()
+    f.director.begin([PAN], f.input, new Quaternion())
+    expect(f.bars()).toBe(0)
+    f.director.frameStart(f.input, f.camera, INTRO_BAR_SECONDS / 2)
+    expect(f.bars()).toBeCloseTo(0.5, 9)
+    f.director.frameStart(f.input, f.camera, 0)
+    expect(f.bars()).toBeCloseTo(0.5, 9)
+    f.director.frameStart(f.input, f.camera, INTRO_BAR_SECONDS)
+    expect(f.bars()).toBe(1)
+  })
+
+  it('結束後照遊戲時間滑出', () => {
+    const f = fixture()
+    f.director.begin([PAN], f.input, new Quaternion())
+    f.director.frameStart(f.input, f.camera, 1)
+    f.input.skipRequested = true
+    f.director.frameStart(f.input, f.camera, INTRO_BAR_SECONDS / 4)
+    expect(f.bars()).toBeCloseTo(0.75, 9)
+    f.director.frameStart(f.input, f.camera, INTRO_BAR_SECONDS)
+    expect(f.bars()).toBe(0)
+  })
+
+  it('離開戰鬥時立刻收掉，不滑', () => {
+    const f = fixture()
+    f.director.begin([PAN], f.input, new Quaternion())
+    f.director.frameStart(f.input, f.camera, 1)
+    f.director.stop()
+    expect(f.bars()).toBe(0)
+  })
+})
 
 describe('開場導覽的每幀接線', () => {
   it('開始時黑邊進場；鏡頭覆寫成鏡位、FOV 回基準', () => {
@@ -93,5 +131,18 @@ describe('導覽與滑回', () => {
     expect(f.director.busy).toBe(true)
     f.director.applyCamera(f.camera, NO_SCENE, 1)
     expect(f.director.busy).toBe(false)
+  })
+})
+
+describe('鏡位的視角', () => {
+  it('鏡位指定 fov 就用它（長焦）；沒指定用基準', () => {
+    const f = fixture()
+    f.director.begin([{ ...PAN, fov: 12 }, PAN], f.input, new Quaternion())
+    f.director.frameStart(f.input, f.camera, 0.5)
+    f.director.applyCamera(f.camera, NO_SCENE, 0.5)
+    expect(f.camera.fov).toBe(12)
+    f.director.frameStart(f.input, f.camera, 2)
+    f.director.applyCamera(f.camera, NO_SCENE, 2)
+    expect(f.camera.fov).toBe(60)
   })
 })

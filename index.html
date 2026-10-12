@@ -498,16 +498,17 @@
       /* ── 觸控操作 #touch（input/touch.ts）───────────────
          左半邊拖曳瞄準、右半邊拖曳環顧，按鈕都在右邊。尺寸全部吃 vh：
          橫放的手機高度才是緊的那一邊 */
-      /* 開場導覽：`on` 時上下黑邊各自滑入，拿掉就滑出。與觸控層同一層、排在它後面 */
+      /* 開場導覽：上下黑邊的進場程度是 `--k`（0～1），由遊戲時間每幀推進
+         （app/missionIntroDirector.ts）—— 不用 CSS 轉場，暫停時才停得住。
+         與觸控層同一層、排在它後面 */
       #intro { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
       #intro.on.touch { pointer-events: auto; }
-      #intro .bar { position: absolute; left: 0; right: 0; height: 11vh; background: #000;
-        transition: transform .6s ease; }
-      #intro .bar.top { top: 0; transform: translateY(-100%); }
-      #intro .bar.bottom { bottom: 0; transform: translateY(100%);
+      #intro .bar { position: absolute; left: 0; right: 0; height: 11vh; background: #000; }
+      #intro .bar.top { top: 0; transform: translateY(calc((var(--k, 0) - 1) * 100%)); }
+      #intro .bar.bottom { bottom: 0; transform: translateY(calc((1 - var(--k, 0)) * 100%));
         display: flex; align-items: center; justify-content: flex-end; padding-right: 28px; }
-      #intro.on .bar { transform: none; }
-      #intro .skip { font: 500 13px/1 var(--f-body); color: #d9cfb8; opacity: .85; letter-spacing: .04em; }
+      #intro .skip { font: 500 13px/1 var(--f-body); color: #d9cfb8; opacity: calc(var(--k, 0) * .85);
+        letter-spacing: .04em; }
       #intro .skip.tap, #intro.touch .skip.key { display: none; }
       #intro.touch .skip.tap { display: inline; }
       #touch { position: fixed; inset: 0; z-index: 1; touch-action: none;

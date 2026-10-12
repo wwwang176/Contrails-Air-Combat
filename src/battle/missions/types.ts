@@ -294,8 +294,13 @@ export type IntroSubject =
  *            `back` 線性變到 `backTo` —— 前方拍時由遠到近，就是迎面開過來
  *   pan      鏡頭由 `from` 等速移到 `to`，看的點由 `lookFrom` 移到 `lookTo`
  * ```
+ *
+ * `fov` 是這一段的垂直視角，度；省略 = 鏡頭的基準視角。收窄就是長焦：遠處的東西
+ * 被壓在一起，一隊飛機看起來擠成一片
  */
-export type IntroShot =
+export type IntroShot = IntroShotKind & { readonly fov?: number }
+
+type IntroShotKind =
   | {
     readonly kind: 'follow'
     readonly seconds: number

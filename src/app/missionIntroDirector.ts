@@ -13,9 +13,23 @@ import {
  */
 export const INTRO_RETURN_SECONDS = 1.5
 
-/** 黑邊與跳過提示那一層。`on` 類別控制滑入滑出（CSS 轉場） */
+/** 黑邊滑入、滑出各要幾秒（遊戲時間） */
+export const INTRO_BAR_SECONDS = 0.6
+
+/**
+ * 黑邊與跳過提示那一層。
+ *
+ * ```
+ *   --k   黑邊進場的程度，0 = 收著、1 = 滿版（CSS 照它算位移與跳過提示的透明度）
+ *   on    導覽中；觸控時這一層才接得到點擊
+ * ```
+ *
+ * 【黑邊不用 CSS 轉場】轉場吃牆鐘：暫停時黑邊會自己跑完，回主選單時還看得到它
+ * 慢慢收走。改成每幀由遊戲時間推進，暫停就停住，離開戰鬥就直接歸零
+ */
 export interface IntroOverlay {
   readonly classList: Pick<DOMTokenList, 'toggle'>
+  readonly style: Pick<CSSStyleDeclaration, 'setProperty'>
 }
 
 /**
@@ -33,6 +47,13 @@ export function createMissionIntroDirector(overlay: IntroOverlay, fovBase: numbe
   let throttle = 0
   const pos = new Vector3()
   const look = new Vector3()
+  /** 黑邊進場的程度，見 `IntroOverlay` */
+  let bars = 0
+
+  function setBars(k: number): void {
+    bars = k
+    overlay.style.setProperty('--k', String(k))
+  }
 
   /** 開始播。沒有鏡位就什麼都不做 */
   function begin(shots: readonly IntroShot[] | undefined, input: InputState, orientation: Quaternion): void {
@@ -40,41 +61,56 @@ export function createMissionIntroDirector(overlay: IntroOverlay, fovBase: numbe
     blend.active = false
     nose.set(0, 0, -1).applyQuaternion(orientation)
     throttle = input.throttle
+    setBars(0)
     overlay.classList.toggle('on', state.active)
   }
 
-  /** 離開戰鬥：導覽與滑回都收掉 */
+  /** 離開戰鬥：導覽、滑回、黑邊都立刻收掉 —— 主選單是另一個場景，不該看到黑邊滑走 */
   function stop(): void {
     state.active = false
     blend.active = false
+    setBars(0)
     overlay.classList.toggle('on', false)
   }
 
   /**
    * 幀首。**回傳 true = 導覽在這一幀結束**（走完或跳過）：鏡頭從上一幀的鏡位
-   * 開始滑回，黑邊退場。跳過旗標每幀都清，沒在播時按的空白鍵不留到下一場
+   * 開始滑回，黑邊開始退場。跳過旗標每幀都清，沒在播時按的空白鍵不留到下一場。
+   * 黑邊在這裡照 `dt`（遊戲時間）推進，暫停時這一支不被呼叫，黑邊就停住
    */
   function frameStart(input: InputState, camera: PerspectiveCamera, dt: number): boolean {
     if (input.skipRequested) skipIntro(state)
     input.skipRequested = false
-    if (!state.active) return false
-    holdIntroInput(input, nose, throttle)
-    if (!stepIntro(state, dt)) return false
-    // 【幀首的相機還停在上一幀的鏡位】那正是玩家眼前的畫面，從這裡滑回
-    startBlend(blend, camera)
-    overlay.classList.toggle('on', false)
-    return true
+    let ended = false
+    if (state.active) {
+      holdIntroInput(input, nose, throttle)
+      if (stepIntro(state, dt)) {
+        // 【幀首的相機還停在上一幀的鏡位】那正是玩家眼前的畫面，從這裡滑回
+        startBlend(blend, camera)
+        overlay.classList.toggle('on', false)
+        ended = true
+      }
+    }
+    const target = state.active ? 1 : 0
+    if (bars !== target) {
+      const step = dt / INTRO_BAR_SECONDS
+      setBars(target > bars ? Math.min(target, bars + step) : Math.max(target, bars - step))
+    }
+    return ended
   }
 
   /** 照常算完玩家的鏡頭之後：導覽中覆寫成鏡位，滑回中往鏡位拉回一部分 */
   function applyCamera(camera: PerspectiveCamera, scene: IntroScene, dt: number): void {
     const at = introShotAt(state)
-    if (at !== null && introCameraPose(state.shots[at.index]!, at.local, scene, pos, look)) {
+    const shot = at === null ? null : state.shots[at.index]!
+    if (at !== null && shot !== null && introCameraPose(shot, at.local, scene, pos, look)) {
       camera.position.copy(pos)
       camera.up.set(0, 1, 0)
       camera.lookAt(look)
-      if (camera.fov !== fovBase) {
-        camera.fov = fovBase
+      // 【長焦的鏡位】滑回時 `CameraBlend` 連視角一起內插回玩家的鏡頭
+      const fov = shot.fov ?? fovBase
+      if (camera.fov !== fov) {
+        camera.fov = fov
         camera.updateProjectionMatrix()
       }
       return

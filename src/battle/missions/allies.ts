@@ -170,8 +170,10 @@ export const ALLIES: readonly MissionCard[] = [
       // 熱帶海上的積雲低
       clouds: { yMin: 600, yMax: 900, amount: 'some' },
       fleet: TF58_GROUP,
-      // 【開場導覽】先貼著海面沿航母右舷由艦首滑到艦尾，再從領頭的零戰後方跟拍，
-      // 往前下方看它們壓向的艦隊。**鏡位與秒數是起始值。**
+      // 【開場導覽】先貼著海面沿航母右舷由艦首滑到艦尾，再從領頭的零戰右側 1.1 km
+      // 用長焦拍：第一路八架沿視線排成一列，壓縮之後擠成一片；鏡頭由編隊前方慢慢退到
+      // 後方，編隊從畫面一側滑到另一側。
+      // **鏡位與秒數是起始值。**
       intro: [
         {
           kind: 'follow', seconds: 3.5, subject: { ship: 'vital' },
@@ -179,7 +181,7 @@ export const ALLIES: readonly MissionCard[] = [
         },
         {
           kind: 'follow', seconds: 3.5, subject: { air: 'red', role: 'fighter' },
-          back: 40, up: 20, side: 15, lead: 1500, lookUp: -400,
+          back: -150, backTo: 150, up: 100, side: 1100, lead: -90, lookUp: 100, fov: 10,
         },
       ],
       /**
