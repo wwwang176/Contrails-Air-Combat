@@ -319,6 +319,8 @@ type IntroShotKind =
     readonly to: IntroPoint
     readonly lookFrom: IntroPoint
     readonly lookTo: IntroPoint
+    /** 四個點的 `y` 是離各自底下地面的高度，不是絕對高度。丘陵地貼地拍用 */
+    readonly aboveGround?: true
   }
 
 /** 一關真的要打起來所需要的一切。 */

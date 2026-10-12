@@ -188,3 +188,20 @@ describe('follow 的其他對象', () => {
     expect(introCameraPose(shot, 0, scene(), new Vector3(), new Vector3())).toBe(false)
   })
 })
+
+describe('pan 的高度量在地面上', () => {
+  it('aboveGround：鏡頭與看的點各自加上自己底下的地面高度', () => {
+    const shot: IntroShot = { ...PAN, aboveGround: true } as IntroShot
+    const pos = new Vector3()
+    const look = new Vector3()
+    introCameraPose(shot, 1, scene([], (x) => x / 10), pos, look)
+    expect(pos.toArray()).toEqual([500, 100 + 50, 0])
+    expect(look.toArray()).toEqual([500, 0 + 50, -500])
+  })
+
+  it('沒有 aboveGround 時照絕對高度', () => {
+    const pos = new Vector3()
+    introCameraPose(PAN, 1, scene([], () => 40), pos, new Vector3())
+    expect(pos.y).toBe(100)
+  })
+})

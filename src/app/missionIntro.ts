@@ -98,6 +98,10 @@ export function introCameraPose(
       shot.lookFrom.y + (shot.lookTo.y - shot.lookFrom.y) * k,
       shot.lookFrom.z + (shot.lookTo.z - shot.lookFrom.z) * k,
     )
+    if (shot.aboveGround === true && scene.groundAt !== undefined) {
+      pos.y += scene.groundAt(pos.x, pos.z)
+      look.y += scene.groundAt(look.x, look.z)
+    }
     return true
   }
   const t = subjectPose(scene, shot.subject)
