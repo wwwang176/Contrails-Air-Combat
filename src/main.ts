@@ -800,7 +800,7 @@ const BLAST_POOLS: BlastPools = {
 const battleAudioCues = createBattleAudioCues(audio, audioEar, CRASH_BLAST_HEIGHT, playerController)
 const blastPresentation = createBlastPresentation({
   BLAST_POOLS, cameraPosition: ctx.camera.position, cameraShake,
-  blastLights, muzzleBlast, blastSparks, debris, groundFires, fireball,
+  blastLights, muzzleBlast, blastSparks, debris, groundFires,
 })
 
 /**

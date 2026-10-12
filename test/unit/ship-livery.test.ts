@@ -336,12 +336,12 @@ const SHIPS: readonly (readonly [ShipClassId, Readonly<Record<string, number>>])
     tub: 12, boat: 4, funnel: 2, barbette: 4, bridge: 5, house: 12,
     turret: 12, secondary: 24, aa: 26, mast: 5, director: 1, catapult: 2, crane: 3,
   }],
-  // 艦島 8（四層、煙囪、主桅、雷達板、方位儀）、走廊 39 段、舷台 11；
-  // 5 吋 20（四座雙聯裝各一塔兩管、四座單裝各一塔一管）、
-  // 機砲 90（40 mm 砲座與砲管、20 mm 砲身與砲管）
+  // 艦島 8（四層、煙囪、主桅、雷達板、方位儀）、走廊 39 段、舷台 11 加支撐平台 19；
+  // 5 吋 28（八座砲塔、十二根砲管、八個耳軸）、
+  // 機砲 76（40 mm 砲座與砲管、20 mm 砲身與砲管）
   ['essex', {
-    bridge: 4, funnel: 1, mast: 1, radar: 1, director: 1, gallery: 39, sponson: 11,
-    gun: 20, aa: 90,
+    bridge: 4, funnel: 1, mast: 1, radar: 1, director: 1, gallery: 39, sponson: 30,
+    gun: 28, aa: 76,
   }],
   // 船殼 4（船殼、兩扇艏門、防浪牆）、砲桶 8、艦橋 2（艦橋、指揮塔）、
   // 甲板室 3（前後甲板室、艙口）、桅 6（主桅三件、探照燈塔三件）、小艇 2、
@@ -413,6 +413,7 @@ describe.each(SHIPS)('%s 套塗裝', (id, want) => {
     expect(after.max.toArray()).toEqual(before.max.toArray())
     const want = new Color(def.accentColor).getHex()
     const seen = new Set<string>()
+    let totalUpFaces = 0
     scene.traverse((o: Object3D) => {
       const mesh = o as Mesh
       if (!mesh.isMesh) return
@@ -424,7 +425,8 @@ describe.each(SHIPS)('%s 套塗裝', (id, want) => {
         expect(m.color.getHex()).toBe(want)
         // 【細件照船身的投影讀髒污圖】少了 UV 的話整個細件讀同一個像素
         expect(m.map).toBe(grime)
-        const pos = mesh.geometry.getAttribute('position')
+        const baked = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld)
+        const pos = baked.getAttribute('position')
         const uv = mesh.geometry.getAttribute('uv')
         expect(uv?.count).toBe(pos.count)
         // 細件朝上的面讀頂面區（有髒污），不是甲板條（不蓋髒污）
@@ -442,12 +444,15 @@ describe.each(SHIPS)('%s 套塗裝', (id, want) => {
               `${mesh.name} 第 ${i / 3} 面`).toBe(true)
           }
         }
-        expect(ups, mesh.name).toBeGreaterThan(0)
+        totalUpFaces += ups
+        baked.dispose()
       } else {
         expect(m.map).toBe(tex)
         expect(m.color.getHex()).toBe(0xffffff)
       }
     })
+    // Individual split gun meshes may have no upward-facing triangles.
+    expect(totalUpFaces).toBeGreaterThan(0)
     expect([...seen].sort()).toEqual(['accent', 'body', 'deck'])
   })
 

@@ -18,7 +18,11 @@ function approach(value: number, want: number, step: number): number {
 export function shipMountCanAim(mount: ShipGunMount, yaw: number): boolean {
   const wrapped = relative(yaw, 0)
   if (!mount.yawSectors) return true
-  for (const [lo, hi] of mount.yawSectors) if (wrapped >= lo && wrapped <= hi) return true
+  for (const [lo, hi] of mount.yawSectors) {
+    if (wrapped >= lo && wrapped <= hi) return true
+    // +180 and -180 describe the same stern direction.
+    if (wrapped === -Math.PI && hi === Math.PI) return true
+  }
   return false
 }
 
@@ -27,11 +31,13 @@ export function stepShipMounts(gun: ShipGun, tracking: boolean, dt: number): boo
   const mounts = gun.projectileMounts, poses = gun.mountPoses
   if (!mounts || !poses) return true
   aimAngles(gun.aim.x, gun.aim.y, gun.aim.z, gun.muzzleYaw ?? 0, 0, GUN_PITCH_MIN, GUN_PITCH_MAX, angles)
+  const targetPitch = Math.atan2(gun.aim.y, Math.hypot(gun.aim.x, gun.aim.z))
   let ready = false
   const step = gun.spec.rotationRate * 2 * dt
   for (let i = 0; i < mounts.length; i++) {
     const mount = mounts[i]!, pose = poses[i]!
     const allowed = tracking && shipMountCanAim(mount, angles.yaw)
+      && (!mount.pitchRange || (targetPitch >= mount.pitchRange[0] - 1e-10 && targetPitch <= mount.pitchRange[1] + 1e-10))
     const yaw = allowed ? relative(angles.yaw, mount.restYaw) : 0
     const pitch = allowed ? angles.pitch : mount.restPitch
     // Traverse relative to parking: bow mounts never take the shortcut through the stern.

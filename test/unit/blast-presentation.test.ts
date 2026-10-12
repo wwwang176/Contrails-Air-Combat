@@ -2,9 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { Vector3 } from 'three'
 import { createCameraShake } from '../../src/camera/cameraShake'
 import { GUN_LOST_SHAKE } from '../../src/camera/cameraShake'
-import { FIREBALL_COUNT, FIREBALL_SPEED } from '../../src/render/fireball'
 import { createBlastPresentation } from '../../src/render/blastPresentation'
-import { AIR_BLAST, LAND_BLAST, type BlastPools } from '../../src/render/blast'
+import { AIR_BLAST, GUN_LOST_BLAST, LAND_BLAST, type BlastPools } from '../../src/render/blast'
 import { createGroundFires } from '../../src/render/groundFires'
 import { createImpacts, pushImpact } from '../../src/world/events'
 import { createKills, pushKill } from '../../src/world/kills'
@@ -12,7 +11,6 @@ import { createGroundTarget } from '../../src/world/groundTargets'
 
 function setup() {
   const fireball = { emit: vi.fn() }
-  const gunFireball = { emit: vi.fn() }
   // 在粒子池的介面記下發射，不需要 WebGL 環境
   const pools = {
     fireball, smoke: { emit: vi.fn() }, dust: { emit: vi.fn() },
@@ -26,9 +24,9 @@ function setup() {
   const muzzleBlast = { emit: vi.fn() }
   const presentation = createBlastPresentation({
     BLAST_POOLS: pools, cameraPosition, cameraShake: createCameraShake(),
-    groundFires, blastSparks, blastLights, muzzleBlast, debris: { burst: vi.fn() }, fireball: gunFireball,
+    groundFires, blastSparks, blastLights, muzzleBlast, debris: { burst: vi.fn() },
   })
-  return { presentation, pools, fireball, gunFireball, blastSparks, blastLights, muzzleBlast, groundFires, cameraPosition }
+  return { presentation, pools, fireball, blastSparks, blastLights, muzzleBlast, groundFires, cameraPosition }
 }
 
 describe('爆炸呈現的事件邊界', () => {
@@ -53,22 +51,21 @@ describe('爆炸呈現的事件邊界', () => {
     expect(blastLights.flashMuzzle).toHaveBeenLastCalledWith(30, 40, 50, cameraPosition, 0.85)
   })
 
-  it('艦砲殉爆使用原火球池，固定回呼讀取目前鏡頭位置', () => {
-    const { presentation, fireball, gunFireball, blastLights, cameraPosition } = setup()
+  it('ship gun loss emits compact fire and smoke with a point light and no halo', () => {
+    const { presentation, pools, fireball, blastLights, cameraPosition } = setup()
     const callback = presentation.emitGunLostBlast
     callback(10, 20, 30)
-    expect(fireball.emit).not.toHaveBeenCalled()
-    expect(gunFireball.emit).toHaveBeenCalledTimes(FIREBALL_COUNT)
+    expect(fireball.emit).toHaveBeenCalledTimes(GUN_LOST_BLAST.fireCount)
+    expect(pools.smoke.emit).toHaveBeenCalledTimes(GUN_LOST_BLAST.smokeCount)
+    expect(pools.glow!.emit).not.toHaveBeenCalled()
+    expect(pools.dust.emit).not.toHaveBeenCalled()
+    expect(pools.spray.emit).not.toHaveBeenCalled()
     expect(blastLights.flash).toHaveBeenCalledWith(10, 20, 30, GUN_LOST_SHAKE, cameraPosition)
-    for (const args of gunFireball.emit.mock.calls) {
-      expect(args.slice(0, 3)).toEqual([10, 20, 30])
-      expect(Math.hypot(args[3], args[4], args[5])).toBeCloseTo(FIREBALL_SPEED * 0.5)
-      expect(args[4]).toBeGreaterThanOrEqual(0)
-    }
+    for (const args of fireball.emit.mock.calls) expect(args.slice(0, 3)).toEqual([10, 20, 30])
     cameraPosition.set(100, 200, 300)
     callback(40, 50, 60)
     expect(blastLights.flash).toHaveBeenLastCalledWith(40, 50, 60, GUN_LOST_SHAKE, cameraPosition)
-    expect(gunFireball.emit).toHaveBeenCalledTimes(FIREBALL_COUNT * 2)
+    expect(fireball.emit).toHaveBeenCalledTimes(GUN_LOST_BLAST.fireCount * 2)
   })
 
   it('墜地壓到地面，撞海仍用空爆；呼叫者持有擊墜事件', () => {

@@ -13,6 +13,8 @@ export interface ShipGunMount extends GunMount {
   readonly barrelBounds?: Bounds
   /** Ship-relative yaw firing sectors. Parking at restYaw remains possible outside them. */
   readonly yawSectors?: readonly (readonly [number, number])[]
+  /** Elevation clearance in radians; targets outside it park the mount instead of clamping fire. */
+  readonly pitchRange?: readonly [number, number]
 }
 
 /** Convert measured GLB pivots and barrel endpoints once, never in the frame loop. */

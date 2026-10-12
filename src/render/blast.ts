@@ -13,7 +13,7 @@ export { blastSmokeColor, dustColor, fireGlowColor, mistColor } from './blastCol
 
 export {
   type BlastParams, LAND_BLAST, WATER_BLAST, TORPEDO_BLAST, WRECK_WATER_BLAST,
-  AIR_BLAST, FIRE_BLAST, FLAK_BLAST,
+  AIR_BLAST, FIRE_BLAST, FLAK_BLAST, GUN_LOST_BLAST,
 } from './blastRecipes'
 
 export {

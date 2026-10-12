@@ -1,3 +1,4 @@
+import { ESSEX_GUN_MOUNTS } from '../specs/essexGunMounts'
 import type { ShipClassId } from '../world/ships'
 import type { ShipLiveryLayout, ShipPartKind } from './shipLivery'
 import type { ShipNumbersDef } from './shipNumbers'
@@ -218,27 +219,6 @@ const ESSEX_ISLAND_PARTS: readonly ShipPartKind[] = [
 ]
 
 /**
- * 砲械散在兩舷走廊與舷台上，位置不規則；五種零件的外框尺寸各不相同，所以認尺寸：
- *
- *   5 吋雙聯裝砲塔  4.4 × 3.3 × 4.4     5 吋單裝砲塔  2.8 × 2.6 × 2.8
- *   5 吋砲管        長 4.7              40 mm 砲座     2.7 × 1.35 × 2.7
- *   40 mm 砲管      長 4.0…4.1          20 mm 砲身     0.84 × 1.75 × 0.84
- *   20 mm 砲管      往舷外 1.45、往上 0.47、往前 0.4
- */
-const ESSEX_GUN_PARTS: readonly ShipPartKind[] = [
-  { name: 'gun', tone: 0.85, boxes: [
-    { dx: [2.5, 4.6], dy: [2.4, 3.5] },
-    { dx: [0, 1], dy: [0, 1], dz: [4.5, 5] },
-  ] },
-  { name: 'aa', tone: 0.6, boxes: [
-    { dx: [2.5, 3], dy: [1.2, 1.7] },
-    { dx: [0, 1], dy: [0, 1], dz: [3.8, 4.4] },
-    { dx: [0.7, 1.1], dy: [1.4, 2], dz: [0.7, 1.1] },
-    { dx: [1.2, 1.8], dy: [0.4, 0.8], dz: [0.3, 0.6] },
-  ] },
-]
-
-/**
  * Essex：Measure 21。1944 年漆的是 Measure 32/6-10D 迷彩，1945 年 3 月之前改漆成
  * Measure 21（NavSource 的照片說明）；太平洋艦隊 1945-01-01 起只准 12、21、22。
  * 立面 5-N 海軍藍、水平面與木飛行甲板 20-B 甲板藍（飛行甲板用的 Flight Deck Stain 21
@@ -257,7 +237,12 @@ const ESSEX: ShipLiveryDef = {
   accentColor: 0x465167,
   parts: {
     ESSEX_Island: ESSEX_ISLAND_PARTS,
-    ESSEX_Guns: ESSEX_GUN_PARTS,
+    ESSEX_GunPlatforms: [{ name: 'sponson', tone: 1.2, boxes: [{}] }],
+    ...Object.fromEntries(Object.values(ESSEX_GUN_MOUNTS).flatMap(mount =>
+      ['', '_barrel'].map(suffix => [mount.modelNode! + suffix, [{
+        name: mount.tier === 'flak' ? 'gun' : 'aa',
+        tone: mount.tier === 'flak' ? 0.85 : 0.6, boxes: [{}],
+      }]]))),
     // 走廊是一段段矩形平台、舷台是掛在舷側的砲座平台，各自一種
     ESSEX_Gallery: [{ name: 'gallery', tone: 1.1, boxes: [{}] }],
     ESSEX_Sponsons: [{ name: 'sponson', tone: 1.2, boxes: [{}] }],

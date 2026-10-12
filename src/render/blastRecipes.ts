@@ -230,6 +230,14 @@ export const AIR_BLAST: BlastParams = {
   glowAlpha: 0.55,
 }
 
+/** Destroyed ship battery: compact fire and smoke over the deck, without dust, water or a halo. */
+export const GUN_LOST_BLAST: BlastParams = {
+  ...AIR_BLAST,
+  fireCount: 6, fireSpeed: 14, fireSize: 0.9,
+  smokeCount: 12, smokeSpeed: 6, smokeSize: 1.2,
+  glowSize: 0, glowAlpha: 0,
+}
+
 /**
  * 船上火災的**迷你爆炸**，每 0.3 秒一朵（`render/shipFires.ts`）。
  *
