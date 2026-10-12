@@ -181,8 +181,9 @@ export const GERMANY: readonly MissionCard[] = [
        * 【開場導覽】三段：
        *
        * ```
-       *   1  蘇軍前線上空 200 m 俯視（約 53° 往下），沿砲線往東橫移 500 m：鏡頭在砲線北邊 150 m、
-       *      看砲線上的點，砲與後面的掘壕戰車、步兵一整排在畫面裡
+       *   1  蘇軍一門反坦克砲 (−3,593, 3,241) 上空 45 m 俯視（約 60° 往下），沿砲線慢慢橫移
+       *      50 m 經過它。鏡頭在砲南邊 15 m、看砲北邊 10 m。再拉高的話白漆的砲在雪地上就看
+       *      不出來；橫移再長的話（相鄰兩門隔 200 多 m）砲一秒就掃過畫面、整片糊掉
        *   2  德軍前線一輛 IV 號 (−2,892, 2,761) 斜 45° 俯視，鏡頭在它東北方慢慢繞。最前面那輛
        *      (−3,495, 2,794) 開場就是燒著的殘骸（劇本打掉的），拍它只看得到火的網格
        *   3  領頭 Ju 87 的後上方跟拍，往前下方看它要去的戰場
@@ -193,9 +194,9 @@ export const GERMANY: readonly MissionCard[] = [
        */
       intro: [
         {
-          kind: 'pan', seconds: 3.5, aboveGround: true, fov: 25,
-          from: { x: -3822, y: 120, z: 2764 }, to: { x: -3322, y: 120, z: 2933 },
-          lookFrom: { x: -3950, y: 0, z: 3144 }, lookTo: { x: -3450, y: 0, z: 3313 },
+          kind: 'pan', seconds: 3.5, aboveGround: true, fov: 50,
+          from: { x: -3622, y: 45, z: 3240 }, to: { x: -3580, y: 45, z: 3268 },
+          lookFrom: { x: -3608, y: 0, z: 3219 }, lookTo: { x: -3566, y: 0, z: 3247 },
         },
         {
           kind: 'pan', seconds: 3, aboveGround: true, fov: 35,
