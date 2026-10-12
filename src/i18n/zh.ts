@@ -191,7 +191,7 @@ export const zh = {
   'mission.japan-m2.summary': '駕駛疾風掛彈攻擊美軍補給車隊，趕在它們抵達前線之前，然後撤離。',
   'mission.japan-m2.place': '菲律賓 雷伊泰島',
   'mission.japan-m2.objective': '炸毀補給卡車',
-  'mission.japan-m2.banner': '找到車隊，別讓它們抵達前線',
+  'mission.japan-m2.banner': '轟炸補給車隊，阻止它們抵達前線',
   'mission.japan-m2.wave.carrier': '敵方戰鬥機接近中',
   'mission.japan-m2.withdraw': '撤離戰區',
 

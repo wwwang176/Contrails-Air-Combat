@@ -615,7 +615,8 @@ export function soloBombers(units: OrderOfBattle, schwarmSpacing: number): Order
 }
 
 /**
- * 藍方開場重排成一條橫線：依編組表順序，相鄰左右間距 `spacing` m、以中央為 0；
+ * 藍方開場依編組表順序重排：同排左右間距 `spacing` m，`rows` 可指定前後交錯的排距與架數；
+ * 省略 `rows` 時是一條橫線，以中央為 0。
  * 高度從 `altitudeMin` 依序平均排到 `altitudeMax`（世界高度，m）。紅方原樣。
  *
  * 【高度要扣掉所有加成】出生高度是 `altitude + climb + altitudeOffset(tier) + rise`
@@ -626,10 +627,18 @@ export function soloBombers(units: OrderOfBattle, schwarmSpacing: number): Order
  */
 export function spreadBlue(
   units: OrderOfBattle,
-  spawn: { readonly altitudeMin: number; readonly altitudeMax: number; readonly spacing: number },
+  spawn: {
+    readonly altitudeMin: number; readonly altitudeMax: number; readonly spacing: number
+    readonly rows?: { readonly size: number; readonly depth: number }
+  },
   altitude: number, schwarmSpacing: number,
 ): OrderOfBattle {
   const n = units.filter((u) => u.team === 'blue').length
+  const rows = spawn.rows
+  if (rows !== undefined && (!Number.isInteger(rows.size) || rows.size < 1
+    || !Number.isFinite(rows.depth) || rows.depth <= 0)) {
+    throw new Error('前後排需要正整數架數與正排距')
+  }
   let i = 0
   return units.map((u) => {
     if (u.team !== 'blue') return u
@@ -637,10 +646,17 @@ export function spreadBlue(
     const t = n === 1 ? 0.5 : i / (n - 1)
     const y = spawn.altitudeMin + (spawn.altitudeMax - spawn.altitudeMin) * t
     const { slide: _slide, ...rest } = u
+    const row = rows === undefined ? 0 : Math.floor(i / rows.size)
+    // 末排不足時保留整排槽位，避免重新置中抵消半格交錯。
+    const count = rows === undefined ? n : Math.min(rows.size, n)
+    const offset = rows === undefined ? 0 : row - (Math.ceil(n / rows.size) - 1) / 2
+    const column = rows === undefined ? i : i % rows.size
+    const distance = offset * (rows?.depth ?? 0)
     const out: FlightPlan = {
       ...rest,
-      lane: ((i - (n - 1) / 2) * spawn.spacing) / schwarmSpacing,
-      depth: 0,
+      lane: ((column - (count - 1) / 2 + offset * 0.5) * spawn.spacing) / schwarmSpacing,
+      depth: rows === undefined ? 0 : distance * Math.cos(u.entry.heading),
+      ...(rows === undefined ? {} : { slide: distance * Math.sin(u.entry.heading) }),
       tier: 2,
       rise: y - altitude - u.entry.climb,
     }

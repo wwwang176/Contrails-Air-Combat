@@ -319,10 +319,38 @@ export const JAPAN: readonly MissionCard[] = [
       // 黃昏的橘雲
       clouds: { yMin: 800, yMax: 1500, amount: 'some' },
       fleet: RENNELL_FLEET,
+      /**
+       * 【開場導覽】先辨認要雷擊的軍艦，再帶出艦隊規模與玩家的低空進場：
+       *
+       * ```
+       *   1  左列前導巡洋艦由 (−250, 0, −300) 航行到 (−250, 0, −320)，左舷前上方近拍艦身與砲塔
+       *   2  第 2.5～5.5 秒，從艦隊後方斜俯拍四艘巡洋艦與前方驅逐艦警戒幕
+       *   3  第 6 秒玩家 G4M 約在 (−1,350, 242, 4,452)，左後上方近拍；右側後景帶出 4／4／3 架交錯進場的編隊
+       * ```
+       *
+       * 船艦鏡頭的注視點跟著 8 m/s 航速前進；最後一幕跟拍玩家，收尾持續跟隨並漸變回操作視角。
+       * 艦隊尚未警戒，導覽不安排開砲。**鏡位與秒數是起始值。**
+       */
+      intro: [
+        {
+          kind: 'pan', seconds: 2.5, fov: 42,
+          from: { x: -440, y: 85, z: -480 }, to: { x: -425, y: 80, z: -480 },
+          lookFrom: { x: -250, y: 12, z: -300 }, lookTo: { x: -250, y: 12, z: -320 },
+        },
+        {
+          kind: 'pan', seconds: 3, fov: 52,
+          from: { x: -650, y: 700, z: 1650 }, to: { x: -590, y: 670, z: 1590 },
+          lookFrom: { x: 0, y: 0, z: -350 }, lookTo: { x: 0, y: 0, z: -374 },
+        },
+        {
+          kind: 'follow', seconds: 3, subject: { player: true },
+          back: 27, up: 13, side: -46, lead: 0, lookUp: 0, fov: 44,
+        },
+      ],
       // 【1,000 m 是紅方的開場高度】藍方由下面的 `blueSpawn` 另外排
       altitude: 1000,
-      // 【貼海、拉開】陸攻開在 200–300 m，低於警戒高度 500 m；相鄰 400 m，一開場不擠成一團
-      blueSpawn: { altitudeMin: 200, altitudeMax: 300, spacing: 400 },
+      // 【低空交錯進場】高度 200–300 m，低於警戒高度 500 m；三排 4／4／3 架，同排間距 400 m、排距 220 m
+      blueSpawn: { altitudeMin: 200, altitudeMax: 300, spacing: 400, rows: { size: 4, depth: 220 } },
       // 【被發現才開打】史實的黃昏雷擊沒有護航，陸攻貼海從暗的一側進場、最後才被目視發現。
       // 警戒前野貓在艦隊上空左右 5 km 之間來回巡邏不接戰，艦砲與陸攻砲塔停火；
       // 陸攻飛高、靠近敵機或敵艦、投雷或打中東西就進入警戒（門檻在 `battle/alert.ts`）。

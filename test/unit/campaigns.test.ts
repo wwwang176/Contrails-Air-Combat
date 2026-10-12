@@ -472,8 +472,31 @@ describe('日 M1 瓜達康納爾上空', () => {
   })
 })
 
-describe('日 M2 倫內爾島不受護衛條件影響', () => {
+describe('日 M3 倫內爾島不受護衛條件影響', () => {
   const card = MISSIONS.japan.find((m) => m.id === 'japan-m3') as ReadyMissionCard
+
+  it('十一架魚雷機分成 4、4、3 三排，維持低空且不重疊', () => {
+    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
+    const planes = b.world.combatants.filter((c) => c.team === 'blue')
+    expect(planes).toHaveLength(11)
+    const positions = planes.map((c) => c.aircraft.state.position)
+    const depths = [...new Set(positions.map((p) => p.z))].sort((a, z) => a - z)
+    expect(depths).toHaveLength(3)
+    expect(depths.map((z) => positions.filter((p) => p.z === z).length)).toEqual([4, 4, 3])
+    expect(depths[1]! - depths[0]!).toBe(220)
+    expect(depths[2]! - depths[1]!).toBe(220)
+    expect(positions[4]!.x - positions[0]!.x).toBe(200)
+    expect(positions[8]!.x - positions[4]!.x).toBe(200)
+    for (const p of positions) {
+      expect(p.y).toBeGreaterThanOrEqual(200)
+      expect(p.y).toBeLessThanOrEqual(300)
+    }
+    for (let i = 0; i < positions.length; i++) {
+      for (const q of positions.slice(i + 1)) expect(positions[i]!.distanceTo(q)).toBeGreaterThan(200)
+    }
+    expect(b.player.aircraft.spec.id).toBe('g4m')
+    expect(b.player.aircraft.state.position.z).toBe(depths[1])
+  })
 
   it('規則沒有護衛編制', () => {
     expect(missionConfigFrom(card).rules).toEqual({ kind: 'sink', count: 4 })

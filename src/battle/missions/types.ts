@@ -729,6 +729,8 @@ export interface BlueSpawn {
   readonly altitudeMin: number
   readonly altitudeMax: number
   readonly spacing: number
+  /** 前後分排、相鄰排橫向錯開半格；每排架數與沿航向的排距（m）。省略 = 一條橫線。 */
+  readonly rows?: { readonly size: number; readonly depth: number }
 }
 
 export interface MissionFleet {
