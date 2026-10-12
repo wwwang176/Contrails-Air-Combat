@@ -245,7 +245,7 @@ export const zh = {
   'settings.aa': '抗鋸齒',
   'settings.volume': '音量',
   'settings.assist': '瞄準輔助',
-  'settings.mouse': '滑鼠靈敏度',
+  'settings.mouse': '滑鼠／觸控靈敏度',
   'settings.reset': '恢復預設值',
   'intro.skip': '空白鍵　跳過',
   'intro.skipTouch': '點一下跳過',

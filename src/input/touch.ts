@@ -103,8 +103,8 @@ export function attachTouch(root: HTMLElement, state: InputState): TouchControls
     const g = grips.get(e.pointerId)
     if (g === undefined) return
     const half = window.innerHeight / 2
-    const dx = (e.clientX - g.x) / half
-    const dy = (e.clientY - g.y) / half
+    const dx = ((e.clientX - g.x) / half) * state.mouseSensitivity
+    const dy = ((e.clientY - g.y) / half) * state.mouseSensitivity
     g.x = e.clientX
     g.y = e.clientY
     if (g.kind === 'aim') {

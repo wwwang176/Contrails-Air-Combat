@@ -1,4 +1,4 @@
-/** 滑鼠靈敏度的倍率範圍與步距（設定頁的拉桿）。只乘在滑鼠上，觸控不吃 */
+/** 滑鼠／觸控靈敏度的倍率範圍與步距（設定頁的拉桿） */
 export const MOUSE_SENSITIVITY_MIN = 0.5
 export const MOUSE_SENSITIVITY_MAX = 4
 export const MOUSE_SENSITIVITY_STEP = 0.1

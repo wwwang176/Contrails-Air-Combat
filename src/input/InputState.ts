@@ -58,7 +58,7 @@ export interface InputState {
    */
   lookScale: number
   /**
-   * 設定頁的滑鼠靈敏度倍率，瞄準與自由視角都乘。**只乘在滑鼠上**，觸控不吃。
+   * 設定頁的滑鼠／觸控靈敏度倍率，滑鼠移動與觸控拖曳的瞄準、自由視角都乘。
    * 由 `main.ts` 開場讀存檔、設定確定時寫入
    */
   mouseSensitivity: number

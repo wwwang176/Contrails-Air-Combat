@@ -243,7 +243,7 @@ export const en: Record<MessageKey, string> = {
   'settings.aa': 'Anti-aliasing',
   'settings.volume': 'Volume',
   'settings.assist': 'Aim assist',
-  'settings.mouse': 'Mouse sensitivity',
+  'settings.mouse': 'Mouse / touch sensitivity',
   'settings.reset': 'Restore defaults',
   'intro.skip': 'Space  Skip',
   'intro.skipTouch': 'Tap to skip',
