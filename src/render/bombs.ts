@@ -5,6 +5,8 @@ import {
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { BOMBS_CAPACITY } from '../world/bomb'
 import { TORPEDOES_CAPACITY } from '../world/torpedo'
+import type { OrdnancePose } from '../world/ordnancePose'
+import type { DisplayPositionPool } from '../core/displayPositionPool'
 
 const DUMMY = new Object3D()
 const DIR = new Vector3()
@@ -92,19 +94,17 @@ export const TORPEDO_SHAPE: OrdnanceShape = {
  * 【為什麼是結構型別而不是聯集】兩個池的欄位名一樣，而這一層只讀不寫。
  * 寫成聯集的話每加一種彈藥都要回來改一次。
  */
-export interface OrdnancePool {
+export interface OrdnancePool extends OrdnancePose {
   readonly active: Uint8Array
-  readonly x: Float64Array
-  readonly y: Float64Array
-  readonly z: Float64Array
-  readonly vx: Float64Array
-  readonly vy: Float64Array
-  readonly vz: Float64Array
+  readonly team?: Int8Array
+  readonly previous?: OrdnancePose
 }
 
 export interface BombVisuals {
   object: InstancedMesh
-  update(pool: OrdnancePool): void
+  /** 模型與 HUD 共用的顯示位置；只建立一次，每幀就地更新。 */
+  readonly frame: DisplayPositionPool
+  update(pool: OrdnancePool, alpha?: number): void
   dispose(): void
 }
 
@@ -164,21 +164,34 @@ function createOrdnanceVisuals(
   // 相機轉開時消失。與其他實例池同一個處置
   mesh.frustumCulled = false
   mesh.count = capacity
+  const frame: DisplayPositionPool = {
+    capacity, x: new Float64Array(capacity), y: new Float64Array(capacity), z: new Float64Array(capacity),
+    team: new Int8Array(capacity), active: new Uint8Array(capacity),
+  }
 
   return {
     object: mesh,
-    update(pool) {
+    frame,
+    update(pool, alpha = 1) {
+      const previous = pool.previous
+      const k = previous === undefined ? 1 : Math.max(0, Math.min(1, alpha))
       for (let i = 0; i < capacity; i++) {
+        frame.active[i] = pool.active[i] === 1 ? 1 : 0
         // 【不是 1 就當空格】狀態池可以比外觀池小（選單短片的池只有幾十格），超出的那幾格
         // 讀到 undefined；用 `=== 0` 判的話會被當成活的，寫進一整排 NaN 矩陣
         if (pool.active[i] !== 1) {
           DUMMY.position.set(0, PARKED_Y, 0)
           DUMMY.quaternion.identity()
         } else {
-          DUMMY.position.set(pool.x[i]!, pool.y[i]!, pool.z[i]!)
-          const vx = pool.vx[i]!
-          const vy = pool.vy[i]!
-          const vz = pool.vz[i]!
+          const p = previous ?? pool
+          frame.x[i] = p.x[i]! + (pool.x[i]! - p.x[i]!) * k
+          frame.y[i] = p.y[i]! + (pool.y[i]! - p.y[i]!) * k
+          frame.z[i] = p.z[i]! + (pool.z[i]! - p.z[i]!) * k
+          frame.team[i] = pool.team?.[i] ?? 0
+          DUMMY.position.set(frame.x[i]!, frame.y[i]!, frame.z[i]!)
+          const vx = p.vx[i]! + (pool.vx[i]! - p.vx[i]!) * k
+          const vy = p.vy[i]! + (pool.vy[i]! - p.vy[i]!) * k
+          const vz = p.vz[i]! + (pool.vz[i]! - p.vz[i]!) * k
           // 【順著氣流轉正】炸彈投下的第一瞬間速度是水平的，落地前幾乎
           // 垂直 —— 那個轉正本身就讀得出彈道。魚雷入水之後速度恆為水平，
           // 所以同一支公式也讓它平著跑

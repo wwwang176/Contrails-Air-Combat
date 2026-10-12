@@ -5,8 +5,9 @@ import {
 } from '../../src/app/battleHudMarkers'
 import { DAMAGE_MARK_SECONDS } from '../../src/hud/damageMarks'
 import {
-  fillMarkers, type MarkerObjectives, type MarkerPool, type MarkerProject,
+  fillMarkers, type MarkerObjectives, type MarkerProject,
 } from '../../src/hud/markerFeed'
+import type { DisplayPositionPool } from '../../src/core/displayPositionPool'
 import { createHudFrame, HIT_FLASH_SECONDS, HUD_MAX_MARKERS } from '../../src/hud/types'
 import { SHIP_CLASSES, createShip, type Ship } from '../../src/world/ships'
 import { createGroundTarget } from '../../src/world/groundTargets'
@@ -38,7 +39,7 @@ const BEHIND: MarkerProject = (x, y, _z, out) => {
  * 一個假的彈藥池。**只有 `fillMarkers` 讀得到的那五個欄位** —— 造一整顆
  * `Bombs` 會把「標記有沒有長出來」與「炸彈積分對不對」綁在一起。
  */
-function pool(items: readonly { x: number; y: number; z: number; team: number }[]): MarkerPool {
+function pool(items: readonly { x: number; y: number; z: number; team: number }[]): DisplayPositionPool {
   const capacity = 8
   const p = {
     capacity,

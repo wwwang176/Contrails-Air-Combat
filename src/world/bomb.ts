@@ -6,6 +6,7 @@
  * `world/heightfield.ts` 同一個理由 —— 第三種不該為了兩個向量載入整個 three。
  */
 import { G0 } from '../core/math'
+import { OrdnanceSnapshot } from './ordnancePose'
 
 /**
  * 炸彈的終端速度，m/s。**起始值，由試飛裁定**（性質同 `WOBBLE_AMPLITUDE`）。
@@ -273,6 +274,7 @@ export type BombBlockFn = (
  * 64 格 × 6 欄 × 8 bytes = 3 KB，換一條真的成立的不變式。
  */
 export class Bombs {
+  readonly previous: OrdnanceSnapshot
   readonly capacity: number
   readonly x: Float64Array
   readonly y: Float64Array
@@ -321,6 +323,7 @@ export class Bombs {
 
   constructor(capacity: number = BOMBS_CAPACITY) {
     this.capacity = capacity
+    this.previous = new OrdnanceSnapshot(capacity)
     const f = (): Float64Array => new Float64Array(capacity)
     this.x = f(); this.y = f(); this.z = f()
     this.vx = f(); this.vy = f(); this.vz = f()
@@ -355,6 +358,7 @@ export class Bombs {
     if (this.active[i] === 0) this.liveCount++
     this.x[i] = x; this.y[i] = y; this.z[i] = z
     this.vx[i] = vx; this.vy[i] = vy; this.vz[i] = vz
+    this.previous.copyFrom(this, i)
     this.ax[i] = ax; this.az[i] = az
     this.damage[i] = damage
     // 【一定要寫，不能靠 clear】`clear` 只清 `active`，資料陣列留著上一場的
@@ -392,6 +396,8 @@ export class Bombs {
     const s = this.sim
     for (let i = 0; i < this.capacity; i++) {
       if (this.active[i] === 0) continue
+
+      this.previous.copyFrom(this, i)
 
       const age = this.age[i]! + dt
       if (age > BOMB_MAX_SECONDS) {

@@ -13,6 +13,7 @@
  * headless 的單元測試不該為了兩個向量載入整個 three。
  */
 import { BOMB_MAX_SECONDS, stepBomb, type BombState } from './bomb'
+import { OrdnanceSnapshot } from './ordnancePose'
 
 /**
  * 水中的航速，m/s。九一式改三是 42 節 = 21.6 m/s。
@@ -179,6 +180,7 @@ const AIR = 0
 const WATER = 1
 
 export class Torpedoes {
+  readonly previous: OrdnanceSnapshot
   readonly capacity: number
   readonly x: Float64Array
   readonly y: Float64Array
@@ -243,6 +245,7 @@ export class Torpedoes {
     tuning: TorpedoTuning = DEFAULT_TUNING,
   ) {
     this.capacity = capacity
+    this.previous = new OrdnanceSnapshot(capacity)
     this.tuning = tuning
     // 【Float64Array 而不是 Float32Array】逐位元護欄靠它 —— float32 每一步
     // 都會捨入一次，入水點就與 `solveImpact` 的落點分家了
@@ -283,6 +286,7 @@ export class Torpedoes {
     if (this.active[i] === 0) this.liveCount++
     this.x[i] = x; this.y[i] = y; this.z[i] = z
     this.vx[i] = vx; this.vy[i] = vy; this.vz[i] = vz
+    this.previous.copyFrom(this, i)
     this.ax[i] = ax; this.az[i] = az
     // 【有推力時航向在投放時就定】推力會改空中段的水平方向，入水速度已經不是投放方向。
     // 沒有推力的照舊在入水時由入水速度算：兩者只在數學上相同，浮點上差最後一位，
@@ -345,6 +349,7 @@ export class Torpedoes {
     const s = this.sim
     for (let i = 0; i < this.capacity; i++) {
       if (this.active[i] === 0) continue
+      this.previous.copyFrom(this, i)
       if (this.phase[i] === AIR) this.stepAir(i, s, dt, k, groundAt, waterAt, onEnd, onEntry)
       else this.stepWater(i, dt, groundAt, waterAt, onEnd, onWake, blockedBy)
     }

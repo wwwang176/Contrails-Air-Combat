@@ -103,8 +103,9 @@ import { createAudioMeter, type AudioMeter } from './hud/audioMeter'
 import type { MeterSample } from './audio/meter'
 import { createHudFrame } from './hud/types'
 import {
-  type MarkerObjectives, type MarkerPool, type MarkerProject, type ShipMarkerTop,
+  type MarkerObjectives, type MarkerProject, type ShipMarkerTop,
 } from './hud/markerFeed'
+import type { DisplayPositionPool } from './core/displayPositionPool'
 import { createScoreboard } from './ui/scoreboard'
 import { createBattleScoreboard } from './app/battleScoreboard'
 import { buildAfterAction } from './app/afterAction'
@@ -318,6 +319,7 @@ const introScene: IntroScene = {
   get ships() { return world.ships },
   get combatants() { return world.combatants },
   get player() { return player },
+  aircraftPose: (c) => visuals.get(c),
   groundAt: (x, z) => world.groundAt(x, z),
 }
 
@@ -1026,7 +1028,7 @@ const projectMarker: MarkerProject = (x, y, z, out) => {
   return probe.z >= 1
 }
 /** 餵給 `fillMarkers` 的池清單。就地換內容，不每幀造一個陣列 */
-const MARKER_POOLS: MarkerPool[] = []
+const MARKER_POOLS: DisplayPositionPool[] = []
 /**
  * 船的標記畫在模型的最高點。**桅杆不在任何碰撞盒裡** —— 用
  * `world/ships.ts` 推出來的高度只有模型的三分之一到一半。
@@ -1048,6 +1050,13 @@ const battleHudMarkersDeps: BattleHudMarkersDependencies = {
   markerObjectives,
   projectMarker,
   shipMarkerTop,
+}
+/** 世界目標照常讀當下戰局，彈藥標記與模型共用這一幀的內插位置。 */
+const battleMarkerWorld = {
+  get ships() { return world.ships },
+  get groundTargets() { return world.groundTargets },
+  bombs: bombVisuals.frame,
+  torpedoes: torpedoVisuals.frame,
 }
 
 let propRotation = 0
@@ -1735,8 +1744,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   updateAudio(worldSeconds)
 
   tracers.update(world.projectiles)
-  bombVisuals.update(world.bombs)
-  torpedoVisuals.update(world.torpedoes)
+  bombVisuals.update(world.bombs, alpha)
+  torpedoVisuals.update(world.torpedoes, alpha)
   // 【火災走畫面時間，不是物理子步】它是純裝飾 —— 與 `sparks.step` 同一條
   // 【排在兩支 step 之前】這一幀的間隔倍率要先算好，否則兩支火用到的是
   // 上一幀的值；剛熄掉的格子也會慢一幀才歸位
@@ -1800,13 +1809,11 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 小地圖座標 —— 這三種東西一個都用不到，而池子只有 48 格：64 顆彈就把
   // 飛機全擠掉了。
   //
-  // 【位置用池裡的物理座標，不內插】`bombVisuals`／`torpedoVisuals` 讀的
-  // 就是同一組數字（見上面的 `update`），所以標記與模型逐幀對齊。飛機那一側
-  // 用 `visuals` 是因為它有內插後的算繪位置，而彈藥沒有。
+  // 彈藥標記讀取模型剛更新的內插位置，與飛機及鏡頭使用同一個顯示時間。
   updateBattleHudMarkers(
     battleHudMarkersDeps,
     hudFrame,
-    world,
+    battleMarkerWorld,
     player,
     refPos,
     hitsThisFrame,

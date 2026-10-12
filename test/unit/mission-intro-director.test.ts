@@ -148,14 +148,19 @@ describe('導覽與滑回', () => {
     expect(f.director.returnWeight).toBe(1)
   })
 
-  it.each([false, true])('高速飛機從前側繞回機尾時留在畫面內（跳過：%s）', (skip) => {
+  it.each([
+    { skip: false, rendered: false }, { skip: true, rendered: false },
+    { skip: false, rendered: true }, { skip: true, rendered: true },
+  ])('高速飛機從前側繞回機尾時留在畫面內（跳過：$skip，顯示姿態：$rendered）', ({ skip, rendered }) => {
     const f = fixture()
     const position = new Vector3(0, 4300, 0)
+    const physicalPosition = rendered ? position.clone().add(new Vector3(1000, 0, 0)) : position
+    const pose = { position, quaternion: new Quaternion() }
     const player = {
       alive: true,
-      aircraft: { state: { position, orientation: new Quaternion() } },
+      aircraft: { state: { position: physicalPosition, orientation: new Quaternion() } },
     } as unknown as Combatant
-    const scene = { ...NO_SCENE, player }
+    const scene = { ...NO_SCENE, player, ...(rendered ? { aircraftPose: () => pose } : {}) }
     const shot: IntroShot = {
       kind: 'follow', seconds: 2, subject: { player: true },
       back: -10, up: -8, side: 26, lead: 0, lookUp: 0, fov: 34,
@@ -180,6 +185,7 @@ describe('導覽與滑回', () => {
     // 德 M1 約 185 m/s；逐幀檢查機身中心與兩側機翼，不只檢查結束姿態。
     for (let i = 0; i < 90; i++) {
       position.z -= 185 / 60
+      if (rendered) physicalPosition.z = position.z
       chase()
       f.director.applyCamera(f.camera, scene, 1 / 60)
       f.camera.updateMatrixWorld(true)

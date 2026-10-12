@@ -154,6 +154,22 @@ describe('follow 的迎面低角度', () => {
 })
 
 describe('follow 的其他對象', () => {
+  it.each([false, true])('飛機跟拍使用顯示位置與姿態（玩家：%s）', playerShot => {
+    const c = { alive: true, team: 'blue', aircraft: { spec: { role: 'fighter' },
+      state: { position: new Vector3(5000, 5000, 5000), orientation: new Quaternion() } },
+    } as unknown as Combatant
+    const rendered = { position: new Vector3(100, 200, 300),
+      quaternion: new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 2) }
+    const scene: IntroScene = { groundTargets: [], ships: [], combatants: [c], player: c,
+      aircraftPose: () => rendered }
+    const shot: IntroShot = { kind: 'follow', seconds: 3,
+      subject: playerShot ? { player: true } : { air: 'blue' }, back: 20, side: 0, up: 10, lead: 30 }
+    const position = new Vector3(), look = new Vector3()
+    expect(introCameraPose(shot, 0, scene, position, look)).toBe(true)
+    expect(position.distanceTo(new Vector3(120, 210, 300))).toBeLessThan(1e-8)
+    expect(look.distanceTo(new Vector3(70, 200, 300))).toBeLessThan(1e-8)
+  })
+
   it('要害艦：第一艘還浮著的', () => {
     const shot: IntroShot = { kind: 'follow', seconds: 3, subject: { ship: 'vital' }, back: 0, up: 20, side: 200, lead: 0 }
     const escort = createShip(0, SHIP_CLASSES.fletcher, 'blue', 0, 0, 0, 0)

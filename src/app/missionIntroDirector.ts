@@ -162,7 +162,8 @@ export function createMissionIntroDirector(overlay: IntroOverlay, fovBase: numbe
     if (blend.active && lastPlayerShot !== null && scene.player !== undefined) {
       // 玩家跟拍的焦點繼續隨主體移動；主體消失時保留最後的焦點。
       if (introCameraPose(lastPlayerShot, lastLocal, scene, pos, look)) returnFocus.copy(look)
-      const distance = camera.position.distanceTo(scene.player.aircraft.state.position)
+      const playerPosition = scene.aircraftPose?.(scene.player)?.position ?? scene.player.aircraft.state.position
+      const distance = camera.position.distanceTo(playerPosition)
       orbit.set(0, 0, 1).applyQuaternion(camera.quaternion)
       chaseFocus.copy(camera.position).addScaledVector(orbit, -distance)
       applyBlend(blend, camera, dt)

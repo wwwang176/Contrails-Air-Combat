@@ -73,11 +73,15 @@ export interface IntroScene {
   readonly ships: readonly Ship[]
   readonly combatants: readonly Combatant[]
   readonly player?: Combatant
+  /** 畫面上飛機的內插姿態；純物理場景省略時使用模擬狀態。 */
+  readonly aircraftPose?: (c: Combatant) => { readonly position: Vector3; readonly quaternion: Quaternion } | undefined
   readonly groundAt?: (x: number, z: number) => number
 }
 
 /** 跟拍對象的位置與朝向。模型都朝 −Z、右側是 +X */
-interface Pose { readonly position: Vector3; readonly orientation: Quaternion }
+type Pose = { readonly position: Vector3 } & (
+  { readonly orientation: Quaternion } | { readonly quaternion: Quaternion }
+)
 
 /**
  * 這一段在段內 `local` 秒的鏡頭位置與看的點，寫進 `pos`／`look`。
@@ -107,8 +111,9 @@ export function introCameraPose(
   }
   const t = subjectPose(scene, shot.subject)
   if (t === null) return false
-  FWD.set(0, 0, -1).applyQuaternion(t.orientation)
-  RIGHT.set(1, 0, 0).applyQuaternion(t.orientation)
+  const orientation = 'orientation' in t ? t.orientation : t.quaternion
+  FWD.set(0, 0, -1).applyQuaternion(orientation)
+  RIGHT.set(1, 0, 0).applyQuaternion(orientation)
   const k = Math.min(1, Math.max(0, local / shot.seconds))
   const back = shot.backTo === undefined ? shot.back : shot.back + (shot.backTo - shot.back) * k
   pos.copy(t.position)
@@ -126,7 +131,7 @@ export function introCameraPose(
 function subjectPose(scene: IntroScene, subject: IntroSubject): Pose | null {
   if ('player' in subject) {
     const player = scene.player
-    return player?.alive === true ? player.aircraft.state : null
+    return player?.alive === true ? scene.aircraftPose?.(player) ?? player.aircraft.state : null
   }
   if ('ground' in subject) {
     for (const t of scene.groundTargets) {
@@ -141,7 +146,7 @@ function subjectPose(scene: IntroScene, subject: IntroSubject): Pose | null {
   for (const c of scene.combatants) {
     if (!c.alive || c.team !== subject.air) continue
     if (subject.role !== undefined && c.aircraft.spec.role !== subject.role) continue
-    return c.aircraft.state
+    return scene.aircraftPose?.(c) ?? c.aircraft.state
   }
   return null
 }

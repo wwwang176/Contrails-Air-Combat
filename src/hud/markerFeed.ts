@@ -2,22 +2,7 @@ import { HUD_MAX_MARKERS, type HudFrame } from './types'
 import { teamSlot } from '../world/team'
 import type { Ship } from '../world/ships'
 import type { GroundTarget } from '../world/groundTargets'
-
-/**
- * 一個可以長出標記的池：炸彈或魚雷。
- *
- * 【為什麼是一個介面而不是收 `Bombs | Torpedoes`】兩個類別的欄位在這裡用到
- * 的部分完全相同，而測試要餵得進一個假的池 —— 收具體類別的話就得在測試裡
- * 造一整顆 `Bombs`，而那把「標記有沒有長出來」與「炸彈積分對不對」綁在一起。
- */
-export interface MarkerPool {
-  readonly capacity: number
-  readonly x: Float64Array
-  readonly y: Float64Array
-  readonly z: Float64Array
-  readonly team: Int8Array
-  readonly active: Uint8Array
-}
+import type { DisplayPositionPool } from '../core/displayPositionPool'
 
 /**
  * 把一個世界座標投影到螢幕。**單位是螢幕半高**（與 `HudContact` 同一套）。
@@ -70,7 +55,7 @@ export function fillMarkers(
   f: HudFrame,
   ships: readonly Ship[],
   groundTargets: readonly GroundTarget[],
-  pools: readonly MarkerPool[],
+  pools: readonly DisplayPositionPool[],
   own: number,
   project: MarkerProject,
   shipTop: ShipMarkerTop,

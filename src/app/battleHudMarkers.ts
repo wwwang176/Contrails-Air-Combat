@@ -2,10 +2,10 @@ import type { Vector3 } from 'three'
 import type { HudFrame } from '../hud/types'
 import type { World } from '../world/World'
 import type { Combatant } from '../world/combatant'
+import type { DisplayPositionPool } from '../core/displayPositionPool'
 import {
   fillMarkers,
   type MarkerObjectives,
-  type MarkerPool,
   type MarkerProject,
   type ShipMarkerTop,
 } from '../hud/markerFeed'
@@ -14,7 +14,7 @@ import { nextHitFlash } from '../hud/types'
 import { stepDamageMarks } from '../hud/damageMarks'
 
 export interface BattleHudMarkersDependencies {
-  readonly markerPools: MarkerPool[]
+  readonly markerPools: DisplayPositionPool[]
   readonly markerObjectives: MarkerObjectives & { ref: Vector3 }
   readonly projectMarker: MarkerProject
   readonly shipMarkerTop: ShipMarkerTop
@@ -22,8 +22,8 @@ export interface BattleHudMarkersDependencies {
 
 /** 只需要呈現用的資料，模擬方法留在 `World` */
 export type BattleHudMarkerWorld = Pick<World, 'ships' | 'groundTargets'> & {
-  readonly bombs: MarkerPool
-  readonly torpedoes: MarkerPool
+  readonly bombs: DisplayPositionPool
+  readonly torpedoes: DisplayPositionPool
 }
 
 /** 更新接觸目標以外的標記（彈藥、船、地面目標），並依幀時間推進命中回饋 */
