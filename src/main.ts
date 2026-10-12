@@ -113,6 +113,7 @@ import { TORPEDO_RUN_SAMPLES } from './world/torpedo'
 import { resetDamageMarks } from './hud/damageMarks'
 import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
 import { createMissionIntroDirector } from './app/missionIntroDirector'
+import type { IntroScene } from './app/missionIntro'
 import type { BombState, Impact } from './world/bomb'
 import { resetBombBay, type BombBay } from './weapons/bomb'
 import type { Loadout } from './weapons/stores'
@@ -295,6 +296,13 @@ const touch = attachTouch(document.getElementById('touch') as HTMLElement, input
 const introEl = document.getElementById('intro') as HTMLElement
 introEl.addEventListener('click', () => { input.skipRequested = true })
 const missionIntro = createMissionIntroDirector(introEl, DEFAULT_CAMERA_OPTIONS.fovBase)
+/** 導覽拍得到的東西。讀當下這一場的 `world`（每一場重建），所以是 getter，不每幀造物件 */
+const introScene: IntroScene = {
+  get groundTargets() { return world.groundTargets },
+  get ships() { return world.ships },
+  get combatants() { return world.combatants },
+  groundAt: (x, z) => world.groundAt(x, z),
+}
 
 /**
  * 這一場的開場導覽。**每次進關卡都播**（出擊、再打一場、重新開始）；任務卡沒有
@@ -1696,7 +1704,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   )
   // 【玩家的鏡頭照常算，導覽在後面覆寫】結束後由最後的鏡位滑回時，滑回的目的地
   // 就是這一幀照常算出來的鏡頭
-  missionIntro.applyCamera(ctx.camera, world.groundTargets, worldSeconds, world.groundAt)
+  missionIntro.applyCamera(ctx.camera, introScene, worldSeconds)
   const {
     attitude: att,
     agl,

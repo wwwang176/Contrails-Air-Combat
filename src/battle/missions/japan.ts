@@ -135,7 +135,7 @@ export const JAPAN: readonly MissionCard[] = [
       // 卸貨區旁的九輛目標卡車（x 1,900～3,700）都在畫面裡。**鏡位與秒數是起始值。**
       intro: [
         {
-          kind: 'follow', seconds: 3.6, unit: 'usTruck',
+          kind: 'follow', seconds: 3.6, subject: { ground: 'usTruck' },
           back: -30, backTo: -12, up: 1.8, side: 6, lead: 0, lookUp: 1.6,
         },
         {

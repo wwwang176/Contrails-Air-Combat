@@ -1,8 +1,9 @@
-import { Vector3 } from 'three'
-import type { IntroShot } from '../battle/missions/types'
+import { Vector3, type Quaternion } from 'three'
+import type { IntroShot, IntroSubject } from '../battle/missions/types'
 import type { GroundTarget } from '../world/groundTargets'
 import type { InputState } from '../input/InputState'
-import type { GroundUnitId } from '../specs/ground'
+import type { Ship } from '../world/ships'
+import type { Combatant } from '../world/combatant'
 
 /**
  * 開場導覽的狀態。規格見 `docs/superpowers/specs/2026-10-12-mission-intro-design.md`。
@@ -62,15 +63,28 @@ const FWD = new Vector3()
 const RIGHT = new Vector3()
 
 /**
+ * 導覽拍得到的東西。
+ *
+ * `groundAt` 是地面高度：`follow` 的鏡頭高度不低於鏡頭正下方的地面 —— 只量在
+ * 對象的高度上的話，貼地拍的鏡頭遇到路邊高起的地會鑽進地裡
+ */
+export interface IntroScene {
+  readonly groundTargets: readonly GroundTarget[]
+  readonly ships: readonly Ship[]
+  readonly combatants: readonly Combatant[]
+  readonly groundAt?: (x: number, z: number) => number
+}
+
+/** 跟拍對象的位置與朝向。模型都朝 −Z、右側是 +X */
+interface Pose { readonly position: Vector3; readonly orientation: Quaternion }
+
+/**
  * 這一段在段內 `local` 秒的鏡頭位置與看的點，寫進 `pos`／`look`。
  *
- * @param groundAt 地面高度。`follow` 的鏡頭高度量在鏡頭正下方的地面上 —— 量在
- *   目標的高度上的話，貼地拍的鏡頭遇到路邊高起的地會鑽進地裡
- * @returns false = 這一段沒東西可拍（`follow` 要跟的已經全滅），呼叫端照常用玩家的鏡頭
+ * @returns false = 這一段沒東西可拍（`follow` 的對象已經沒了），呼叫端照常用玩家的鏡頭
  */
 export function introCameraPose(
-  shot: IntroShot, local: number, targets: readonly GroundTarget[], pos: Vector3, look: Vector3,
-  groundAt?: (x: number, z: number) => number,
+  shot: IntroShot, local: number, scene: IntroScene, pos: Vector3, look: Vector3,
 ): boolean {
   if (shot.kind === 'pan') {
     const k = Math.min(1, Math.max(0, local / shot.seconds))
@@ -86,9 +100,8 @@ export function introCameraPose(
     )
     return true
   }
-  const t = followTarget(targets, shot.unit)
+  const t = subjectPose(scene, shot.subject)
   if (t === null) return false
-  // 地面模型朝 −Z；右側是 +X（與機體同一套）
   FWD.set(0, 0, -1).applyQuaternion(t.orientation)
   RIGHT.set(1, 0, 0).applyQuaternion(t.orientation)
   const k = Math.min(1, Math.max(0, local / shot.seconds))
@@ -96,17 +109,30 @@ export function introCameraPose(
   pos.copy(t.position)
     .addScaledVector(FWD, -back)
     .addScaledVector(RIGHT, shot.side)
-  const floor = groundAt === undefined ? t.position.y : Math.max(t.position.y, groundAt(pos.x, pos.z))
+  const ground = scene.groundAt
+  const floor = ground === undefined ? t.position.y : Math.max(t.position.y, ground(pos.x, pos.z))
   pos.y = floor + shot.up
   look.copy(t.position).addScaledVector(FWD, shot.lead)
   look.y += shot.lookUp ?? 0
   return true
 }
 
-/** `unit` 裡還活著、會動、已經出場的第一座 */
-function followTarget(targets: readonly GroundTarget[], unit: GroundUnitId): GroundTarget | null {
-  for (const t of targets) {
-    if (t.unit.id === unit && t.alive && !t.dormant && t.motion !== null) return t
+/** 跟拍的對象，見 `IntroSubject`。沒有就回 null */
+function subjectPose(scene: IntroScene, subject: IntroSubject): Pose | null {
+  if ('ground' in subject) {
+    for (const t of scene.groundTargets) {
+      if (t.unit.id === subject.ground && t.alive && !t.dormant && t.motion !== null) return t
+    }
+    return null
+  }
+  if ('ship' in subject) {
+    for (const s of scene.ships) if (s.vital && s.alive) return s
+    return null
+  }
+  for (const c of scene.combatants) {
+    if (!c.alive || c.team !== subject.air) continue
+    if (subject.role !== undefined && c.aircraft.spec.role !== subject.role) continue
+    return c.aircraft.state
   }
   return null
 }

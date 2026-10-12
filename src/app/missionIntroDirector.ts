@@ -2,9 +2,9 @@ import { Vector3, type PerspectiveCamera, type Quaternion } from 'three'
 import type { IntroShot } from '../battle/missions/types'
 import { applyBlend, createCameraBlend, startBlend } from '../camera/cameraBlend'
 import type { InputState } from '../input/InputState'
-import type { GroundTarget } from '../world/groundTargets'
 import {
   createIntroState, holdIntroInput, introCameraPose, introShotAt, skipIntro, startIntro, stepIntro,
+  type IntroScene,
 } from './missionIntro'
 
 /**
@@ -67,12 +67,9 @@ export function createMissionIntroDirector(overlay: IntroOverlay, fovBase: numbe
   }
 
   /** 照常算完玩家的鏡頭之後：導覽中覆寫成鏡位，滑回中往鏡位拉回一部分 */
-  function applyCamera(
-    camera: PerspectiveCamera, targets: readonly GroundTarget[], dt: number,
-    groundAt?: (x: number, z: number) => number,
-  ): void {
+  function applyCamera(camera: PerspectiveCamera, scene: IntroScene, dt: number): void {
     const at = introShotAt(state)
-    if (at !== null && introCameraPose(state.shots[at.index]!, at.local, targets, pos, look, groundAt)) {
+    if (at !== null && introCameraPose(state.shots[at.index]!, at.local, scene, pos, look)) {
       camera.position.copy(pos)
       camera.up.set(0, 1, 0)
       camera.lookAt(look)

@@ -4,6 +4,8 @@ import { createMissionIntroDirector } from '../../src/app/missionIntroDirector'
 import type { IntroShot } from '../../src/battle/missions/types'
 import { createInputState } from '../../src/input/InputState'
 
+const NO_SCENE = { groundTargets: [], ships: [], combatants: [] }
+
 const PAN: IntroShot = {
   kind: 'pan', seconds: 2,
   from: { x: 0, y: 500, z: 0 }, to: { x: 1000, y: 500, z: 0 },
@@ -26,7 +28,7 @@ describe('開場導覽的每幀接線', () => {
     expect(f.director.active).toBe(true)
     expect(f.classes.has('on')).toBe(true)
     expect(f.director.frameStart(f.input, f.camera, 1)).toBe(false)
-    f.director.applyCamera(f.camera, [], 1)
+    f.director.applyCamera(f.camera, NO_SCENE, 1)
     expect(f.camera.position.toArray()).toEqual([500, 500, 0])
     expect(f.camera.fov).toBe(60)
   })
@@ -47,7 +49,7 @@ describe('開場導覽的每幀接線', () => {
     const f = fixture()
     f.director.begin([PAN], f.input, new Quaternion())
     f.director.frameStart(f.input, f.camera, 1)
-    f.director.applyCamera(f.camera, [], 1)
+    f.director.applyCamera(f.camera, NO_SCENE, 1)
     const last = f.camera.position.clone()
     f.input.skipRequested = true
     expect(f.director.frameStart(f.input, f.camera, 0)).toBe(true)
@@ -56,7 +58,7 @@ describe('開場導覽的每幀接線', () => {
     expect(f.classes.has('on')).toBe(false)
     // 玩家的鏡頭在原點；滑回的第一刻還幾乎停在鏡位上
     f.camera.position.set(0, 0, 0)
-    f.director.applyCamera(f.camera, [], 0.01)
+    f.director.applyCamera(f.camera, NO_SCENE, 0.01)
     expect(f.camera.position.distanceTo(last)).toBeLessThan(1)
   })
 
@@ -87,9 +89,9 @@ describe('導覽與滑回', () => {
     f.director.frameStart(f.input, f.camera, 0)
     expect(f.director.active).toBe(false)
     expect(f.director.busy).toBe(true)
-    f.director.applyCamera(f.camera, [], 1)
+    f.director.applyCamera(f.camera, NO_SCENE, 1)
     expect(f.director.busy).toBe(true)
-    f.director.applyCamera(f.camera, [], 1)
+    f.director.applyCamera(f.camera, NO_SCENE, 1)
     expect(f.director.busy).toBe(false)
   })
 })

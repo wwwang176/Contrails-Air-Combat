@@ -271,12 +271,26 @@ export type ReadyMissionCard = MissionCard & { readonly battle: MissionBattle }
 export interface IntroPoint { readonly x: number; readonly y: number; readonly z: number }
 
 /**
+ * 開場導覽跟拍的對象。
+ *
+ * ```
+ *   ground   這種地面單位裡還活著、會動、已經出場的第一座（車隊）
+ *   ship     第一艘還浮著的要害艦（守艦隊關要守的那一艘）
+ *   air      這一隊（省略角色 = 不分角色）還活著的第一架
+ * ```
+ */
+export type IntroSubject =
+  | { readonly ground: GroundUnitId }
+  | { readonly ship: 'vital' }
+  | { readonly air: Team; readonly role?: AircraftSpec['role'] }
+
+/**
  * 開場導覽的一個鏡位。
  *
  * ```
- *   follow   跟拍一座地面目標：`unit` 裡還活著、會動、已經出場的第一座。鏡頭在它後方
- *            `back`（負 = 前方）、右側 `side` 公尺、離鏡頭底下的地面 `up` 公尺，看向它
- *            前方 `lead`、離地 `lookUp` 公尺的點。有 `backTo` 時距離在這一段裡由
+ *   follow   跟拍 `subject`（見 `IntroSubject`）。鏡頭在它後方 `back`（負 = 前方）、
+ *            右側 `side` 公尺、比它與鏡頭底下的地面兩者較高的那一個高 `up` 公尺，看向它
+ *            前方 `lead`、高 `lookUp` 公尺的點。有 `backTo` 時距離在這一段裡由
  *            `back` 線性變到 `backTo` —— 前方拍時由遠到近，就是迎面開過來
  *   pan      鏡頭由 `from` 等速移到 `to`，看的點由 `lookFrom` 移到 `lookTo`
  * ```
@@ -285,7 +299,7 @@ export type IntroShot =
   | {
     readonly kind: 'follow'
     readonly seconds: number
-    readonly unit: GroundUnitId
+    readonly subject: IntroSubject
     readonly back: number
     readonly backTo?: number
     readonly up: number

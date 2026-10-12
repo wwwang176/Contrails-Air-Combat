@@ -170,6 +170,18 @@ export const ALLIES: readonly MissionCard[] = [
       // 熱帶海上的積雲低
       clouds: { yMin: 600, yMax: 900, amount: 'some' },
       fleet: TF58_GROUP,
+      // 【開場導覽】先貼著海面沿航母右舷由艦首滑到艦尾，再從領頭的零戰後方跟拍，
+      // 往前下方看它們壓向的艦隊。**鏡位與秒數是起始值。**
+      intro: [
+        {
+          kind: 'follow', seconds: 3.5, subject: { ship: 'vital' },
+          back: -220, backTo: 120, up: 30, side: 260, lead: 0, lookUp: 20,
+        },
+        {
+          kind: 'follow', seconds: 3.5, subject: { air: 'red', role: 'fighter' },
+          back: 40, up: 20, side: 15, lead: 1500, lookUp: -400,
+        },
+      ],
       /**
        * 【2,000 m 而不是預設的 4,000】G4M 進場之後要降到
        * `ai/torpedoRun.ts` 的 `RUN_ALTITUDE`（150 m）才投得出雷，從

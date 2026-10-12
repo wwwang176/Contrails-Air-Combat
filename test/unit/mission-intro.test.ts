@@ -1,18 +1,28 @@
 import { describe, it, expect } from 'vitest'
-import { Vector3 } from 'three'
+import { Quaternion, Vector3 } from 'three'
 import {
   createIntroState, holdIntroInput, introCameraPose, introShotAt, skipIntro, startIntro, stepIntro,
+  type IntroScene,
 } from '../../src/app/missionIntro'
 import type { IntroShot } from '../../src/battle/missions/types'
-import { createGroundTarget } from '../../src/world/groundTargets'
+import { createGroundTarget, type GroundTarget } from '../../src/world/groundTargets'
+import { createShip, SHIP_CLASSES, type Ship } from '../../src/world/ships'
+import type { Combatant } from '../../src/world/combatant'
 import { createInputState } from '../../src/input/InputState'
+
+function scene(
+  groundTargets: GroundTarget[] = [], groundAt?: (x: number, z: number) => number,
+  ships: Ship[] = [], combatants: Combatant[] = [],
+): IntroScene {
+  return { groundTargets, ships, combatants, ...(groundAt === undefined ? {} : { groundAt }) }
+}
 
 const PAN: IntroShot = {
   kind: 'pan', seconds: 2,
   from: { x: 0, y: 100, z: 0 }, to: { x: 1000, y: 100, z: 0 },
   lookFrom: { x: 0, y: 0, z: -500 }, lookTo: { x: 1000, y: 0, z: -500 },
 }
-const FOLLOW: IntroShot = { kind: 'follow', seconds: 3, unit: 'usTruck', back: 100, up: 50, side: 20, lead: 30 }
+const FOLLOW: IntroShot = { kind: 'follow', seconds: 3, subject: { ground: 'usTruck' }, back: 100, up: 50, side: 20, lead: 30 }
 
 describe('導覽的時鐘', () => {
   it('沒有鏡位就不播', () => {
@@ -57,7 +67,7 @@ describe('鏡頭姿態', () => {
   it('pan：位置與看的點都等速內插', () => {
     const pos = new Vector3()
     const look = new Vector3()
-    expect(introCameraPose(PAN, 1, [], pos, look)).toBe(true)
+    expect(introCameraPose(PAN, 1, scene(), pos, look)).toBe(true)
     expect(pos.toArray()).toEqual([500, 100, 0])
     expect(look.toArray()).toEqual([500, 0, -500])
   })
@@ -69,7 +79,7 @@ describe('鏡頭姿態', () => {
     } as never)
     const pos = new Vector3()
     const look = new Vector3()
-    expect(introCameraPose(FOLLOW, 0, [parked, moving], pos, look)).toBe(true)
+    expect(introCameraPose(FOLLOW, 0, scene([parked, moving]), pos, look)).toBe(true)
     // 航向 0 = 朝 −Z：後方是 +Z，右側是 +X
     expect(pos.x).toBeCloseTo(500 + 20, 6)
     expect(pos.y).toBeCloseTo(moving.position.y + 50, 6)
@@ -82,7 +92,7 @@ describe('鏡頭姿態', () => {
     const parked = createGroundTarget(0, 'usTruck', 'red', 0, 0, 0)
     const dead = createGroundTarget(1, 'usTruck', 'red', 0, 0, 0, { path: [], departAt: 0, speed: 10 } as never)
     dead.alive = false
-    expect(introCameraPose(FOLLOW, 0, [parked, dead], new Vector3(), new Vector3())).toBe(false)
+    expect(introCameraPose(FOLLOW, 0, scene([parked, dead]), new Vector3(), new Vector3())).toBe(false)
   })
 })
 
@@ -108,7 +118,7 @@ describe('導覽期間玩家的輸入', () => {
 
 describe('follow 的迎面低角度', () => {
   const FRONT: IntroShot = {
-    kind: 'follow', seconds: 4, unit: 'usTruck', back: -30, backTo: -10, up: 2, side: 6, lead: 0, lookUp: 1.5,
+    kind: 'follow', seconds: 4, subject: { ground: 'usTruck' }, back: -30, backTo: -10, up: 2, side: 6, lead: 0, lookUp: 1.5,
   }
   function truck() {
     return createGroundTarget(1, 'usTruck', 'red', 0, 0, 0, { path: [], departAt: 0, speed: 10 } as never)
@@ -118,27 +128,63 @@ describe('follow 的迎面低角度', () => {
     const t = truck()
     const pos = new Vector3()
     const look = new Vector3()
-    introCameraPose(FRONT, 0, [t], pos, look)
+    introCameraPose(FRONT, 0, scene([t]), pos, look)
     expect(pos.z).toBeCloseTo(-30, 6)
-    introCameraPose(FRONT, 2, [t], pos, look)
+    introCameraPose(FRONT, 2, scene([t]), pos, look)
     expect(pos.z).toBeCloseTo(-20, 6)
-    introCameraPose(FRONT, 4, [t], pos, look)
+    introCameraPose(FRONT, 4, scene([t]), pos, look)
     expect(pos.z).toBeCloseTo(-10, 6)
   })
 
   it('看的點抬高 lookUp', () => {
     const t = truck()
     const look = new Vector3()
-    introCameraPose(FRONT, 0, [t], new Vector3(), look)
+    introCameraPose(FRONT, 0, scene([t]), new Vector3(), look)
     expect(look.y).toBeCloseTo(t.position.y + 1.5, 6)
   })
 
   it('高度貼著鏡頭正下方的地面：地比卡車高的地方不會鑽進地裡', () => {
     const t = truck()
     const pos = new Vector3()
-    introCameraPose(FRONT, 0, [t], pos, new Vector3(), () => 40)
+    introCameraPose(FRONT, 0, scene([t], () => 40), pos, new Vector3())
     expect(pos.y).toBeCloseTo(42, 6)
-    introCameraPose(FRONT, 0, [t], pos, new Vector3(), () => -5)
+    introCameraPose(FRONT, 0, scene([t], () => -5), pos, new Vector3())
     expect(pos.y).toBeCloseTo(t.position.y + 2, 6)
+  })
+})
+
+describe('follow 的其他對象', () => {
+  it('要害艦：第一艘還浮著的', () => {
+    const shot: IntroShot = { kind: 'follow', seconds: 3, subject: { ship: 'vital' }, back: 0, up: 20, side: 200, lead: 0 }
+    const escort = createShip(0, SHIP_CLASSES.fletcher, 'blue', 0, 0, 0, 0)
+    const sunk = createShip(1, SHIP_CLASSES.essex, 'blue', 1000, 0, 0, 0, true)
+    sunk.alive = false
+    const carrier = createShip(2, SHIP_CLASSES.essex, 'blue', 3000, 0, 0, 0, true)
+    const pos = new Vector3()
+    expect(introCameraPose(shot, 0, scene([], undefined, [escort, sunk, carrier]), pos, new Vector3())).toBe(true)
+    expect(pos.x).toBeCloseTo(3200, 6)
+    expect(pos.y).toBeCloseTo(20, 6)
+  })
+
+  it('飛機：那一隊、那個角色裡還活著的第一架', () => {
+    const shot: IntroShot = {
+      kind: 'follow', seconds: 3, subject: { air: 'red', role: 'fighter' }, back: 50, up: 10, side: 0, lead: 100,
+    }
+    const plane = (team: 'red' | 'blue', role: string, alive: boolean, x: number) => ({
+      team, alive,
+      aircraft: { spec: { role }, state: { position: new Vector3(x, 2000, 0), orientation: new Quaternion() } },
+    }) as unknown as Combatant
+    const cs = [plane('blue', 'fighter', true, 0), plane('red', 'fighter', false, 100), plane('red', 'bomber', true, 200),
+      plane('red', 'fighter', true, 300)]
+    const pos = new Vector3()
+    const look = new Vector3()
+    expect(introCameraPose(shot, 0, scene([], () => 0, [], cs), pos, look)).toBe(true)
+    expect(pos.toArray()).toEqual([300, 2010, 50])
+    expect(look.toArray()).toEqual([300, 2000, -100])
+  })
+
+  it('沒有對象就回 false', () => {
+    const shot: IntroShot = { kind: 'follow', seconds: 3, subject: { ship: 'vital' }, back: 0, up: 20, side: 200, lead: 0 }
+    expect(introCameraPose(shot, 0, scene(), new Vector3(), new Vector3())).toBe(false)
   })
 })
