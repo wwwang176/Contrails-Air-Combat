@@ -1,8 +1,9 @@
 import { Quaternion, Vector3 } from 'three'
 import { aimAngles, GUN_PITCH_MIN, GUN_PITCH_MAX } from './gunAim'
+import { hash01 } from '../core/hash'
 
 export interface GunMount {
-  readonly tier: 'mg' | 'autocannon'
+  readonly tier: 'mg' | 'autocannon' | 'flak'
   readonly pivot: Readonly<Vector3>
   /** Omitted for freely aimed roof guns; otherwise relative to the yaw pivot. */
   readonly elevationPivot?: Readonly<Vector3>
@@ -12,6 +13,11 @@ export interface GunMount {
 /** Shot counters are one based, shared with the rendered flash. */
 export function gunBarrelIndex(shot: number, barrels: number): number {
   return Math.max(0, shot - 1) % barrels
+}
+
+/** Replay-stable emitter choice, shared by physics and visuals; no random state or allocations. */
+export function gunMountIndex(shot: number, count: number, platform: number, battery: number): number {
+  return count <= 1 ? 0 : Math.floor(hash01(shot ^ Math.imul(platform + 1, 73856093) ^ Math.imul(battery + 1, 19349663)) * count)
 }
 
 const angles = { yaw: 0, pitch: 0 }

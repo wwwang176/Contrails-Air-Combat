@@ -105,7 +105,8 @@ export function updateBattleSceneFrame(
   battleScenery.searchlights?.update(elapsed, world.combatants, ctx.camera.position)
   // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
   // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
-  battleScenery.shipModels?.update(world.ships, blastPresentation.emitGunLostBlast)
+  battleScenery.shipModels?.update(world.ships, blastPresentation.emitGunLostBlast,
+    worldSeconds, blastPresentation.emitMuzzleBlast)
 
   // 【魚雷航跡在渲染幀率餵，不在物理步】帶子是視覺，取樣間隔由它自己按走過的
   // 距離決定 —— 與凝結尾同一個做法

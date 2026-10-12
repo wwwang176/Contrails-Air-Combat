@@ -307,7 +307,7 @@ describe('main.ts 的接線', () => {
    * 的回呼，所以上面那一圈函數名的列舉抓不到它。
    */
   it('艦上砲位被打掉會搖鏡頭', () => {
-    expect(SCENE).toContain('shipModels?.update(world.ships, blastPresentation.emitGunLostBlast)')
+    expect(SCENE).toContain('shipModels?.update(world.ships, blastPresentation.emitGunLostBlast,')
     expect(bodyOf('emitGunLostBlast')).toContain('addShake(')
   })
 

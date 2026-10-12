@@ -91,6 +91,10 @@ export interface ShipClass {
  * 資料模組不認識行為模組，方向就只有一個。
  */
 export interface ShipGun extends RandomBurstCycle {
+  readonly projectileMounts?: readonly import('../specs/shipGunMounts').ShipGunMount[] | undefined
+  readonly mountPoses?: import('./shipGunMounts').ShipMountPose[] | undefined
+  /** Actual last emitter, retained even when target eligibility changes before rendering. */
+  firedMountIndex?: number
   readonly zone: ShipAAZone
   /**
    * 這一門砲的規格。**掛在砲身上而不是查層別的表** —— 陸上的 88 mm 與艦上

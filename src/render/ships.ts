@@ -9,6 +9,7 @@ import type { Ship } from '../world/ships'
 import { MAX_SHIP_GUNS } from '../world/shipGuns'
 import { TURRET_FLASH_SECONDS } from '../world/turrets'
 import { shipTemplates, shipNumberDecal } from './shipAssets'
+import { createShipGunModels, type ShipGunShot } from './shipGunModels'
 export {
   buildShipNumberDecals, liveryVariantOf, applyShipLivery, dressShipModel,
   shipModelTop, preloadShipModels,
@@ -17,9 +18,7 @@ export {
 /**
  * # 船的渲染
  *
- * **不畫砲管。** `shipAA.ts` 的砲位座標就是從 GLB 量出來的砲口 —— 砲本身
- * 已經建在模型裡了。飛機那一邊要畫（`render/turretBarrels.ts`）是因為程式化
- * 機體沒有砲塔幾何，船沒有這個問題。
+ * Fletcher 的每座砲具由 GLB 拆出轉軸，同區一起追瞄、逐發選一座發射；其他艦型保留靜態砲具。
  *
  * 所以這一層只做三件事：把 GLB 擺到船的位置、在開火的砲位上閃一下槍焰、
  * 在被打掉的砲位上留一團火。
@@ -36,7 +35,8 @@ export interface ShipModels {
    * @param onGunLost 某個砲位在這一幀之前被打掉了。呼叫端拿它噴火球 ——
    *                  這一層不認識火球池（那是 `main.ts` 的接線）。
    */
-  update(ships: readonly Ship[], onGunLost: (x: number, y: number, z: number) => void): void
+  update(ships: readonly Ship[], onGunLost: (x: number, y: number, z: number) => void,
+    seconds?: number, onGunShot?: ShipGunShot): void
   dispose(): void
 }
 
@@ -93,6 +93,8 @@ export function createShipModels(ships: readonly Ship[]): ShipModels {
     hulls.push(g)
   }
 
+  const gunModels = createShipGunModels(ships, hulls)
+  object.add(gunModels.object)
   const capacity = Math.max(1, ships.length * MAX_SHIP_GUNS)
   const flashes = new InstancedMesh(
     flareGeometry(),
@@ -121,7 +123,7 @@ export function createShipModels(ships: readonly Ship[]): ShipModels {
   return {
     object,
 
-    update(list, onGunLost) {
+    update(list, onGunLost, seconds = 0, onGunShot) {
       for (let k = 0; k < list.length && k < hulls.length; k++) {
         const s = list[k]!
         const g = hulls[k]!
@@ -129,6 +131,7 @@ export function createShipModels(ships: readonly Ship[]): ShipModels {
         g.quaternion.copy(s.orientation)
       }
 
+      gunModels.update(list, seconds, onGunShot)
       let slot = 0
       for (let k = 0; k < list.length; k++) {
         const s = list[k]!
@@ -141,7 +144,7 @@ export function createShipModels(ships: readonly Ship[]): ShipModels {
           }
           if (prev !== undefined) prev[i] = gun.alive
 
-          if (!gun.alive || gun.flash <= 0) continue
+          if (gun.projectileMounts || !gun.alive || gun.flash <= 0) continue
           // 槍口的世界位置。**與彈丸出膛的位置是同一個算法**
           // （`stepShipGuns` 的 MUZZLE）—— 分開寫的話槍焰會離開彈流。
           P.copy(gun.zone.position).applyQuaternion(s.orientation).add(s.position)
@@ -160,6 +163,7 @@ export function createShipModels(ships: readonly Ship[]): ShipModels {
     },
 
     dispose() {
+      gunModels.dispose()
       flashes.geometry.dispose()
       ;(flashes.material as MeshBasicMaterial).dispose()
       // 實例矩陣的 GPU 緩衝要靠 mesh 自己的 dispose 放掉；選單短片每一段重建一次船

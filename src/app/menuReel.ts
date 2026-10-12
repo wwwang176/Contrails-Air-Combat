@@ -573,7 +573,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       const h = s.heading
       s.position.set(s.spawn.x - Math.sin(h) * s.speed * t, 0, s.spawn.z - Math.cos(h) * s.speed * t)
     }
-    shipModels?.update(ships, NO_GUN_LOST)
+    shipModels?.update(ships, NO_GUN_LOST, dt)
     const terrain = stage.terrain()
     if (shipWakes !== null) {
       shipWakes.bindOcean(terrain.oceanHeight)

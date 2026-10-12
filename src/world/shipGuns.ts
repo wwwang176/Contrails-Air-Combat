@@ -1,6 +1,8 @@
 import { Quaternion, Vector3 } from 'three'
 import { gunMountMuzzle, type GunMount } from '../weapons/gunMount'
+import { selectShipMount, stepShipMounts } from './shipGunMounts'
 import { GUN_YAW_HOLD } from '../weapons/gunAim'
+import { FLETCHER_GUN_GROUPS } from '../specs/shipGunMounts'
 import { DEG } from '../core/math'
 import { hash01 } from '../core/hash'
 import { resetBurst, stepGunnerBurst, BURST_ON } from '../weapons/burst'
@@ -346,6 +348,8 @@ export function createShipGuns(cls: ShipClass): ShipGun[] {
     const axis = axisOf(zone.position.x, zone.tier, new Vector3())
     out.push({
       zone,
+      projectileMounts: cls.id === 'fletcher' ? FLETCHER_GUN_GROUPS[zone.id] : undefined,
+      mountPoses: cls.id === 'fletcher' ? FLETCHER_GUN_GROUPS[zone.id]?.map(m => ({ yaw: m.restYaw, pitch: m.restPitch, ready: false })) : undefined,
       spec,
       aim: axis.clone(),
       axis,
@@ -450,6 +454,11 @@ function resetGuns(guns: ShipGun[], shipIndex = 0): void {
     g.fired = 0
     g.shots = 0
     g.muzzleYaw = 0
+    g.firedMountIndex = -1
+    g.mountPoses?.forEach((pose, index) => {
+      const mount = g.projectileMounts![index]!
+      pose.yaw = mount.restYaw; pose.pitch = mount.restPitch; pose.ready = false
+    })
     g.flash = 0
     // 【讀自己的規格】船的 `spec` 就是表裡那一份；陸砲帶自己的，重設之後
     // 才不會變回艦砲的血量
@@ -551,7 +560,8 @@ export function stepGunPlatform(
     }
 
     let trigger = false
-    if (g.targetIndex >= 0 && leadInBody(all[g.targetIndex]!, g, spec, WANT)) {
+    const tracking = g.targetIndex >= 0 && leadInBody(all[g.targetIndex]!, g, spec, WANT)
+    if (tracking) {
       slew(g.aim, WANT, spec.rotationRate * dt)
       // 【停火只擋扳機】搜尋、追瞄、射速時鐘照常，解除的那一步就接得上
       trigger = !holdFire && firingWindow && g.aim.angleTo(WANT) < FIRE_THRESHOLD
@@ -561,11 +571,14 @@ export function stepGunPlatform(
     }
 
     // 射速時鐘。**每個砲位每步恰好呼叫一次**，即使 trigger 是 false
-    const mount = i === 0 && ship.projectileMount?.tier === g.zone.tier ? ship.projectileMount : undefined
-    if (mount?.elevationPivot && Math.hypot(g.aim.x, g.aim.z) >= GUN_YAW_HOLD * g.aim.length()) {
+    const mounts = g.projectileMounts
+    const candidateMount = mounts?.[0] ?? (i === 0 ? ship.projectileMount : undefined)
+    const defaultMount = candidateMount?.tier === g.zone.tier ? candidateMount : undefined
+    if (defaultMount?.elevationPivot && Math.hypot(g.aim.x, g.aim.z) >= GUN_YAW_HOLD * g.aim.length()) {
       g.muzzleYaw = Math.atan2(-g.aim.x, -g.aim.z)
     }
-    const shots = stepCadence(ship.gunCooldowns, i, spec.roundsPerMinute, trigger, dt)
+    const mountReady = stepShipMounts(g, tracking, dt)
+    const shots = stepCadence(ship.gunCooldowns, i, spec.roundsPerMinute, trigger && mountReady, dt)
     if (shots === 0) continue
     g.flash = TURRET_FLASH_SECONDS
     g.shots += shots
@@ -594,8 +607,14 @@ export function stepGunPlatform(
       applyWobble(g.aim, FLAK_WOBBLE_AMPLITUDE, SHIP_WOBBLE_OMEGA, g.phase, time, E1, E2, SHOT)
       SHOT.applyQuaternion(q)
       VEL.copy(SHOT).multiplyScalar(spec.muzzleVelocity)
+      g.firedMountIndex = selectShipMount(g, g.fired, ship.index, i)
+      const mount = mounts ? mounts[g.firedMountIndex] : defaultMount
+      if (mount) {
+        gunMountMuzzle(mount, g.aim, g.muzzleYaw ?? 0, g.fired, SPAWN)
+        SPAWN.applyQuaternion(q).add(ship.position)
+      } else SPAWN.copy(MUZZLE)
       spawnFlak(
-        flak, MUZZLE.x, MUZZLE.y, MUZZLE.z, VEL.x, VEL.y, VEL.z,
+        flak, SPAWN.x, SPAWN.y, SPAWN.z, VEL.x, VEL.y, VEL.z,
         fuse, ship.team === 'blue' ? 0 : 1,
         spec.burstRadius, spec.burstDamage,
         spec.burstSmoke, spec.burstBlast, spec.burstShake,
@@ -609,8 +628,11 @@ export function stepGunPlatform(
       // 【不加船速】8 m/s 對 830 m/s 的初速是 1%，而加了就要在預瞄那一側
       // 也減掉它 —— 兩邊都要記得的東西遲早會有一邊忘記。
       VEL.copy(SHOT).multiplyScalar(spec.muzzleVelocity)
+      const shot = g.shots - shots + n + 1
+      g.firedMountIndex = selectShipMount(g, shot, ship.index, i)
+      const mount = mounts ? mounts[g.firedMountIndex] : defaultMount
       if (mount) {
-        gunMountMuzzle(mount, g.aim, g.muzzleYaw ?? 0, g.shots - shots + n + 1, SPAWN)
+        gunMountMuzzle(mount, g.aim, g.muzzleYaw ?? 0, shot, SPAWN)
         SPAWN.applyQuaternion(q).add(ship.position)
       } else SPAWN.copy(MUZZLE)
       projectiles.spawn(

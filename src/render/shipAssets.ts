@@ -7,6 +7,7 @@ import { buildNumberDecal, numberBox, type ShipNumbersDef } from './shipNumbers'
 import { SHIP_LIVERIES, type ShipLiveryDef } from './shipLiveries'
 import { SHIP_CLASSES, type ShipClassId } from '../world/ships'
 import { assetUrl } from '../core/asset'
+import { prepareFletcherGuns } from './geometry/shipGuns'
 
 /** 每個艦級的樣板，一種圖案一份（見 `ShipLiveryDef.variants`）；沒有塗裝的只有一份 */
 const templates = new Map<ShipClassId, readonly Object3D[]>()
@@ -257,6 +258,7 @@ export async function preloadShipModels(
       if (livery !== undefined) {
         applyShipLivery(gltf.scene, livery, textures[0]!, fittingGrime(stamps))
       }
+      if (id === 'fletcher') prepareFletcherGuns(gltf.scene)
       // 【量一次就好】包圍盒與船在哪無關，而 `setFromObject` 要走遍整棵樹
       gltf.scene.updateMatrixWorld(true)
       modelTops.set(id, BOX.setFromObject(gltf.scene).max.y)
