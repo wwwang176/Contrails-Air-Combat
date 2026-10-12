@@ -503,6 +503,8 @@
          與觸控層同一層、排在它後面 */
       #intro { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
       #intro.on.touch { pointer-events: auto; }
+      /* 導覽層接管觸控跳過時，操作鈕一併收起；保留觸控狀態供切背景時暫停 */
+      body:has(#intro.on) #touch { visibility: hidden; }
       #intro .bar { position: absolute; left: 0; right: 0; height: 11vh; background: #000; }
       #intro .bar.top { top: 0; transform: translateY(calc((var(--k, 0) - 1) * 100%)); }
       #intro .bar.bottom { bottom: 0; transform: translateY(calc((1 - var(--k, 0)) * 100%));

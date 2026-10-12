@@ -38,6 +38,32 @@ export const ALLIES: readonly MissionCard[] = [
       // 夏天的晴天積雲，在 4,000 m 的轟炸機腳下
       clouds: { yMin: 1200, yMax: 1800, amount: 'some' },
       /**
+       * 【開場導覽】先認清護送的 B-17，再看同層編隊與迎面攔截的 Bf 109：
+       *
+       * ```
+       *   1  領頭 B-17 開場在 (−1,000, 3,700, 5,000)，從左前上方近拍，慢慢靠近機首
+       *   2  中層六架在 x −1,000～−500、y 3,700 m 並排，從左側 1.1 km 用 14° 長焦
+       *      由前方 550 m 移到 350 m，保留斜角，讓六架機身錯開而不互相蓋住
+       *   3  領頭 Bf 109 開場在 (−50, 4,300, −5,000)，從左前上方迎拍，慢慢靠近
+       * ```
+       *
+       * 三段都跟著飛機移動，近景辨識機型、長焦交代要保護的編隊。**鏡位與秒數是起始值。**
+       */
+      intro: [
+        {
+          kind: 'follow', seconds: 3, subject: { air: 'blue', role: 'bomber' },
+          back: -65, backTo: -40, up: 12, side: -38, lead: 0, fov: 42,
+        },
+        {
+          kind: 'follow', seconds: 3, subject: { air: 'blue', role: 'bomber' },
+          back: -550, backTo: -350, up: 80, side: -1100, lead: 60, fov: 14,
+        },
+        {
+          kind: 'follow', seconds: 2.5, subject: { air: 'red', role: 'fighter' },
+          back: -50, backTo: -30, up: 30, side: -40, lead: 0, fov: 30,
+        },
+      ],
+      /**
        * 【航程約 2 分 50 秒】終點在 z = −12,000、轟炸機出生在 z ≈ +5,000，
        * 以 B-17G 的開局巡航 355 km/h 飛 17 km。兩個波次與重生填滿那三分鐘。
        *
