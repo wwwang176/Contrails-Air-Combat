@@ -36,7 +36,7 @@ function fixture() {
     createGroundBattle: vi.fn<BattleSceneryBuilders['createGroundBattle']>(() => {
       const m = model('theater')
       return {
-        objects: [m.object], dispose: m.dispose, update: m.update, reset: vi.fn(), aimTarget: () => -1,
+        objects: [m.object], dispose: m.dispose, update: m.update, reset: vi.fn(), aimTarget: () => -1, aimAt: vi.fn(), scriptShot: vi.fn(),
         shots: 0, hitShots: 0, arcShots: 0, arcLanded: 0, arcLastLanding: { x: 0, y: 0, z: 0 },
       }
     }),

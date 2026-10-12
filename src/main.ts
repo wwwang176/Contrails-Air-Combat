@@ -113,7 +113,7 @@ import { TORPEDO_RUN_SAMPLES } from './world/torpedo'
 import { resetDamageMarks } from './hud/damageMarks'
 import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
 import { createMissionIntroDirector } from './app/missionIntroDirector'
-import type { IntroScene } from './app/missionIntro'
+import { nearestGroundIndex, type IntroScene } from './app/missionIntro'
 import type { BombState, Impact } from './world/bomb'
 import { resetBombBay, type BombBay } from './weapons/bomb'
 import type { Loadout } from './weapons/stores'
@@ -295,7 +295,23 @@ const touch = attachTouch(document.getElementById('touch') as HTMLElement, input
 /** 開場導覽的黑邊與跳過提示；觸控時點這一層就是跳過 */
 const introEl = document.getElementById('intro') as HTMLElement
 introEl.addEventListener('click', () => { input.skipRequested = true })
-const missionIntro = createMissionIntroDirector(introEl, DEFAULT_CAMERA_OPTIONS.fovBase)
+const missionIntro = createMissionIntroDirector(introEl, DEFAULT_CAMERA_OPTIONS.fovBase, {
+  // 【鏡位排的砲擊交給地面戰的戲】沒有地面戰的關什麼都不做
+  aim(fire) {
+    const gb = battleScenery.groundBattle
+    if (gb === null) return
+    const s = nearestGroundIndex(world.groundTargets, fire.from.x, fire.from.z)
+    const j = nearestGroundIndex(world.groundTargets, fire.to.x, fire.to.z)
+    if (s >= 0 && j >= 0) gb.aimAt(s, j)
+  },
+  fire(fire) {
+    const gb = battleScenery.groundBattle
+    if (gb === null) return
+    const s = nearestGroundIndex(world.groundTargets, fire.from.x, fire.from.z)
+    const j = nearestGroundIndex(world.groundTargets, fire.to.x, fire.to.z)
+    if (s >= 0 && j >= 0) gb.scriptShot(world.groundTargets, s, j, fire.miss.x, fire.miss.z, world.groundAt)
+  },
+})
 /** 導覽拍得到的東西。讀當下這一場的 `world`（每一場重建），所以是 getter，不每幀造物件 */
 const introScene: IntroScene = {
   get groundTargets() { return world.groundTargets },

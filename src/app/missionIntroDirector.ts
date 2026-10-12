@@ -1,5 +1,5 @@
 import { Vector3, type PerspectiveCamera, type Quaternion } from 'three'
-import type { IntroShot } from '../battle/missions/types'
+import type { IntroFire, IntroShot } from '../battle/missions/types'
 import { applyBlend, createCameraBlend, startBlend } from '../camera/cameraBlend'
 import type { InputState } from '../input/InputState'
 import {
@@ -32,6 +32,12 @@ export interface IntroOverlay {
   readonly style: Pick<CSSStyleDeclaration, 'setProperty'>
 }
 
+/** 鏡位上排的砲擊交給地面戰（`IntroFire`）。呼叫端照 `from`／`to` 找最近的單位 */
+export interface IntroCues {
+  aim(fire: IntroFire): void
+  fire(fire: IntroFire): void
+}
+
 /**
  * 開場導覽的每幀接線：吃跳過、蓋掉玩家輸入、推時鐘、覆寫鏡頭、結束時滑回。
  *
@@ -40,8 +46,10 @@ export interface IntroOverlay {
  *   鏡頭之後  applyCamera —— 在照常算完玩家的鏡頭之後
  * ```
  */
-export function createMissionIntroDirector(overlay: IntroOverlay, fovBase: number) {
+export function createMissionIntroDirector(overlay: IntroOverlay, fovBase: number, cues: IntroCues) {
   const state = createIntroState()
+  /** 每一段的 `fire` 開過了沒有 */
+  let fired: boolean[] = []
   const blend = createCameraBlend(INTRO_RETURN_SECONDS)
   const nose = new Vector3()
   let throttle = 0
@@ -58,6 +66,7 @@ export function createMissionIntroDirector(overlay: IntroOverlay, fovBase: numbe
   /** 開始播。沒有鏡位就什麼都不做 */
   function begin(shots: readonly IntroShot[] | undefined, input: InputState, orientation: Quaternion): void {
     startIntro(state, shots)
+    fired = state.shots.map(() => false)
     blend.active = false
     nose.set(0, 0, -1).applyQuaternion(orientation)
     throttle = input.throttle
@@ -89,6 +98,8 @@ export function createMissionIntroDirector(overlay: IntroOverlay, fovBase: numbe
         startBlend(blend, camera)
         overlay.classList.toggle('on', false)
         ended = true
+      } else {
+        stepCues()
       }
     }
     const target = state.active ? 1 : 0
@@ -97,6 +108,23 @@ export function createMissionIntroDirector(overlay: IntroOverlay, fovBase: numbe
       setBars(target > bars ? Math.min(target, bars + step) : Math.max(target, bars - step))
     }
     return ended
+  }
+
+  /**
+   * 還沒開的每一發：先把砲塔轉向目標（每幀重新指定 —— 地面戰開場前還沒有砲塔，
+   * 而它自己的瞄準也可能換掉目標）；播到那一段的第 `at` 秒就開
+   */
+  function stepCues(): void {
+    const at = introShotAt(state)
+    for (let i = 0; i < state.shots.length; i++) {
+      const fire = state.shots[i]!.fire
+      if (fire === undefined || fired[i] === true) continue
+      cues.aim(fire)
+      if (at !== null && at.index === i && at.local >= fire.at) {
+        fired[i] = true
+        cues.fire(fire)
+      }
+    }
   }
 
   /** 照常算完玩家的鏡頭之後：導覽中覆寫成鏡位，滑回中往鏡位拉回一部分 */

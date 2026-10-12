@@ -19,11 +19,15 @@ function fixture() {
     classList: { toggle: (c: string, on?: boolean) => { if (on) classes.add(c); else classes.delete(c); return !!on } },
     style: { setProperty: (k: string, v: string) => { vars.set(k, v) } },
   }
-  const director = createMissionIntroDirector(overlay, 60)
+  const cues: string[] = []
+  const director = createMissionIntroDirector(overlay, 60, {
+    aim: (c) => { cues.push(`aim ${c.from.x}`) },
+    fire: (c) => { cues.push(`fire ${c.from.x}`) },
+  })
   const camera = new PerspectiveCamera(70, 2, 1, 1e5)
   const input = createInputState()
   const bars = () => Number(vars.get('--k') ?? 'NaN')
-  return { classes, director, camera, input, bars }
+  return { classes, director, camera, input, bars, cues }
 }
 
 describe('黑邊吃遊戲時間', () => {
@@ -144,5 +148,32 @@ describe('鏡位的視角', () => {
     f.director.frameStart(f.input, f.camera, 2)
     f.director.applyCamera(f.camera, NO_SCENE, 2)
     expect(f.camera.fov).toBe(60)
+  })
+})
+
+describe('鏡位上的開火', () => {
+  const FIRE = { at: 1, from: { x: 7, z: 0 }, to: { x: 0, z: -500 }, miss: { x: 10, z: 0 } }
+
+  it('播到那一刻開一發、只開一次；之前每幀先把砲塔轉過去', () => {
+    const f = fixture()
+    f.director.begin([{ ...PAN, fire: FIRE }, PAN], f.input, new Quaternion())
+    f.director.frameStart(f.input, f.camera, 0.5)
+    f.director.applyCamera(f.camera, NO_SCENE, 0.5)
+    expect(f.cues).toEqual(['aim 7'])
+    f.director.frameStart(f.input, f.camera, 0.6)
+    f.director.applyCamera(f.camera, NO_SCENE, 0.6)
+    expect(f.cues).toEqual(['aim 7', 'aim 7', 'fire 7'])
+    f.director.frameStart(f.input, f.camera, 0.6)
+    f.director.applyCamera(f.camera, NO_SCENE, 0.6)
+    expect(f.cues.filter((c) => c.startsWith('fire'))).toHaveLength(1)
+  })
+
+  it('跳過的話不開', () => {
+    const f = fixture()
+    f.director.begin([{ ...PAN, fire: FIRE }], f.input, new Quaternion())
+    f.input.skipRequested = true
+    f.director.frameStart(f.input, f.camera, 0.5)
+    f.director.applyCamera(f.camera, NO_SCENE, 0.5)
+    expect(f.cues.filter((c) => c.startsWith('fire'))).toHaveLength(0)
   })
 })

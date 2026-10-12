@@ -205,8 +205,23 @@ export interface GroundBattle {
    * 開砲打誰就是誰；失效了每秒重挑射程內最近的敵方。只有直射的戰車與砲有
    */
   aimTarget(s: number): number
+  /** 第 `s` 台的砲塔先轉向第 `j` 台（開場導覽要拍它開火，開火那一刻砲管要已經對著目標） */
+  aimAt(s: number, j: number): void
+  /**
+   * 第 `s` 台現在朝第 `j` 台開一發，**落在目標旁 (`missX`, `missZ`) 公尺**（世界座標的偏移）。
+   * 砲口閃光、砲煙、砲彈、開火通報與排程裡的一發相同，落地交給 `landed`。開場導覽用
+   */
+  scriptShot(
+    targets: readonly GroundTarget[], s: number, j: number, missX: number, missZ: number,
+    groundAt: (x: number, z: number) => number,
+  ): void
   dispose(): void
 }
+
+/** 打偏的落點相對目標的偏移，m */
+interface MissOffset { x: number; z: number }
+/** `scriptShot` 的偏移暫存，不配置 */
+const SCRIPT_MISS: MissOffset = { x: 0, z: 0 }
 
 function flashColor(t: number, out: Color): void {
   out.setRGB(1, 0.75 - 0.35 * t, 0.35 - 0.3 * t)
@@ -367,7 +382,7 @@ export function createGroundBattle(
    */
   function shoot(
     targets: readonly GroundTarget[], s: number, k: number,
-    groundAt: (x: number, z: number) => number, victim = -1,
+    groundAt: (x: number, z: number) => number, victim = -1, missOffset: MissOffset | null = null,
   ): void {
     const me = targets[s]!
     const infantry = me.unit.id === 'infantry'
@@ -390,11 +405,15 @@ export function createGroundBattle(
     const oz = me.position.z + uz * reach
     const oy = me.position.y + (infantry ? 1.4 : me.unit.realHeight * 0.8)
     const seed = s * 7919 + k
-    const hit = victim >= 0 || hash01(seed) < HIT_CHANCE
+    const hit = missOffset === null && (victim >= 0 || hash01(seed) < HIT_CHANCE)
     let tx = them.position.x
     let tz = them.position.z
     let ty = them.position.y + them.unit.realHeight * 0.5
-    if (!hit) {
+    if (missOffset !== null) {
+      tx += missOffset.x
+      tz += missOffset.z
+      ty = groundAt(tx, tz)
+    } else if (!hit) {
       const a = hash01(seed + 1) * TWO_PI
       const r = MISS_NEAR + hash01(seed + 2) * (MISS_FAR - MISS_NEAR)
       tx += Math.cos(a) * r
@@ -581,6 +600,16 @@ export function createGroundBattle(
 
     aimTarget(s) {
       return s >= 0 && s < aimTargets.length ? aimTargets[s]! : -1
+    },
+
+    aimAt(s, j) {
+      if (s >= 0 && s < aimTargets.length) aimTargets[s] = j
+    },
+
+    scriptShot(targets, s, j, missX, missZ, groundAt) {
+      SCRIPT_MISS.x = missX
+      SCRIPT_MISS.z = missZ
+      shoot(targets, s, 0, groundAt, j, SCRIPT_MISS)
     },
 
     dispose() {

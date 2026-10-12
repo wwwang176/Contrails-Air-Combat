@@ -164,3 +164,19 @@ export function holdIntroInput(input: InputState, nose: Vector3, throttle: numbe
   input.bombTaps = 0
   input.throttle = throttle
 }
+
+/** 離 (x, z) 最近、還在場上的地面單位的序號；沒有就 −1。鏡位用座標指定單位（`IntroFire`） */
+export function nearestGroundIndex(targets: readonly GroundTarget[], x: number, z: number): number {
+  let best = -1
+  let bestD2 = Infinity
+  for (let i = 0; i < targets.length; i++) {
+    const t = targets[i]!
+    if (!t.alive || t.dormant) continue
+    const d2 = (t.position.x - x) ** 2 + (t.position.z - z) ** 2
+    if (d2 < bestD2) {
+      bestD2 = d2
+      best = i
+    }
+  }
+  return best
+}

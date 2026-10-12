@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import {
   createIntroState, holdIntroInput, introCameraPose, introShotAt, skipIntro, startIntro, stepIntro,
-  type IntroScene,
+  nearestGroundIndex, type IntroScene,
 } from '../../src/app/missionIntro'
 import type { IntroShot } from '../../src/battle/missions/types'
 import { createGroundTarget, type GroundTarget } from '../../src/world/groundTargets'
@@ -203,5 +203,16 @@ describe('pan 的高度量在地面上', () => {
     const pos = new Vector3()
     introCameraPose(PAN, 1, scene([], () => 40), pos, new Vector3())
     expect(pos.y).toBe(100)
+  })
+})
+
+describe('找鏡位指定的地面單位', () => {
+  it('離那一點最近、還在場上的', () => {
+    const a = createGroundTarget(0, 'atGun', 'red', 0, 0, 0)
+    const b = createGroundTarget(1, 'atGun', 'red', 100, 0, 0)
+    const c = createGroundTarget(2, 'tank', 'blue', 50, 0, 0)
+    c.alive = false
+    expect(nearestGroundIndex([a, b, c], 60, 0)).toBe(1)
+    expect(nearestGroundIndex([], 0, 0)).toBe(-1)
   })
 })

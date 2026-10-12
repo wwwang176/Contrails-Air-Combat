@@ -296,9 +296,25 @@ export type IntroSubject =
  * ```
  *
  * `fov` 是這一段的垂直視角，度；省略 = 鏡頭的基準視角。收窄就是長焦：遠處的東西
- * 被壓在一起，一隊飛機看起來擠成一片
+ * 被壓在一起，一隊飛機看起來擠成一片。
+ *
+ * `fire` 是這一段裡排給鏡頭拍的一發砲擊，見 `IntroFire`
  */
-export type IntroShot = IntroShotKind & { readonly fov?: number }
+export type IntroShot = IntroShotKind & { readonly fov?: number; readonly fire?: IntroFire }
+
+/**
+ * 開場導覽排的一發：這一段播到第 `at` 秒，離 `from` 最近的地面單位朝離 `to` 最近的那一台
+ * 開一發，落在目標旁 `miss`（世界座標的偏移，m）。只有地面戰的畫面，不扣血、不影響勝負。
+ * 導覽開始到開火之前，那一台的砲塔先轉向目標。
+ *
+ * 砲彈飛 450 m/s：開火後立刻切到下一段拍目標的話，切過去時砲彈還在空中
+ */
+export interface IntroFire {
+  readonly at: number
+  readonly from: { readonly x: number; readonly z: number }
+  readonly to: { readonly x: number; readonly z: number }
+  readonly miss: { readonly x: number; readonly z: number }
+}
 
 type IntroShotKind =
   | {

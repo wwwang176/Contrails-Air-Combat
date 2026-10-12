@@ -778,3 +778,33 @@ describe('挑目標', () => {
     expect(nearestEnemy(ts, 0, 1500)).toBe(-1)
   })
 })
+
+/**
+ * 【導覽指定的一發】開場導覽排一發給鏡頭拍：指定誰打誰、打偏到哪裡。砲口照常閃光、
+ * 砲彈照常飛，落地交給 `landed`；砲塔先轉向目標
+ */
+describe('導覽指定的一發', () => {
+  const flat = (): number => 0
+  it('打偏落在指定的點；砲塔指著目標；照常通報開火', () => {
+    const landed: { x: number; z: number }[] = []
+    const fired: number[] = []
+    const gb = createGroundBattle(
+      { shooters: ['tank', 'atGun'], period: 1e9, range: 1500 } as never, () => {}, undefined,
+      () => {}, (_u, _x, _y, _z, s) => { fired.push(s) }, (x, _y, z) => { landed.push({ x, z }) },
+    )
+    const gun = createGroundTarget(0, 'atGun', 'red', 0, 0, 0)
+    const tank = createGroundTarget(1, 'tank', 'blue', 0, -450, 0)
+    gb.update([gun, tank], 0, 0.1, flat)
+    gb.aimAt(0, 1)
+    expect(gb.aimTarget(0)).toBe(1)
+    const before = gb.shots
+    gb.scriptShot([gun, tank], 0, 1, 12, -8, flat)
+    expect(gb.shots).toBe(before + 1)
+    expect(fired).toEqual([0])
+    for (let t = 0.1; t < 3; t += 0.1) gb.update([gun, tank], t, 0.1, flat)
+    expect(landed).toHaveLength(1)
+    expect(landed[0]!.x).toBeCloseTo(12, 6)
+    expect(landed[0]!.z).toBeCloseTo(-458, 6)
+    gb.dispose()
+  })
+})
