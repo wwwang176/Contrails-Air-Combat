@@ -18,7 +18,7 @@ const PROFILE = [0.55, 0.85, 1, 0.65, 0.3] as const
 /** 相對於 90 mm 的視覺尺度；不代表物理裝藥量。0 表示不使用直射砲火。 */
 export function groundCannonScale(id: GroundUnitId): number {
   switch (id) {
-    case 'atGun': case 'tank': case 'tankDug': case 'panzer4': return 0.85
+    case 'atGun': case 'tank': case 'tankDug': case 'panzer4': case 'usTank': return 0.85
     case 'tiger': return 1
     default: return 0
   }

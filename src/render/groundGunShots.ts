@@ -5,6 +5,9 @@ export interface GroundGunSource {
   readonly index: number
   /** 已掛在車身／水平轉軸下的上下抬砲管網格。 */
   readonly barrel: Mesh
+  readonly scale?: number
+  /** 四聯砲依累計發數輪流使用管口；省略則由單管模型量測。 */
+  readonly muzzles?: readonly Vector3[]
 }
 
 /**
@@ -27,6 +30,24 @@ export function groundGunMuzzleOf(barrel: Mesh): Vector3 {
   return new Vector3((minX + maxX) * 0.5, (minY + maxY) * 0.5, z)
 }
 
+/** Flak 38 的四個共面管口：以前端截面中心分成四區，各取自己的截面中心。只在建場量測。 */
+export function groundQuadGunMuzzlesOf(barrel: Mesh): Vector3[] {
+  const center = groundGunMuzzleOf(barrel)
+  const bounds = Array.from({ length: 4 }, () => ({ minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }))
+  const positions = barrel.geometry.getAttribute('position')
+  for (let i = 0; i < positions.count; i++) {
+    if (Math.abs(positions.getZ(i) - center.z) > 1e-4) continue
+    const x = positions.getX(i), y = positions.getY(i)
+    const b = bounds[(x > center.x ? 1 : 0) + (y > center.y ? 2 : 0)]!
+    b.minX = Math.min(b.minX, x); b.maxX = Math.max(b.maxX, x)
+    b.minY = Math.min(b.minY, y); b.maxY = Math.max(b.maxY, y)
+  }
+  return bounds.map(b => {
+    if (!Number.isFinite(b.minX)) throw new Error('四聯砲模型缺少管口截面')
+    return new Vector3((b.minX + b.maxX) * 0.5, (b.minY + b.maxY) * 0.5, center.z)
+  })
+}
+
 /** 更新整條模型階層後讀出砲口；輸出向量由呼叫端重用。 */
 export function readGroundGunMuzzle(barrel: Mesh, local: Vector3, position: Vector3, direction: Vector3): void {
   barrel.updateWorldMatrix(true, false)
@@ -40,9 +61,9 @@ export function readGroundGunMuzzle(barrel: Mesh, local: Vector3, position: Vect
  */
 export function createGroundGunShots(
   sources: readonly GroundGunSource[], targets: readonly GroundTarget[],
-  onShot: (x: number, y: number, z: number, dx: number, dy: number, dz: number) => void,
+  onShot: (x: number, y: number, z: number, dx: number, dy: number, dz: number, scale: number) => void,
 ) {
-  const muzzles = sources.map(s => groundGunMuzzleOf(s.barrel))
+  const muzzles = sources.map(s => s.muzzles ?? [groundGunMuzzleOf(s.barrel)])
   const previous = sources.map(s => targets[s.index]?.guns[0]?.shots ?? 0)
   const position = new Vector3()
   const direction = new Vector3()
@@ -59,9 +80,10 @@ export function createGroundGunShots(
           previous[k] = shots
           if (count === 0 || target === undefined || !target.alive || target.dormant
             || target.departed || target.arrived || gun?.alive !== true) continue
-          readGroundGunMuzzle(source.barrel, muzzles[k]!, position, direction)
           for (let n = 0; n < count; n++) {
-            onShot(position.x, position.y, position.z, direction.x, direction.y, direction.z)
+            const local = muzzles[k]!
+            readGroundGunMuzzle(source.barrel, local[(shots - count + n) % local.length]!, position, direction)
+            onShot(position.x, position.y, position.z, direction.x, direction.y, direction.z, source.scale ?? 1)
           }
         }
       }

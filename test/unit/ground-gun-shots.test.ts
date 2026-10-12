@@ -16,8 +16,8 @@ beforeAll(async () => {
 })
 afterEach(() => vi.restoreAllMocks())
 
-function setup() {
-  const target = createGroundTarget(0, 'usFlakHeavy', 'red', 100, 200, 0)
+function setup(id: 'usFlakHeavy' | 'flakHeavy' | 'flakLight' = 'usFlakHeavy') {
+  const target = createGroundTarget(0, id, 'red', 100, 200, 0)
   target.position.y = 10
   target.guns = createGroundBattery()
   const emit = vi.fn()
@@ -25,8 +25,8 @@ function setup() {
   return { target, emit, models, gun: target.guns[0]! }
 }
 
-describe('90 mm 砲口開火事件', () => {
-  it.each(['atGun', 'tank', 'tankDug', 'panzer4', 'tiger'] as const)('%s 的劇本砲火與音效使用實際模型砲口，跟隨車身轉向', id => {
+describe('地面砲口開火事件', () => {
+  it.each(['atGun', 'tank', 'tankDug', 'panzer4', 'tiger', 'usTank'] as const)('%s 的劇本砲火與音效使用實際模型砲口，跟隨車身轉向', id => {
     const target = createGroundTarget(0, id, 'red', 100, 200, 0)
     target.position.y = 10
     const enemy = createGroundTarget(1, 'tank', 'blue', 100, -200, 0)
@@ -87,8 +87,8 @@ describe('90 mm 砲口開火事件', () => {
     } finally { models.dispose() }
   })
 
-  it('短閃光已過仍按發數通報；暫停、停火不重複，擊毀與隱藏時不通報', () => {
-    const { target, emit, models, gun } = setup()
+  it.each(['usFlakHeavy', 'flakHeavy', 'flakLight'] as const)('%s 短閃光已過仍按發數通報；暫停、停火不重複，擊毀與隱藏時不通報', id => {
+    const { target, emit, models, gun } = setup(id)
     try {
       gun.flash = 0
       gun.shots = 2
@@ -111,6 +111,40 @@ describe('90 mm 砲口開火事件', () => {
     } finally { models.dispose() }
   })
 
+  it.each(['flakHeavy', 'flakLight'] as const)('%s 在模型管口開火、尺度正確，四聯砲每發輪替管口並跟隨仰角', id => {
+    const { target, emit, models, gun } = setup(id)
+    try {
+      gun.aim.set(0, 0, -1)
+      gun.shots = 4
+      models.update([target], camera, 1 / 60)
+      const calls = emit.mock.calls.slice()
+      expect(calls).toHaveLength(4)
+      for (const call of calls) {
+        expect(call[2]).toBeLessThan(199)
+        expect(call[1]).toBeGreaterThan(10)
+        expect(call.slice(3)).toEqual([0, 0, -1, id === 'flakLight' ? 0.16 : 1])
+      }
+      if (id === 'flakLight') {
+        expect(new Set(calls.map(c => c.slice(0, 3).join(','))).size).toBe(4)
+        expect(new Set(calls.map(c => Math.sign(c[0] - 100))).size).toBe(2)
+        expect(new Set(calls.map(c => c[1].toFixed(4))).size).toBe(2)
+        gun.shots++
+        models.update([target], camera, 1 / 60)
+        expect(emit.mock.calls[4]).toEqual(calls[0])
+      }
+      target.orientation.setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 2)
+      gun.aim.set(0, 1, -1).normalize()
+      gun.shots++
+      models.update([target], camera, 1 / 60)
+      const last = emit.mock.calls.at(-1)!
+      expect(last[0]).toBeLessThan(100)
+      expect(last[1]).toBeGreaterThan(calls[0]![1])
+      expect(last[3]).toBeCloseTo(-Math.SQRT1_2, 4)
+      expect(last[4]).toBeCloseTo(Math.SQRT1_2, 4)
+      expect(last[5]).toBeCloseTo(0, 4)
+    } finally { models.dispose() }
+  })
+
   it('重開清掉發數，下一場第一發照樣通報', () => {
     const { target, emit, models, gun } = setup()
     gun.shots = 1
@@ -127,7 +161,7 @@ describe('90 mm 砲口開火事件', () => {
 
   it('其他地面砲不觸發砲口小爆炸', () => {
     const emit = vi.fn()
-    const targets = (['flakHeavy', 'flakLight', 'usFlakTrack', 'atGun'] as const).map((id, i) =>
+    const targets = (['usTank', 'usFlakTrack', 'atGun'] as const).map((id, i) =>
       createGroundTarget(i, id, 'red', 0, 0, 0))
     for (const target of targets) target.guns = createGroundBattery()
     const models = createGroundModels(targets, undefined, emit)

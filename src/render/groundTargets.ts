@@ -9,7 +9,7 @@ import {
 import { useAircraftLod } from './geometry/buildAircraft'
 import { GUN_TURRET_KEY, type GunTurretParts } from './geometry/ground/turret'
 import { disposeLivery, liveryGeometry } from './geometry/ground/livery'
-import { createGroundGunShots, groundGunMuzzleOf, readGroundGunMuzzle, type GroundGunSource } from './groundGunShots'
+import { createGroundGunShots, groundGunMuzzleOf, groundQuadGunMuzzlesOf, readGroundGunMuzzle, type GroundGunSource } from './groundGunShots'
 import {
   GUN_PITCH_MAX, GUN_PITCH_MIN, TANK_PITCH_MAX, TANK_PITCH_MIN, TANK_TRAVERSE_RATE, aimAngles, slewYaw,
 } from './gunAim'
@@ -96,11 +96,11 @@ interface Pair {
 
 /**
  * @param livery 這一場地面單位的塗裝（任務卡的 `groundLivery`）。省略 = 預設配色、直接用共用的幾何
- * @param onGunShot 90 mm 新開火時通報模型管口與方向，爆炸效果由呼叫端持有。
+ * @param onGunShot 防空砲新開火時通報模型管口、方向與效果尺度，爆炸效果由呼叫端持有。
  */
 export function createGroundModels(
   targets: readonly GroundTarget[], livery?: GroundLivery,
-  onGunShot?: (x: number, y: number, z: number, dx: number, dy: number, dz: number) => void,
+  onGunShot?: (x: number, y: number, z: number, dx: number, dy: number, dz: number, scale: number) => void,
 ): GroundModels {
   const live = new MeshStandardMaterial({
     vertexColors: true, flatShading: true, roughness: 0.85, metalness: 0.06,
@@ -202,7 +202,11 @@ export function createGroundModels(
       elev.position.copy(gt.elevatePivot)
       trav.add(elev)
       m.add(trav)
-      if (t.unit.id === 'usFlakHeavy') gunSources.push({ index: meshes.length - 1, barrel: elev })
+      if (t.unit.id === 'usFlakHeavy' || t.unit.id === 'flakHeavy') {
+        gunSources.push({ index: meshes.length - 1, barrel: elev })
+      } else if (t.unit.id === 'flakLight') {
+        gunSources.push({ index: meshes.length - 1, barrel: elev, scale: 0.16, muzzles: groundQuadGunMuzzlesOf(elev) })
+      }
     }
     turrets.push(trav)
     muzzlePoints.push(trav === null ? null : groundGunMuzzleOf(trav.children[0] as Mesh))
