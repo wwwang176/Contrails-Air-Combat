@@ -1,7 +1,7 @@
 import type { HudFrame, HudLayout } from '../types'
 import { contactBoxRadius, contactColor, dimmedHostile, hudFont, NON_OBJECTIVE_ALPHA } from '../style'
 import {
-  contactRangeLabel, drawBrackets, edgeIndicatorPosition, OBJECTIVE_BRACKET_WIDTH,
+  contactRangeLabel, drawBrackets, drawEdgeArrow, edgeIndicatorPosition, OBJECTIVE_BRACKET_WIDTH,
 } from './contacts'
 
 /**
@@ -100,23 +100,13 @@ export function drawMarkers(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
 }
 
 /**
- * 最近的主要目標在畫面外（或背後）時，邊緣上的箭頭，與目標框的畫面外指示
- * 同一個形狀與顏色。**只畫最近那一個** —— 每一座都畫的話整圈邊框都是箭頭。
+ * 最近的主要目標在畫面外（或背後）時，邊緣上的箭頭，與任務目標飛機的邊緣箭頭
+ * 同一個樣子（`drawEdgeArrow`）。**只畫最近那一個** —— 每一座都畫的話整圈邊框都是箭頭。
  */
 function drawObjectiveArrow(
   ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame, m: HudFrame['markers'][number], aspect: number,
 ): void {
   if (!m.behind && Math.abs(m.x) <= aspect && Math.abs(m.y) <= 1) return
-  const e = edgeIndicatorPosition(m.x, m.y, m.behind, aspect)
-  ctx.save()
-  ctx.translate(L.cx + e.x * L.unit, L.cy - e.y * L.unit)
-  ctx.rotate(-e.angle)
-  ctx.fillStyle = contactColor(m.hostile, false, f.enemyUnaware)
-  ctx.beginPath()
-  ctx.moveTo(9 * L.scale, 0)
-  ctx.lineTo(-5 * L.scale, 5 * L.scale)
-  ctx.lineTo(-5 * L.scale, -5 * L.scale)
-  ctx.closePath()
-  ctx.fill()
-  ctx.restore()
+  drawEdgeArrow(ctx, L, edgeIndicatorPosition(m.x, m.y, m.behind, aspect),
+    contactColor(m.hostile, false, f.enemyUnaware), true)
 }

@@ -55,6 +55,39 @@ export function drawBrackets(ctx: CanvasRenderingContext2D, x: number, y: number
   ctx.stroke()
 }
 
+/**
+ * 邊緣箭頭：實心三角，尖端朝目標。任務目標外面再加一圈同色的空心三角框，
+ * 與任務目標框同一個意思 —— 「這一個是任務要的」。
+ */
+export function drawEdgeArrow(
+  ctx: CanvasRenderingContext2D, L: HudLayout, e: { x: number; y: number; angle: number },
+  color: string, objective: boolean,
+): void {
+  const s = L.scale
+  ctx.save()
+  ctx.translate(L.cx + e.x * L.unit, L.cy - e.y * L.unit)
+  ctx.rotate(-e.angle)
+  ctx.fillStyle = color
+  ctx.beginPath()
+  ctx.moveTo(9 * s, 0)
+  ctx.lineTo(-5 * s, 5 * s)
+  ctx.lineTo(-5 * s, -5 * s)
+  ctx.closePath()
+  ctx.fill()
+  if (objective) {
+    // 外框與實心三角同形、重心相同，三邊各留約 3 px 的空隙
+    ctx.strokeStyle = color
+    ctx.lineWidth = 1.5 * s
+    ctx.beginPath()
+    ctx.moveTo(16 * s, 0)
+    ctx.lineTo(-9 * s, 9.5 * s)
+    ctx.lineTo(-9 * s, -9.5 * s)
+    ctx.closePath()
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
 /** 目標框底下的距離讀數：一律 km、小數一位（`0.9 km`、`0.0 km`） */
 export function contactRangeLabel(range: number): string {
   return `${(range / 1000).toFixed(1)} km`
@@ -103,20 +136,7 @@ export function drawContacts(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hud
       ctx.fillText(contactRangeLabel(c.range), x, y + r + 3 * L.scale)
     } else {
       // 畫面外指示：**畫全部**，無距離門檻（spec §8）
-      const e = edgeIndicatorPosition(c.x, c.y, c.behind, aspect)
-      const ax = L.cx + e.x * L.unit
-      const ay = L.cy - e.y * L.unit
-      ctx.save()
-      ctx.translate(ax, ay)
-      ctx.rotate(-e.angle)
-      ctx.fillStyle = color
-      ctx.beginPath()
-      ctx.moveTo(9 * L.scale, 0)
-      ctx.lineTo(-5 * L.scale, 5 * L.scale)
-      ctx.lineTo(-5 * L.scale, -5 * L.scale)
-      ctx.closePath()
-      ctx.fill()
-      ctx.restore()
+      drawEdgeArrow(ctx, L, edgeIndicatorPosition(c.x, c.y, c.behind, aspect), color, c.objective)
     }
     ctx.globalAlpha = 1
 

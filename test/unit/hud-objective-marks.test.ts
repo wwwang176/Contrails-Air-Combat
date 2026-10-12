@@ -105,7 +105,10 @@ describe('地面與船的標記', () => {
     putMarker(f, -3, 0, false, true, 8000)
     const { ctx, ops } = fakeCtx()
     drawMarkers(ctx, LAYOUT, f)
-    expect(ops).toEqual([{ op: 'fill', color: HUD_COLORS.danger, alpha: 1 }])
+    expect(ops).toEqual([
+      { op: 'fill', color: HUD_COLORS.danger, alpha: 1 },
+      { op: 'stroke', color: HUD_COLORS.danger, alpha: 1 },
+    ])
   })
 
   it('最近的主要目標在畫面內就不畫箭頭', () => {
@@ -142,5 +145,36 @@ describe('上帝視角的分隊框比照座艙', () => {
     const plain = fakeCtx()
     drawGodMarkers(plain.ctx, LAYOUT, godFrame(false, false))
     expect(plain.ops.find(o => o.op === 'rect')!.alpha).toBe(1)
+  })
+})
+
+describe('任務目標的邊緣箭頭外面多一圈框', () => {
+  function offscreen(objective: boolean) {
+    const f = contactFrame(objective, true)
+    f.contacts[0]!.x = 5
+    return f
+  }
+
+  it('任務目標的飛機：實心三角加一圈框，同色', () => {
+    const { ctx, ops } = fakeCtx()
+    drawContacts(ctx, LAYOUT, offscreen(true))
+    expect(ops.filter(o => o.op !== 'text')).toEqual([
+      { op: 'fill', color: HUD_COLORS.danger, alpha: 1 },
+      { op: 'stroke', color: HUD_COLORS.danger, alpha: 1 },
+    ])
+  })
+
+  it('其他飛機只有實心三角', () => {
+    const { ctx, ops } = fakeCtx()
+    drawContacts(ctx, LAYOUT, offscreen(false))
+    expect(ops.map(o => o.op)).toEqual(['fill'])
+  })
+
+  it('地面任務目標的箭頭也加框', () => {
+    const f = markerFrame(true)
+    putMarker(f, 5, 0, false, true, 3000)
+    const { ctx, ops } = fakeCtx()
+    drawMarkers(ctx, LAYOUT, f)
+    expect(ops.map(o => o.op)).toEqual(['fill', 'stroke'])
   })
 })
