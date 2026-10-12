@@ -184,6 +184,26 @@ describe('createBlastLights：固定幾盞的燈池', () => {
     expect(lit(b)).toHaveLength(0)
   })
 
+  it('連續砲口光不搶走近處尚未結束的炸彈閃光', () => {
+    const b = createBlastLights()
+    b.flash(0, 0, 0, 1, CAM)
+    b.flashMuzzle(1000, 2, 0, CAM)
+    b.flashMuzzle(1100, 2, 0, CAM)
+    const bomb = lit(b).find(l => l.position.x === 0)!
+    expect(bomb.intensity).toBe(BLAST_LIGHT_INTENSITY)
+    expect(bomb.distance).toBe(BLAST_LIGHT_DISTANCE)
+    expect(lit(b).some(l => l.position.x === 1100)).toBe(true)
+    b.flash(10, 0, 0, 1, CAM)
+    expect(lit(b).map(l => l.position.x).sort((a, c) => a - c)).toEqual([0, 10])
+    b.flashMuzzle(1200, 2, 0, CAM)
+    expect(lit(b).map(l => l.position.x).sort((a, c) => a - c)).toEqual([0, 10])
+    b.step(BLAST_LIGHT_SECONDS_MAX + 0.01)
+    b.flashMuzzle(1200, 2, 0, CAM)
+    expect(lit(b)).toHaveLength(1)
+    expect(lit(b)[0]!.position.x).toBe(1200)
+    b.dispose()
+  })
+
   /**
    * 【六種爆炸都打燈】炸彈、魚雷、擊墜、地面目標、艦上砲位、高射砲。
    * 高射砲傳 `false` 不放大；船火與地面火的小爆炸不打（整場會一直閃）。

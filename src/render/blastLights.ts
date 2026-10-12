@@ -126,6 +126,8 @@ export function createBlastLights(): BlastLights {
   const seconds = new Float32Array(BLAST_LIGHT_COUNT)
   const size = new Float32Array(BLAST_LIGHT_COUNT)
   const radius = new Float32Array(BLAST_LIGHT_COUNT)
+  /** 砲口光只能借空位或替換另一盞砲口光，不搶尚未結束的爆炸。 */
+  const muzzle = new Uint8Array(BLAST_LIGHT_COUNT)
   /** 每一盞是第幾次點的，越小越早 */
   const born = new Float64Array(BLAST_LIGHT_COUNT)
   let serial = 0
@@ -143,20 +145,23 @@ export function createBlastLights(): BlastLights {
   }
 
   function ignite(x: number, y: number, z: number, s: number, distance: number,
-    duration: number, cam: V3, lift: number): void {
+    duration: number, cam: V3, lift: number, isMuzzle = false): void {
     if (s <= 0) return
     const dx = x - cam.x
     const dy = y - cam.y
     const dz = z - cam.z
     if (dx * dx + dy * dy + dz * dz > BLAST_LIGHT_CULL * BLAST_LIGHT_CULL) return
-    // 熄著的燈先用；全亮著就搶最早點的那盞。先後看序號不看年齡 —— 同一幀
-    // 點的幾盞年齡都是 0，比年齡會一直搶同一盞
-    let k = 0
-    for (let i = 1; i < BLAST_LIGHT_COUNT; i++) {
-      if (size[k]! <= 0) break
-      if (size[i]! <= 0 || born[i]! < born[k]!) k = i
+    // 熄著先用；再替換砲口光；同類才取最早點的。爆炸的既有先後規則不變。
+    let k = -1
+    for (let i = 0; i < BLAST_LIGHT_COUNT; i++) {
+      if (size[i]! <= 0) { k = i; break }
+      if (isMuzzle && muzzle[i] === 0) continue
+      if (k < 0 || muzzle[i]! > muzzle[k]!
+        || (muzzle[i] === muzzle[k] && born[i]! < born[k]!)) k = i
     }
+    if (k < 0) return
     born[k] = ++serial
+    muzzle[k] = isMuzzle ? 1 : 0
     lights[k]!.position.set(x, y + lift, z)
     age[k] = 0
     seconds[k] = duration
@@ -175,7 +180,7 @@ export function createBlastLights(): BlastLights {
     flashMuzzle(x, y, z, cam, scale = 1) {
       if (!(scale > 0)) return
       ignite(x, y, z, MUZZLE_LIGHT_INTENSITY * scale * scale / BLAST_LIGHT_INTENSITY,
-        MUZZLE_LIGHT_DISTANCE * scale, MUZZLE_LIGHT_SECONDS, cam, 0)
+        MUZZLE_LIGHT_DISTANCE * scale, MUZZLE_LIGHT_SECONDS, cam, 0, true)
     },
     step(dt) {
       for (let k = 0; k < BLAST_LIGHT_COUNT; k++) {
