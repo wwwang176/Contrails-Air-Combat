@@ -488,6 +488,8 @@ export interface MissionBattle {
    * 高度與縱深兩軸，整隊才落得進同一個判定圈。
    */
   readonly convoyBox?: true
+  /** 魚雷機等攻擊群前後分排，相鄰排錯開半格；排距為 m，與 convoyBox 擇一。 */
+  readonly convoyRows?: { readonly size: number; readonly depth: number }
   /**
    * `convoySpec` 那幾架的職務。**省略 = `transit`。**
    *

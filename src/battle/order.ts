@@ -386,6 +386,8 @@ export interface SideOrder {
   readonly bombers: number
   /** 被護送的排成三中隊箱型（`pushBox`）。**省略 = 一條橫線，間隔 `CONVOY_LANE`** */
   readonly box?: true
+  /** 前後分排、相鄰排橫向錯開半格；每排架數與沿航向的排距（m）。與 box 擇一。 */
+  readonly rows?: { readonly size: number; readonly depth: number }
   /**
    * 那幾架轟炸機的職務。**省略 = `transit`。**
    *
@@ -420,6 +422,11 @@ function pushSide(
   const bomber = side.bomber
   if (bomber === null) return
   const duty = side.bomberDuty === 'strike' ? 'combat' : 'transit'
+  const rows = side.rows
+  if (rows !== undefined && (side.box === true || !Number.isInteger(rows.size) || rows.size < 1
+    || !Number.isFinite(rows.depth) || rows.depth <= 0)) {
+    throw new Error('前後排需要正整數架數、正排距，且不能同時使用箱型')
+  }
   // 【箱型只給被護送的】`pushBox` 產的一律是 transit —— 箱子的存在理由就是
   // 讓整隊落得進同一個判定圈，而攻擊隊沒有判定圈。兩個同時開的話那幾架會是
   // transit 卻沒有終點，`createBattle` 當場拋「沒有終點可飛」；沒有卡片這樣寫
@@ -428,6 +435,19 @@ function pushSide(
     return
   }
   for (let i = 0; i < side.bombers; i++) {
+    if (rows !== undefined) {
+      const row = Math.floor(i / rows.size)
+      const count = Math.min(rows.size, side.bombers - row * rows.size)
+      const offset = row - (Math.ceil(side.bombers / rows.size) - 1) / 2
+      const lane = (i % rows.size - (count - 1) / 2 + offset * 0.5) * CONVOY_LANE
+      // 排距沿機首方向；中心留在原航道，前排向前、後排向後。
+      const distance = offset * rows.depth
+      out.push({
+        team, members: [bomber], entry, duty, lane, tier: CONVOY_TIER,
+        depth: distance * Math.cos(entry.heading), slide: distance * Math.sin(entry.heading),
+      })
+      continue
+    }
     const lane = (i - (side.bombers - 1) / 2) * CONVOY_LANE
     // 【一架一個小隊】理由見 `assertOrderOfBattle` 的 transit 檢查
     out.push({ team, members: [bomber], entry, duty, lane, tier: CONVOY_TIER })

@@ -89,6 +89,7 @@ export const JAPAN: readonly MissionCard[] = [
       // 【攻擊隊是 strike】陸攻照常走雷擊航路、照常閃彈，擊沉數由它們達成。
       // 誤成 transit 的話它們會直飛到一個不存在的終點
       convoySpec: G4M, convoyCount: 8, convoyDuty: 'strike',
+      convoyRows: { size: 4, depth: 140 },
       // 【F4F 先打陸攻】沒有偏置時 F4F 會去纏會還手的零戰。20 倍以上 F4F 鎖陸攻的
       // 比例就不再上升。**起始值。**
       bomberPriority: 20,
@@ -99,6 +100,35 @@ export const JAPAN: readonly MissionCard[] = [
       clouds: { yMin: 600, yMax: 900, amount: 'some' },
       fleet: GUADALCANAL_FLEET,
       sinkCount: 3,
+      /**
+       * 【開場導覽】先交代護送的魚雷機與其攻擊目標，再呈現玩家的高空掩護位置：
+       *
+       * ```
+       *   1  G4M 每排四架、前後相隔 140 m，從右後方約 30 度近拍後排最右一架，其餘編隊在後景
+       *   2  前方巡洋艦第 2.5～5 秒由 (0, 0, −270) 航行到 (0, 0, −290)，左舷前上方近拍艦身與砲塔
+       *   3  第 6 秒玩家約在 (−750, 1,311, 4,249)，魚雷機在 y 529、z 4,450 附近；
+       *      由玩家後上方朝北俯拍，讓零戰在前景、魚雷機兩排在下方後景，漸變回操作視角
+       * ```
+       *
+       * 魚雷機鏡頭沿航線移動，避免轉彎時鏡頭繞機身、甩出後方編隊；玩家跟拍以俯角
+       * 涵蓋約 800 m 下方的被護送編隊。**鏡位與秒數是起始值。**
+       */
+      intro: [
+        {
+          kind: 'pan', seconds: 2.5, fov: 50,
+          from: { x: -370, y: 730, z: 5122 }, to: { x: -364, y: 701, z: 4897 },
+          lookFrom: { x: -435, y: 705, z: 5070 }, lookTo: { x: -429, y: 676, z: 4845 },
+        },
+        {
+          kind: 'pan', seconds: 2.5, fov: 42,
+          from: { x: -190, y: 90, z: -450 }, to: { x: -175, y: 85, z: -445 },
+          lookFrom: { x: 0, y: 12, z: -270 }, lookTo: { x: 0, y: 12, z: -290 },
+        },
+        {
+          kind: 'follow', seconds: 3, subject: { player: true },
+          back: 0.5, up: 70, side: 0, lead: 0, lookUp: 0, fov: 52,
+        },
+      ],
       // 【低空】陸攻從 5 km 外進場，4,000 m 開場的話到船團上空還沒降到投雷
       // 高度，整趟帶著雷飛過去。與日 M3 同一個值。**起始值。**
       altitude: 1000,

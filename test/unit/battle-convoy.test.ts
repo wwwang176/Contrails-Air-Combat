@@ -30,6 +30,28 @@ const BLUE_PLAIN: SideOrder = { fighter: P51D, fighters: 4, bomber: null, bomber
 const RED_CONVOY: SideOrder = { fighter: BF109K4, fighters: 4, bomber: HE111, bombers: 4 }
 
 describe('convoyLine', () => {
+  it('前後排沿各隊航向展開，末排不足仍保留所有飛機', () => {
+    const rows = { size: 4, depth: 140 }
+    const units = convoyLine(HEAD_ON,
+      { ...BLUE_ESCORT, bombers: 7, rows }, { ...RED_CONVOY, bombers: 7, rows })
+    for (const team of ['blue', 'red'] as const) {
+      const planes = units.filter((u) => u.team === team && u.duty === 'transit')
+      expect(planes).toHaveLength(7)
+      const forwardZ = -Math.cos(planes[0]!.entry.heading)
+      expect((planes[4]!.depth! - planes[0]!.depth!) * forwardZ).toBeCloseTo(-140)
+      expect(new Set(planes.map((u) => `${u.lane},${u.depth}`)).size).toBe(7)
+    }
+    expect(() => assertOrderOfBattle(units)).not.toThrow()
+  })
+
+  it('前後排拒絕非法尺寸或同時指定箱型', () => {
+    for (const rows of [{ size: 0, depth: 140 }, { size: 1.5, depth: 140 }, { size: 4, depth: 0 }]) {
+      expect(() => convoyLine(HEAD_ON, { ...BLUE_ESCORT, rows }, RED_PLAIN)).toThrow()
+    }
+    expect(() => convoyLine(HEAD_ON,
+      { ...BLUE_ESCORT, box: true, rows: { size: 4, depth: 140 } }, RED_PLAIN)).toThrow()
+  })
+
   it('被護送的每一架自成一個小隊', () => {
     const u = convoyLine(HEAD_ON, BLUE_ESCORT, RED_PLAIN)
     const transit = u.filter((f) => f.duty === 'transit')

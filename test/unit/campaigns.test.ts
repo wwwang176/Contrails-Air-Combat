@@ -381,6 +381,24 @@ describe('missionConfigFrom', () => {
 describe('日 M1 瓜達康納爾上空', () => {
   const card = MISSIONS.japan.find((m) => m.id === 'japan-m1') as ReadyMissionCard
 
+  it('魚雷機實際出生為前後兩排，各四架且橫向交錯，保留獨立攻擊職務', () => {
+    const cfg = missionConfigFrom(card)
+    const b = createBattle({ update() {} }, cfg, 1)
+    const planes = b.world.combatants.filter((c) => c.aircraft.spec.id === 'g4m')
+    const front = planes.slice(0, 4).map((c) => c.aircraft.state.position)
+    const rear = planes.slice(4).map((c) => c.aircraft.state.position)
+    expect(front).toHaveLength(4)
+    expect(rear).toHaveLength(4)
+    expect(new Set(front.map((p) => p.z)).size).toBe(1)
+    expect(new Set(rear.map((p) => p.z)).size).toBe(1)
+    expect(rear[0]!.z - front[0]!.z).toBe(140)
+    expect(rear[0]!.x - front[0]!.x).toBe(100)
+    for (const p of [...front, ...rear]) expect(p.y).toBe(700)
+    const units = cfg.units.filter((u) => u.members[0]!.id === 'g4m')
+    expect(units).toHaveLength(8)
+    expect(units.every((u) => u.duty === 'combat' && u.members.length === 1)).toBe(true)
+  })
+
   it('A6M5 ×12 掩護 G4M ×8，對上 F4F-4 ×8；群島；擊沉三艘', () => {
     const b = card.battle
     expect(b.blueSpec.id).toBe('a6m5')

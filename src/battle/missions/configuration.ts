@@ -156,6 +156,7 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
   const plan = ENTRY_PLANS[b.entry]
   // 【省略時連鍵都不放】理由同 `need`：沒寫 `convoyBox` 的卡一個位元都不該動
   const box = b.convoyBox === true ? { box: true } as const : {}
+  const rows = b.convoyRows === undefined ? {} : { rows: b.convoyRows }
   // 【轟炸機一架一隊】見 `soloBombers`。波次在 `cardBeats` 過同一支
   const solo = soloBombers(rules.kind === 'convoy'
     ? convoyLine(plan, {
@@ -164,12 +165,14 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
       bomber: rules.owner === 'blue' ? convoyOf(card) : null,
       bombers: b.convoyCount,
       ...box,
+      ...rows,
     }, {
       fighter: b.redSpec,
       fighters: b.redCount,
       bomber: rules.owner === 'red' ? convoyOf(card) : null,
       bombers: b.convoyCount,
       ...box,
+      ...rows,
     })
     // 【攻擊隊走同一支編組，職務換成 combat】少了這一條，`convoySpec` 那幾架
     // 根本不會被生出來，而卡片與簡報看起來一切正常
@@ -180,6 +183,7 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
         bomber: convoyOf(card),
         bombers: b.convoyCount,
         bomberDuty: 'strike',
+        ...rows,
       }, {
         fighter: b.redSpec,
         fighters: b.redCount,
@@ -198,6 +202,7 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
         fighters: b.redCount,
         bomber: convoyOf(card),
         bombers: b.convoyCount,
+        ...rows,
       })
     : b.blueWaves !== undefined
       ? waveColumn(
