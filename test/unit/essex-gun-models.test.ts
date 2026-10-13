@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { Matrix4, Mesh, Quaternion, Vector3, type Object3D } from 'three'
+import { BatchedMesh, Matrix4, Mesh, Quaternion, Vector3, type Object3D } from 'three'
 import { createGltfLoader } from '../../src/render/geometry/gltfLoader'
 import { prepareShipGuns, SHIP_GUN_PREFIX } from '../../src/render/geometry/shipGuns'
 import { applyShipLivery } from '../../src/render/shipAssets'
@@ -48,6 +48,39 @@ function vertices(root: Object3D): string[] {
 }
 
 describe('Essex measured gun models', () => {
+  it('batches all 92 gun pieces while preserving their vertex attributes and articulated transforms', () => {
+    const root = model(), s = ship()
+    const pieces = s.guns.flatMap(g => g.projectileMounts!.flatMap(mount => {
+      const body = root.getObjectByName(SHIP_GUN_PREFIX + mount.id) as Mesh
+      return [body, body.children[0] as Mesh]
+    }))
+    const renderer = createShipGunModels([s], [root])
+    try {
+      root.position.copy(s.position); root.quaternion.copy(s.orientation)
+      for (const g of s.guns) { g.aim.set(Math.sign(g.zone.position.x) * 0.8, 0.6, 0); stepShipMounts(g, true, 100) }
+      renderer.update([s], 1 / 60); root.updateMatrixWorld(true)
+      const batches = root.children.filter(o => o instanceof BatchedMesh) as BatchedMesh[]
+      expect(batches).toHaveLength(1)
+      const batch = batches[0]!
+      expect(batch.instanceCount).toBe(92)
+      for (const [id, piece] of pieces.entries()) {
+        expect(piece.layers.mask).toBe(0)
+        const range = batch.getGeometryRangeAt(batch.getGeometryIdAt(id))!
+        const world = batch.getMatrixAt(id, new Matrix4()).premultiply(batch.matrixWorld)
+        for (const [name, attribute] of Object.entries(piece.geometry.attributes)) {
+          const copied = batch.geometry.getAttribute(name)
+          for (let v = 0; v < attribute.count; v++) {
+            for (let c = 0; c < attribute.itemSize; c++) expect(copied.getComponent(range.vertexStart + v, c)).toBe(attribute.getComponent(v, c))
+            if (name === 'position') {
+              const p = new Vector3().fromBufferAttribute(attribute, v)
+              expect(p.clone().applyMatrix4(world).distanceTo(p.applyMatrix4(piece.matrixWorld))).toBeLessThan(1e-4)
+            }
+          }
+        }
+      }
+    } finally { renderer.dispose(); dispose(root) }
+  })
+
   it('keeps five-inch and 40 mm barrels outside the front face through full elevation', () => {
     const root = model(), point = new Vector3(), rotation = new Quaternion()
     try {

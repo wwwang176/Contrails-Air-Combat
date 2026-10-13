@@ -4,24 +4,30 @@ import { gunBarrelIndex } from '../weapons/gunMount'
 import { FLASH_SECONDS } from '../weapons/muzzleFlash'
 import { crossFlare, createMuzzleMaterial } from './muzzle'
 import { SHIP_GUN_PREFIX } from './geometry/shipGuns'
+import { batchShipGunMeshes } from './shipGunBatch'
 
 export type ShipGunShot = (x: number, y: number, z: number, dx: number, dy: number, dz: number, scale: number) => void
 
-/** Per-scene bindings borrow cached model geometry; only the batched flashes belong to this object. */
+/** Per-scene bindings borrow cached models and own their draw batches and muzzle flashes. */
 export function createShipGunModels(ships: readonly Ship[], hulls: readonly Object3D[]) {
   const sources: { ship: number; gun: number; models: { body: Mesh; barrel: Mesh }[]; previous: number; left: number }[] = []
+  const batches: ReturnType<typeof batchShipGunMeshes>[] = []
   for (let k = 0; k < ships.length; k++) {
+    const parts: Mesh[] = []
     for (let i = 0; i < ships[k]!.guns.length; i++) {
       const gun = ships[k]!.guns[i]!
       if (!gun.projectileMounts) continue
       const models = gun.projectileMounts.map(mount => {
         const body = hulls[k]!.getObjectByName(SHIP_GUN_PREFIX + mount.id) as Mesh | undefined
         if (!body || !body.children[0]) throw new Error(`Missing ship gun model: ${mount.id}`)
+        parts.push(body, body.children[0] as Mesh)
         return { body, barrel: body.children[0] as Mesh }
       })
       sources.push({ ship: k, gun: i, models,
         previous: gun.zone.tier === 'flak' ? gun.fired : gun.shots, left: 0 })
     }
+    // Trial the most expensive ship first; the simulation and authored models are unchanged.
+    if (ships[k]!.cls.id === 'essex') batches.push(batchShipGunMeshes(hulls[k]!, parts))
   }
   const geometry = crossFlare(), material = createMuzzleMaterial()
   const object = new InstancedMesh(geometry, material, Math.max(1, sources.length))
@@ -82,9 +88,13 @@ export function createShipGunModels(ships: readonly Ship[], hulls: readonly Obje
         slot++
       }
       object.count = slot
+      for (const batch of batches) batch.update()
       object.instanceMatrix.needsUpdate = true
       if (object.instanceColor) object.instanceColor.needsUpdate = true
     },
-    dispose(): void { geometry.dispose(); material.dispose(); object.dispose() },
+    dispose(): void {
+      for (const batch of batches) batch.dispose()
+      geometry.dispose(); material.dispose(); object.dispose()
+    },
   }
 }
