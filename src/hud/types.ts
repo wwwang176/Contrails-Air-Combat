@@ -469,6 +469,8 @@ export interface HudFrame {
   objectiveHasTarget: boolean
   objectiveWorldX: number
   objectiveWorldZ: number
+  /** 指定位置的螢幕投影，單位為螢幕半高；與撤離圈共用任務目標座標 */
+  objectivePoint: { x: number; y: number; behind: boolean }
   /**
    * 畫面中心的訊息。空字串 = 不畫。
    *
@@ -563,6 +565,7 @@ export function createHudFrame(): HudFrame {
     objectiveHasTarget: false,
     objectiveWorldX: 0,
     objectiveWorldZ: 0,
+    objectivePoint: { x: 0, y: 0, behind: false },
     message: '',
     messageAge: -1,
     enemyUnaware: false,

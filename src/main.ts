@@ -1832,6 +1832,10 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 【導覽期間橫幅停在中央】結束後才接著滑進任務列
   if (missionIntro.active) holdMissionBanner(elapsed)
   fillMissionHud(battle, mode, pendingMission, elapsed)
+  if (hudFrame.objectiveHasTarget) {
+    const target = battle.mission.target
+    hudFrame.objectivePoint.behind = projectMarker(target.x, target.y, target.z, hudFrame.objectivePoint)
+  }
   hudFrame.intro = missionIntro.active
 
   hud.render(hudFrame, frameSeconds)

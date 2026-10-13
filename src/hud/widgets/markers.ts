@@ -1,5 +1,5 @@
 import type { HudFrame, HudLayout } from '../types'
-import { contactBoxRadius, contactColor, dimmedHostile, hudFont, NON_OBJECTIVE_ALPHA } from '../style'
+import { contactBoxRadius, contactColor, dimmedHostile, HUD_COLORS, hudFont, NON_OBJECTIVE_ALPHA } from '../style'
 import {
   contactRangeLabel, drawBrackets, drawEdgeArrow, edgeIndicatorPosition, OBJECTIVE_BRACKET_WIDTH,
 } from './contacts'
@@ -100,6 +100,13 @@ export function drawMarkers(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
   }
   ctx.globalAlpha = 1
   if (nearest >= 0 && !f.intro) drawObjectiveArrow(ctx, L, f, f.markers[nearest]!, aspect)
+  // 指定位置沿用主要目標的外框三角，顏色與撤離圈一致；不佔用彈藥標記池。
+  if (f.objectiveActive && f.objectiveHasTarget && !f.intro) {
+    const p = f.objectivePoint
+    if (p.behind || Math.abs(p.x) > aspect || Math.abs(p.y) > 1) {
+      drawEdgeArrow(ctx, L, edgeIndicatorPosition(p.x, p.y, p.behind, aspect), HUD_COLORS.primary, true)
+    }
+  }
 }
 
 /**
