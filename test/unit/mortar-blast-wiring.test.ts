@@ -15,7 +15,7 @@ describe('迫擊砲彈落地的爆炸', () => {
     expect(MAIN).toContain("import { MORTAR_BLAST_SCALE } from './render/mortarBlast'")
     expect(MAIN).toContain('burn: emitFirePuff, impact: onGroundImpact, fired: noteGroundShot')
     expect(MAIN).toContain('battleScenery.rebuild(world, pendingMission?.battle.theater, battle.cfg.groundLivery)')
-    expect(SCENERY).toContain('createGroundBattle(theater, assets.burn, assets.smokeTexture, assets.impact, assets.fired, assets.landed)')
+    expect(SCENERY).toMatch(/createGroundBattle\(theater, assets\.burn, assets\.smokeTexture,\s*assets\.impact, assets\.fired, assets\.landed, cannon\)/)
     const at = PRESENTATION.indexOf('const emitMortarBlast')
     expect(at).toBeGreaterThan(0)
     const body = PRESENTATION.slice(at, PRESENTATION.indexOf('\n}\n', at))
@@ -33,6 +33,7 @@ describe('迫擊砲彈落地的爆炸', () => {
     const body = MAIN.slice(at, MAIN.indexOf('\n}\n', at))
     expect(body).toContain('dirt.emit(shellLanding, c.x, c.y, c.z, terrain.waterAt, shellRiverSplash, SHELL_DIRT_SCALE)')
     expect(body).toContain('splashes.emit(shellRiverSplash, terrain.waterAt, elapsed)')
+    expect(body).toContain("addCannonShake(cameraShake, 'impact', x, y, z, ctx.camera.position)")
   })
 
   /**
@@ -48,11 +49,12 @@ describe('迫擊砲彈落地的爆炸', () => {
     expect(CUES).toContain('pushCue(cues, CUE.Explosion, x, y, z, scale)')
   })
 
-  /** 純畫面的小爆炸：不震鏡頭、不打燈、不點地面火 */
-  it('不震鏡頭、不打燈、不點地面火', () => {
+  /** 落點附帶微震，但不增加閃光與地面火。 */
+  it('輕震鏡頭、不打燈、不點地面火', () => {
     const at = PRESENTATION.indexOf('const emitMortarBlast')
     expect(at).toBeGreaterThan(0)
     const body = PRESENTATION.slice(at, PRESENTATION.indexOf('\n}\n', at))
-    for (const word of ['addShake', 'blastLights', 'lightGroundFire']) expect(body, word).not.toContain(word)
+    expect(body).toContain("addCannonShake(cameraShake, 'impact', x, y, z, cameraPosition)")
+    for (const word of ['blastLights', 'lightGroundFire']) expect(body, word).not.toContain(word)
   })
 })

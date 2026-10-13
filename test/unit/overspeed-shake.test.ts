@@ -101,13 +101,17 @@ describe('main.ts 的接線', () => {
     query: '?raw', import: 'default', eager: true,
   }) as Record<string, string>
   const CAMERA = Object.values(CAMERA_SOURCES)[0]!
+  const MAIN_SOURCES = import.meta.glob('../../src/main.ts', {
+    query: '?raw', import: 'default', eager: true,
+  }) as Record<string, string>
+  const MAIN = Object.values(MAIN_SOURCES)[0]!
 
   /** 排在套用之後的話，這一幀用的是上一幀的速度 —— 更糟的是換場那一幀 */
   it('每幀由速度寫入 sustained，排在套用震動之前', () => {
     const write = CAMERA.indexOf('cameraShake.sustained =')
-    const apply = CAMERA.indexOf('applyCameraShake(cameraShake')
+    const apply = MAIN.indexOf('applyCameraShake(cameraShake')
     expect(write).toBeGreaterThan(0)
-    expect(CAMERA.slice(write, apply)).toContain('overspeedShake(')
-    expect(apply).toBeGreaterThan(write)
+    expect(CAMERA.slice(write)).toContain('overspeedShake(')
+    expect(apply).toBeGreaterThan(MAIN.indexOf('updateBattleCameraFrame('))
   })
 })

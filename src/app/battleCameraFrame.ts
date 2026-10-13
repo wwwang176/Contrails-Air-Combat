@@ -5,7 +5,7 @@ import { overspeedShake } from '../core/overspeedFeedback'
 import { attitudeFromOrientation } from '../core/attitude'
 import { CameraRig, DEFAULT_CAMERA_OPTIONS } from '../camera/CameraRig'
 import { applyBlend, type CameraBlend } from '../camera/cameraBlend'
-import { applyCameraShake, stepCameraShake, type CameraShake } from '../camera/cameraShake'
+import { stepCameraShake, type CameraShake } from '../camera/cameraShake'
 import {
   godCameraTarget, stepGodCamera,
   type GodCameraInput, type GodCameraState,
@@ -151,9 +151,7 @@ export function updateBattleCameraFrame(
   // 那一刻的姿態拉回一部分；過渡結束後這一行什麼都不做
   applyBlend(godBlend, ctx.camera, worldSeconds)
 
-  // 【震動疊在最後】上面每一條分支都是從頭寫相機姿態的，排在它們之前會被
-  // 整個蓋掉 —— 而畫面上只是「沒有震動」。也因為它們每幀重寫，這個偏移
-  // 不會累積回相機
+  // 這裡只推進震動狀態；姿態偏移交給主迴圈，等導覽與轉場都完成後才套用。
   // 【超速的持續搖晃】每幀由速度直接算、不衰減，與爆炸取最大值。上帝視角時
   // 鏡頭不在飛機上，不搖
   cameraShake.sustained = input.godView ? 0 : overspeedShake(
@@ -161,7 +159,6 @@ export function updateBattleCameraFrame(
       / aircraft.spec.limits.vne,
   )
   stepCameraShake(cameraShake, worldSeconds)
-  applyCameraShake(cameraShake, ctx.camera)
 
   output.bombState = bombState
   output.bombTarget = bombTarget

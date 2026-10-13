@@ -330,14 +330,19 @@ describe('main.ts 的接線', () => {
    * 相機姿態，排在它們之前的震動會被整個蓋掉，而畫面上只是「沒有震動」。
    * 也一定要在 `renderer.render` 之前。
    */
-  it('震動疊在 applyBlend 之後、渲染之前', () => {
+  it('震動只套用一次，排在玩家鏡頭、導覽與轉場之後、渲染之前', () => {
     const blend = CAMERA.indexOf('applyBlend(godBlend')
-    const apply = CAMERA.indexOf('applyCameraShake(cameraShake')
+    const apply = MAIN.indexOf('applyCameraShake(cameraShake')
+    const intro = MAIN.indexOf('missionIntro.applyCamera(')
     // 第一個 render 是戰鬥每一幀那一次；檔案後面的是暫停與機庫畫面的
     const render = MAIN.indexOf('ctx.renderer.render(ctx.scene, ctx.camera)')
     expect(blend).toBeGreaterThan(0)
-    expect(apply).toBeGreaterThan(blend)
-    expect(render).toBeGreaterThan(MAIN.indexOf('updateBattleCameraFrame('))
+    expect(CAMERA).not.toContain('applyCameraShake(')
+    expect(MAIN.match(/applyCameraShake\(cameraShake/g)).toHaveLength(1)
+    expect(intro).toBeGreaterThan(MAIN.indexOf('updateBattleCameraFrame('))
+    expect(apply).toBeGreaterThan(intro)
+    expect(render).toBeGreaterThan(apply)
+    expect(MAIN.slice(intro, apply)).toContain('cameraShake.sustained *= missionIntro.returnWeight')
   })
 
   it('每幀推進衰減', () => {

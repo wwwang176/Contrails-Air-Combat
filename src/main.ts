@@ -130,7 +130,7 @@ import {
   type GodCameraInput,
 } from './camera/godCamera'
 import { createCameraBlend } from './camera/cameraBlend'
-import { KILL_SHAKE, createCameraShake } from './camera/cameraShake'
+import { KILL_SHAKE, addCannonShake, applyCameraShake, createCameraShake } from './camera/cameraShake'
 import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
 import { attachTouch } from './input/touch'
@@ -824,6 +824,8 @@ const shellRiverSplash = createImpacts(1)
  * 同一個剔除距離、同一個雪地顏色，落在河面以下就是水柱。大小是機槍的 `SHELL_DIRT_SCALE` 倍
  */
 const onShellLanded = (x: number, y: number, z: number): void => {
+  // 打偏的土柱與命中爆炸共用落點震動，視覺效果仍走原本的土柱／水花。
+  addCannonShake(cameraShake, 'impact', x, y, z, ctx.camera.position)
   pushImpact(shellLanding, x, y, z, 0, 1, 0)
   const c = ctx.camera.position
   dirt.emit(shellLanding, c.x, c.y, c.z, terrain.waterAt, shellRiverSplash, SHELL_DIRT_SCALE)
@@ -1742,6 +1744,10 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 【玩家的鏡頭照常算，導覽在後面覆寫】結束後由最後的鏡位滑回時，滑回的目的地
   // 就是這一幀照常算出來的鏡頭
   missionIntro.applyCamera(ctx.camera, introScene, worldSeconds)
+  // 導覽鏡頭不承受玩家飛機的超速震動；滑回時隨交接權重恢復。
+  cameraShake.sustained *= missionIntro.returnWeight
+  // 所有鏡位與轉場確定後只套用一次，避免導覽的 lookAt 覆蓋震動。
+  applyCameraShake(cameraShake, ctx.camera)
   const {
     attitude: att,
     agl,

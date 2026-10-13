@@ -22,14 +22,37 @@ function setup() {
   const blastSparks = { burst: vi.fn() }
   const blastLights = { flash: vi.fn(), flashMuzzle: vi.fn() }
   const muzzleBlast = { emit: vi.fn() }
+  const cameraShake = createCameraShake()
   const presentation = createBlastPresentation({
-    BLAST_POOLS: pools, cameraPosition, cameraShake: createCameraShake(),
+    BLAST_POOLS: pools, cameraPosition, cameraShake,
     groundFires, blastSparks, blastLights, muzzleBlast, debris: { burst: vi.fn() },
   })
-  return { presentation, pools, fireball, blastSparks, blastLights, muzzleBlast, groundFires, cameraPosition }
+  return { presentation, pools, fireball, blastSparks, blastLights, muzzleBlast, groundFires, cameraPosition, cameraShake }
 }
 
 describe('爆炸呈現的事件邊界', () => {
+  it.each(['砲口', '落點'])('%s 只在近處微震，多發不累加，也不蓋掉較強的爆炸', (kind) => {
+    const { presentation, cameraPosition, cameraShake } = setup()
+    const pulse = cameraShake.cannon[kind === '砲口' ? 'muzzle' : 'impact']
+    const fire = () => kind === '砲口'
+      ? presentation.emitMuzzleBlast(0, 0, 0, 0, 0, -1)
+      : presentation.emitMortarBlast(0, 0, 0)
+    cameraPosition.set(5, 0, 0)
+    fire()
+    const near = pulse.amplitude
+    expect(near).toBeGreaterThan(0)
+    expect(near).toBeLessThan(0.5)
+    for (let i = 0; i < 20; i++) fire()
+    expect(pulse.amplitude).toBe(near)
+    cameraShake.reset(); cameraPosition.set(30, 0, 0); fire()
+    expect(pulse.amplitude).toBeGreaterThan(0)
+    expect(pulse.amplitude).toBeLessThan(near)
+    cameraShake.reset(); cameraPosition.set(kind === '砲口' ? 140 : 180, 0, 0); fire()
+    expect(pulse.amplitude).toBe(0)
+    cameraShake.trauma = 0.8; cameraPosition.set(5, 0, 0); fire()
+    expect(cameraShake.trauma).toBe(0.8)
+  })
+
   it('砲口火球朝管口前方擴散，同步短暫點光源，不附帶地面爆炸效果', () => {
     const { presentation, pools, fireball, blastLights, muzzleBlast, blastSparks, groundFires, cameraPosition } = setup()
     presentation.emitMuzzleBlast(10, 20, 30, 0, 0, -1)

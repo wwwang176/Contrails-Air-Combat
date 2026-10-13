@@ -1,7 +1,8 @@
 import { Vector3 } from 'three'
 import { hash01 } from '../core/hash'
 import {
-  GROUND_KILL_SHAKE, GUN_LOST_SHAKE, KILL_SHAKE, addShake, ordnanceShakeScale, type createCameraShake,
+  GROUND_KILL_SHAKE, GUN_LOST_SHAKE, KILL_SHAKE,
+  addCannonShake, addShake, ordnanceShakeScale, type createCameraShake,
 } from '../camera/cameraShake'
 import { blastScaleOf } from '../weapons/bomb'
 import { IMPACT_STRIDE, clearImpacts, type ImpactEvents } from '../world/events'
@@ -91,15 +92,16 @@ export function createBlastPresentation({
 
   /**
    * 小爆炸：迫擊砲彈落地、戰車與反坦克砲的砲彈擊中時放。炸彈那一份火球與粒子縮小，配方在
-   * `render/mortarBlast.ts`。**純畫面**：不震鏡頭、不打燈、不點地面火。
+   * `render/mortarBlast.ts`。附帶近距離微震，不打燈、不點地面火。
    */
   /** 每一發推一格，同一幀的兩團才不會噴成一樣的形狀 */
   let mortarSeed = 0
 
-  /** 砲口小爆炸搭配短暫近距離閃光；不震鏡頭、不追加音效。 */
+  /** 砲口小爆炸搭配短暫近距離閃光與微震；音效由原本的開火事件處理。 */
   function emitMuzzleBlast(x: number, y: number, z: number, dx: number, dy: number, dz: number, scale = 1): void {
     muzzleBlast.emit(x, y, z, dx, dy, dz, scale)
     blastLights.flashMuzzle(x, y, z, cameraPosition, scale)
+    addCannonShake(cameraShake, 'muzzle', x, y, z, cameraPosition)
   }
 
   /** 火星的種子。每噴一次推一格，同一幀的兩團爆炸才不會噴成一樣的形狀 */
@@ -110,6 +112,7 @@ export function createBlastPresentation({
 
   const emitMortarBlast = (x: number, y: number, z: number): void => {
     emitBlast(BLAST_POOLS, MORTAR_BLAST, x, y, z, (mortarSeed = (mortarSeed + 1) | 0))
+    addCannonShake(cameraShake, 'impact', x, y, z, cameraPosition)
   }
 
   /**

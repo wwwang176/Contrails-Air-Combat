@@ -11,7 +11,7 @@ import { hash01 } from '../core/hash'
  * 【為什麼爆炸只有一個量而不是一串震源】同一秒裡可能有連投的一串炸彈、十幾發
  * 高砲與一架被打爆的飛機。一人一格的話要一個池、要過期、要合成；而畫面上
  * 的差別只有「現在抖得多大」。所以爆炸只留一個 `trauma`：隨時間衰減，角度吃
- * 它的平方。
+ * 它的平方。砲口與落點各留一個短脈衝，讓它們的持續時間不再隨距離縮短。
  *
  * 【同時好幾發取最大值，不疊加】疊加的話一串連投的炸彈或一片防空火網會把
  * 它推到滿格並停在那裡 —— 而畫面上分不出「近處一顆」與「遠處十顆」。取
@@ -86,6 +86,29 @@ export const GROUND_KILL_SHAKE = 0.8
 /** 艦上砲位被打掉的當量尺度。備射彈殉爆，比一發砲彈大、比一顆炸彈小 */
 export const GUN_LOST_SHAKE = 0.5
 
+export type CannonShakeKind = 'muzzle' | 'impact'
+
+/** 單軸角度上限（度）、範圍（m）、持續時間（s）各自獨立；不依火球尺寸推導。 */
+export const CANNON_SHAKE: Readonly<Record<CannonShakeKind, {
+  readonly angleDeg: number; readonly range: number; readonly seconds: number
+}>> = {
+  muzzle: { angleDeg: 0.81, range: 140, seconds: 0.525 },
+  impact: { angleDeg: 0.7, range: 180, seconds: 0.4 },
+}
+
+interface ShakePulse {
+  /** 相對於全局角度上限的振幅；不再經過 trauma 的平方換算。 */
+  amplitude: number
+  remaining: number
+  seconds: number
+}
+
+function pulseAmplitude(pulse: ShakePulse): number {
+  if (pulse.remaining <= 0) return 0
+  const envelope = pulse.remaining / pulse.seconds
+  return pulse.amplitude * envelope * envelope
+}
+
 /**
  * 高砲引爆的當量尺度。5 吋砲彈的裝藥約 3 kg，對 AN-M64 的 227 kg ——
  * 立方根律下是 0.24。
@@ -102,6 +125,8 @@ export const FLAK_SHAKE = 0.25
 export interface CameraShake {
   /** 爆炸的震動，0…1。爆炸往上加，`stepCameraShake` 線性衰減 */
   trauma: number
+  /** 兩種短脈衝各自衰減，避免較短的一種裁掉另一種的尾韻。 */
+  readonly cannon: Record<CannonShakeKind, ShakePulse>
   /**
    * 持續的震動，0…1。**呼叫端每幀直接寫入，不衰減** —— 衰減的話穩定超速時
    * 搖晃會一閃一閃，而減速之後還會多晃 `SHAKE_SECONDS` 才停。
@@ -119,10 +144,17 @@ export interface CameraShake {
 export function createCameraShake(): CameraShake {
   return {
     trauma: 0,
+    cannon: {
+      muzzle: { amplitude: 0, remaining: 0, seconds: 0 },
+      impact: { amplitude: 0, remaining: 0, seconds: 0 },
+    },
     sustained: 0,
     phase: 0,
     reset() {
       this.trauma = 0
+      for (const pulse of [this.cannon.muzzle, this.cannon.impact]) {
+        pulse.amplitude = 0; pulse.remaining = 0; pulse.seconds = 0
+      }
       this.sustained = 0
       this.phase = 0
     },
@@ -155,6 +187,27 @@ export function addShake(
   if (t > shake.trauma) shake.trauma = t
 }
 
+/** 距離只降低角度，時間包絡固定；同類多發取較強者，不累加也不被弱震縮短。 */
+export function addCannonShake(
+  shake: CameraShake, kind: CannonShakeKind,
+  x: number, y: number, z: number, cam: Vector3,
+): void {
+  const profile = CANNON_SHAKE[kind]
+  const d = Math.hypot(cam.x - x, cam.y - y, cam.z - z)
+  if (!(d < profile.range)) return
+  const amplitude = Math.min(1, profile.angleDeg * DEG / SHAKE_MAX_ANGLE) * (1 - d / profile.range)
+  const pulse = shake.cannon[kind]
+  if (amplitude <= pulseAmplitude(pulse)) return
+  pulse.amplitude = amplitude
+  pulse.remaining = pulse.seconds = profile.seconds
+}
+
+/** 相機與 HUD 共用同一振幅；不同震源取最大值，保留原本炸彈與超速的平方曲線。 */
+function shakeAmplitude(shake: CameraShake): number {
+  const s = Math.max(shake.trauma, shake.sustained)
+  return Math.max(s * s, pulseAmplitude(shake.cannon.muzzle), pulseAmplitude(shake.cannon.impact))
+}
+
 /**
  * 小當量彈藥震動尺度的指數。越小，小彈越接近基準彈。**起始值，由試飛裁定。**
  *
@@ -177,7 +230,7 @@ export function ordnanceShakeScale(scale: number): number {
 }
 
 /**
- * 推進一步。**只衰減 `trauma`**，`sustained` 由呼叫端每幀寫。
+ * 推進一步。爆炸與砲擊脈衝各自衰減，`sustained` 由呼叫端每幀寫。
  *
  * @param dt **畫面時間**，不是物理子步 —— 震動是純表現。
  */
@@ -185,6 +238,8 @@ export function stepCameraShake(shake: CameraShake, dt: number): void {
   shake.phase += dt
   const t = shake.trauma - dt / SHAKE_SECONDS
   shake.trauma = t > 0 ? t : 0
+  shake.cannon.muzzle.remaining = Math.max(0, shake.cannon.muzzle.remaining - dt)
+  shake.cannon.impact.remaining = Math.max(0, shake.cannon.impact.remaining - dt)
 }
 
 /**
@@ -205,16 +260,16 @@ export function shakeNoise(channel: number, t: number): number {
 }
 
 /**
- * HUD 這一幀的噪聲，−1…1。與鏡頭同一個震動量（爆炸與超速取最大值）、同樣
- * 吃平方，但走自己的頻率與噪聲通道 —— 見 `HUD_SHAKE_FREQUENCY`。
+ * HUD 這一幀的噪聲，−1…1。與鏡頭共用各震源的最大振幅，但走自己的頻率與
+ * 噪聲通道 —— 見 `HUD_SHAKE_FREQUENCY`。
  *
  * 【通道不能與鏡頭的三軸重覆】1、2、3 是鏡頭在用的；共用的話 HUD 會與
  * 某一軸完全同步。三個通道自己之間也要分開，否則位移會走成一條斜線。
  */
 function hudNoise(shake: CameraShake, channel: number): number {
-  const s = shake.trauma > shake.sustained ? shake.trauma : shake.sustained
-  if (s <= 0) return 0
-  return s * s * shakeNoise(channel, shake.phase * HUD_SHAKE_FREQUENCY)
+  const amplitude = shakeAmplitude(shake)
+  if (amplitude <= 0) return 0
+  return amplitude * shakeNoise(channel, shake.phase * HUD_SHAKE_FREQUENCY)
 }
 
 /** HUD 這一幀要轉多少，弧度。**正負都有**，值域 ±`HUD_SHAKE_MAX_ANGLE` */
@@ -248,8 +303,7 @@ const SHAKE_E = new Euler(0, 0, 0, 'YXZ')
  * 很明顯，整場都在晃。
  */
 export function applyCameraShake(shake: CameraShake, camera: Camera): void {
-  const s = shake.trauma > shake.sustained ? shake.trauma : shake.sustained
-  const a = SHAKE_MAX_ANGLE * s * s
+  const a = SHAKE_MAX_ANGLE * shakeAmplitude(shake)
   if (a <= 0) return
   const t = shake.phase * SHAKE_FREQUENCY
   SHAKE_E.set(
