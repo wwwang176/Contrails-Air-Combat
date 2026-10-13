@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
-import { BatchedMesh, Group, InstancedMesh, Matrix4, Mesh, PerspectiveCamera, Scene, Vector3, type WebGLRenderer } from 'three'
+import { BatchedMesh, Group, Matrix4, Mesh, PerspectiveCamera, Scene, Vector3, type WebGLRenderer } from 'three'
 import { preloadGroundModels } from '../../src/render/geometry/ground'
 import { createGroundModels } from '../../src/render/groundTargets'
 import { createGroundTarget } from '../../src/world/groundTargets'
@@ -41,10 +41,9 @@ function prepare(object: Group): BatchedMesh[] {
 }
 
 describe('地面車輛合批', () => {
-  it.each([undefined, 'winter'] as const)('各部位姿態、砲口與開火位置維持一致（塗裝 %s）', livery => {
-    const list = targets(), oldShot = vi.fn(), nextShot = vi.fn()
-    const old = createGroundModels(list, livery, oldShot)
-    const next = createGroundModels(list, livery, nextShot, true)
+  it.each([undefined, 'winter'] as const)('移動、轉向、摧毀與復活後的 GPU 部位與模型階層一致（塗裝 %s）', livery => {
+    const list = targets()
+    const next = createGroundModels(list, livery)
     for (let frame = 0; frame < 4; frame++) {
       for (const [i, t] of list.entries()) {
         t.position.x += 7
@@ -53,9 +52,8 @@ describe('地面車輛合批', () => {
         t.alive = frame !== 1 || i % 2 === 0
       }
       const aim = { aimTarget: (i: number) => (i + 1) % list.length }
-      old.update(list, camera.position, 0.1, aim)
       next.update(list, camera.position, 0.1, aim)
-      old.object.updateMatrixWorld(true)
+      if (frame === 3) next.resetTurrets()
       const batches = prepare(next.object)
       expect(batches.length).toBeGreaterThan(0)
       // 每一個 GPU 實例，都必須對應到原階層的一個部位、相同材質與世界姿態。
@@ -77,28 +75,12 @@ describe('地面車輛合批', () => {
       }
       expect(expected).toHaveLength(0)
       expect(visible).toBeGreaterThan(list.length * 2)
-      for (let k = 0; k < list.length; k++) {
-        const a = new Vector3(), b = new Vector3(), ad = new Vector3(), bd = new Vector3()
-        expect(next.muzzle(k, b, bd)).toBe(old.muzzle(k, a, ad))
-        expect(a.distanceTo(b)).toBeLessThan(1e-8)
-        expect(ad.distanceTo(bd)).toBeLessThan(1e-8)
-      }
-      expect(nextShot.mock.calls).toEqual(oldShot.mock.calls)
-      const oldFlash = old.object.getObjectByName('groundModels.muzzles') as InstancedMesh
-      const nextFlash = next.object.getObjectByName('groundModels.muzzles') as InstancedMesh
-      expect(nextFlash.count).toBe(oldFlash.count)
-      expect(nextFlash.instanceMatrix.array).toEqual(oldFlash.instanceMatrix.array)
     }
-    old.resetTurrets(); next.resetTurrets()
-    old.object.updateMatrixWorld(true); prepare(next.object)
-    const a = new Vector3(), b = new Vector3(), d = new Vector3()
-    old.muzzle(0, a, d); next.muzzle(0, b, d)
-    expect(a.distanceTo(b)).toBeLessThan(1e-8)
-    old.dispose(); next.dispose()
+    next.dispose()
   })
 
   it('未出場、離場與抵達的車不畫；暫停時切換圖層不會重複繪製', () => {
-    const list = targets(), models = createGroundModels(list, undefined, undefined, true)
+    const list = targets(), models = createGroundModels(list)
     models.update(list, camera.position)
     const count = () => prepare(models.object).reduce((n, b) => n + (b.visible
       ? Array.from({ length: b.instanceCount }, (_, i) => Number(b.getVisibleAt(i))).reduce((a, c) => a + c, 0) : 0), 0)
@@ -117,8 +99,8 @@ describe('地面車輛合批', () => {
     models.dispose()
   })
 
-  it('釋放合批資源不會釋放共用 GLB；未啟用維持 Mesh，單台車也可合批', () => {
-    const list = targets(), models = createGroundModels(list, undefined, undefined, true)
+  it('釋放合批資源不會釋放共用 GLB；單台車也使用相同合批路徑', () => {
+    const list = targets(), models = createGroundModels(list)
     const base = (models.object.children[0] as GroundModelPart).geometry
     const shared = vi.fn(); base.addEventListener('dispose', shared)
     const batches = prepare(models.object), freed = vi.fn()
@@ -127,11 +109,7 @@ describe('地面車輛合批', () => {
     expect(freed).toHaveBeenCalledTimes(batches.length)
     expect(shared).not.toHaveBeenCalled()
     base.removeEventListener('dispose', shared)
-    const fallback = createGroundModels(list)
-    expect(prepare(fallback.object)).toHaveLength(0)
-    expect(fallback.object.children[0]).toBeInstanceOf(Mesh)
-    fallback.dispose()
-    const single = createGroundModels(list.slice(0, 1), undefined, undefined, true)
+    const single = createGroundModels(list.slice(0, 1))
     expect(prepare(single.object).length).toBeGreaterThan(0)
     expect(single.object.children[0]).toBeInstanceOf(Group)
     single.dispose()

@@ -102,12 +102,10 @@ interface Pair {
 /**
  * @param livery 這一場地面單位的塗裝（任務卡的 `groundLivery`）。省略 = 預設配色、直接用共用的幾何
  * @param onGunShot 防空砲新開火時通報模型管口、方向與效果尺度，爆炸效果由呼叫端持有。
- * @param multiDraw 裝置支援原生 multi-draw 時，合批車輛與地面砲；其餘模型維持原路徑。
  */
 export function createGroundModels(
   targets: readonly GroundTarget[], livery?: GroundLivery,
   onGunShot?: (x: number, y: number, z: number, dx: number, dy: number, dz: number, scale: number) => void,
-  multiDraw = false,
 ): GroundModels {
   const live = new MeshStandardMaterial({
     vertexColors: true, flatShading: true, roughness: 0.85, metalness: 0.06,
@@ -116,7 +114,8 @@ export function createGroundModels(
     color: 0x2a2421, flatShading: true, roughness: 1.0,
   })
   const object = new Group()
-  const vehicleBatch = multiDraw ? createGroundVehicleBatch(object) : null
+  // 車輛一律合批；沒有 multi-draw 擴充時，由 Three 自動逐筆提交。
+  const vehicleBatch = createGroundVehicleBatch(object)
   const meshes: GroundModelPart[] = []
   const pairs: Pair[] = []
   /** 這一幀顯示的是低模嗎。逐台一格，`useAircraftLod` 的遲滯要讀上一幀。 */
@@ -248,8 +247,8 @@ export function createGroundModels(
     ? createGroundGunShots(gunSources, targets, onGunShot) : null
   const muzzles = muzzleSources.length > 0 ? createGroundMuzzles(muzzleSources, targets) : null
   if (muzzles !== null) object.add(muzzles.object)
-  vehicleBatch?.build()
-  vehicleBatch?.update()
+  vehicleBatch.build()
+  vehicleBatch.update()
 
   /** 第 k 台砲塔這一幀的角度寫進 `yaws`／`pitches`。死了的不動 */
   function aimTurret(list: readonly GroundTarget[], k: number, seconds: number, aim: GroundAimSource | null): void {
@@ -370,7 +369,7 @@ export function createGroundModels(
       }
       gunShots?.update(list, seconds)
       muzzles?.update(list, seconds)
-      vehicleBatch?.update()
+      vehicleBatch.update()
     },
     resetTurrets() {
       gunShots?.reset()
@@ -383,7 +382,7 @@ export function createGroundModels(
         trav.rotation.y = 0
         trav.children[0]!.rotation.x = 0
       }
-      vehicleBatch?.update()
+      vehicleBatch.update()
     },
     lodState() {
       let withLod = 0
@@ -396,7 +395,7 @@ export function createGroundModels(
       return { withLod, far: n }
     },
     dispose() {
-      vehicleBatch?.dispose()
+      vehicleBatch.dispose()
       muzzles?.dispose()
       roofParts?.dispose()
       for (const g of owned) g.dispose()

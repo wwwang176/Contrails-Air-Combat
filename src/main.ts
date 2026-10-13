@@ -843,10 +843,7 @@ const battleScenery = createBattleScenery(ctx.scene, {
   landed: onShellLanded,
   gunFired: blastPresentation.emitMuzzleBlast,
 }, {
-  createShipModels, createShipWakes, shipFoamTexture,
-  createGroundModels: (targets, livery, onShot) => createGroundModels(
-    targets, livery, onShot, ctx.renderer.extensions.has('WEBGL_multi_draw'),
-  ),
+  createShipModels, createShipWakes, shipFoamTexture, createGroundModels,
   createSearchlights, createGroundBattle, createBalloonModels,
 })
 

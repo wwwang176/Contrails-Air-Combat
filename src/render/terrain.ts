@@ -427,9 +427,7 @@ function createInlandTerrain(
   group.add(ground.object)
   group.add(vegetation.object)
   // 【佈景切塊】一整顆的包圍球恆與視錐相交，背對也照畫 —— 見 `SCENERY_CHUNK`
-  const sceneryView = scenery === undefined ? null : createStaticScenery(
-    scenery(), gfx?.renderer.extensions.has('WEBGL_multi_draw') ?? false,
-  )
+  const sceneryView = scenery === undefined ? null : createStaticScenery(scenery())
   if (sceneryView !== null) group.add(sceneryView.object)
 
   return {
