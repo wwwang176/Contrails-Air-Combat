@@ -1,0 +1,364 @@
+{
+  "info": {
+    "renderer": "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x000046A6) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "width": 1920,
+    "height": 1080,
+    "dpr": 1
+  },
+  "method": "每項每輪 45 個 GPU timer 樣本，三輪改變順序；每輪頭尾原版相差超過 10% 則排除該輪，不以 FPS 推算。",
+  "limitation": "展示區固定單次爆炸，保留近鏡頭遮罩；不包含實戰物理、其他單位或場景點光源成本。lit 案例為額外煙霧燈光驗證。",
+  "cases": [
+    {
+      "id": "fire-near",
+      "age": 0.12,
+      "distance": 8,
+      "freshBaselineMs": 5.818541,
+      "stableRounds": 3,
+      "excluded": [],
+      "table": {
+        "baseline": {
+          "gpuMs": 5.906796,
+          "gpuMedianRangeMs": [
+            5.872864,
+            5.912916
+          ],
+          "cpuSubmitMs": 0.5,
+          "savingPercent": 0
+        },
+        "light": {
+          "gpuMs": 5.900467,
+          "gpuMedianRangeMs": [
+            5.87776,
+            6.022447
+          ],
+          "cpuSubmitMs": 0.5,
+          "savingPercent": 0.1406128900988013
+        },
+        "zero": {
+          "gpuMs": 5.897552,
+          "gpuMedianRangeMs": [
+            5.821092,
+            5.905572
+          ],
+          "cpuSubmitMs": 0.5,
+          "savingPercent": 0.18994629259480034
+        },
+        "hash": {
+          "gpuMs": 5.460729,
+          "gpuMedianRangeMs": [
+            5.416093,
+            5.46552
+          ],
+          "cpuSubmitMs": 0.5,
+          "savingPercent": 7.590057205287182
+        },
+        "combined": {
+          "gpuMs": 5.441458,
+          "gpuMedianRangeMs": [
+            5.424739,
+            5.447864
+          ],
+          "cpuSubmitMs": 0.5,
+          "savingPercent": 7.807766949545492
+        }
+      }
+    },
+    {
+      "id": "handoff-near",
+      "age": 0.42,
+      "distance": 8,
+      "freshBaselineMs": 15.244062,
+      "stableRounds": 3,
+      "excluded": [],
+      "table": {
+        "baseline": {
+          "gpuMs": 14.4692705,
+          "gpuMedianRangeMs": [
+            14.359375,
+            15.033489
+          ],
+          "cpuSubmitMs": 0.699999988079071,
+          "savingPercent": 0
+        },
+        "light": {
+          "gpuMs": 13.481822,
+          "gpuMedianRangeMs": [
+            13.281718,
+            13.739687
+          ],
+          "cpuSubmitMs": 0.6000000238418579,
+          "savingPercent": 8.303979382338012
+        },
+        "zero": {
+          "gpuMs": 14.407134,
+          "gpuMedianRangeMs": [
+            14.215103,
+            14.68104
+          ],
+          "cpuSubmitMs": 0.6000000238418579,
+          "savingPercent": 1.6866213946196695
+        },
+        "hash": {
+          "gpuMs": 14.603593,
+          "gpuMedianRangeMs": [
+            14.543958,
+            14.873697
+          ],
+          "cpuSubmitMs": 0.5999999940395355,
+          "savingPercent": 0.6743031602149618
+        },
+        "combined": {
+          "gpuMs": 13.451041,
+          "gpuMedianRangeMs": [
+            13.344687,
+            13.557916
+          ],
+          "cpuSubmitMs": 0.5999999940395355,
+          "savingPercent": 7.786429381093329
+        }
+      }
+    },
+    {
+      "id": "smoke-near",
+      "age": 0.8,
+      "distance": 8,
+      "freshBaselineMs": 11.515468,
+      "stableRounds": 3,
+      "excluded": [],
+      "table": {
+        "baseline": {
+          "gpuMs": 11.5137495,
+          "gpuMedianRangeMs": [
+            11.464427,
+            11.552708
+          ],
+          "cpuSubmitMs": 0.5,
+          "savingPercent": 0
+        },
+        "light": {
+          "gpuMs": 10.09177,
+          "gpuMedianRangeMs": [
+            10.007239,
+            10.261718
+          ],
+          "cpuSubmitMs": 0.5,
+          "savingPercent": 12.470444441187112
+        },
+        "zero": {
+          "gpuMs": 11.300364,
+          "gpuMedianRangeMs": [
+            11.298802,
+            11.364531
+          ],
+          "cpuSubmitMs": 0.5,
+          "savingPercent": 1.74508790746849
+        },
+        "hash": {
+          "gpuMs": 11.475,
+          "gpuMedianRangeMs": [
+            11.460781,
+            11.52578
+          ],
+          "cpuSubmitMs": 0.5999999940395355,
+          "savingPercent": 0.3365109268438027
+        },
+        "combined": {
+          "gpuMs": 10.181927,
+          "gpuMedianRangeMs": [
+            10.100052,
+            10.31
+          ],
+          "cpuSubmitMs": 0.5,
+          "savingPercent": 11.688480311949546
+        }
+      }
+    },
+    {
+      "id": "handoff-far",
+      "age": 0.42,
+      "distance": 120,
+      "freshBaselineMs": 1.793801,
+      "stableRounds": 3,
+      "excluded": [],
+      "table": {
+        "baseline": {
+          "gpuMs": 1.876458,
+          "gpuMedianRangeMs": [
+            1.797083,
+            2.026197
+          ],
+          "cpuSubmitMs": 0.5499999970197678,
+          "savingPercent": 0
+        },
+        "light": {
+          "gpuMs": 1.893072,
+          "gpuMedianRangeMs": [
+            1.807968,
+            1.931822
+          ],
+          "cpuSubmitMs": 0.5999999940395355,
+          "savingPercent": 2.195733354274587
+        },
+        "zero": {
+          "gpuMs": 1.861874,
+          "gpuMedianRangeMs": [
+            1.838697,
+            2.039947
+          ],
+          "cpuSubmitMs": 0.5,
+          "savingPercent": -0.6319378309809442
+        },
+        "hash": {
+          "gpuMs": 1.82776,
+          "gpuMedianRangeMs": [
+            1.785207,
+            2.010208
+          ],
+          "cpuSubmitMs": 0.5,
+          "savingPercent": 3.5118166753324798
+        },
+        "combined": {
+          "gpuMs": 1.925884,
+          "gpuMedianRangeMs": [
+            1.906197,
+            2.021145
+          ],
+          "cpuSubmitMs": 0.5999999940395355,
+          "savingPercent": -4.09159747527541
+        }
+      }
+    },
+    {
+      "id": "handoff-lit",
+      "age": 0.42,
+      "distance": 8,
+      "lit": true,
+      "freshBaselineMs": 14.415103,
+      "stableRounds": 2,
+      "excluded": [
+        {
+          "round": 0,
+          "start": 18.572343,
+          "end": 14.277864,
+          "driftPercent": 26.1458261130592
+        }
+      ],
+      "table": {
+        "baseline": {
+          "gpuMs": 14.656978500000001,
+          "gpuMedianRangeMs": [
+            14.520729,
+            14.916927
+          ],
+          "cpuSubmitMs": 0.5499999970197678,
+          "savingPercent": 0
+        },
+        "light": {
+          "gpuMs": 13.567187,
+          "gpuMedianRangeMs": [
+            13.386093,
+            13.748281
+          ],
+          "cpuSubmitMs": 0.5999999940395355,
+          "savingPercent": 7.632385476218095
+        },
+        "zero": {
+          "gpuMs": 14.492864,
+          "gpuMedianRangeMs": [
+            14.334895,
+            14.650833
+          ],
+          "cpuSubmitMs": 0.6499999910593033,
+          "savingPercent": 1.3251885026899057
+        },
+        "hash": {
+          "gpuMs": 14.389973,
+          "gpuMedianRangeMs": [
+            14.315572,
+            14.464374
+          ],
+          "cpuSubmitMs": 0.5999999940395355,
+          "savingPercent": 2.029037796801325
+        },
+        "combined": {
+          "gpuMs": 13.513775500000001,
+          "gpuMedianRangeMs": [
+            13.479791,
+            13.54776
+          ],
+          "cpuSubmitMs": 0.6500000059604645,
+          "savingPercent": 7.993921100161339
+        }
+      }
+    },
+    {
+      "id": "fire-night",
+      "age": 0.12,
+      "distance": 8,
+      "time": "night",
+      "freshBaselineMs": 5.924427,
+      "stableRounds": 2,
+      "excluded": [
+        {
+          "round": 0,
+          "start": 8.695416,
+          "end": 6.248281,
+          "driftPercent": 32.75140013880098
+        }
+      ],
+      "table": {
+        "baseline": {
+          "gpuMs": 5.940963,
+          "gpuMedianRangeMs": [
+            5.885156,
+            6.147916
+          ],
+          "cpuSubmitMs": 0.5,
+          "savingPercent": 0
+        },
+        "light": {
+          "gpuMs": 5.905572,
+          "gpuMedianRangeMs": [
+            5.857083,
+            5.954061
+          ],
+          "cpuSubmitMs": 0.5,
+          "savingPercent": 1.222791877498236
+        },
+        "zero": {
+          "gpuMs": 5.9225255,
+          "gpuMedianRangeMs": [
+            5.884322,
+            5.960729
+          ],
+          "cpuSubmitMs": 0.5,
+          "savingPercent": 0.9254846702660302
+        },
+        "hash": {
+          "gpuMs": 5.4461975,
+          "gpuMedianRangeMs": [
+            5.43427,
+            5.458125
+          ],
+          "cpuSubmitMs": 0.5,
+          "savingPercent": 8.90114827350194
+        },
+        "combined": {
+          "gpuMs": 5.4819785,
+          "gpuMedianRangeMs": [
+            5.478072,
+            5.485885
+          ],
+          "cpuSubmitMs": 0.45000000298023224,
+          "savingPercent": 8.30011932619492
+        }
+      }
+    }
+  ],
+  "imageChecks": {
+    "compared": 108,
+    "maxChangedPixels": 0,
+    "maxChannelDelta": 0
+  },
+  "errors": []
+}

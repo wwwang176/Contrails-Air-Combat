@@ -185,5 +185,6 @@ describe('injectFacetShade：注入真的發生了', () => {
     expect(alpha).toBeGreaterThan(0)
     expect(hash).toBeGreaterThan(0)
     expect(alpha).toBeLessThan(hash)
+    expect(s.fragmentShader).toMatch(/if \(diffuseColor\.a < 1\.0\)\s*\{\s*#include <alphahash_fragment>\s*\}/)
   })
 })

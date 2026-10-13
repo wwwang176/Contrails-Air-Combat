@@ -306,6 +306,9 @@ export function createParticles(cfg: ParticleConfig): Particles {
     (spins.array as Float32Array)[i] = hash01(i * 0x2545f491) * Math.PI * 2
   }
   geometry.setAttribute('aSpin', spins)
+  const cameraHandoff = cfg.cameraSmoke
+    ? new InstancedBufferAttribute(new Float32Array(capacity), 1).setUsage(DynamicDrawUsage) : null
+  if (cameraHandoff) geometry.setAttribute('aCameraSmoke', cameraHandoff)
 
   const material = new MeshBasicMaterial({
     color: 0xffffff, transparent: true, depthWrite: false, blending: cfg.blending,
@@ -324,7 +327,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
   }
   // 【火的池子要有自己的 program key】預設的 key 是 onBeforeCompile 的原始碼，
   // 火與煙的字串一模一樣 —— 共用的話後建的拿到前一個的程式，煙變成只吃一半霧
-  material.customProgramCacheKey = () => `particles-fog:${fog}:${additive ? 'add' : 'norm'}:${soft ? 'soft' : 'map'}:cameraSmoke:${!!cfg.cameraSmoke}`
+  material.customProgramCacheKey = () => `particles-fog:${fog}:${additive ? 'add' : 'norm'}:${soft ? 'soft' : 'map'}:cameraSmoke-v2:${!!cfg.cameraSmoke}`
 
   const object = new InstancedMesh(geometry, material, capacity)
   object.instanceMatrix.setUsage(DynamicDrawUsage)
@@ -332,7 +335,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
   // 整批粒子會一起消失。與曳光彈、火花同一個坑。
   object.frustumCulled = false
   const cameraSource: CameraSmokeSource | null = cfg.cameraSmoke
-    ? { object, alpha: alphas, slots: new Uint32Array(capacity), count: 0 } : null
+    ? { object, alpha: alphas, handoff: cameraHandoff!, slots: new Uint32Array(capacity), count: 0 } : null
   if (cameraSource) registerCameraSmoke(cameraSource)
 
   M.compose(ZERO, ROT.identity(), ZERO)
@@ -349,6 +352,11 @@ export function createParticles(cfg: ParticleConfig): Particles {
 
     emit(x, y, z, evx, evy, evz, sizeScale = 1, attach = -1): void {
       const i = next
+      // 槽位重用時不能繼承上一顆煙的交接程度。
+      if (cameraHandoff && cameraHandoff.getX(i) !== 0) {
+        cameraHandoff.setX(i, 0)
+        cameraHandoff.needsUpdate = true
+      }
       next = next + 1 >= capacity ? 0 : next + 1
       // 【滿了覆蓋最舊的】最舊的正好是最淡的那一顆，覆蓋看不出來；丟棄新的
       // 則會在最該看到爆炸的時候整批不見。與 sparks.ts 同一個取捨。
@@ -475,6 +483,10 @@ export function createParticles(cfg: ParticleConfig): Particles {
 
     reset(): void {
       if (cameraSource) cameraSource.count = 0
+      if (cameraHandoff) {
+        (cameraHandoff.array as Float32Array).fill(0)
+        cameraHandoff.needsUpdate = true
+      }
       age.fill(Infinity)
       live = 0
       next = 0

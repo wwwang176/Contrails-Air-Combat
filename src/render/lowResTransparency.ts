@@ -1,4 +1,5 @@
 import {
+  AlwaysDepth,
   Color,
   DepthFormat,
   DepthTexture,
@@ -145,11 +146,22 @@ export function createLowResTransparencyPass(
 
   const copyMaterial = new MeshBasicMaterial({
     map: opaqueTarget.texture,
-    depthTest: false,
-    depthWrite: false,
+    depthTest: true,
+    depthWrite: true,
+    depthFunc: AlwaysDepth,
     toneMapped: false,
     fog: false,
   })
+  // 在原本的色彩複製繪製裡一併還原深度，讓後續煙內遮罩仍受前景物體遮擋。
+  // 保留 MeshBasicMaterial 的貼圖與色彩轉換流程；WebGL 必須開啟深度測試才會寫深度。
+  copyMaterial.onBeforeCompile = (shader): void => {
+    shader.uniforms.fullDepthMap = { value: opaqueTarget.depthTexture }
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform sampler2D fullDepthMap;')
+      .replace('#include <dithering_fragment>', `#include <dithering_fragment>
+        gl_FragDepth = texture2D(fullDepthMap, vMapUv).x;`)
+  }
+  copyMaterial.customProgramCacheKey = () => 'low-res-color-and-depth-copy-v1'
 
   // The smoke target contains premultiplied alpha. Convert to straight alpha
   // before Three.js performs output conversion and premultiplies it again.

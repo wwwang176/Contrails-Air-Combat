@@ -1,5 +1,3 @@
-import { CAMERA_SMOKE_INNER, CAMERA_SMOKE_OUTER } from './cameraSmokeField'
-
 /**
  * 把 three 的 `MeshBasicMaterial` 著色器改造成**廣告板 + 逐實例 alpha +
  * 軟邊圓形或貼圖**。
@@ -89,11 +87,9 @@ export function injectBillboard(
 /** 在頂點階段收起煙內的近距離平面，避免透明度已是零仍覆蓋整個畫面。 */
 export function injectCameraSmoke(shader: { vertexShader: string }): void {
   shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nuniform float uCameraSmokeEnabled;')
+    .replace('#include <common>', '#include <common>\nuniform float uCameraSmokeEnabled;\nattribute float aCameraSmoke;')
     .replace('mvPosition.xy += position.xy * instScale;', `
-      float smokeDiameter = instScale * length(modelMatrix[0].xyz);
-      float smokeFade = smoothstep(${CAMERA_SMOKE_INNER}, ${CAMERA_SMOKE_OUTER},
-        length(mvPosition.xyz) / max(smokeDiameter, 0.0001));
+      float smokeFade = 1.0 - aCameraSmoke;
       vAlpha *= mix(1.0, smokeFade, uCameraSmokeEnabled);
       mvPosition.xy += position.xy * instScale;`)
     .replace('gl_Position = projectionMatrix * mvPosition;', `

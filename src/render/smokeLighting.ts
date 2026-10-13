@@ -28,16 +28,26 @@ export function injectSmokeLighting(shader: SmokeLightingShader): void {
       'varying vec2 vSpunUv;',
       `varying vec2 vSpunUv;
        uniform vec3 uSmokeSunDirection;
+       uniform vec3 uBlastLightPos[${BLAST_LIGHT_COUNT}];
+       uniform vec3 uBlastLightColor[${BLAST_LIGHT_COUNT}];
+       uniform float uBlastLightRadius[${BLAST_LIGHT_COUNT}];
        varying vec3 vSmokeSunDirectionView;
-       varying vec3 vSmokeWorldCenter;`,
+       varying vec3 vSmokeBlastLight;`,
     )
     .replace(
       'vOffset = position.xy;',
       `vOffset = position.xy;
        // 太陽方向存世界座標；viewMatrix 讓同一套光照跟著鏡頭正確投影到 billboard。
        vSmokeSunDirectionView = normalize(mat3(viewMatrix) * uSmokeSunDirection);
-       // 爆炸閃光逐顆煙算一次距離：用這一顆的中心，不逐片元重算
-       vSmokeWorldCenter = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;`,
+       // 同一顆煙的四個頂點共用中心，距離衰減留在頂點端，避免逐像素重算。
+       vec3 smokeWorldCenter = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+       vSmokeBlastLight = vec3(0.0);
+       for (int i = 0; i < ${BLAST_LIGHT_COUNT}; i++) {
+         float r = max(uBlastLightRadius[i], 1.0);
+         vec3 toLight = smokeWorldCenter - uBlastLightPos[i];
+         float k = clamp(1.0 - dot(toLight, toLight) / (r * r), 0.0, 1.0);
+         vSmokeBlastLight += uBlastLightColor[i] * pow(k, ${BLAST_SMOKE_FALLOFF.toFixed(1)});
+       }`,
     )
 
   shader.fragmentShader = shader.fragmentShader
@@ -48,11 +58,8 @@ export function injectSmokeLighting(shader: SmokeLightingShader): void {
        uniform float uSmokeSunAmount;
        uniform float uSmokeScatterStrength;
        uniform float uSmokeLightingEnabled;
-       uniform vec3 uBlastLightPos[${BLAST_LIGHT_COUNT}];
-       uniform vec3 uBlastLightColor[${BLAST_LIGHT_COUNT}];
-       uniform float uBlastLightRadius[${BLAST_LIGHT_COUNT}];
        varying vec3 vSmokeSunDirectionView;
-       varying vec3 vSmokeWorldCenter;`,
+       varying vec3 vSmokeBlastLight;`,
     )
     .replace(
       'diffuseColor.a *= texture2D( alphaMap, vSpunUv ).g;',
@@ -80,17 +87,9 @@ export function injectSmokeLighting(shader: SmokeLightingShader): void {
        diffuseColor.rgb *= mix(1.0, volumeShade, lightWeight);
        diffuseColor.rgb += uSmokeSunColor * scatter * uSmokeLightingEnabled;
 
-       // 3. 爆炸閃光：固定 ${BLAST_LIGHT_COUNT} 盞（\`render/blastLights.ts\`），依這一顆煙的中心離
-       //    燈的距離平滑衰減到半徑邊緣為 0。熄著的燈顏色是零，整項加 0。
-       //    不看 uSmokeLightingEnabled —— 那一格關的是太陽的假體積光。
-       vec3 blastLight = vec3(0.0);
-       for (int i = 0; i < ${BLAST_LIGHT_COUNT}; i++) {
-         float r = max(uBlastLightRadius[i], 1.0);
-         vec3 toLight = vSmokeWorldCenter - uBlastLightPos[i];
-         float k = clamp(1.0 - dot(toLight, toLight) / (r * r), 0.0, 1.0);
-         blastLight += uBlastLightColor[i] * pow(k, ${BLAST_SMOKE_FALLOFF.toFixed(1)});
-       }
-       diffuseColor.rgb += blastLight * (1.0 - coreDensity * 0.5) * ${BLAST_SMOKE_GAIN.toFixed(3)};`,
+       // 3. 距離衰減已在頂點端算好；逐像素的煙霧濃度仍照原公式影響閃光。
+       //    不看 uSmokeLightingEnabled —— 那一格只關閉太陽的假體積光。
+       diffuseColor.rgb += vSmokeBlastLight * (1.0 - coreDensity * 0.5) * ${BLAST_SMOKE_GAIN.toFixed(3)};`,
     )
 }
 
@@ -172,7 +171,7 @@ export function addSmokeLighting(
   }
   // onBeforeCompile 的閉包內容不會進 three 的預設 cache key；明確區隔實驗材質。
   const baseCacheKey = material.customProgramCacheKey.bind(material)
-  material.customProgramCacheKey = (): string => `${baseCacheKey()}|smoke-volume-light-v2`
+  material.customProgramCacheKey = (): string => `${baseCacheKey()}|smoke-volume-light-v3`
   material.needsUpdate = true
 
   return {

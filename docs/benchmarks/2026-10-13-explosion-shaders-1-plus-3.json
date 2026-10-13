@@ -1,0 +1,102 @@
+{
+  "info": {
+    "renderer": "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x000046A6) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "width": 1920,
+    "height": 1080,
+    "dpr": 1
+  },
+  "method": "每項每輪 45 個 GPU timer 樣本，共三輪；每輪頭尾原版相差超過 10% 則排除該輪，不以 FPS 推算。",
+  "limitation": "展示區固定單次爆炸，保留近鏡頭遮罩；不包含實戰物理、其他單位或場景點光源成本。lit 案例為額外煙霧燈光驗證。",
+  "cases": [
+    {
+      "id": "fire-near",
+      "age": 0.12,
+      "distance": 8,
+      "freshBaselineMs": 5.770677,
+      "stableRounds": 3,
+      "excluded": [],
+      "table": {
+        "baseline": {
+          "gpuMs": 5.747786,
+          "gpuMedianRangeMs": [
+            5.70875,
+            5.851145
+          ],
+          "cpuSubmitMs": 0.5999999940395355,
+          "savingPercent": 0
+        },
+        "lightHash": {
+          "gpuMs": 5.312238,
+          "gpuMedianRangeMs": [
+            5.271666,
+            5.316927
+          ],
+          "cpuSubmitMs": 0.9000000059604645,
+          "savingPercent": 8.149038798203378
+        }
+      }
+    },
+    {
+      "id": "handoff-near",
+      "age": 0.42,
+      "distance": 8,
+      "freshBaselineMs": 15.043281,
+      "stableRounds": 3,
+      "excluded": [],
+      "table": {
+        "baseline": {
+          "gpuMs": 14.1038015,
+          "gpuMedianRangeMs": [
+            13.946093,
+            14.528593
+          ],
+          "cpuSubmitMs": 0.7500000149011612,
+          "savingPercent": 0
+        },
+        "lightHash": {
+          "gpuMs": 13.419687,
+          "gpuMedianRangeMs": [
+            13.083541,
+            13.437239
+          ],
+          "cpuSubmitMs": 0.5999999940395355,
+          "savingPercent": 4.5424723172937
+        }
+      }
+    },
+    {
+      "id": "smoke-near",
+      "age": 0.8,
+      "distance": 8,
+      "freshBaselineMs": 11.397447,
+      "stableRounds": 3,
+      "excluded": [],
+      "table": {
+        "baseline": {
+          "gpuMs": 11.2906765,
+          "gpuMedianRangeMs": [
+            11.274114,
+            11.541718
+          ],
+          "cpuSubmitMs": 0.5999999940395355,
+          "savingPercent": 0
+        },
+        "lightHash": {
+          "gpuMs": 10.005468,
+          "gpuMedianRangeMs": [
+            9.996822,
+            10.184061
+          ],
+          "cpuSubmitMs": 0.5999999940395355,
+          "savingPercent": 11.487649190076887
+        }
+      }
+    }
+  ],
+  "imageChecks": {
+    "compared": 27,
+    "maxChangedPixels": 0,
+    "maxChannelDelta": 0
+  },
+  "errors": []
+}

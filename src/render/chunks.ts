@@ -138,6 +138,13 @@ export function injectFacetShade(
       `diffuseColor.a *= vAlpha;
        #include <alphatest_fragment>`,
     )
+    // 完全不透明時必定通過雜訊門檻；只在淡出階段計算，保留原本的深度與輪廓。
+    .replace(
+      '#include <alphahash_fragment>',
+      `if (diffuseColor.a < 1.0) {
+         #include <alphahash_fragment>
+       }`,
+    )
     .replace(
       '#include <dithering_fragment>',
       `#include <dithering_fragment>
@@ -257,7 +264,7 @@ export function createChunks(cfg: ChunkConfig): Particles {
     injectFacetShade(s)
     applyFireFog(s, FIRE_FOG, false)
   }
-  material.customProgramCacheKey = () => 'fire-chunks-fog'
+  material.customProgramCacheKey = () => 'fire-chunks-fog-v2'
 
   const object = new InstancedMesh(geometry, material, capacity)
   object.instanceMatrix.setUsage(DynamicDrawUsage)

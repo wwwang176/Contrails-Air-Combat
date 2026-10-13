@@ -10,6 +10,7 @@ export interface CameraSmokeSource {
   readonly object: InstancedMesh
   readonly alpha: InstancedBufferAttribute
   readonly slots: Uint32Array
+  readonly handoff: InstancedBufferAttribute
   count: number
 }
 
@@ -45,6 +46,21 @@ function inScene(object: Object3D, scene: Object3D): boolean {
     if (p === scene) return true
   }
   return false
+}
+
+/** 提供活躍煙池給螢幕遮罩，不另建一份登記表。 */
+export function visitCameraSmokeSources(scene: Object3D, visit: (source: CameraSmokeSource) => void): void {
+  for (const source of sources) {
+    const mesh = source.object
+    const material = Array.isArray(mesh.material) ? mesh.material[0]! : mesh.material
+    if (!source.count || !material.visible || !inScene(mesh, scene)) continue
+    mesh.updateWorldMatrix(true, false)
+    visit(source)
+  }
+}
+
+export function tintCameraSmoke(mesh: InstancedMesh, color: Color, centre: Vector3, backward: Vector3): void {
+  lighting.get(mesh)?.(color, centre, backward)
 }
 
 /** 使用已更新的呈現位置、年齡透明度與逐顆顏色；黑煙、蒸汽、塵土自然混色。 */

@@ -46,11 +46,13 @@ describe('煙霧 billboard 的方向光與假自遮蔽', () => {
     const s = shader()
     injectSmokeLighting(s)
     const n = BLAST_LIGHT_COUNT
-    expect(s.vertexShader).toContain('vSmokeWorldCenter')
-    expect(s.fragmentShader).toContain(`uniform vec3 uBlastLightPos[${n}]`)
-    expect(s.fragmentShader).toContain(`uniform vec3 uBlastLightColor[${n}]`)
-    expect(s.fragmentShader).toContain(`uniform float uBlastLightRadius[${n}]`)
-    expect(s.fragmentShader).toContain(`for (int i = 0; i < ${n}; i++)`)
+    expect(s.vertexShader).toContain('smokeWorldCenter')
+    expect(s.vertexShader).toContain(`uniform vec3 uBlastLightPos[${n}]`)
+    expect(s.vertexShader).toContain(`uniform vec3 uBlastLightColor[${n}]`)
+    expect(s.vertexShader).toContain(`uniform float uBlastLightRadius[${n}]`)
+    expect(s.vertexShader).toContain(`for (int i = 0; i < ${n}; i++)`)
+    expect(s.fragmentShader).not.toContain('uBlastLightPos')
+    expect(s.fragmentShader).toContain('vSmokeBlastLight * (1.0 - coreDensity * 0.5)')
   })
 
   it('光照可用 uniform 即時切換', () => {
