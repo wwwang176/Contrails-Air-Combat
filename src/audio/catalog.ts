@@ -52,7 +52,7 @@ export const CATEGORY: Record<Category, CategorySpec> = {
   engineSelf: { gainDb: -3, ref: 0, max: 0 },
   engine: { gainDb: -3, ref: 150, max: 3000 },
   /** 車輛素材已做片段內 A 加權響度校正（約 −24.4 dBFS(A)），清單不再加補償。 */
-  vehicle: { gainDb: -3 + 20 * Math.log10(0.8 * 0.7), ref: 40, max: 1200 },
+  vehicle: { gainDb: -8.036239, ref: 40, max: 1200 },
   /**
    * 俯衝警笛（`sirenFile` 有檔的機種）。**自己的不定位**，比引擎大 10 dB；別人的走 3D 定位。
    * 實際大小再乘上空速的曲線（`curves.ts` 的 `sirenParams`）。
@@ -109,7 +109,7 @@ export const CATEGORY: Record<Category, CategorySpec> = {
   hitDealt: { gainDb: -14, ref: 0, max: 0 },
   // 【定位但不衰減】判定半徑 20 m，`ref` 也是 20 —— 範圍內都是原音量，
   // 要的只是左右方向：聽得出子彈從哪一邊掠過
-  flyby: { gainDb: -5.4, ref: 20, max: 200 },
+  flyby: { gainDb: -11.596078, ref: 20, max: 200 },
   damage: { gainDb: 0, ref: 0, max: 0 },
   rattle: { gainDb: 0, ref: 0, max: 0 },
   reload: { gainDb: -8, ref: 0, max: 0 },
