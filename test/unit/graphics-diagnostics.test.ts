@@ -93,9 +93,10 @@ describe('圖形診斷', () => {
     hidden.visible = false
     const otherLayer = new Mesh(indexed, material)
     otherLayer.layers.set(31)
+    const joint = Object.assign(new Group(), { geometry: indexed, material })
     source.scene.name = 'root'
     source.scene.position.y = 10
-    source.scene.add(instanced, mesh, hidden, otherLayer)
+    source.scene.add(instanced, mesh, hidden, otherLayer, joint)
     try {
       const rows = probe.__sceneList()
       expect(rows.map(r => [r.name, r.tris])).toEqual([['instances', 36], ['plain', 12]])

@@ -1,4 +1,4 @@
-import { Vector3, type Mesh, type Object3D } from 'three'
+import { Vector3, type Group, type Mesh, type Object3D } from 'three'
 import { FAR_LAND_NAME } from '../render/leyteGround'
 import { PROP_DISC_RENDER_ORDER } from '../render/geometry/assembly'
 import { SKY_RENDER_ORDER } from '../render/sky'
@@ -63,6 +63,8 @@ export function createGraphicsDiagnostics(source: GraphicsDiagnosticsSource) {
       }[] = []
       source.scene.traverseVisible((o) => {
         const m = o as Mesh
+        // 合批車輛的關節 Group 保留幾何供砲口定位，本身不會提交繪製。
+        if ((o as Group).isGroup) return
         if (!o.layers.isEnabled(0) || m.geometry === undefined) return
         const g = m.geometry
         const idx = g.index

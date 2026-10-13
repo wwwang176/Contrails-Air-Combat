@@ -11,6 +11,7 @@ import { GUN_TURRET_KEY, type GunTurretParts } from './geometry/ground/turret'
 import { disposeLivery, liveryGeometry } from './geometry/ground/livery'
 import { createGroundGunShots, groundGunMuzzleOf, readGroundGunMuzzle, type GroundGunSource } from './groundGunShots'
 import { createGroundMuzzles } from './groundMuzzles'
+import { createGroundVehicleBatch, type GroundModelPart } from './groundVehicleBatch'
 import { GROUND_GUN_MOUNTS } from '../specs/groundGunMounts'
 import { createRoofGunParts, SHERMAN_ROOF_GUN } from './geometry/ground/roofGun'
 import {
@@ -50,7 +51,7 @@ export interface GroundAimSource {
 export const PARKED_PROP_SPIN = 8
 
 /**
- * 地面目標的模型。**一台一顆 Mesh**，幾何來自 `geometry/ground`。
+ * 地面目標的模型。每台保留一個根節點，幾何來自 `geometry/ground`；車輛可合批繪製。
  *
  * 【同一種只建一份幾何，全部共用】Mesh 各自帶變換，共用幾何完全安全。停放的
  * B-17 有 24 台，逐台一份的話光是那一種就是 24 份頂點緩衝區。
@@ -101,10 +102,12 @@ interface Pair {
 /**
  * @param livery 這一場地面單位的塗裝（任務卡的 `groundLivery`）。省略 = 預設配色、直接用共用的幾何
  * @param onGunShot 防空砲新開火時通報模型管口、方向與效果尺度，爆炸效果由呼叫端持有。
+ * @param multiDraw 裝置支援原生 multi-draw 時，合批車輛與地面砲；其餘模型維持原路徑。
  */
 export function createGroundModels(
   targets: readonly GroundTarget[], livery?: GroundLivery,
   onGunShot?: (x: number, y: number, z: number, dx: number, dy: number, dz: number, scale: number) => void,
+  multiDraw = false,
 ): GroundModels {
   const live = new MeshStandardMaterial({
     vertexColors: true, flatShading: true, roughness: 0.85, metalness: 0.06,
@@ -113,7 +116,8 @@ export function createGroundModels(
     color: 0x2a2421, flatShading: true, roughness: 1.0,
   })
   const object = new Group()
-  const meshes: Mesh[] = []
+  const vehicleBatch = multiDraw ? createGroundVehicleBatch(object) : null
+  const meshes: GroundModelPart[] = []
   const pairs: Pair[] = []
   /** 這一幀顯示的是低模嗎。逐台一格，`useAircraftLod` 的遲滯要讀上一幀。 */
   const far: boolean[] = []
@@ -145,7 +149,7 @@ export function createGroundModels(
   /** 逐台一格：拆開的槳葉（停放的 P-51），沒有就是 null */
   const props: (Mesh | null)[] = []
   /** 逐台一格：會轉的砲塔（水平轉那一顆，上下抬那一顆是它的孩子），沒有就是 null */
-  const turrets: (Mesh | null)[] = []
+  const turrets: (GroundModelPart | null)[] = []
   const muzzlePoints: (Vector3 | null)[] = []
   /** 逐台一格：拆開的兩塊與轉軸，坦克算方位與仰角用 */
   const turretParts: (GunTurretParts | null)[] = []
@@ -156,10 +160,13 @@ export function createGroundModels(
   const pitches = new Float64Array(targets.length)
   const gunSources: GroundGunSource[] = []
   const muzzleSources: GroundGunSource[] = []
-  const roofGuns: (Mesh | null)[] = []
+  const roofGuns: (GroundModelPart | null)[] = []
   let roofParts: ReturnType<typeof createRoofGunParts> | null = null
 
   for (const t of targets) {
+    const batch = 'glb' in GROUND_MODELS[t.unit.id].model ? vehicleBatch : null
+    const part = (geometry: BufferGeometry, material: MeshStandardMaterial): GroundModelPart =>
+      batch === null ? new Mesh(geometry, material) : batch.part(geometry, material, wreck)
     let pair = byId.get(t.unit.id)
     if (pair === undefined) {
       const { model, lodModel } = GROUND_MODELS[t.unit.id]
@@ -181,7 +188,8 @@ export function createGroundModels(
       prepareMaterial(hi)
       if (lo !== null) prepareMaterial(lo)
     }
-    const m = new Mesh(pair.hi, liveMaterials.get(pair.hi)!)
+    // 車輛皆為單一頂點色材質；停放飛機可能有多材質貼圖，保留原 Mesh。
+    const m = batch === null ? new Mesh(pair.hi, liveMaterials.get(pair.hi)!) : part(pair.hi, live)
     object.add(m)
     meshes.push(m)
     pairs.push(pair)
@@ -199,14 +207,14 @@ export function createGroundModels(
     props.push(prop)
     // 拆開的砲塔：水平轉那一顆掛在車身、上下抬那一顆掛在它底下，位置都是轉軸
     const gt = pair.hi.userData[GUN_TURRET_KEY] as GunTurretParts | undefined
-    let trav: Mesh | null = null
-    let roofGun: Mesh | null = null
+    let trav: GroundModelPart | null = null
+    let roofGun: GroundModelPart | null = null
     if (gt !== undefined) {
-      trav = new Mesh(gt.traverse, live)
+      trav = part(gt.traverse, live)
       // 【命名】量測出口（`__gfx` 的 `groundTurrets`）靠名字找出這些子網格
       trav.name = GROUND_TURRET_NAME
       trav.position.copy(gt.traversePivot)
-      const elev = new Mesh(gt.elevate, live)
+      const elev = part(gt.elevate, live)
       elev.position.copy(gt.elevatePivot)
       trav.add(elev)
       m.add(trav)
@@ -219,6 +227,7 @@ export function createGroundModels(
         const mount = new Group()
         mount.position.set(SHERMAN_ROOF_GUN.x - gt.traversePivot.x,
           SHERMAN_ROOF_GUN.y - gt.traversePivot.y, SHERMAN_ROOF_GUN.z - gt.traversePivot.z)
+        // 車頂機槍使用獨立材質，保留 Mesh，不另外建立合批池。
         mount.add(new Mesh(roofParts.post, roofParts.material))
         roofGun = new Mesh(roofParts.gun, roofParts.material)
         roofGun.name = 'groundModels.roofGun'
@@ -229,7 +238,7 @@ export function createGroundModels(
     }
     roofGuns.push(roofGun)
     turrets.push(trav)
-    muzzlePoints.push(trav === null ? null : groundGunMuzzleOf(trav.children[0] as Mesh))
+    muzzlePoints.push(trav === null ? null : groundGunMuzzleOf(trav.children[0] as GroundModelPart))
     turretParts.push(gt ?? null)
     const reg = GROUND_MODELS[t.unit.id].model
     yawLimits.push('glb' in reg ? reg.turret?.yawLimit ?? Infinity : Infinity)
@@ -239,6 +248,8 @@ export function createGroundModels(
     ? createGroundGunShots(gunSources, targets, onGunShot) : null
   const muzzles = muzzleSources.length > 0 ? createGroundMuzzles(muzzleSources, targets) : null
   if (muzzles !== null) object.add(muzzles.object)
+  vehicleBatch?.build()
+  vehicleBatch?.update()
 
   /** 第 k 台砲塔這一幀的角度寫進 `yaws`／`pitches`。死了的不動 */
   function aimTurret(list: readonly GroundTarget[], k: number, seconds: number, aim: GroundAimSource | null): void {
@@ -292,7 +303,7 @@ export function createGroundModels(
       const trav = turrets[index]
       const local = muzzlePoints[index]
       if (trav == null || local == null || !meshes[index]!.visible) return false
-      readGroundGunMuzzle(trav.children[0] as Mesh, local, position, direction)
+      readGroundGunMuzzle(trav.children[0] as GroundModelPart, local, position, direction)
       return true
     },
     update(list, cam, seconds = 0, aim = null) {
@@ -311,7 +322,7 @@ export function createGroundModels(
         const trav = turrets[k]!
         if (trav !== null) {
           aimTurret(list, k, seconds, aim)
-          const elev = trav.children[0] as Mesh
+          const elev = trav.children[0] as GroundModelPart
           trav.rotation.y = yaws[k]!
           elev.rotation.x = pitches[k]!
           const mat = t.alive ? live : wreck
@@ -327,7 +338,7 @@ export function createGroundModels(
             }
             const roofMaterial = t.alive ? roofParts!.material : wreck
             roof.material = roofMaterial
-            const post = roof.parent!.children[0] as Mesh
+            const post = roof.parent!.children[0] as GroundModelPart
             post.material = roofMaterial
           }
         }
@@ -359,6 +370,7 @@ export function createGroundModels(
       }
       gunShots?.update(list, seconds)
       muzzles?.update(list, seconds)
+      vehicleBatch?.update()
     },
     resetTurrets() {
       gunShots?.reset()
@@ -371,6 +383,7 @@ export function createGroundModels(
         trav.rotation.y = 0
         trav.children[0]!.rotation.x = 0
       }
+      vehicleBatch?.update()
     },
     lodState() {
       let withLod = 0
@@ -383,6 +396,7 @@ export function createGroundModels(
       return { withLod, far: n }
     },
     dispose() {
+      vehicleBatch?.dispose()
       muzzles?.dispose()
       roofParts?.dispose()
       for (const g of owned) g.dispose()

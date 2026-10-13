@@ -1,10 +1,10 @@
-import { Vector3, type Mesh } from 'three'
+import { Vector3, type BufferGeometry, type Object3D } from 'three'
 import type { GroundTarget } from '../world/groundTargets'
 
 export interface GroundGunSource {
   readonly index: number
   /** 已掛在車身／水平轉軸下的上下抬砲管網格。 */
-  readonly barrel: Mesh
+  readonly barrel: Object3D & { readonly geometry: BufferGeometry }
   readonly scale?: number
   /** 四聯砲依累計發數輪流使用管口；省略則由單管模型量測。 */
   readonly muzzles?: readonly Vector3[]
@@ -14,7 +14,7 @@ export interface GroundGunSource {
  * 地面砲模型的最前端是砲管口（模型前方 −Z）。取前端截面的中心，座標屬於耳軸，
  * 開火時再套用整條砲塔階層的變換；不使用模擬中固定高度的近似出膛點。
  */
-export function groundGunMuzzleOf(barrel: Mesh): Vector3 {
+export function groundGunMuzzleOf(barrel: GroundGunSource['barrel']): Vector3 {
   const geometry = barrel.geometry
   if (geometry.boundingBox === null) geometry.computeBoundingBox()
   const z = geometry.boundingBox!.min.z
@@ -31,7 +31,7 @@ export function groundGunMuzzleOf(barrel: Mesh): Vector3 {
 }
 
 /** Flak 38 與 M16 的四個共面管口：以前端截面中心分成四區，各取自己的截面中心。只在建場量測。 */
-export function groundQuadGunMuzzlesOf(barrel: Mesh): Vector3[] {
+export function groundQuadGunMuzzlesOf(barrel: GroundGunSource['barrel']): Vector3[] {
   const center = groundGunMuzzleOf(barrel)
   const bounds = Array.from({ length: 4 }, () => ({ minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }))
   const positions = barrel.geometry.getAttribute('position')
@@ -49,7 +49,7 @@ export function groundQuadGunMuzzlesOf(barrel: Mesh): Vector3[] {
 }
 
 /** 更新整條模型階層後讀出砲口；輸出向量由呼叫端重用。 */
-export function readGroundGunMuzzle(barrel: Mesh, local: Vector3, position: Vector3, direction: Vector3): void {
+export function readGroundGunMuzzle(barrel: GroundGunSource['barrel'], local: Vector3, position: Vector3, direction: Vector3): void {
   barrel.updateWorldMatrix(true, false)
   position.copy(local).applyMatrix4(barrel.matrixWorld)
   direction.set(0, 0, -1).transformDirection(barrel.matrixWorld)
