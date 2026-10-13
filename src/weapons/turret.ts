@@ -231,7 +231,8 @@ export interface Arc {
 
 /** 方向是否落在射界錐內。`dir` 與 `arc.axis` 都必須是同一組區域座標的單位向量。 */
 export function inArc(arc: Arc, dir: Vector3): boolean {
-  return arc.axis.dot(dir) >= Math.cos(arc.halfAngle)
+  // cos(90°) 有浮點殘值，邊界上的水平目標仍應算在射界內。
+  return arc.axis.dot(dir) >= Math.cos(arc.halfAngle) - 1e-12
 }
 
 /**

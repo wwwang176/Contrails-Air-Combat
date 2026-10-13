@@ -70,12 +70,20 @@ describe('Fletcher animated gun geometry', () => {
     const position = new Vector3(), actual = new Vector3(), matrix = new Matrix4()
     root.position.copy(s.position); root.quaternion.copy(s.orientation)
     try {
-      for (const aim of [new Vector3(-0.6, 0.8, 0), new Vector3(0.001, 1, 0).normalize()]) {
+      for (const aim of [new Vector3(-1, 0, 0), new Vector3(-0.6, 0.8, 0),
+        new Vector3(-Math.cos(85 * Math.PI / 180), Math.sin(85 * Math.PI / 180), 0),
+        new Vector3(0.001, 1, 0).normalize()]) {
         for (const gun of s.guns) { gun.aim.copy(aim); gun.muzzleYaw = 1.2; gun.shots++; gun.fired++; stepShipMounts(gun, true, 100); gun.firedMountIndex = selectShipMount(gun, gun.shots, s.index, s.guns.indexOf(gun)) }
         renderer.update([s], 1 / 60)
         root.updateMatrixWorld(true)
+        let flashSlot = 0
         for (let k = 0; k < s.guns.length; k++) {
           const gun = s.guns[k]!
+          // 主砲超過 85° 必須停回中立位；小砲仍驗證接近垂直時的砲口。
+          if (gun.zone.tier === 'flak' && Math.atan2(aim.y, Math.hypot(aim.x, aim.z)) > 85 * Math.PI / 180 + 1e-10) {
+            expect(gun.mountPoses!.every(p => !p.ready)).toBe(true)
+            continue
+          }
           for (const mount of gun.projectileMounts!) {
           const barrel = root.getObjectByName(SHIP_GUN_PREFIX + mount.id + '.barrels') as Mesh
           // Average the three unique vertices of each triangular GLB muzzle cap, independently of specs.
@@ -98,7 +106,7 @@ describe('Fletcher animated gun geometry', () => {
             expect(actual.distanceTo(position)).toBeLessThan(1e-4)
           }
           }
-          renderer.object.getMatrixAt(k, matrix)
+          renderer.object.getMatrixAt(flashSlot++, matrix)
           const mounts = gun.projectileMounts!
           const mount = mounts[gun.firedMountIndex!]!
           gunMountMuzzle(mount, gun.aim, gun.muzzleYaw!, gun.shots, actual)
@@ -180,13 +188,17 @@ describe('Fletcher physical emission', () => {
     s.guns = s.guns.filter(g => g.zone.id === id)
     const legacy = { ...s, guns: s.guns.map(g => ({ ...g, aim: g.aim.clone(), projectileMounts: undefined })), gunCooldowns: new Float32Array(6) }
     const gun = s.guns[0]!, mounts = FLETCHER_GUN_GROUPS[id]!
+    // 使用兩條路徑都能射擊的方向，單獨比較砲口偏移，避免把仰角限制混入比較。
+    const direction = gun.zone.tier === 'flak' ? new Vector3(-0.6, 0.8, 0) : gun.axis.clone()
+    gun.aim.copy(direction)
+    legacy.guns[0]!.aim.copy(direction)
     stepShipMounts(gun, true, 100)
     gun.searchCooldown = 0
     legacy.guns[0]!.searchCooldown = 0
     const enemy = {
       index: 0, team: 'blue', alive: true, hp: 100,
       aircraft: { spec: { turrets: [] }, state: {
-        position: gun.axis.clone().multiplyScalar(700).add(gun.zone.position).applyQuaternion(s.orientation).add(s.position),
+        position: direction.clone().multiplyScalar(700).add(gun.zone.position).applyQuaternion(s.orientation).add(s.position),
         velocity: new Vector3(), orientation: new Quaternion(),
       } }, turretStates: [], turretCooldowns: new Float32Array(0),
     } as unknown as TurretCombatant

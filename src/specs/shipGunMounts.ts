@@ -36,7 +36,13 @@ export function createShipGunMount(
   }
 }
 
-const mount = createShipGunMount
+/** Fletcher 主砲的遊戲仰角範圍；射控與機庫射界共用，左右死角仍各自保留。 */
+function mount(...args: Parameters<typeof createShipGunMount>): ShipGunMount {
+  const result = createShipGunMount(...args)
+  return result.tier === 'flak'
+    ? { ...result, pitchRange: [0, 85 * Math.PI / 180] }
+    : result
+}
 
 /**
  * All ten physical mounts share six batteries. Main-gun sectors are conservative horizontal

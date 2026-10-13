@@ -324,6 +324,9 @@ export const SHIP_WOBBLE_OMEGA = 2 * Math.PI * 0.7
 /** 一艘船最多幾個砲區。與 `shipAA.ts` 的併區上限一致。 */
 export const MAX_SHIP_GUNS = 8
 
+/** 中央砲區朝天頂，半角 90° 讓低空目標進入追瞄範圍。 */
+const FLETCHER_FLAK_SPEC: ShipGunSpec = { ...SHIP_GUN_SPECS.flak, halfAngleDeg: 90 }
+
 const UP = /* @__PURE__ */ new Vector3(0, 1, 0)
 
 /**
@@ -344,7 +347,9 @@ export function createShipGuns(cls: ShipClass): ShipGun[] {
   const out: ShipGun[] = []
   for (let i = 0; i < cls.zones.length; i++) {
     const zone = cls.zones[i]!
-    const spec = SHIP_GUN_SPECS[zone.tier]
+    // Fletcher 主砲可追瞄水平目標；逐座砲塔再限制仰角與船體死角。
+    const spec = cls.id === 'fletcher' && zone.tier === 'flak'
+      ? FLETCHER_FLAK_SPEC : SHIP_GUN_SPECS[zone.tier]
     const axis = axisOf(zone.position.x, zone.tier, new Vector3())
     const projectileMounts = SHIP_GUN_LAYOUTS[cls.id]?.groups[zone.id]
     out.push({

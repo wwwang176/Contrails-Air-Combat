@@ -1,10 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
 import { LineSegments, Mesh, Vector3, type BufferGeometry, type Material } from 'three'
-import { buildShipArcs, selectShipArc, shipArcLimits } from '../../src/tools/hangarShipArcs'
+import { buildShipArcs, selectShipArc, shipArcLimits, shipArcDescription } from '../../src/tools/hangarShipArcs'
 import { SHIP_GUN_LAYOUTS } from '../../src/specs/shipGunLayouts'
 import { disposeHangarShip } from '../../src/tools/hangarShipLoading'
 
 describe('physical ship mount arc visualization', () => {
+  it('Fletcher 五座主砲的展示射界與說明使用 0°～85°，並保留各座死角', () => {
+    const mounts = Object.values(SHIP_GUN_LAYOUTS.fletcher!.mounts).filter(m => m.tier === 'flak')
+    expect(mounts).toHaveLength(5)
+    for (const mount of mounts) {
+      expect(shipArcLimits(mount).pitch).toEqual([0, 85 * Math.PI / 180])
+      expect(shipArcLimits(mount).yaw).toEqual(mount.yawSectors)
+      expect(shipArcDescription(mount)).toContain('仰角 0°～85°')
+    }
+  })
+
   it.each(['fletcher', 'wichita', 'essex', 'lst'] as const)('%s never joins separate yaw sectors across a dead zone', id => {
     const arcs = buildShipArcs(id), mounts = SHIP_GUN_LAYOUTS[id]!.mounts
     const center = new Vector3(), vertex = new Vector3(), violations: string[] = []

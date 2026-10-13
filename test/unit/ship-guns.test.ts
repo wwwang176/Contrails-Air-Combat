@@ -92,6 +92,25 @@ describe('createShipGuns', () => {
 })
 
 describe('stepGunPlatform', () => {
+  it.each([0, 5, 14])('Fletcher 能對仰角 %s° 的低空目標開火，艦尾死角砲塔不分配射擊', pitch => {
+    const ship = shipWith('flak', SHIP_CLASSES.fletcher)
+    const gun = ship.guns[0]!
+    const position = gun.zone.position.clone().add(new Vector3(0, Math.tan(pitch * Math.PI / 180) * 1000, -1000))
+    run(ship, [target(0, position.x, position.y, position.z)], 12)
+    expect(gun.shots).toBeGreaterThan(0)
+    expect(gun.firedMountIndex).toBeLessThan(2)
+    expect(gun.mountPoses!.slice(2).every(p => !p.ready)).toBe(true)
+  })
+
+  it.each([-1, 86])('Fletcher 不對仰角 %s° 的越界目標開火', pitch => {
+    const ship = shipWith('flak', SHIP_CLASSES.fletcher)
+    const gun = ship.guns[0]!
+    const angle = pitch * Math.PI / 180
+    const position = gun.zone.position.clone().add(new Vector3(-1000 * Math.cos(angle), 1000 * Math.sin(angle), 0))
+    run(ship, [target(0, position.x, position.y, position.z)], 12)
+    expect(gun.shots).toBe(0)
+  })
+
   it('沒有目標時一發都不打', () => {
     expect(run(shipWith('mg'), [], 3).live).toBe(0)
   })
