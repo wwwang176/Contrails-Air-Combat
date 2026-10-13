@@ -499,7 +499,6 @@ function frame(now: number): void {
     `時段　${activeTime}\n` +
     `近鏡頭煙霧　${cameraSmokeActive ? '淡出＋遮罩' : '原版機制'}\n` +
     (cameraSmokeActive ? `交接 ${cameraSmoke.stats.candidates} 顆／停止繪製 ${cameraSmoke.stats.culled} 顆\n` : '') +
-    (cameraSmokeActive && cameraSmoke.stats.overflow > 0 ? `深度重疊保留原煙 ${cameraSmoke.stats.overflow} 顆\n` : '') +
     `煙霧緩衝　${resolution}\n` +
     `放大方式　${pass.depthAware ? '深度感知' : '普通雙線性'}\n` +
     `煙霧光照　${smokeLighting.enabled ? '日照＋自遮蔽' : '原始顏色'}`

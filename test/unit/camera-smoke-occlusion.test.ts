@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { NormalBlending, PerspectiveCamera, Scene, Texture } from 'three'
+import { Color, NormalBlending, PerspectiveCamera, Scene, Texture } from 'three'
 import { createParticles, type Particles } from '../../src/render/particles'
 import {
   createCameraSmokeMask, smokeReplacementDensity, SMOKE_MASK_WIDTH, SMOKE_MASK_HEIGHT,
 } from '../../src/render/cameraSmokeMask'
+import { createCameraSmokeProjection } from '../../src/render/cameraSmokeProjection'
 
 const pools: Particles[] = []
 const masks: ReturnType<typeof createCameraSmokeMask>[] = []
@@ -25,90 +26,78 @@ function setup() {
   return { scene, camera, mask }
 }
 
-function smoke(scene: Scene, depth: number, diameter: number, alpha = 0.5, x = 0) {
+function smoke(scene: Scene, depth: number, alpha = 0.5, color = new Color(0.1, 0.1, 0.1)) {
   const pool = createParticles({
-    capacity: 1, life: 10, sizeFrom: diameter, sizeTo: diameter, alphaFrom: alpha,
+    capacity: 1, life: 10, sizeFrom: depth * 1.7, sizeTo: depth * 1.7, alphaFrom: alpha,
     gravity: 0, drag: 0, blending: NormalBlending, cameraSmoke: true,
-    color: (_age, color) => color.setRGB(0.1, 0.1, 0.1),
+    color: (_age, out) => out.copy(color),
   })
-  pools.push(pool)
-  scene.add(pool.object)
-  pool.object.position.x = x
-  pool.emit(0, 0, -depth, 0, 0, 0)
-  pool.step(0)
+  pools.push(pool); scene.add(pool.object)
+  pool.emit(0, 0, -depth, 0, 0, 0); pool.step(0)
   return pool
 }
 
-function weight(pool: Particles): number {
-  return pool.object.geometry.getAttribute('aCameraSmoke').getX(0)
-}
-
-function centreLayers(mask: ReturnType<typeof createCameraSmokeMask>) {
-  const result: { depth: number; density: number }[] = []
-  const layers = mask.depths.length / CELLS
-  for (let layer = 0; layer < layers; layer++) {
-    const cell = layer * CELLS + CENTRE
-    const density = mask.data[cell * 4 + 3]!
-    if (density > 0) result.push({ depth: mask.depths[cell]!, density })
-  }
-  return result
-}
-
-describe('近煙遮罩的深度與容量退回', () => {
-  it('前薄煙與後濃煙保留各自深度，中間的不透明物體只受前煙影響', () => {
+describe('近煙遮罩的濃度混合', () => {
+  it('兩團半透明煙累積透光率，色彩按光學厚度混合，深度保留最近有效煙', () => {
     const { scene, camera, mask } = setup()
-    const front = smoke(scene, 5, 8, 0.01)
-    smoke(scene, 8, 12, 0.8)
+    smoke(scene, 5, 0.5, new Color(0, 0, 0))
+    smoke(scene, 8, 0.5, new Color(1, 1, 1))
     mask.update(scene, camera, 1)
-    const layers = centreLayers(mask)
-    expect(layers.map(layer => layer.depth)).toEqual([5, 8])
+    const at = CENTRE * 4, density = mask.data[at + 3]!
+    expect(1 - Math.exp(-density)).toBeCloseTo(0.75, 6)
+    expect(mask.data[at]! / density).toBeCloseTo(0.5, 6)
+    expect(mask.depths[CENTRE]).toBe(5)
     expect(mask.volumeDensity).toBe(0)
-    const densityBeforeObject = layers
-      .filter(layer => layer.depth < 6)
-      .reduce((sum, layer) => sum + layer.density, 0)
-    expect(densityBeforeObject).toBeCloseTo(smokeReplacementDensity(0.01, weight(front)), 6)
-    expect(densityBeforeObject).toBeLessThan(0.02)
-    expect(layers[1]!.density).toBeGreaterThan(1)
   })
 
-  it('五團重疊超出四層容量時，整顆退回原煙片，不留下部分遮罩', () => {
+  it('打亂煙的前後與拜訪順序不改變混合顏色或濃度', () => {
     const { scene, camera, mask } = setup()
-    const depths = [5, 6, 7, 8, 9]
-    const sources = depths.map(depth => smoke(scene, depth, depth * 1.7))
+    smoke(scene, 5, 0.2, new Color(0, 0, 0))
+    smoke(scene, 8, 0.7, new Color(1, 1, 1))
     mask.update(scene, camera, 1)
-    const accepted = sources.filter(pool => weight(pool) > 0)
-    expect(accepted).toHaveLength(4)
-    expect(centreLayers(mask)).toHaveLength(4)
-    for (let i = 0; i < sources.length; i++) {
-      const represented = Array.from(mask.depths).some((depth, cell) =>
-        depth === depths[i] && mask.data[cell * 4 + 3]! > 0)
-      expect(represented).toBe(weight(sources[i]!) > 0)
-    }
+    const before = mask.data.slice()
+    // 以反向建立粒子池改變來源註冊順序，並交換前後位置；投影尺寸維持相同。
+    const reversed = setup()
+    smoke(reversed.scene, 5, 0.7, new Color(1, 1, 1))
+    smoke(reversed.scene, 8, 0.2, new Color(0, 0, 0))
+    reversed.mask.update(reversed.scene, reversed.camera, 1)
+    for (let i = 0; i < before.length; i++) expect(reversed.mask.data[i]).toBeCloseTo(before[i]!, 5)
   })
 
-  it('兩組已交接煙合流溢出時，同幀還原被拒絕原片，不以平滑權重漏掉煙', () => {
+  it('超過五十團重疊煙仍可全部接手，遮罩容量不隨煙數增加', () => {
     const { scene, camera, mask } = setup()
-    const depths = [5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8]
-    const sources = depths.map((depth, index) => smoke(scene, depth, 8, 0.5, index < 4 ? -4 : 4))
-    // 模擬前一幀已完整交接；左右兩組足跡不重疊，所以能各放四層。
-    for (const pool of sources) pool.object.geometry.getAttribute('aCameraSmoke').setX(0, 1)
-    mask.update(scene, camera, 0)
-    expect(sources.every(pool => weight(pool) === 1)).toBe(true)
-
-    for (const pool of sources) pool.object.position.x = 0
-    // 使用緩慢反應，才能抓到「遮罩已拒絕，原煙卻仍保持淡出」的錯誤。
+    const sources = Array.from({ length: 100 }, (_, i) => smoke(scene, 5 + i * 0.05, 0.02))
+    mask.update(scene, camera, 1)
+    expect(mask.stats.culled).toBe(100)
+    expect(sources.every(pool => pool.object.geometry.getAttribute('aCameraSmoke').getX(0) === 1)).toBe(true)
+    expect(mask.data).toHaveLength(CELLS * 4)
+    expect(mask.data[CENTRE * 4 + 3]).toBeCloseTo(100 * smokeReplacementDensity(0.02, 1), 5)
     mask.update(scene, camera, 0.1)
-    const layers = centreLayers(mask)
-    expect(layers).toHaveLength(4)
-    expect(sources.filter(pool => weight(pool) === 0)).toHaveLength(4)
-    for (let i = 0; i < sources.length; i++) {
-      const represented = layers.some(layer => Math.abs(layer.depth - depths[i]!) < 0.00001)
-      expect(represented).toBe(weight(sources[i]!) > 0)
-    }
+    expect(mask.stats.culled).toBe(100)
+  })
 
-    // 繼續停在同處，既有交接者優先，不每幀輪換成另外四顆。
-    const retained = sources.map(pool => weight(pool) > 0)
-    mask.update(scene, camera, 0.1)
-    expect(sources.map(pool => weight(pool) > 0)).toEqual(retained)
+  it('相鄰煙格共用相同角落色彩與深度，外圍空格保留平滑淡出', () => {
+    const projection = createCameraSmokeProjection()
+    try {
+      const data = new Float32Array(CELLS * 4), depths = new Float32Array(CELLS).fill(1000)
+      data[CENTRE * 4 + 3] = 1; depths[CENTRE] = 5
+      data[(CENTRE + 1) * 4] = 2; data[(CENTRE + 1) * 4 + 3] = 2; depths[CENTRE + 1] = 8
+      projection.update({ data, depths }, 0.1, 1000)
+      const geometry = projection.object.geometry
+      const positions = geometry.getAttribute('position'), fields = geometry.getAttribute('aSmokeField')
+      const corners = new Map<string, number[]>()
+      const vertices = geometry.drawRange.count / 6 * 4
+      expect(vertices).toBeGreaterThan(8)
+      expect(vertices).toBeLessThanOrEqual(CELLS * 4)
+      for (let i = 0; i < vertices; i++) {
+        const key = `${positions.getX(i)},${positions.getY(i)}`
+        const value = [positions.getZ(i), fields.getX(i), fields.getY(i), fields.getZ(i), fields.getW(i)]
+        if (corners.has(key)) expect(value).toEqual(corners.get(key))
+        else corners.set(key, value)
+      }
+      projection.update({ data: new Float32Array(CELLS * 4), depths }, 0.1, 1000)
+      expect(projection.object.visible).toBe(false)
+      expect(geometry.drawRange.count).toBe(0)
+    } finally { projection.dispose() }
   })
 })

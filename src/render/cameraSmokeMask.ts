@@ -9,8 +9,6 @@ import {
 /** 固定解析度的煙量格；CPU 依附近煙量累積，不依遊戲解析度增加成本。 */
 export const SMOKE_MASK_WIDTH = 32
 export const SMOKE_MASK_HEIGHT = 18
-/** 每格保留獨立煙深度；超出的煙繼續走原粒子，不混到前方那層。 */
-export const SMOKE_MASK_LAYERS = 4
 export const SMOKE_COVERAGE_START = 0.55
 export const SMOKE_COVERAGE_END = 0.7
 const W = SMOKE_MASK_WIDTH, H = SMOKE_MASK_HEIGHT, CELLS = W * H
@@ -72,26 +70,28 @@ function readSmokeAlpha(texture: Texture): Float32Array | null {
 
 interface SmokeCandidate extends SmokeProjection {
   source: CameraSmokeSource | null
-  slot: number; previous: number; weight: number; alpha: number; volume: number; depth: number
+  slot: number; weight: number; alpha: number; volume: number; depth: number
   worldX: number; worldY: number; worldZ: number; cos: number; sin: number; mapped: boolean
 }
 
 export function createCameraSmokeMask(smokeTexture: Texture) {
-  // 由近至遠的四層直向 atlas。每個格子最多保留四個獨立深度，不把後煙借到前煙的深度。
-  const data = new Float32Array(CELLS * SMOKE_MASK_LAYERS * 4)
-  const depths = new Float32Array(CELLS * SMOKE_MASK_LAYERS)
-  const counts = new Uint8Array(CELLS)
-  const layerDensities = new Float32Array(SMOKE_MASK_LAYERS)
+  // 同格直接加總光學厚度與加權色彩，不保留各團煙的前後排序。
+  // 深度取最近的有效煙，仍讓位於整團煙前方的不透明物體遮住遮罩。
+  const data = new Float32Array(CELLS * 4)
+  const depths = new Float32Array(CELLS)
   const pendingCells = new Uint16Array(CELLS)
   const pendingDensity = new Float32Array(CELLS)
-  // 候選物件只在遇到新高峰時配置；處理後釋放煙池參考，避免快取延長已銷毀煙池的壽命。
-  const candidates: SmokeCandidate[] = []
-  let candidateCount = 0
+  // 混合不依賴順序，同一個暫存物件即可逐顆處理，不累積候選清單。
+  const candidate: SmokeCandidate = {
+    source: null, slot: 0, weight: 0, alpha: 0, volume: 0, depth: 0,
+    worldX: 0, worldY: 0, worldZ: 0, cos: 1, sin: 0, mapped: false,
+    x: 0, y: 0, rx: 0, ry: 0, coverage: 0,
+  }
   let alphaMap = readSmokeAlpha(smokeTexture)
   const centre = new Vector3(), viewCentre = new Vector3(), backward = new Vector3()
   const eye = new Vector3(), tint = new Color()
   const projection: SmokeProjection = { x: 0, y: 0, rx: 0, ry: 0, coverage: 0 }
-  const stats = { candidates: 0, culled: 0, maxCoverage: 0, maxDensity: 0, overflow: 0 }
+  const stats = { candidates: 0, culled: 0, maxCoverage: 0, maxDensity: 0 }
   // 包住鏡頭的體積霧另行合成，不能把前方煙片的深度直接搬到近裁切面。
   const volumeColor = new Color(0, 0, 0)
   let volumeDensity = 0
@@ -144,17 +144,7 @@ export function createCameraSmokeMask(smokeTexture: Texture) {
         writeHandoff(source, slot, 0)
         continue
       }
-      let candidate = candidates[candidateCount]
-      if (!candidate) {
-        candidate = {
-          source: null, slot: 0, previous: 0, weight: 0, alpha: 0, volume: 0, depth: 0,
-          worldX: 0, worldY: 0, worldZ: 0, cos: 1, sin: 0, mapped: false,
-          x: 0, y: 0, rx: 0, ry: 0, coverage: 0,
-        }
-        candidates.push(candidate)
-      }
-      candidateCount++
-      candidate.source = source; candidate.slot = slot; candidate.previous = previous
+      candidate.source = source; candidate.slot = slot
       candidate.weight = Math.fround(weight); candidate.alpha = alpha
       candidate.volume = inside; candidate.depth = depth
       candidate.worldX = centre.x; candidate.worldY = centre.y; candidate.worldZ = centre.z
@@ -163,6 +153,8 @@ export function createCameraSmokeMask(smokeTexture: Texture) {
       candidate.mapped = !!material.alphaMap
       candidate.x = projection.x; candidate.y = projection.y
       candidate.rx = projection.rx; candidate.ry = projection.ry; candidate.coverage = projection.coverage
+      accumulate(candidate)
+      candidate.source = null
     }
   }
 
@@ -171,7 +163,7 @@ export function createCameraSmokeMask(smokeTexture: Texture) {
     const { slot, weight, alpha, volume, depth, cos: c, sin: s } = candidate
     const surrounding = smokeReplacementDensity(alpha * volume * 0.75, weight)
     let pending = 0
-    // 先試填整顆煙，任何一格容納不下就完全退回原粒子，不能只補半張遮罩卻淡掉整張煙。
+    // 先採樣整顆煙；確定有可見替代內容才淡出原煙片。
     if (volume < 1 && depth > view.near) {
       const x0 = Math.max(0, Math.floor((candidate.x - candidate.rx) * W))
       const x1 = Math.min(W, Math.ceil((candidate.x + candidate.rx) * W))
@@ -186,11 +178,6 @@ export function createCameraSmokeMask(smokeTexture: Texture) {
         const density = smokeReplacementDensity(alpha * shape, weight) - surrounding
         if (density <= 0.00001) continue
         const cell = y * W + x
-        if (counts[cell]! >= SMOKE_MASK_LAYERS) {
-          writeHandoff(source, slot, 0)
-          stats.overflow++
-          return
-        }
         pendingCells[pending] = cell
         pendingDensity[pending++] = density
       }
@@ -214,24 +201,17 @@ export function createCameraSmokeMask(smokeTexture: Texture) {
     volumeColor.b += tint.b * surrounding
     for (let i = 0; i < pending; i++) {
       const cell = pendingCells[i]!, density = pendingDensity[i]!
-      let layer = counts[cell]!
-      // 一格內依深度排序；繪製時反向走 atlas，讓遠煙先畫，近煙後畫。
-      while (layer > 0 && depths[(layer - 1) * CELLS + cell]! > depth) {
-        const previousCell = (layer - 1) * CELLS + cell, nextCell = layer * CELLS + cell
-        depths[nextCell] = depths[previousCell]!
-        for (let channel = 0; channel < 4; channel++) data[nextCell * 4 + channel] = data[previousCell * 4 + channel]!
-        layer--
-      }
-      const at = layer * CELLS + cell, index = at * 4
-      depths[at] = depth
-      data[index] = tint.r * density; data[index + 1] = tint.g * density
-      data[index + 2] = tint.b * density; data[index + 3] = density
-      counts[cell] = counts[cell]! + 1
+      const index = cell * 4
+      depths[cell] = Math.min(depths[cell]!, depth)
+      data[index] = data[index]! + tint.r * density
+      data[index + 1] = data[index + 1]! + tint.g * density
+      data[index + 2] = data[index + 2]! + tint.b * density
+      data[index + 3] = data[index + 3]! + density
     }
   }
 
   return {
-    data, depths, stats, volumeColor, layers: SMOKE_MASK_LAYERS, layerDensities,
+    data, depths, stats, volumeColor,
     get volumeDensity() { return volumeDensity },
     update(scene: Scene, camera: PerspectiveCamera, blend: number): void {
       view = camera; response = blend
@@ -239,29 +219,15 @@ export function createCameraSmokeMask(smokeTexture: Texture) {
       if (!alphaMap && smokeTexture.image?.width) alphaMap = readSmokeAlpha(smokeTexture)
       camera.getWorldPosition(eye)
       backward.setFromMatrixColumn(camera.matrixWorld, 2).normalize()
-      data.fill(0); depths.fill(camera.far); counts.fill(0); layerDensities.fill(0)
+      data.fill(0); depths.fill(camera.far)
       volumeColor.setRGB(0, 0, 0); volumeDensity = 0
-      stats.candidates = stats.culled = stats.maxCoverage = stats.maxDensity = stats.overflow = 0
-      candidateCount = 0
+      stats.candidates = stats.culled = stats.maxCoverage = stats.maxDensity = 0
       visitCameraSmokeSources(scene, collect)
-      // 先前已交接的煙優先保留；新出生或剛靠近的煙不能搶走它的格子。
-      for (let priority = 0; priority < 2; priority++) for (let i = 0; i < candidateCount; i++) {
-        const candidate = candidates[i]!
-        if ((candidate.previous > 0) !== (priority === 0)) continue
-        accumulate(candidate)
-        candidate.source = null
-      }
       for (let cell = 0; cell < CELLS; cell++) {
-        let density = volumeDensity
-        for (let layer = 0; layer < SMOKE_MASK_LAYERS; layer++) {
-          const value = data[(layer * CELLS + cell) * 4 + 3]!
-          density += value
-          layerDensities[layer] = Math.max(layerDensities[layer]!, value)
-        }
-        stats.maxDensity = Math.max(stats.maxDensity, density)
+        stats.maxDensity = Math.max(stats.maxDensity, volumeDensity + data[cell * 4 + 3]!)
       }
     },
-    reset(): void { stats.maxDensity = 0; volumeDensity = 0; layerDensities.fill(0) },
-    dispose(): void { candidates.length = 0 },
+    reset(): void { stats.maxDensity = 0; volumeDensity = 0 },
+    dispose(): void { candidate.source = null },
   }
 }

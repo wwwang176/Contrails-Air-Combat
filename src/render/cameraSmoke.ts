@@ -88,7 +88,7 @@ export function createCameraSmoke(texture: Texture) {
       const autoClear = renderer.autoClear, autoReset = renderer.info.autoReset
       renderer.autoClear = false; renderer.info.autoReset = false
       try {
-        // 四層投影格已合成一個 Mesh；體積霧放在其後，整個遮罩最多兩次 draw。
+        // 混合投影格合成一個 Mesh；體積霧放在其後，整個遮罩最多兩次 draw。
         renderer.render(scene, camera)
       } finally {
         renderer.autoClear = autoClear; renderer.info.autoReset = autoReset
