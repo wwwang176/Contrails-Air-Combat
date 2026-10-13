@@ -21,6 +21,7 @@ const TOOLS = {
   recovery: 'tools/recovery.html',
   clipmap: 'tools/clipmap.html',
   dirt: 'tools/dirt.html',
+  audioDistance: 'tools/audio-distance.html',
 }
 
 export default defineConfig(({ command, mode }) => ({

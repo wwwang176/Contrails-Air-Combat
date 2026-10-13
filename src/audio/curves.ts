@@ -231,13 +231,8 @@ export function dopplerRate(sp: Vec3, sv: Vec3, lp: Vec3, lv: Vec3): number {
 }
 
 /**
- * 空氣吸收：**高頻先消失**，低通的截止頻率隨距離下降。
- * 100 m 約 3.9 kHz、1 km 約 1.9 kHz、3 km 約 1.1 kHz、8 km 約 690 Hz。
- *
- * 【為什麼是 1/√距離】真實的吸收量（dB）與距離成正比、與頻率平方成正比
- * （ISO 9613-1），所以「掉 3 dB 的那個頻率」隨距離以 1/√距離 下降。
- * 這條曲線配上兩級二階低通與 `absorptionDb`，在 250 Hz–8 kHz、0.2–8 km
- * 之間與標準值的平均誤差約 4 dB。
+ * 舊版距離低通。只保留給非定位的命中回饋音色與展示區 A/B 比較。
+ * 真正的世界聲音走 airAbsorption，不使用這條近似曲線。
  */
 export function distanceCutoffHz(distance: number): number {
   return 8000 / Math.sqrt(1 + Math.max(0, distance) / 60)
@@ -258,7 +253,7 @@ export function voiceLoudnessDb(
   return gainDb + spread + absorptionDb(d)
 }
 
-/** 空氣吸收在中頻的那一份：整體再小這麼多 dB（20 °C、70% 濕度下 500 Hz 的值） */
+/** 聲道優先度／HDR 使用的中頻響度估計；實際播放不可再疊一次這個衰減。 */
 const ABSORPTION_DB_PER_KM = 2.8
 
 export function absorptionDb(distance: number): number {

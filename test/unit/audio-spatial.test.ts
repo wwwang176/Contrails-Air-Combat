@@ -103,7 +103,7 @@ describe('接線', () => {
   /** 【不能換回 PannerNode】否則每一幀又要重算所有聲道的定位 */
   it('engine 的聲道自己算左右，不建立 PannerNode', () => {
     expect(ENGINE).toContain('new AudioListener()')
-    expect(ENGINE).toContain('new PannedAudio(listener)')
+    expect(ENGINE).toContain('new PannedAudio(listener, air)')
     expect(ENGINE).not.toMatch(/new PositionalAudio\(/)
     expect(SPATIAL).not.toContain('createPanner')
   })
@@ -111,7 +111,8 @@ describe('接線', () => {
   /** 【鏡頭的朝向每幀讀】少了這一步，轉頭之後左右不會跟著變 */
   it('每幀先讀鏡頭再更新聲道', () => {
     const begin = ENGINE.slice(ENGINE.indexOf('function beginFrame('), ENGINE.indexOf('function assign('))
-    expect(begin).toMatch(/readPose\(\)\n\s*updateVoices\(dt\)/)
+    expect(begin.indexOf('readPose()')).toBeGreaterThanOrEqual(0)
+    expect(begin.indexOf('updateVoices(dt)')).toBeGreaterThan(begin.indexOf('readPose()'))
   })
 
   /** 【循環音也要逐幀更新左右】飛機一直在動 */

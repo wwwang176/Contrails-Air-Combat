@@ -587,8 +587,8 @@ describe('單次音效的聲道池', () => {
   it('每一幀更新播放中定位聲道的低通與音量', () => {
     const fn = ENGINE.slice(ENGINE.indexOf('function updateVoices('), ENGINE.indexOf('function beginFrame('))
     expect(fn).toContain('camDistance(')
-    expect(fn).toContain('setCutoff(')
-    expect(fn).toContain('absorptionDb(d)')
+    expect(fn).toContain('v.air.setDistance(d, now')
+    expect(fn).not.toContain('absorptionDb(d)')
     expect(fn).toContain('voiceLoudnessDb(')
     const begin = ENGINE.slice(ENGINE.indexOf('function beginFrame('), ENGINE.indexOf('function assign('))
     expect(begin).toContain('updateVoices(dt)')
@@ -706,7 +706,8 @@ describe('選單按鈕的聲音', () => {
   it('按鈕音排在下載佇列最前面', async () => {
     const { FIRST_FILES, SINGLE_FILES } = await import('../../src/audio/catalog')
     expect([...FIRST_FILES]).toEqual([SINGLE_FILES.uiClick, SINGLE_FILES.uiClose])
-    expect(ENGINE).toContain('const { buffers, makeup, envelopes, load } = createAudioAssets(ctx)')
+    expect(ENGINE).toContain('const { buffers, makeup, envelopes, load: loadAssets } = createAudioAssets(ctx)')
+    expect(ENGINE).toContain('loadAssets(onProgress), airAbsorption.prepare()')
     expect(ENGINE).toMatch(/return \{\s+load,/)
   })
 
@@ -777,7 +778,7 @@ describe('循環音的起音', () => {
    */
   it('新播或淡出中被叫回來用起音的速度，其餘每幀以 0.1 跟隨', () => {
     expect(assign).toMatch(/const rising = v\.releaseAt >= 0\n\s+v\.assigned = true\n\s+v\.releaseAt = -1/)
-    expect(assign).toMatch(/setTargetAtTime\(gainOf\(file, cat, absorptionDb\(d\) \+ duck \+ gainDb\), now,\s+fresh \|\| rising \? LOOP_ATTACK\[pool\] : 0\.1\)/)
+    expect(assign).toMatch(/setTargetAtTime\(gainOf\(file, cat, duck \+ gainDb\), now,\s+fresh \|\| rising \? LOOP_ATTACK\[pool\] : 0\.1\)/)
   })
 
   /** 【槍停了就停】開火與砲塔 0.1 秒收完，拖長的話停火後還聽得到一發；引擎與警笛 0.3 秒 */

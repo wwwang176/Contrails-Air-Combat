@@ -1,4 +1,5 @@
 import { Audio, type AudioListener } from 'three'
+import type { SpatialOutput } from './airAbsorption'
 
 /**
  * # 定位聲道：自己算左右，不用 `PannerNode`
@@ -31,14 +32,14 @@ export class PannedAudio extends Audio {
   /** 出口有沒有接在 listener 上。見 `wake` */
   private awake = false
 
-  constructor(listener: AudioListener) {
+  constructor(listener: AudioListener, private readonly spatialOutput?: SpatialOutput) {
     super(listener)
     const ctx = this.context
     // 【拆左右一律兩路】單聲道進來時第二路是靜音（拆分節點固定 discrete），
     // 矩陣裡「←右」那兩格乘的是 0
     const split = ctx.createChannelSplitter(2)
     this.merge = ctx.createChannelMerger(2)
-    this.bus = listener.getInput()
+    this.bus = spatialOutput?.input ?? listener.getInput()
     this.gain.disconnect()
     this.gain.connect(split)
     for (const [from, to] of ROUTES) {
@@ -65,6 +66,7 @@ export class PannedAudio extends Audio {
    */
   wake(): void {
     if (this.awake) return
+    this.spatialOutput?.wake()
     this.merge.connect(this.bus)
     this.awake = true
   }
@@ -73,6 +75,7 @@ export class PannedAudio extends Audio {
   sleep(): void {
     if (!this.awake) return
     this.merge.disconnect()
+    this.spatialOutput?.sleep()
     this.awake = false
   }
 

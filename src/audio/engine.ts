@@ -9,7 +9,8 @@ import { CATEGORY, POOLS, VEHICLE_AUDIO_VOICES, type Category, type Pool } from 
 import { createAudioAssets } from './assets'
 import { createUiAudio } from './uiAudio'
 import { createSelfAudio, type SelfSlot } from './selfAudio'
-import { absorptionDb, dbToGain, distanceCutoffHz, soundArrived, voiceLoudnessDb } from './curves'
+import { dbToGain, soundArrived, voiceLoudnessDb } from './curves'
+import { createAirAbsorption, type AirRoute } from './airAbsorption'
 import {
   HDR_ABS_FLOOR_DB, HDR_EXEMPT, envelopeAt, hdrDuckDb, hdrFloorDb, stepLoudest,
 } from './dynamics'
@@ -27,8 +28,8 @@ import {
  * - **定位循環**：引擎 8、開火 6、砲塔 6、警笛 4；車輛行進、怠速、碎石各 8 個聲道。每一幀 `beginFrame` → 逐一 `assign`
  *   → `endFrame`；這一幀沒被指派的淡出後放掉。
  * - **自己的循環**：引擎、風切、警告、警笛各一個 `Audio`，不定位。
- * - **距離**：定位的聲音接兩級低通（遠處只剩低頻）並依距離再減一點音量
- *   （空氣吸收，見 `curves.ts` 的 `absorptionDb`）；單次音效要等音波傳到才開始播。
+ * - **距離**：定位後送到共用的 ISO 大氣吸收濾波；各頻率依物理模型衰減，
+ *   不再額外疊加全頻的空氣吸收增益。單次音效要等音波傳到才開始播。
  *   等待中與播放中都是每一幀用當下的距離重算 —— 遠方的爆炸要好幾秒才傳到、
  *   聲音本身又有好幾秒，這期間聽者會飛掉好幾百公尺。
  * - **聽者**：位置是 `ear`（操作中是自機，導覽與自由視角是鏡頭），朝向是鏡頭。第三人稱轉頭只改左右聲道，
@@ -72,7 +73,7 @@ export interface AudioEngine {
     extraDb?: number, layered?: boolean, rate?: number, cutoffHz?: number): void
   /**
    * `extraDelay` 加在音速延遲之上，s；`cutoffHz` 是這個聲音自己的音色上限，
-   * 定位的取它與距離算出來的較低者。
+   * 與大氣吸收獨立；例如鋼板的悶響不應取代距離的吸收。
    * `rate` 是播放速度的倍率，疊在每次播放的隨機之上（±8%，類別的 `pitchJitter` 可以改）—— 慢的同時變低沉、變長。
    */
   playFile(file: string, cat: Category, x: number, y: number, z: number, positioned: boolean,
@@ -180,6 +181,7 @@ const LAG_REANCHOR = 0.5
 
 interface Voice {
   audio: PannedAudio
+  air: AirRoute
   /** 這一聲屬於哪一類。配額與 HDR 用 */
   cat: Category | null
   /** 這一份的素材包絡（`manifest.json` 的 `envelopeDb`）與開始播的時刻 */
@@ -203,7 +205,7 @@ interface Voice {
   /** 等的過程中飛出這個距離就放棄 —— 鏡頭切換會讓距離瞬間跳掉 */
   waitMax: number
   /**
-   * 這個聲音自己的截止頻率上限，Hz。**定位的聲音取它與距離算出來的較低者。**
+   * 這個聲音自己的截止頻率上限，Hz。與距離的大氣吸收分開處理。
    *
    * 【為什麼定位的也要吃】材質決定音色：打在厚鋼板上就該是悶響，不管離多遠。
    * 只看距離的話，貼著船打會是清脆的金屬聲 —— 像打鋁罐。
@@ -215,6 +217,7 @@ interface Voice {
 
 interface LoopVoice {
   audio: PannedAudio
+  air: AirRoute
   filters: BiquadFilterNode[]
   key: number
   file: string
@@ -237,6 +240,7 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
   // 避免相機更新時觸發 AudioListener 的九條位置漸變，聲道並沒有 PannerNode 需要它們。
   const listener = new AudioListener()
   const ctx = listener.context
+  const airAbsorption = createAirAbsorption(ctx, listener.getInput())
   const output = createAudioOutput(ctx, listener.gain)
   const { fadeIn, resetLimiter } = output
 
@@ -272,7 +276,10 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
   /** 導覽的鏡頭聲與自機底聲分開混音；定位增益套在 HDR 之後。 */
   let positionedGain = 1
 
-  const { buffers, makeup, envelopes, load } = createAudioAssets(ctx)
+  const { buffers, makeup, envelopes, load: loadAssets } = createAudioAssets(ctx)
+  async function load(onProgress?: (done: number, total: number) => void): Promise<void> {
+    await Promise.all([loadAssets(onProgress), airAbsorption.prepare()])
+  }
   const uiAudio = createUiAudio(buffers, makeup)
   /**
    * 每個檔上一次發聲的時刻。**同檔去相關用** —— 同時播兩份是完全同相、
@@ -307,15 +314,11 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
     return f
   }
 
-  /**
-   * 定位的聲道。**兩級低通串接**（24 dB/八度）—— 真實的空氣吸收在高頻掉得很陡
-   * （1 km 外的 8 kHz 掉 78 dB），一級只有 12 dB/八度，遠處的爆炸還會留著脆度。
-   */
-  function positional(): { audio: PannedAudio; filters: BiquadFilterNode[] } {
-    const audio = new PannedAudio(listener)
-    const filters = [lowpass(), lowpass()]
-    audio.setFilters(filters)
-    return { audio, filters }
+  /** 大氣吸收在定位之後共用；材質低通僅在需要時才插入，保留原本素材音色。 */
+  function positional(): { audio: PannedAudio; filters: BiquadFilterNode[]; air: AirRoute } {
+    const air = airAbsorption.createRoute()
+    const audio = new PannedAudio(listener, air)
+    return { audio, filters: [], air }
   }
 
   /** 耳朵的位置與鏡頭的朝向寫進 `pose`。鏡頭在場景最上層，區域座標就是世界座標 */
@@ -357,7 +360,13 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
    * 才重排 —— 距離每幀都在變，照排的話兩級低通一直有排程，Chrome 就一直走
    * 逐取樣重算係數的路徑。
    */
-  function setCutoff(v: { filters: BiquadFilterNode[]; cutoff: number }, hz: number, now: number, ramp: number): void {
+  function setCutoff(v: { audio: PannedAudio; filters: BiquadFilterNode[]; cutoff: number }, hz: number, now: number, ramp: number): void {
+    if (hz >= FULL_BAND) {
+      if (v.filters.length > 0) { v.audio.setFilters([]); v.filters = [] }
+      v.cutoff = FULL_BAND
+      return
+    }
+    if (v.filters.length === 0) { v.filters = [lowpass(), lowpass()]; v.audio.setFilters(v.filters) }
     if (ramp > 0 && Math.abs(hz - v.cutoff) <= v.cutoff * CUTOFF_STEP) return
     v.cutoff = hz
     for (const f of v.filters) {
@@ -475,12 +484,13 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
     lastFreeVoices = free
     // 【不定位的永遠在正中間】它跟著聽者走，不看座標
     if (loc) a.position.set(x, y, z)
-    setCutoff(pick, loc ? Math.min(distanceCutoffHz(d), cutoffHz) : cutoffHz, ctx.currentTime, 0)
+    setCutoff(pick, cutoffHz, ctx.currentTime, 0)
+    pick.air.setDistance(loc ? d : 0, ctx.currentTime, true)
     a.setBuffer(buffer)
     // 【直接設，不漸變】setVolume 會從上一個聲音的音量爬 10 ms，爆炸、命中的起音會被削掉
     a.gain.gain.cancelScheduledValues(ctx.currentTime)
     a.gain.gain.setValueAtTime(
-      dbToGain(baseDb + (loc ? absorptionDb(d) : 0) + (exempt ? 0 : hdrDuckDb(loud, loudest))),
+      dbToGain(baseDb + (exempt ? 0 : hdrDuckDb(loud, loudest))),
       ctx.currentTime)
     // 【同檔錯開】窗內再播同一個檔就延後幾毫秒。**不動起始位置** ——
     // 跳掉開頭會裁掉起音（`hit-1` 的峰值就在前 15 ms 裡）
@@ -561,11 +571,11 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
       const d = camDistance(p.x, p.y, p.z)
       v.distance = d
       v.loudness = voiceLoudnessDb(v.baseDb, v.ref, d, v.rolloff)
-      setCutoff(v, Math.min(distanceCutoffHz(d), v.maxCutoff), now, 0.05)
+      v.air.setDistance(d, now, v.waitingSince >= 0)
       // 【HDR 的衰減逐幀重算】聽者移動與素材衰減都會讓它變
       const live = v.loudness + envelopeAt(v.envelope, now - v.startedAt)
       const duck = !hdrOn || (v.cat !== null && HDR_EXEMPT.has(v.cat)) ? 0 : hdrDuckDb(live, loudest)
-      v.audio.gain.gain.setTargetAtTime(dbToGain(v.baseDb + absorptionDb(d) + duck), now, 0.05)
+      v.audio.gain.gain.setTargetAtTime(dbToGain(v.baseDb + duck), now, 0.05)
       if (v.waitingSince < 0) {
         panVoice(v, now, PAN_SMOOTH)
         continue
@@ -589,6 +599,7 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
     const dt = lastFrameAt < 0 ? 0 : Math.max(0, now - lastFrameAt)
     lastFrameAt = now
     readPose()
+    airAbsorption.update(now)
     updateVoices(dt)
     for (const pool of Object.keys(loops) as LoopPool[]) for (const v of loops[pool]) v.assigned = false
   }
@@ -616,8 +627,8 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
     v.releaseAt = -1
     v.extraDb = gainDb
     v.audio.position.set(x, y, z)
-    setCutoff(v, distanceCutoffHz(d), now, 0.1)
     const fresh = v.file !== file
+    v.air.setDistance(d, now, fresh)
     if (fresh) {
       if (v.audio.isPlaying) {
         v.audio.stop()
@@ -634,7 +645,7 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
     const live = voiceLoudnessDb(
       CATEGORY[cat].gainDb + (makeup.get(file) ?? 0) + gainDb, CATEGORY[cat].ref, d, CATEGORY[cat].rolloff ?? 1)
     const duck = !hdrOn || HDR_EXEMPT.has(cat) ? 0 : hdrDuckDb(live, loudest)
-    v.audio.gain.gain.setTargetAtTime(gainOf(file, cat, absorptionDb(d) + duck + gainDb), now,
+    v.audio.gain.gain.setTargetAtTime(gainOf(file, cat, duck + gainDb), now,
       fresh || rising ? LOOP_ATTACK[pool] : 0.1)
     v.audio.setPlaybackRate(rate * playback.timeScale)
     pan(v.audio, true, d, CATEGORY[cat].ref, CATEGORY[cat].rolloff ?? 1, now, fresh ? 0 : PAN_SMOOTH)

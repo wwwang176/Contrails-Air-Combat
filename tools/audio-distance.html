@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>距離音效展示區 — Contrails Air: Combat</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #101a24; color: #e7edf2; font: 14px/1.5 system-ui, sans-serif; }
+    body { display: grid; grid-template-columns: 330px minmax(0, 1fr); overflow: hidden; }
+    aside { padding: 22px; overflow-y: auto; background: #15222e; border-right: 1px solid #344654; }
+    h1 { font-size: 21px; margin: 0 0 4px; } h2 { font-size: 14px; margin: 22px 0 10px; color: #b9d1df; }
+    p { margin: 5px 0 14px; } .muted { color: #b0bfcb; font-size: 12px; }
+    label { display: block; margin: 10px 0 5px; }
+    select, input[type=number], button { font: inherit; color: inherit; background: #243747; border: 1px solid #526779; border-radius: 6px; padding: 8px 10px; }
+    select { width: 100%; } input[type=number] { width: 106px; }
+    input[type=range] { width: 100%; accent-color: #73cab9; }
+    button { cursor: pointer; } button:hover { background: #354e60; } button:disabled { opacity: .5; cursor: wait; }
+    button.on, #play { color: #091e21; background: #8fd6c7; border-color: #8fd6c7; font-weight: 650; }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .presets, .modes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; } .presets button { padding: 5px 8px; font-size: 12px; }
+    .modes button { flex: 1; padding: 8px 4px; font-size: 13px; }
+    .check { display: flex; gap: 8px; align-items: flex-start; } .check input { margin-top: 5px; accent-color: #73cab9; }
+    .transport { display: flex; gap: 8px; margin-top: 20px; } .transport button { flex: 1; }
+    #status { min-height: 42px; margin-top: 10px; color: #a8ddc9; font-size: 12px; }
+    #status.error { color: #ffd08b; }
+    main { position: relative; min-width: 0; min-height: 0; }
+    canvas { width: 100%; height: 100%; display: block; }
+    .top { position: absolute; top: 22px; left: 24px; right: 24px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; pointer-events: none; }
+    #distance-label { display: block; font-size: 28px; font-variant-numeric: tabular-nums; }
+    .badge { background: #101c29df; border: 1px solid #425a6a; padding: 9px 13px; border-radius: 7px; }
+    .views { display: flex; gap: 5px; pointer-events: auto; }
+    .views button { font-size: 12px; padding: 6px 9px; }
+    footer { position: absolute; bottom: 20px; left: 24px; right: 24px; max-width: 550px; padding: 12px 15px; background: #101c29e8; border: 1px solid #425a6a; border-radius: 7px; }
+    #explanation { margin: 0; } #readout { color: #b9d1df; font-size: 12px; margin-top: 6px; }
+    #model-detail { position: absolute; width: 220px; height: 155px; right: 24px; bottom: 120px; border: 1px solid #526779; pointer-events: none; }
+    #model-detail span { position: absolute; top: 7px; left: 10px; font-size: 12px; color: #c6dae6; }
+    @media(max-height: 500px), (max-width: 950px) { #model-detail { width: 155px; height: 105px; right: 14px; bottom: 110px; } }
+    [hidden] { display: none !important; }
+    @media(max-height: 500px), (max-width: 950px) { body { grid-template-columns: 270px minmax(0, 1fr); } aside { padding: 14px; } h1 { font-size: 18px; } h2 { margin-top: 16px; } .top { top: 12px; left: 14px; right: 14px; flex-wrap: wrap; } #distance-label { font-size: 22px; } footer { left: 14px; right: 14px; bottom: 12px; padding: 9px 12px; font-size: 12px; } }
+    @media(max-width: 600px) and (orientation: portrait) { body { grid-template-columns: 1fr; grid-template-rows: 48vh 52vh; overflow: auto; } aside { grid-row: 2; border-right: 0; } main { grid-row: 1; } }
+  </style>
+</head>
+<body>
+  <aside>
+    <h1>距離音效展示區</h1>
+    <p class="muted">同一份聲音，聽見距離改變。</p>
+    <label for="source">播放內容</label>
+    <select id="source"><option value="tone">固定頻率</option><option value="gun" selected>槍聲</option><option value="explosion">爆炸聲</option></select>
+    <div id="sample-row"><label for="sample">音效素材</label><select id="sample"></select></div>
+    <div id="tone-row" hidden><div class="row"><label for="frequency">頻率</label><span><input id="frequency" type="number" min="50" max="16000" step="50" value="1000" /> Hz</span></div><input id="frequency-range" aria-label="頻率滑桿" type="range" min="0" max="1000" value="520" /><div class="presets" id="frequency-presets"></div></div>
+    <h2>傳播距離</h2>
+    <div class="row"><label for="distance">聲源 → 聽者</label><span><input id="distance" type="number" min="0" max="8000" step="10" value="500" /> m</span></div>
+    <input id="distance-range" aria-label="距離滑桿" type="range" min="0" max="1000" value="565" />
+    <div class="presets" id="distance-presets"></div>
+    <h2>距離處理</h2>
+    <div class="modes" id="modes"><button data-mode="physical" class="on" aria-pressed="true">新版大氣</button><button data-mode="legacy" aria-pressed="false">原版低通</button><button data-mode="dry" aria-pressed="false">原始音色</button></div>
+    <label class="check"><input id="attenuate" type="checkbox" /><span>加入距離音量衰減</span></label>
+    <p class="muted">關閉時只比較音色；開啟後，超過 80 m 每遠一倍降低約 6 dB。</p>
+    <label class="check"><input id="delay" type="checkbox" /><span>加入音速延遲（下次播放生效）</span></label>
+    <div class="row"><label for="volume">試聽音量</label><output id="volume-label">−12 dB</output></div>
+    <input id="volume" type="range" min="-36" max="0" step="1" value="-12" />
+    <div class="transport"><button id="play">播放／重播</button><button id="stop">停止</button></div>
+    <div id="status" role="status">正在準備聲音與模型…</div>
+    <p class="muted">固定頻率與槍聲持續播放；爆炸播放一次。切換處理方式時保留播放進度。</p>
+  </aside>
+  <main>
+    <canvas id="scene" aria-label="聲源與聽者的 3D 位置"></canvas>
+    <div id="model-detail"><span>聲源模型 · 特寫</span></div>
+    <div class="top"><div class="badge"><span class="muted">聲源與聽者的實際距離</span><strong id="distance-label">500 m</strong></div><div class="views" id="views"><button data-view="overview">全景</button><button data-view="source">聲源特寫</button><button class="on" data-view="listener">聽者位置</button></div></div>
+    <footer><p id="explanation">新版大氣吸收 · 20°C / 70% 濕度 / 標準氣壓</p><div id="readout">藍色為聲源，綠色為聽者。拖曳旋轉視角，不改變試聽距離。</div></footer>
+  </main>
+  <script type="module" src="/src/tools/audioDistance.ts"></script>
+</body>
+</html>
