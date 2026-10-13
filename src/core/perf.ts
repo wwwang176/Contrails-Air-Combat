@@ -44,6 +44,10 @@ const PHYSICS_CEILING = 8
  */
 const PANEL_INTERVAL_MS = 500
 
+/** 觸控裝置上 FPS 那一行離畫面左上角的距離，以及讓開按鈕時留的空隙，px */
+const FPS_EDGE = 8
+const FPS_GAP = 8
+
 /**
  * 左上角的效能面板。
  *
@@ -62,10 +66,10 @@ const PANEL_INTERVAL_MS = 500
  */
 export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
   const root = document.createElement('div')
-  // 【id 給手機版的樣式用】橫放的手機上它縮成六成，見 index.html 的手機區塊
+  // 【id 給觸控裝置的樣式用】曲線收起、只留一行 FPS，見 index.html 的觸控區塊
   root.id = 'perf'
   root.style.cssText = [
-    'position:fixed', 'top:8px', 'left:8px', 'z-index:100', 'pointer-events:none',
+    'position:fixed', `top:${FPS_EDGE}px`, `left:${FPS_EDGE}px`, 'z-index:100', 'pointer-events:none',
   ].join(';')
 
   const graphs = document.createElement('div')
@@ -92,7 +96,7 @@ export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
   const mobileFps = document.createElement('span')
   mobileFps.className = 'perf-mobile'
   mobileFps.title = 'FPS'
-  mobileFps.textContent = '—'
+  mobileFps.textContent = 'FPS —'
   root.appendChild(mobileFps)
   document.body.appendChild(root)
 
@@ -107,6 +111,48 @@ export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
   let panelAt = -1
   let panelFrames = 0
 
+  // 【觸控裝置上那一行 FPS 讓開左上角的按鈕】暫停鈕、返回鍵都在那一角，壓上去
+  // 數字讀不到、按鈕的字也被蓋住。只在換頁、進出觸控飛行、改尺寸時重排 ——
+  // 讀版面會逼瀏覽器同步排版，不能每幀做
+  const coarse = window.matchMedia('(pointer: coarse)')
+  const buttons = document.getElementsByTagName('button')
+  const touchButtons = document.getElementsByClassName('t-btn')
+  let fpsLeft = FPS_EDGE
+  /** 從 `x` 往右推，直到這一組按鈕都不擋在 FPS 那一行上 */
+  const clearOf = (list: HTMLCollectionOf<Element>, x: number, line: DOMRect): number => {
+    for (let i = 0; i < list.length; i++) {
+      const r = list[i]?.getBoundingClientRect()
+      if (!r || r.width === 0 || r.bottom <= line.top || r.top >= line.bottom) continue
+      if (r.right + FPS_GAP <= x || r.left >= x + line.width + FPS_GAP) continue
+      x = r.right + FPS_GAP
+    }
+    return x
+  }
+  const place = () => {
+    let x = FPS_EDGE
+    if (coarse.matches && !visible) {
+      const line = mobileFps.getBoundingClientRect()
+      // 讓開一顆之後可能撞上右邊的下一顆，掃到不再移動為止
+      for (let prev = -1; prev !== x;) {
+        prev = x
+        x = clearOf(buttons, x, line)
+        x = clearOf(touchButtons, x, line)
+      }
+    }
+    if (x !== fpsLeft) {
+      fpsLeft = x
+      root.style.left = `${x}px`
+    }
+  }
+  // 換頁是 `#ui > .screen` 的 hidden；進出觸控飛行是 body 的 touch-play。
+  // 只盯這幾個節點：HUD 畫布每幀寫 hidden，盯 body 整棵樹會每幀觸發
+  const watch = new MutationObserver(place)
+  watch.observe(document.body, { attributes: true, attributeFilter: ['class'] })
+  document.querySelectorAll('#ui > .screen').forEach((s) => {
+    watch.observe(s, { attributes: true, attributeFilter: ['hidden'] })
+  })
+  window.addEventListener('resize', place)
+
   const setVisible = (v: boolean) => {
     visible = v
     root.style.display = 'block'
@@ -115,6 +161,7 @@ export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
     framePanel.dom.style.display = d
     physicsPanel.dom.style.display = d
     text.style.display = d
+    place()
   }
   setVisible(false)
 
@@ -144,7 +191,7 @@ export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
       if (span < PANEL_INTERVAL_MS) return
       const fps = (panelFrames * 1000) / span
       fpsPanel.update(fps, FPS_CEILING)
-      mobileFps.textContent = String(Math.round(fps))
+      mobileFps.textContent = `FPS ${Math.round(fps)}`
       panelAt = now
       panelFrames = 0
     },

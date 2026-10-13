@@ -527,9 +527,8 @@
       :lang(en) .t-btn.t-fire { font-size: clamp(11px, 3.5vh, 17px); }
       .t-btn.down { background: rgba(184, 84, 63, .55); border-color: rgba(242, 233, 210, .9); }
       .t-btn[hidden] { display: none; }
-      /* 手機基本 FPS 放右下，左上保留給暫停。 */
-      #perf { display: block; transform: none !important; }
-      .perf-mobile { position: fixed; right: 8px; bottom: 5px; display: none;
+      /* 觸控裝置的 FPS 只留一行字，左右位置由 core/perf.ts 讓開左上角的按鈕 */
+      .perf-mobile { display: none;
         font: 10px/1.2 var(--f-ui); font-variant-numeric: tabular-nums;
         color: rgba(238,231,213,.8); text-shadow: 0 1px 2px rgba(20,29,31,.5); }
       @media (pointer: coarse) {
@@ -565,8 +564,6 @@
          放不下的在面板裡自己捲。每一條都先寫 vh 再寫 dvh：不認得 dvh 的
          瀏覽器留在前一條 */
       @media (pointer: coarse) and (max-height: 500px) {
-        /* 【FPS 縮成六成】它是玩家看得到的那一格，但原尺寸會壓到返回鍵 */
-        #perf { transform: scale(.6); transform-origin: 0 0; }
         .gear { top: 6px; right: 8px; width: 34px; height: 34px; }
         .gear.help { right: 50px; font-size: 13px; }
         #ui .screen { padding: 46px 12px 10px; gap: 12px; }
