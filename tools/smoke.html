@@ -15,11 +15,11 @@
         border-radius: 6px; background: rgba(10, 18, 26, .86);
         backdrop-filter: blur(4px);
       }
-      #panel { top: 12px; left: 12px; width: 330px; }
+      #panel { top: 12px; left: 12px; width: 330px; max-height: calc(100vh - 110px); overflow-y: auto; }
       #panel h1 { margin: 0 0 4px; font-size: 14px; color: #9fc8e5; }
       #panel p { margin: 0 0 10px; color: #8ea7ba; }
       #quality { display: grid; grid-template-columns: 1fr; gap: 6px; }
-      #tabs, #upsample, #lighting {
+      #tabs, #upsample, #lighting, #camera-smoke {
         display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px;
       }
       #tabs { margin: 0 0 10px; }
@@ -38,6 +38,7 @@
       button.on { background: #2f628e; border-color: #6ba6d1; }
       #fly, #reblast { width: 100%; margin-top: 10px; text-align: center; }
       #stats { top: 12px; right: 12px; min-width: 210px; text-align: right; }
+      #stats > div:first-child { white-space: pre-line; }
       #legend { left: 12px; bottom: 12px; color: #91a9bb; }
       .swatch {
         display: inline-block; width: 10px; height: 10px; margin: 0 5px 0 10px;
@@ -61,6 +62,11 @@
         <button data-tab="blast">航空炸彈＋持續燃燒</button>
       </div>
       <p id="description">12 個橫向火源，保留原有的 14,000 顆煙霧 FPS 壓力測試。</p>
+      <div class="label">近鏡頭煙霧機制（切換保留鏡頭與煙霧）</div>
+      <div id="camera-smoke">
+        <button data-camera-smoke="false" class="on" aria-pressed="true">原版機制</button>
+        <button data-camera-smoke="true" aria-pressed="false">近鏡頭淡出＋遮罩</button>
+      </div>
       <div class="label">時段</div>
       <div id="time">
         <button data-time="dawn">黎明</button>

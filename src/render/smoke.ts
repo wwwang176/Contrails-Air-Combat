@@ -302,6 +302,7 @@ export function createShipFireSmoke(
     blending: NormalBlending,
     wind: true,
     life: SHIP_FIRE_SMOKE_LIFE,
+    cameraSmoke: true,
     sizeFrom: SHIP_FIRE_SMOKE_SIZE_FROM,
     sizeTo: SHIP_FIRE_SMOKE_SIZE_TO,
     // 【浮力是 0】柱高全部由每一團的初速決定（見 `plumeSpeed`），這樣
@@ -364,6 +365,7 @@ export function createSteam(capacity: number = STEAM_CAPACITY, alphaMap?: Textur
     blending: NormalBlending,
     wind: true,
     life: STEAM_LIFE,
+    cameraSmoke: true,
     sizeFrom: 6,
     sizeTo: 26,
     // 【浮力是 0，柱高由初速決定】與船火的煙柱同一套。靠浮力那一版的終端
@@ -384,6 +386,7 @@ export function createSmoke(capacity: number = SMOKE_CAPACITY): Particles {
     blending: NormalBlending,
     wind: true,
     life: SMOKE_LIFE,
+    cameraSmoke: true,
     sizeFrom: SMOKE_SIZE_FROM,
     sizeTo: SMOKE_SIZE_TO,
     gravity: SMOKE_GRAVITY,

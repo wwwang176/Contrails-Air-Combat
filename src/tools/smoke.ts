@@ -44,6 +44,7 @@ import {
 } from '../render/lowResTransparency'
 import { addSmokeLighting } from '../render/smokeLighting'
 import { assetUrl } from '../core/asset'
+import { createCameraSmoke } from '../render/cameraSmoke'
 
 const FIRE_COUNT = 12
 const FIRE_SPACING = 24
@@ -102,6 +103,9 @@ const depthButtons = Array.from(
 const lightingButtons = Array.from(
   document.querySelectorAll<HTMLButtonElement>('[data-lighting]'),
 )
+const cameraSmokeButtons = Array.from(
+  document.querySelectorAll<HTMLButtonElement>('[data-camera-smoke]'),
+)
 
 const ctx = createScene(canvas, 'noon')
 await preloadPlantScenery()
@@ -112,6 +116,8 @@ ctx.scene.add(terrain.object)
 const terrainVegetation = terrain.object.children[3]!
 
 const smokeTexture = await new TextureLoader().loadAsync(assetUrl('/textures/smoke.png'))
+const cameraSmoke = createCameraSmoke(smokeTexture)
+let cameraSmokeActive = false
 const smoke = createShipFireSmoke(16384, smokeTexture)
 const smokeLighting = addSmokeLighting(
   smoke,
@@ -262,6 +268,23 @@ function setScale(scale: TransparencyScale): void {
   }
 }
 
+function setCameraSmoke(enabled: boolean): void {
+  cameraSmokeActive = enabled
+  // 只重設遮罩歷史，不動煙霧與鏡頭，方便在同一位置比較。
+  cameraSmoke.reset()
+  for (const button of cameraSmokeButtons) {
+    const selected = (button.dataset.cameraSmoke === 'true') === enabled
+    button.classList.toggle('on', selected)
+    button.setAttribute('aria-pressed', String(selected))
+  }
+}
+
+for (const button of cameraSmokeButtons) {
+  button.addEventListener('click', () => {
+    setCameraSmoke(button.dataset.cameraSmoke === 'true')
+  })
+}
+
 for (const button of qualityButtons) {
   button.addEventListener('click', () => {
     setScale(Number(button.dataset.scale) as TransparencyScale)
@@ -331,6 +354,7 @@ for (const button of timeButtons) {
 }
 
 function setTab(tab: DemoTab): void {
+  cameraSmoke.reset()
   activeTab = tab
   const stress = tab === 'stress'
   smoke.object.visible = stress
@@ -455,7 +479,9 @@ function frame(now: number): void {
   }
   controls.update()
   terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
+  if (cameraSmokeActive) cameraSmoke.update(ctx.scene, ctx.camera, wall, wall)
   pass.render(ctx.scene, ctx.camera)
+  if (cameraSmokeActive) cameraSmoke.render(ctx.renderer)
   performanceStats.end()
 
   const percent = Math.round(pass.scale * pass.scale * 10000) / 100
@@ -471,6 +497,7 @@ function frame(now: number): void {
   statsInfo.textContent =
     `${effectInfo}\n` +
     `時段　${activeTime}\n` +
+    `近鏡頭煙霧　${cameraSmokeActive ? '淡出＋遮罩' : '原版機制'}\n` +
     `煙霧緩衝　${resolution}\n` +
     `放大方式　${pass.depthAware ? '深度感知' : '普通雙線性'}\n` +
     `煙霧光照　${smokeLighting.enabled ? '日照＋自遮蔽' : '原始顏色'}`
@@ -482,6 +509,7 @@ function frame(now: number): void {
   setScale,
   setDepthAware,
   setLighting,
+  setCameraSmoke,
   setTab,
   setTimeOfDay,
   triggerBlast,
@@ -499,12 +527,15 @@ function frame(now: number): void {
       burningSmoke: activeTab === 'blast' ? burnSmoke.live : 0,
       fire: activeTab === 'blast' ? blastFire.live : 0,
       lighting: smokeLighting.enabled,
+      cameraSmoke: cameraSmokeActive,
       autoFly,
     }
   },
 }
 
 window.addEventListener('beforeunload', () => {
+  cameraSmoke.reset()
+  cameraSmoke.dispose()
   pass.dispose()
   smoke.dispose()
   blastFire.dispose()

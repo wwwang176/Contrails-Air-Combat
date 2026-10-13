@@ -65,6 +65,7 @@ export function createGroundDustClouds(
   /** 塵團。卡片沒有出處就沒有這個池 */
   const clouds = dusts.length === 0 ? null : createParticles({
     capacity: DUST_CLOUD_CAPACITY, alphaMap: smokeTexture, blending: NormalBlending, wind: true,
+    cameraSmoke: true,
     life: DUST_CLOUD_LIFE, lifeJitter: DUST_CLOUD_LIFE_JITTER,
     sizeFrom: DUST_CLOUD_SIZE_FROM, sizeTo: DUST_CLOUD_SIZE_TO,
     gravity: 0, drag: 0, alphaFrom: DUST_CLOUD_ALPHA, shadeJitter: 0.3, color: dustCloudColor,

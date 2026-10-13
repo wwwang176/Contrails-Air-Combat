@@ -1,6 +1,7 @@
 import { Color, MeshBasicMaterial, Vector3 } from 'three'
 import type { Particles } from './particles'
 import { BLAST_LIGHT_COUNT, createBlastLightUniforms, type BlastLightUniforms } from './blastLights'
+import { setCameraSmokeLighting } from './cameraSmokeField'
 
 interface SmokeLightingShader {
   vertexShader: string
@@ -135,6 +136,27 @@ export function addSmokeLighting(
   const colorUniform = { value: sunColor.clone().multiplyScalar(sunIntensity) }
   const amountUniform = { value: Math.min(Math.max(sunIntensity / 2.2, 0), 1) }
   const scatterUniform = { value: Math.max(scatterStrength, 0) }
+  const flashTint = new Color()
+  // 煙內遮罩取煙團核心的代表色；沿用同一組太陽／爆炸光參數，避免接棒時亮煙突然變黑。
+  setCameraSmokeLighting(particles.object, (out, centre, viewBackward) => {
+    // billboard 核心朝向相機的 +Z；不使用 eye-centre，穿過中心時方向才不會瞬間翻轉。
+    const facing = viewBackward.dot(directionUniform.value)
+    const t = Math.max(0, Math.min(1, (facing + 0.35) / 1.2))
+    const direct = t * t * (3 - 2 * t)
+    const core = Math.pow(0.7, 1.35)
+    const shade = (0.58 + 0.42 * direct) * (1 - core * (0.32 - 0.2 * direct))
+    const lightWeight = enabledUniform.value * (0.25 + 0.75 * amountUniform.value)
+    out.multiplyScalar(1 + (shade - 1) * lightWeight)
+    const scatter = direct * (1 - core * 0.45) * scatterUniform.value * enabledUniform.value
+    out.add(flashTint.copy(colorUniform.value).multiplyScalar(scatter))
+    for (let i = 0; i < BLAST_LIGHT_COUNT; i++) {
+      const radius = Math.max(blast.uBlastLightRadius.value[i]!, 1)
+      const k = Math.max(0, 1 - centre.distanceToSquared(blast.uBlastLightPos.value[i]!) / (radius * radius))
+      const c = blast.uBlastLightColor.value[i]!
+      out.add(flashTint.setRGB(c.x, c.y, c.z).multiplyScalar(
+        Math.pow(k, BLAST_SMOKE_FALLOFF) * (1 - core * 0.5) * BLAST_SMOKE_GAIN))
+    }
+  })
 
   material.onBeforeCompile = (shader, renderer): void => {
     baseCompile(shader, renderer)

@@ -40,6 +40,7 @@ import { flatSeaCrashPolicy } from './world/seaCrash'
 import { arenaKills, createArenaState, SKIRMISH_ARENA, stepArena, type ArenaBounds } from './world/arena'
 import { createTerrain, preloadTerrainScenery, type TerrainGfx, type TerrainKind } from './render/terrain'
 import { createObjectiveRing } from './render/objectiveRing'
+import { createCameraSmoke } from './render/cameraSmoke'
 import { boardRevealed, timeScale } from './battle/mission'
 import { advancePropBlur } from './render/propBlur'
 import { createTracers } from './render/tracers'
@@ -613,6 +614,7 @@ function syncBombLoad(): void {
  * 粒子透明 —— 不會壞，只是看不見。
  */
 const smokeTexture = new TextureLoader().load(assetUrl('/textures/smoke.png'))
+const cameraSmoke = createCameraSmoke(smokeTexture)
 
 /**
  * 高砲的黑雲。**跨場重用的池**，與火球、煙同一個生命週期。
@@ -895,7 +897,7 @@ const POOLS = [
   shipFireSmoke, wreckFireSmoke, shipFires, groundFires, steam,
   // 【鏡頭震動也在這裡】跨場狀態、`reset()` 的簽章一樣。漏清的話上一場
   // 最後那一顆炸彈的餘震會接在新一場的第一幀上
-  cameraShake,
+  cameraShake, cameraSmoke,
 ]
 
 function resetPools(): void {
@@ -1146,6 +1148,7 @@ function fitCameraToPlayer(): void {
 }
 
 function leaveBattle(): void {
+  cameraSmoke.reset()
   audio.stopAll()
   missionIntro.stop()
   battleAudioCues.clear()
@@ -1767,7 +1770,9 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     terrainKind,
   )
 
+  cameraSmoke.update(ctx.scene, ctx.camera, frameSeconds, worldSeconds)
   ctx.renderer.render(ctx.scene, ctx.camera)
+  cameraSmoke.render(ctx.renderer)
 
   // 兩個準星都從**內插後的機身位置**往外投影 1000 m，所以它們的分離距離
   // 就是指揮儀正在追的角度誤差，而不是被相機視差污染過的東西。
@@ -2303,6 +2308,7 @@ function frame(now: number) {
       }
     } else {
       ctx.renderer.render(ctx.scene, ctx.camera)
+      cameraSmoke.render(ctx.renderer)
     }
   } else {
     // 【短片定格時全域時間也停】海浪與火星讀的是它，照走的話截到的不是那一秒

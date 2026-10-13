@@ -232,6 +232,7 @@ export function createDirtImpacts(
       capacity: CAPACITY.dust,
       blending: NormalBlending,
       life: tune.dustLife,
+      cameraSmoke: true,
       lifeJitter: 0.3,
       sizeFrom: tune.dustFrom,
       sizeTo: tune.dustTo,

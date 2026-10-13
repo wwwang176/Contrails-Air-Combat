@@ -141,6 +141,7 @@ describe('換一場的兩個入口都要清粒子池', () => {
         // 【鏡頭震動】同樣不是粒子池，但有跨場狀態：漏清的話上一場最後
         // 那一顆炸彈的餘震會接在新一場的第一幀上
         'cameraShake',
+        'cameraSmoke',
       ].sort(),
     )
   })
@@ -154,7 +155,7 @@ describe('換一場的兩個入口都要清粒子池', () => {
    * 池，走的是 `stepShipFires(...)`、`stepGroundFires(...)` 與
    * `stepCameraShake(...)`，各自另有一條斷言。
    */
-  const NOT_PARTICLE = ['shipFires', 'groundFires', 'cameraShake']
+  const NOT_PARTICLE = ['shipFires', 'groundFires', 'cameraShake', 'cameraSmoke']
 
   it('POOLS 裡的每一個粒子池每幀都被推', () => {
     expect(MAIN).toContain('const stepEffects = createEffectStepper({')

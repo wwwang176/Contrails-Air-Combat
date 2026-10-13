@@ -5,7 +5,8 @@ import {
 } from 'three'
 import { hash01 } from '../core/hash'
 import { applyFireFog } from './fireFog'
-import { injectBillboard } from './particleShader'
+import { injectBillboard, injectCameraSmoke } from './particleShader'
+import { cameraSmokeEnabled, registerCameraSmoke, unregisterCameraSmoke, type CameraSmokeSource } from './cameraSmokeField'
 import { SMOKE_WIND } from './wind'
 import type { Anchors } from './anchors'
 
@@ -80,6 +81,8 @@ export interface ParticleConfig {
    * 火的那幾池給 `FIRE_FOG`：自己發光的東西，遠處不該跟煙一樣被霧吃掉
    */
   fog?: number
+  /** 煙／蒸汽／揚塵進入鏡頭時交接給煙內遮罩；火焰、水花與碎土不啟用。 */
+  cameraSmoke?: boolean
 }
 
 export interface Particles {
@@ -313,19 +316,24 @@ export function createParticles(cfg: ParticleConfig): Particles {
   const additive = cfg.blending === AdditiveBlending
   material.onBeforeCompile = (s): void => {
     injectBillboard(s, soft)
+    if (cfg.cameraSmoke) {
+      injectCameraSmoke(s)
+      s.uniforms.uCameraSmokeEnabled = cameraSmokeEnabled
+    }
     if (fog !== undefined) applyFireFog(s, fog, additive)
   }
   // 【火的池子要有自己的 program key】預設的 key 是 onBeforeCompile 的原始碼，
   // 火與煙的字串一模一樣 —— 共用的話後建的拿到前一個的程式，煙變成只吃一半霧
-  if (fog !== undefined) {
-    material.customProgramCacheKey = () => `particles-fog:${fog}:${additive ? 'add' : 'norm'}:${soft ? 'soft' : 'map'}`
-  }
+  material.customProgramCacheKey = () => `particles-fog:${fog}:${additive ? 'add' : 'norm'}:${soft ? 'soft' : 'map'}:cameraSmoke:${!!cfg.cameraSmoke}`
 
   const object = new InstancedMesh(geometry, material, capacity)
   object.instanceMatrix.setUsage(DynamicDrawUsage)
   // 包圍球是建立時算的（全部在原點）——開著視錐剔除，相機一離開原點附近
   // 整批粒子會一起消失。與曳光彈、火花同一個坑。
   object.frustumCulled = false
+  const cameraSource: CameraSmokeSource | null = cfg.cameraSmoke
+    ? { object, alpha: alphas, slots: new Uint32Array(capacity), count: 0 } : null
+  if (cameraSource) registerCameraSmoke(cameraSource)
 
   M.compose(ZERO, ROT.identity(), ZERO)
   for (let i = 0; i < capacity; i++) {
@@ -367,6 +375,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
       const damp = Math.exp(-cfg.drag * dt)
       const a = alphas.array as Float32Array
       live = 0
+      if (cameraSource) cameraSource.count = 0
       runFirst = -1
       runLast = -1
       runFirstEnd = -1
@@ -409,6 +418,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
           continue
         }
         live++
+        if (cameraSource) cameraSource.slots[cameraSource.count++] = i
         mark(i)
 
         const nvx = vx[i]! * damp
@@ -464,6 +474,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
     },
 
     reset(): void {
+      if (cameraSource) cameraSource.count = 0
       age.fill(Infinity)
       live = 0
       next = 0
@@ -489,6 +500,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
     },
 
     dispose(): void {
+      if (cameraSource) unregisterCameraSmoke(cameraSource)
       geometry.dispose()
       material.dispose()
       object.dispose()
