@@ -4,7 +4,7 @@ import { createArchipelagoTerrain, createLeyteTerrain, createSeaTerrain } from '
 import type { Terrain, TerrainGfx } from './terrainTypes'
 export type { Terrain, TerrainGfx } from './terrainTypes'
 import {
-  Group, type Mesh, type BufferGeometry,
+  Group, type BufferGeometry,
 } from 'three'
 import { createStaticScenery } from './staticScenery'
 import { CULL } from './cullRuns'
@@ -291,7 +291,7 @@ function createInlandTerrain(
   })
   if (clipmap !== null) {
     horizon.mesh.material = clipmap.material
-    for (const o of ground.object.children) (o as Mesh).material = clipmap.material
+    ground.setMaterial(clipmap.material)
   }
   const group = new Group()
   // 【場外回 0，不是 −Infinity】內陸沒有海可以退回去。遮蔽層與植被拿到的

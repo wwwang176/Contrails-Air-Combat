@@ -1,10 +1,11 @@
 import {
-  BufferGeometry, Color, Group, Mesh, MeshStandardMaterial,
+  BufferGeometry, Color, Group, MeshStandardMaterial,
   type Object3D,
 } from 'three'
 import type { HeightFieldData } from '../world/heightfield'
 import type { IslandDesc } from '../world/archipelago'
 import { buildGroundRect } from './groundGeometry'
+import { createTerrainBatch } from './terrainBatch'
 export { buildGroundRect, DRAW_FLOOR } from './groundGeometry'
 
 /**
@@ -15,9 +16,8 @@ export { buildGroundRect, DRAW_FLOOR } from './groundGeometry'
  * 只要這裡改成「自己再算一次 smoothstep」，兩份就開始漂，而症狀是飛機撞到
  * 一片看不見的陸地。`terrain.test.ts` 有一條逐頂點比對的護欄守它。
  *
- * 【一座島一個 Mesh，不合併】48 個 draw call 對現代 GPU 不算多，換到的是
- * 每座島各有自己的包圍球、可以被視錐剔除 —— 飛機在場地一角時不必畫另一角
- * 的島。合併成單一 geometry 會省下 draw call 但整片一起進出視錐。
+ * 【每座島各自裁切，共用一個批次】保留各島的包圍球，只提交視錐內的島；
+ * 飛機在場地一角時不必畫另一角的島，也不必為每座可見的島各送一次繪製。
  *
  * 【切到 `outerRadius` 而不是 `radius`】島形的 wobble 讓地形延伸到標稱半徑
  * 的 1.29 倍。切在 `radius` 會讓外圈那一環有碰撞卻沒有畫面。
@@ -114,13 +114,14 @@ export function createIslands(
     const geo = buildIsland(field, isl, coverAt)
     if (geo === null) continue
     geometries.push(geo)
-    group.add(new Mesh(geo, material))
   }
+  const view = createTerrainBatch(geometries, material)
+  if (view.mesh !== null) group.add(view.mesh)
 
   return {
     object: group,
     dispose() {
-      for (const g of geometries) g.dispose()
+      view.dispose()
       material.dispose()
     },
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Mesh, type BufferAttribute } from 'three'
+import { BatchedMesh, Mesh, Sphere, type BufferAttribute } from 'three'
 import { createFarmGround, FARM_CHUNKS } from '../../src/render/farmGround'
 import { createFarmland, FARM_CELL, FARM_EXTENT } from '../../src/world/farmland'
 
@@ -9,7 +9,9 @@ const meshes = ground.object.children.filter((c): c is Mesh => c instanceof Mesh
 
 describe('農地的切塊 mesh', () => {
   it('切成 FARM_CHUNKS² 塊', () => {
-    expect(meshes.length).toBe(FARM_CHUNKS * FARM_CHUNKS)
+    expect(meshes).toHaveLength(1)
+    expect(meshes[0]).toBeInstanceOf(BatchedMesh)
+    expect((meshes[0] as BatchedMesh).instanceCount).toBe(FARM_CHUNKS * FARM_CHUNKS)
   })
 
   /**
@@ -84,9 +86,10 @@ describe('農地的切塊 mesh', () => {
   })
 
   it('每一塊都有自己的包圍球，可以被視錐剔除', () => {
-    for (const m of meshes) {
-      expect(m.geometry.boundingSphere).not.toBeNull()
-      expect(m.frustumCulled).toBe(true)
+    const batch = meshes[0] as BatchedMesh
+    expect(batch.frustumCulled).toBe(true)
+    for (let id = 0; id < batch.instanceCount; id++) {
+      expect(batch.getBoundingSphereAt(batch.getGeometryIdAt(id), new Sphere())!.radius).toBeGreaterThan(0)
     }
   })
 
@@ -133,8 +136,8 @@ describe('農地的切塊 mesh', () => {
         mat.addEventListener('dispose', () => { pending.delete(mat) })
       }
     }
-    // 25 塊 geometry 加一份共用的材質
-    expect(pending.size).toBe(FARM_CHUNKS * FARM_CHUNKS + 1)
+    // 一份合批幾何加一份共用材質。
+    expect(pending.size).toBe(2)
     g.dispose()
     expect(pending.size).toBe(0)
   })

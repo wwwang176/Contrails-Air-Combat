@@ -1,5 +1,5 @@
 import {
-  BufferAttribute, BufferGeometry, DataTexture, Group, Mesh, MeshStandardMaterial,
+  BufferAttribute, BufferGeometry, DataTexture, Group, MeshStandardMaterial,
   NearestFilter, RGBAIntegerFormat, UnsignedByteType, Vector4,
   type Object3D, type WebGLProgramParametersWithUniforms,
 } from 'three'
@@ -11,6 +11,7 @@ import { type SiteLayout } from './siteSurface'
 import type { Season } from './season'
 import type { HeightFieldData } from '../world/heightfield'
 import { SCAR_ATLAS } from './battleScars'
+import { createTerrainBatch } from './terrainBatch'
 
 /**
  * 把農地的高度場切成 low-poly 的地面。
@@ -27,7 +28,7 @@ import { SCAR_ATLAS } from './battleScars'
  * 兩者互不干擾，這正是「大片多邊形」與「Bocage 的田」可以同時成立的原因。
  *
  * 【為什麼切塊】5 × 5 = 25 塊，每塊 6 km 見方、各有包圍球，所以背對著的
- * 半張圖不會進畫面。比群島的 48 個 draw call 還少。
+ * 半張圖不會進畫面。合批後仍各自剔除，只集中提交可見區塊。
  */
 
 /** 每一邊切幾塊。375 格 ÷ 5 = 75 格／塊 = 6,000 m */
@@ -134,6 +135,7 @@ export function createFarmGround(
   object: Object3D
   /** 區塊候選表。田色 clipmap 烘圖與內圈的算式共用它，才不必再建一份 */
   candidates: { texture: DataTexture; table: RegionCandidates }
+  setMaterial(material: MeshStandardMaterial): void
   dispose(): void
 } {
   const group = new Group()
@@ -160,15 +162,17 @@ export function createFarmGround(
     for (let i = 0; i < FARM_CHUNKS; i++) {
       const geo = buildChunk(field, i * n, j * n, n)
       geometries.push(geo)
-      group.add(new Mesh(geo, material))
     }
   }
+  const view = createTerrainBatch(geometries, material)
+  if (view.mesh !== null) group.add(view.mesh)
 
   return {
     object: group,
     candidates: { texture, table },
+    setMaterial: view.setMaterial,
     dispose() {
-      for (const g of geometries) g.dispose()
+      view.dispose()
       material.dispose()
       texture.dispose()
     },

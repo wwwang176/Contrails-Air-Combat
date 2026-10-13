@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { BatchedMesh } from 'three'
 import { preloadPlantScenery } from '../../src/render/geometry/ground/plantScenery'
 import { createTerrain } from '../../src/render/terrain'
 import { FAR_SEA_Y } from '../../src/render/oceanGeometry'
@@ -193,7 +194,8 @@ describe('內陸農地', () => {
     // 3 = 植被（append 上去的，前三個不動）
     expect(t.object.children.length).toBe(4)
     expect(t.object.children[1]!.children.length).toBe(0)
-    expect(t.object.children[2]!.children.length).toBe(25)
+    expect(t.object.children[2]!.children).toHaveLength(1)
+    expect((t.object.children[2]!.children[0] as BatchedMesh).instanceCount).toBe(25)
   })
 
   /**
@@ -289,7 +291,8 @@ describe('植被接線', () => {
   it('群島也有，而且陸地仍然在索引 2', () => {
     const t = createTerrain('archipelago')
     expect(t.object.children[3]!.children.length).toBe(13)
-    expect(t.object.children[2]!.children.length).toBeGreaterThan(10)
+    expect(t.object.children[2]!.children).toHaveLength(1)
+    expect((t.object.children[2]!.children[0] as BatchedMesh).instanceCount).toBeGreaterThan(10)
     t.dispose()
   })
 
@@ -374,18 +377,19 @@ describe('洛伊納', () => {
   afterAll(() => { t.dispose() })
 
   /**
-   * 【河與地物掛在陸地底下】陸地是 25 塊田、一個河的群組、一個地物（村鎮、
+   * 【河與地物掛在陸地底下】陸地是一批田、一個河的群組、一個地物（村鎮、
    * 礦坑、A9）的群組，頂層的位置契約不動
    */
   it('前四個位置的契約與農地相同，第五個是廠區的佈景，河與地物在陸地底下', () => {
     expect(t.object.children.length).toBe(5)
     expect(t.object.children[1]!.children.length).toBe(0)
-    expect(t.object.children[2]!.children.length).toBe(27)
+    expect(t.object.children[2]!.children.length).toBe(3)
     expect(t.object.children[2]!.children.slice(-2).map((o) => o.name)).toEqual(['river', 'landFeatures'])
-    // 佈景切成好幾塊，每一塊一顆 Mesh —— 見 `SCENERY_CHUNK`
+    // 佈景保留多個區塊，但以一批繪製。
     const scenery = t.object.children[4]!
-    expect(scenery.children.length).toBeGreaterThan(1)
-    expect(scenery.children.every((o) => (o as { isMesh?: boolean }).isMesh === true)).toBe(true)
+    expect(scenery.children).toHaveLength(1)
+    expect(scenery.children[0]).toBeInstanceOf(BatchedMesh)
+    expect((scenery.children[0] as BatchedMesh).instanceCount).toBeGreaterThan(1)
   })
 
   /** 【有真實村鎮就不撒隨機的村】隨機的村會落在不存在的地方 —— 田中央冒出一座教堂 */

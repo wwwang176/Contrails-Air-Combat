@@ -1,18 +1,19 @@
 import {
   BufferAttribute, BufferGeometry, ClampToEdgeWrapping, Color, DataTexture, FloatType, Group, LinearFilter,
-  LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, NearestFilter, RedFormat, RGBAFormat, RGFormat,
+  LinearMipmapLinearFilter, MeshStandardMaterial, NearestFilter, RedFormat, RGBAFormat, RGFormat,
   UnsignedByteType, type Object3D,
 } from 'three'
 import type { HeightFieldData } from '../world/heightfield'
 import { FIELD_HALF, LEYTE_ROADS, ROAD_WIDTH, SAND_TOP, farHeight } from '../world/leyte'
 import { buildGroundRect, DRAW_FLOOR } from './groundGeometry'
+import { createTerrainBatch } from './terrainBatch'
 
 /**
  * # 雷伊泰的地面
  *
  * 低多邊形的頂點色網格，與群島同一種畫法；差別在三件事：
  *
- * 1. **切成方塊**，不是一座座圓島 —— 陸地是一整片。一塊一個 Mesh，各自進出
+ * 1. **切成方塊**，不是一座座圓島 —— 陸地是一整片。區塊合批後仍各自進出
  *    視錐；整塊沉在水下的格子不畫（`buildGroundRect`）。
  * 2. **沙灘由高度 `SAND_TOP` 分界**，平地（8 m）是草。群島的分界是 12 m，
  *    照搬的話整片平地都是沙。
@@ -384,9 +385,9 @@ const FAR_EXTENT = 80000
  * 邊緣上兩邊都是一條水平線，粗格與細格在那裡不會裂開。
  */
 const FAR_CELL = 500
-/** 一塊遠景幾格邊長。一塊一個 Mesh，各自進出視錐 */
+/** 一塊遠景幾格邊長。合批時保留每塊的視錐剔除 */
 const FAR_TILE_CELLS = 20
-/** 遠景陸地那幾塊 Mesh 的名字。它們不在高度場裡，量測與測試靠它認 */
+/** 遠景陸地批次的名字。它不在高度場裡，量測與測試靠它認 */
 export const FAR_LAND_NAME = 'leyte-far'
 
 /**
@@ -487,11 +488,10 @@ export function createLeyteGround(
       )
       if (geo === null) continue
       geometries.push(geo)
-      const mesh = new Mesh(geo, material)
-      mesh.renderOrder = GROUND_RENDER_ORDER
-      group.add(mesh)
     }
   }
+  const near = createTerrainBatch(geometries, material)
+  geometries.length = 0
   // 【遠景陸地】島很大，另外幾面的海岸不在視野裡。與場內共用同一個材質
   const span = FAR_CELL * FAR_TILE_CELLS
   for (let z0 = -FAR_EXTENT; z0 < FAR_EXTENT; z0 += span) {
@@ -499,11 +499,14 @@ export function createLeyteGround(
       const geo = buildFarTile(x0, z0, farCoverAt)
       if (geo === null) continue
       geometries.push(geo)
-      const mesh = new Mesh(geo, material)
-      mesh.name = FAR_LAND_NAME
-      mesh.renderOrder = GROUND_RENDER_ORDER
-      group.add(mesh)
     }
+  }
+  // 遠景保留獨立批次，診斷工具仍能單獨關閉遠景陸地。
+  const far = createTerrainBatch(geometries, material)
+  if (far.mesh !== null) far.mesh.name = FAR_LAND_NAME
+  for (const view of [near, far]) if (view.mesh !== null) {
+    view.mesh.renderOrder = GROUND_RENDER_ORDER
+    group.add(view.mesh)
   }
   return {
     object: group,
@@ -513,7 +516,8 @@ export function createLeyteGround(
       canopyUniform.value = canopyTexture(map)
     },
     dispose() {
-      for (const g of geometries) g.dispose()
+      near.dispose()
+      far.dispose()
       material.dispose()
       roadTex.ids.dispose()
       roadTex.segments.dispose()
