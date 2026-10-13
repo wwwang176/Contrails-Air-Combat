@@ -6,6 +6,7 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createHeightField } from '../../src/world/heightfield'
 import type { LandField } from '../../src/world/occlusion'
 import { clearImpacts } from '../../src/world/events'
+import { MATERIAL } from '../../src/world/material'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
 import type { Command, Controller } from '../../src/control/Controller'
@@ -87,6 +88,8 @@ describe('彈丸撞到陸地', () => {
     expect(r.terrain).toBe(1)
     expect(r.hits).toBe(0)
     expect(r.live).toBe(0)
+    expect(w.materialHits.count).toBe(1)
+    expect(Array.from(w.materialHits.data.slice(0, 4))).toEqual([0, 100, 0, MATERIAL.ground])
   })
 
   /**
@@ -104,6 +107,9 @@ describe('彈丸撞到陸地', () => {
     w.step(DT)
     expect(w.terrainHitEvents.count).toBe(1)
     expect(w.terrainHitEvents.data[1]).toBeCloseTo(0, 5)
+    expect(w.materialHits.count).toBe(1)
+    expect(w.materialHits.data[1]).toBeCloseTo(0, 5)
+    expect(w.materialHits.data[3]).toBe(MATERIAL.ground)
   })
 
   it('撞到陸地不推 damageEvents —— 山不是一架飛機', () => {
@@ -133,6 +139,7 @@ describe('彈丸撞到陸地', () => {
     expect(r.hits).toBe(0)
     expect(r.terrain).toBe(0)
     expect(r.live).toBe(0)
+    expect(w.materialHits.count).toBe(0)
   })
 
   it('沒有陸地時，水柱與回收深度與 land 為 null 完全相同', () => {

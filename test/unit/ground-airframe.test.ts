@@ -3,6 +3,8 @@ import { Quaternion, Vector3 } from 'three'
 import { World } from '../../src/world/World'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
+import { B17G } from '../../src/specs/b17g'
+import type { AircraftSpec } from '../../src/specs/types'
 import { createGroundTarget, type GroundTarget } from '../../src/world/groundTargets'
 import { airframePose } from '../../src/world/groundAirframe'
 import { SHIP_CLASSES, createShip } from '../../src/world/ships'
@@ -11,6 +13,7 @@ import { missionConfigFrom } from '../../src/battle/missions'
 import { readyCard } from '../fixtures/mission'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { HitPart } from '../../src/world/hit'
+import { MATERIAL } from '../../src/world/material'
 
 /**
  * # 地上的飛機照飛機算；打中地面目標與船都亮命中 X
@@ -24,12 +27,12 @@ class Idle implements Controller {
   }
 }
 
-function setup(): { w: World; t: GroundTarget; shooter: number } {
+function setup(unit: 'parkedP51' | 'parkedB17' = 'parkedP51', spec: AircraftSpec = P51D): { w: World; t: GroundTarget; shooter: number } {
   const w = new World()
   const s = w.add(new Aircraft(P51D, 3000, 150), new Idle(), 'blue', new Vector3(0, 3000, 5000))
-  const t = createGroundTarget(0, 'parkedP51', 'red', 0, 0, 0.7)
-  t.airframe = P51D
-  t.hp = P51D.hp
+  const t = createGroundTarget(0, unit, 'red', 0, 0, 0.7)
+  t.airframe = spec
+  t.hp = spec.hp
   w.groundTargets.push(t)
   return { w, t, shooter: s.index }
 }
@@ -46,12 +49,26 @@ function shootDown(w: World, shooter: number, at: Vector3): number {
 }
 
 function partCenter(t: GroundTarget, part: HitPart): Vector3 {
-  const box = P51D.hitBoxes.find((b) => b.part === part)!
+  const box = t.airframe!.hitBoxes.find((b) => b.part === part)!
   const pos = new Vector3()
   const quat = new Quaternion()
   airframePose(t, pos, quat)
   return box.center.clone().applyQuaternion(quat).add(pos)
 }
+
+describe('地面飛機的命中聲', () => {
+  it.each([
+    ['parkedP51', P51D],
+    ['parkedB17', B17G],
+  ] as const)('%s 被子彈擊中時使用車輛材質，保留飛機的部位傷害', (unit, spec) => {
+    const { w, t, shooter } = setup(unit, spec)
+    expect(shootDown(w, shooter, partCenter(t, 'cockpit'))).toBe(1)
+    expect(t.hp).toBeLessThan(spec.hp)
+    expect(w.materialHits.count).toBe(1)
+    expect(w.materialHits.data[3]).toBe(MATERIAL.vehicle)
+    expect(t.unit.vehicle).toBeUndefined()
+  })
+})
 
 describe('停在地上的 P-51', () => {
   it('德 M3 的停機線：血量與天上那一架相同（1,000）', () => {

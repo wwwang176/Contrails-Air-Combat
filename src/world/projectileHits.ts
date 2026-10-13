@@ -317,7 +317,9 @@ export class ProjectileHits {
         if (hitTarget !== null) {
           const hx = ax + (bx - ax) * bestT, hy = ay + (by - ay) * bestT, hz = az + (bz - az) * bestT
           pushImpact(world.hitEvents, hx, hy, hz, -(bx - ax), -(by - ay), -(bz - az))
-          pushImpact(world.materialHits, hx, hy, hz, hitTarget.unit.vehicle === true ? MATERIAL.vehicle : MATERIAL.ground, 0, 0)
+          // 地面飛機與車輛共用金屬命中聲；機體的部位傷害仍由 airframe 判定。
+          const material = hitTarget.unit.vehicle === true || hitTarget.airframe !== null ? MATERIAL.vehicle : MATERIAL.ground
+          pushImpact(world.materialHits, hx, hy, hz, material, 0, 0)
           if (hitPart !== null) {
             hitTarget.hp -= partDamage(hitTarget.airframe!.protection, p.damage[i]!, hitPart)
           } else {
@@ -390,6 +392,8 @@ export class ProjectileHits {
           const hy = land.field.sample(hx, hz)
           normalAt(land.field, hx, hz, LAND_N)
           pushImpact(world.terrainHitEvents, hx, hy, hz, LAND_N.nx, LAND_N.ny, LAND_N.nz)
+          // 地表共用地面目標的碎屑命中聲，位置與土柱一致。
+          pushImpact(world.materialHits, hx, hy, hz, MATERIAL.ground, 0, 0)
           p.kill(i)
           continue
         }
