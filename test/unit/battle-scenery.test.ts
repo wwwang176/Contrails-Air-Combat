@@ -4,6 +4,8 @@ import type { World } from '../../src/world/World'
 import type { MissionTheater } from '../../src/battle/missions/types'
 import { createBattleScenery, type BattleSceneryBuilders } from '../../src/render/battleScenery'
 import { BATTLE_FOG, battleFogTint, clearBattleFog } from '../../src/render/heightFog'
+import { createGroundTarget } from '../../src/world/groundTargets'
+import { createGroundMotion } from '../../src/world/groundMotion'
 
 const theater: MissionTheater = {
   shooters: [], period: 10, range: 1000,
@@ -43,7 +45,7 @@ function fixture() {
     createBalloonModels: vi.fn(() => model('balloons')),
   } satisfies BattleSceneryBuilders
   const world = {
-    ships: [{}] as World['ships'], groundTargets: [{}] as World['groundTargets'], balloons: [{}] as World['balloons'],
+    ships: [{}] as World['ships'], groundTargets: [createGroundTarget(0, 'truck', 'red', 0, 0, 0)], balloons: [{}] as World['balloons'],
   }
   const scenery = createBattleScenery(scene, assets, builders)
   return { scene, scenery, world, built, assets, builders, foam }
@@ -52,6 +54,29 @@ function fixture() {
 afterEach(clearBattleFog)
 
 describe('戰場佈景的所有權', () => {
+  it('只有移動車隊也有揚塵，換成地面交戰時釋放獨立粒子池而不重複發射', () => {
+    const { scene, scenery, world, assets } = fixture()
+    const motion = createGroundMotion([{ x: 0, z: 0 }, { x: 0, z: -1000 }],
+      { speed: 10, turnRadius: 25, turnRate: 0.4 }, 0, 0)
+    world.groundTargets = [createGroundTarget(0, 'usTruck', 'red', 0, 0, 0, motion)]
+    scenery.rebuild(world, undefined)
+    expect(scenery.groundBattle).toBeNull()
+    const dust = scenery.vehicleDust!
+    expect(dust).not.toBeNull()
+    expect(dust.object.parent).toBe(scene)
+    const disposed = vi.fn()
+    const textureDisposed = vi.fn()
+    dust.object.geometry.addEventListener('dispose', disposed)
+    assets.smokeTexture.addEventListener('dispose', textureDisposed)
+    scenery.rebuild(world, theater)
+    expect(scenery.vehicleDust).toBeNull()
+    expect(scenery.groundBattle).not.toBeNull()
+    expect(dust.object.parent).toBeNull()
+    expect(disposed).toHaveBeenCalledTimes(1)
+    expect(textureDisposed).not.toHaveBeenCalled()
+    scenery.releaseGroundBattle()
+    scenery.clearModels()
+  })
   it('空場不建立模型；有單位時保持順序，直接傳遞同一批單位、貼圖與回呼', () => {
     const { scene, scenery, world, built, assets, builders, foam } = fixture()
     scenery.rebuild(empty(), theater)

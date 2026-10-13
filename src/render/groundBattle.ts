@@ -4,6 +4,8 @@ import type { GroundTarget } from '../world/groundTargets'
 import type { MissionTheater } from '../battle/missions/types'
 import { createParticles } from './particles'
 import { createDust } from './blast'
+import { createVehicleDustEmission } from './groundVehicleDust'
+export { TRACK_DUST_EVERY } from './groundVehicleDust'
 import { createTracers } from './tracers'
 import { createGroundShellPool } from './groundShellPool'
 import { FIRE_SECONDS, type FirePuffFn } from './shipFires'
@@ -79,8 +81,6 @@ const HIT_CHANCE = 0.3
 const MISS_NEAR = 8
 const MISS_FAR = 25
 
-/** 移動中的坦克每隔幾秒在車尾補一團塵土 */
-export const TRACK_DUST_EVERY = 0.35
 /** 長燒的煙每隔幾秒補一朵火 */
 export const BURN_EVERY = 0.3
 
@@ -271,6 +271,7 @@ export function createGroundBattle(
     gravity: 0.6, drag: 1.2, alphaFrom: 0.55, shadeJitter: 0.3, color: gunSmokeColor,
   })
   const dust = createDust(1024, 1, smokeTexture)
+  const vehicleDust = createVehicleDustEmission(dust)
   const clouds = createGroundDustClouds(theater.dusts ?? [], smokeTexture)
   const stepClouds = clouds.step
   const shells = createGroundShellPool(SHELL_CAPACITY, false, flash, dust, impact, landed)
@@ -287,7 +288,6 @@ export function createGroundBattle(
 
   const shotBuf = new Float64Array(MAX_SHOTS_PER_FRAME)
   /** 每一台的車尾塵土計時，第一次 `update` 時依單位數配置 */
-  let trackClock = new Float32Array(0)
   /** 每一台第一次被看到死掉的世界秒數；−1 = 還活著。長燒的煙從它起算 */
   let diedAt = new Float32Array(0)
   /** 每一台劇本打掉前的那一發補過了沒（1 = 補過）。`reset` 清掉 */
@@ -462,8 +462,7 @@ export function createGroundBattle(
     get arcLastLanding() { return arcLastLanding },
 
     update(targets, time, frameDt, groundAt) {
-      if (trackClock.length !== targets.length) {
-        trackClock = new Float32Array(targets.length)
+      if (diedAt.length !== targets.length) {
         diedAt = new Float32Array(targets.length).fill(-1)
         killShot = new Uint8Array(targets.length)
         aimTargets = new Int32Array(targets.length).fill(-1)
@@ -531,21 +530,8 @@ export function createGroundBattle(
             }
           }
         }
-        // 【行進揚塵】車尾、貼地
-        if (me.speed > 0) {
-          const c = trackClock[s]! - frameDt
-          if (c <= 0) {
-            trackClock[s] = TRACK_DUST_EVERY
-            const yaw = 2 * Math.atan2(me.orientation.y, me.orientation.w)
-            const back = me.unit.realLength / 2
-            const x = me.position.x + Math.sin(yaw) * back
-            const z = me.position.z + Math.cos(yaw) * back
-            dust.emit(x, me.position.y + 0.5, z, 0, 0.8, 0, 0.6)
-          } else {
-            trackClock[s] = c
-          }
-        }
       }
+      vehicleDust.update(targets, frameDt)
 
       // 【砲兵】無人地帶的雜湊位置揚起一柱塵土
       const art = theater.artillery
@@ -610,7 +596,7 @@ export function createGroundBattle(
       arcTrails.reset()
       burnClock = 0
       artilleryClock = 0
-      trackClock.fill(0)
+      vehicleDust.reset()
       diedAt.fill(-1)
       killShot.fill(0)
       aimTargets.fill(-1)

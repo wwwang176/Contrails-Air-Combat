@@ -11,6 +11,7 @@ import type { createSearchlights, Searchlights } from './searchlights'
 import type { createGroundBattle, GroundBattle } from './groundBattle'
 import type { createBalloonModels, BalloonModels } from './balloons'
 import { battleFogTint, clearBattleFog, setBattleFog } from './heightFog'
+import { createGroundVehicleDust } from './groundVehicleDust'
 
 type SceneryWorld = Pick<World, 'ships' | 'groundTargets' | 'balloons'>
 
@@ -45,6 +46,7 @@ export interface BattleScenery {
   readonly searchlights: Searchlights | null
   readonly balloonModels: BalloonModels | null
   readonly groundBattle: GroundBattle | null
+  readonly vehicleDust: ReturnType<typeof createGroundVehicleDust> | null
   readonly battleFogOn: boolean
   /** @param groundLivery 地面單位的塗裝（`BattleConfig.groundLivery`）。省略 = 預設配色 */
   rebuild(world: SceneryWorld, theater: MissionTheater | undefined, groundLivery?: GroundLivery): void
@@ -66,6 +68,7 @@ export function createBattleScenery(
     searchlights: null as Searchlights | null,
     balloonModels: null as BalloonModels | null,
     groundBattle: null as GroundBattle | null,
+    vehicleDust: null as ReturnType<typeof createGroundVehicleDust> | null,
     battleFogOn: false,
     rebuild, clearModels, releaseGroundBattle,
   }
@@ -100,6 +103,10 @@ export function createBattleScenery(
         setBattleFog({ ...theater.haze, tint: battleFogTint((scene.fog as FogExp2).color, theater.fogColor) })
         state.battleFogOn = true
       }
+    } else if (world.groundTargets.some(t => t.motion !== null && t.unit.vehicle === true && t.airframe === null)) {
+      // 有地面交戰時由它共用原塵土池；只有車隊時獨立啟用，避免重複揚塵。
+      state.vehicleDust = createGroundVehicleDust(assets.smokeTexture)
+      scene.add(state.vehicleDust.object)
     }
     // 氣球與船同一個做法：每一場重建
     clearBalloons()
@@ -110,6 +117,11 @@ export function createBattleScenery(
   }
 
   function releaseGroundBattle(): void {
+    if (state.vehicleDust !== null) {
+      scene.remove(state.vehicleDust.object)
+      state.vehicleDust.dispose()
+      state.vehicleDust = null
+    }
     clearBattleFog()
     state.battleFogOn = false
     if (state.groundBattle === null) return
