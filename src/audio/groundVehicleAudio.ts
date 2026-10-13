@@ -20,16 +20,18 @@ interface VehicleSound {
 const TANK: VehicleSound = {
   drive: 'on-board-military-tank', roll: 'car-tires-rolling-on-gravel',
   idle: 'truck-idling-2', fullSpeed: 10, gainDb: 20 * Math.log10(0.7),
-  overallGainDb: 20 * Math.log10(1.15),
+  overallGainDb: 20 * Math.log10(1.15 * 1.5),
 }
 const TRUCK: VehicleSound = {
   drive: 'truck-on-rough-terrain-interior', roll: 'gravel-tire-roll',
   idle: 'truck-idling-1', fullSpeed: 15, gainDb: 20 * Math.log10(0.8 * 0.7),
-  overallGainDb: 20 * Math.log10(0.85),
+  overallGainDb: 20 * Math.log10(0.85 * 0.7),
 }
+/** M16 共用卡車素材，音量獨立調整。 */
+const M16: VehicleSound = { ...TRUCK, overallGainDb: 20 * Math.log10(0.85) }
 const SOUNDS: Readonly<Partial<Record<GroundUnitId, VehicleSound>>> = {
   tank: TANK, tankDug: TANK, panzer4: TANK, tiger: TANK, usTank: TANK,
-  truck: TRUCK, usTruck: TRUCK, usFlakTrack: TRUCK,
+  truck: TRUCK, usTruck: TRUCK, usFlakTrack: M16,
 }
 
 /** 碎石只補行進質感，怠速比行進引擎安靜一些。 */

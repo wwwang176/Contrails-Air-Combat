@@ -24,14 +24,14 @@ describe('地面車輛循環', () => {
       const t = vehicle(id, 5, 10, 30)
       audio.update([t])
       expect(assign.mock.calls).toEqual([
-        ['vehicleDrive', 5, 'on-board-military-tank', 30, 0, 0, 1.2, 20 * Math.log10(0.7) + 20 * Math.log10(1.15)],
-        ['vehicleRoll', 5, 'car-tires-rolling-on-gravel', 30, 0, 0, 1.2, -11 + 20 * Math.log10(1.5) + 20 * Math.log10(1.15)],
+        ['vehicleDrive', 5, 'on-board-military-tank', 30, 0, 0, 1.2, 20 * Math.log10(0.7) + 20 * Math.log10(1.15 * 1.5)],
+        ['vehicleRoll', 5, 'car-tires-rolling-on-gravel', 30, 0, 0, 1.2, -11 + 20 * Math.log10(1.5) + 20 * Math.log10(1.15 * 1.5)],
       ])
       assign.mockClear()
       t.speed = 0
       audio.update([t])
       expect(assign.mock.calls).toEqual([['vehicleIdle', 5, 'truck-idling-2', 30, 0, 0, 1,
-        -4 + 20 * Math.log10(0.7) + 20 * Math.log10(1.15)]])
+        -4 + 20 * Math.log10(0.7) + 20 * Math.log10(1.15 * 1.5)]])
     },
   )
 
@@ -39,17 +39,18 @@ describe('地面車輛循環', () => {
     '%s 共用卡車行進、碎石與怠速素材', (id) => {
       const { audio, assign } = setup()
       const t = vehicle(id, 9, 15)
+      const overall = 0.85 * (id === 'usFlakTrack' ? 1 : 0.7)
       audio.update([t])
       expect(assign.mock.calls.map(c => [c[0], c[2], c[6]])).toEqual([
         ['vehicleDrive', 'truck-on-rough-terrain-interior', 1.2], ['vehicleRoll', 'gravel-tire-roll', 1.2],
       ])
-      expect(10 ** (assign.mock.calls[0]![7] / 20)).toBeCloseTo(0.8 * 0.7 * 0.85)
-      expect(assign.mock.calls[1]![7]).toBeCloseTo(-11 + 20 * Math.log10(1.5 * 0.85))
+      expect(10 ** (assign.mock.calls[0]![7] / 20)).toBeCloseTo(0.8 * 0.7 * overall)
+      expect(assign.mock.calls[1]![7]).toBeCloseTo(-11 + 20 * Math.log10(1.5 * overall))
       assign.mockClear()
       t.speed = 0
       audio.update([t])
       expect(assign.mock.calls).toEqual([['vehicleIdle', 9, 'truck-idling-1', 0, 0, 0, 1,
-        -4 + 20 * Math.log10(0.8 * 0.7) + 20 * Math.log10(0.85)]])
+        -4 + 20 * Math.log10(0.8 * 0.7) + 20 * Math.log10(overall)]])
     },
   )
 
