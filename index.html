@@ -527,7 +527,7 @@
       :lang(en) .t-btn.t-fire { font-size: clamp(11px, 3.5vh, 17px); }
       .t-btn.down { background: rgba(184, 84, 63, .55); border-color: rgba(242, 233, 210, .9); }
       .t-btn[hidden] { display: none; }
-      /* 觸控裝置的 FPS 只留一行字，左右位置由 core/perf.ts 讓開左上角的按鈕 */
+      /* 觸控裝置的 FPS 只留一行字；左上角有按鈕時 core/perf.ts 把它排到按鈕右邊 */
       .perf-mobile { display: none;
         font: 10px/1.2 var(--f-ui); font-variant-numeric: tabular-nums;
         color: rgba(238,231,213,.8); text-shadow: 0 1px 2px rgba(20,29,31,.5); }
@@ -567,8 +567,8 @@
         .gear { top: 6px; right: 8px; width: 34px; height: 34px; }
         .gear.help { right: 50px; font-size: 13px; }
         #ui .screen { padding: 46px 12px 10px; gap: 12px; }
-        /* 【返回鍵貼在畫面頂端、FPS 右邊】原本掛在紙的左上角外側，那要 54px 的頁首 */
-        .back { position: fixed; top: 6px; left: 64px; padding: 6px 12px 6px 10px; font-size: 13px; }
+        /* 【返回鍵貼在畫面左上角】掛在紙的左上角外側要 54px 的頁首；FPS 由 core/perf.ts 排到它右邊 */
+        .back { position: fixed; top: 6px; left: 12px; padding: 6px 12px 6px 10px; font-size: 13px; }
         h1 { font-size: 30px; }
         .go { padding: 9px 30px; font-size: 15px; min-width: 108px; }
         .ask { min-width: 0; padding: 14px 22px 16px; gap: 12px; }

@@ -101,7 +101,7 @@
 @media (max-height: 560px) and (orientation: landscape), (max-width: 1050px) {
   #ui .mission-screen { padding: 48px 16px 10px; }
   .mission-pane { height: 100%; display: flex; flex-direction: column; }
-  .mission-pane > .back { position: fixed; top: 6px; left: max(64px, env(safe-area-inset-left)); padding: 8px 14px; min-height: 38px; box-sizing: border-box; }
+  .mission-pane > .back { position: fixed; top: 6px; left: max(12px, env(safe-area-inset-left)); padding: 8px 14px; min-height: 38px; box-sizing: border-box; }
   .mission-pane > .trail { display: none; }
   .mission-layout { display: flex; flex-direction: column; height: auto; min-height: 0; flex: 1; }
   .mission-nav { flex: none; padding: 0; border-right: 0; border-bottom: 1px solid #7d6845; overflow: visible; }
@@ -147,7 +147,7 @@
 @media (max-height: 560px) and (orientation: landscape) {
   #ui .campaign-screen { padding: 48px 24px 12px; }
   .campaign-pane { height: 100%; display: flex; flex-direction: column; }
-  .campaign-pane > .back { position: fixed; top: 6px; left: max(64px, env(safe-area-inset-left)); padding: 8px 14px; min-height: 38px; box-sizing: border-box; }
+  .campaign-pane > .back { position: fixed; top: 6px; left: max(12px, env(safe-area-inset-left)); padding: 8px 14px; min-height: 38px; box-sizing: border-box; }
   .campaign-heading { margin: 0 0 8px; display: flex; align-items: baseline; gap: 12px; }
   .campaign-heading h1 { font-size: 18px; margin: 0; }
   .campaign-cards { gap: 12px; min-height: 0; flex: 1; }
