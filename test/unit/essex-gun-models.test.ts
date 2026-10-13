@@ -66,13 +66,15 @@ describe('Essex measured gun models', () => {
       for (const [id, piece] of pieces.entries()) {
         expect(piece.layers.mask).toBe(0)
         const range = batch.getGeometryRangeAt(batch.getGeometryIdAt(id))!
-        const world = batch.getMatrixAt(id, new Matrix4()).premultiply(batch.matrixWorld)
+        const local = batch.getMatrixAt(id, new Matrix4())
+        const world = local.clone().premultiply(batch.matrixWorld)
         for (const [name, attribute] of Object.entries(piece.geometry.attributes)) {
           const copied = batch.geometry.getAttribute(name)
           for (let v = 0; v < attribute.count; v++) {
             for (let c = 0; c < attribute.itemSize; c++) expect(copied.getComponent(range.vertexStart + v, c)).toBe(attribute.getComponent(v, c))
             if (name === 'position') {
               const p = new Vector3().fromBufferAttribute(attribute, v)
+              expect(batch.boundingSphere!.containsPoint(p.clone().applyMatrix4(local))).toBe(true)
               expect(p.clone().applyMatrix4(world).distanceTo(p.applyMatrix4(piece.matrixWorld))).toBeLessThan(1e-4)
             }
           }

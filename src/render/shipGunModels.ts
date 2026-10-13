@@ -8,7 +8,7 @@ import { batchShipGunMeshes } from './shipGunBatch'
 
 export type ShipGunShot = (x: number, y: number, z: number, dx: number, dy: number, dz: number, scale: number) => void
 
-/** Per-scene bindings borrow cached models and own their draw batches and muzzle flashes. */
+/** 各場景共用快取模型，並自行管理繪製批次與槍口火光。 */
 export function createShipGunModels(ships: readonly Ship[], hulls: readonly Object3D[]) {
   const sources: { ship: number; gun: number; models: { body: Mesh; barrel: Mesh }[]; previous: number; left: number }[] = []
   const batches: ReturnType<typeof batchShipGunMeshes>[] = []
@@ -26,8 +26,7 @@ export function createShipGunModels(ships: readonly Ship[], hulls: readonly Obje
       sources.push({ ship: k, gun: i, models,
         previous: gun.zone.tier === 'flak' ? gun.fired : gun.shots, left: 0 })
     }
-    // Trial the most expensive ship first; the simulation and authored models are unchanged.
-    if (ships[k]!.cls.id === 'essex') batches.push(batchShipGunMeshes(hulls[k]!, parts))
+    if (parts.length > 0) batches.push(batchShipGunMeshes(hulls[k]!, parts))
   }
   const geometry = crossFlare(), material = createMuzzleMaterial()
   const object = new InstancedMesh(geometry, material, Math.max(1, sources.length))
@@ -63,13 +62,13 @@ export function createShipGunModels(ships: readonly Ship[], hulls: readonly Obje
         if (index < 0 || index >= mounts.length) continue
         if (gun.zone.tier === 'flak' && onShot) {
           if (seconds > 0 && emitted > 0) {
-            // Coalesce missed render frames to the last physical shot, like the light-gun flash.
+            // 與小口徑槍焰相同，跨過多次射擊時只呈現最後一發的效果。
             const shot = count
             const mount = mounts[index]!, barrel = source.models[index]!.barrel
             barrel.updateWorldMatrix(true, false)
             direction.set(0, 0, -1).transformDirection(barrel.matrixWorld)
             position.copy(mount.muzzles[gunBarrelIndex(shot, mount.muzzles.length)]!).applyMatrix4(barrel.matrixWorld)
-            // Visual scale only; shares the bounded ground-cannon fire/smoke/light pools.
+            // 只調整視覺尺寸；共用地面火砲有容量上限的火焰、煙霧與光源池。
             onShot(position.x, position.y, position.z, direction.x, direction.y, direction.z, 1.25)
           }
           continue

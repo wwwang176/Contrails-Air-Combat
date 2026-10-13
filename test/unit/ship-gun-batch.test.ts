@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { BatchedMesh, BoxGeometry, Group, Matrix4, Mesh, MeshBasicMaterial, Vector3 } from 'three'
+import { BatchedMesh, BoxGeometry, Frustum, Group, Matrix4, Mesh, MeshBasicMaterial, PerspectiveCamera, Vector3 } from 'three'
 import { batchShipGunMeshes } from '../../src/render/shipGunBatch'
 
 function fixture() {
@@ -16,6 +16,23 @@ function fixture() {
 }
 
 describe('ship gun draw batches', () => {
+  it('culls an off-screen hull as a whole while keeping a visible hull', () => {
+    const { hull, batch, renderer } = fixture()
+    const camera = new PerspectiveCamera(50, 1, 1, 1000), frustum = new Frustum()
+    try {
+      hull.updateMatrixWorld(true)
+      camera.position.copy(hull.position).add(new Vector3(0, 30, 80))
+      camera.lookAt(hull.position); camera.updateMatrixWorld(true)
+      frustum.setFromProjectionMatrix(new Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse))
+      expect(batch.frustumCulled).toBe(true)
+      expect(frustum.intersectsObject(batch)).toBe(true)
+      camera.lookAt(camera.position.clone().add(new Vector3(0, 0, 100)))
+      camera.updateMatrixWorld(true)
+      frustum.setFromProjectionMatrix(new Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse))
+      expect(frustum.intersectsObject(batch)).toBe(false)
+    } finally { renderer.dispose() }
+  })
+
   it('does not re-upload unchanged mounts when only the ship moves', () => {
     const { hull, body, batch, renderer } = fixture()
     const upload = vi.spyOn(batch, 'setMatrixAt')
@@ -23,7 +40,7 @@ describe('ship gun draw batches', () => {
       renderer.update(); hull.position.x += 500; hull.rotation.y += 1; renderer.update()
       expect(upload).not.toHaveBeenCalled()
       body.rotation.y += 0.5; renderer.update()
-      expect(upload).toHaveBeenCalledTimes(2) // The barrel inherits its body's turn.
+      expect(upload).toHaveBeenCalledTimes(2) // 砲管繼承砲塔本體的轉向。
     } finally { renderer.dispose() }
   })
 
@@ -34,7 +51,13 @@ describe('ship gun draw batches', () => {
         body.rotation.y = yaw; barrel.rotation.x = pitch
         renderer.update(); hull.updateMatrixWorld(true)
         for (const [id, source] of [body, barrel].entries()) {
-          const world = batch.getMatrixAt(id, new Matrix4()).premultiply(batch.matrixWorld)
+          const part = batch.getMatrixAt(id, new Matrix4())
+          const vertices = source.geometry.getAttribute('position')
+          for (let i = 0; i < vertices.count; i++) {
+            const p = new Vector3().fromBufferAttribute(vertices, i).applyMatrix4(part)
+            expect(batch.boundingSphere!.containsPoint(p)).toBe(true)
+          }
+          const world = part.premultiply(batch.matrixWorld)
           const local = new Vector3(0.1, 0.2, -1.5)
           expect(local.clone().applyMatrix4(world).distanceTo(local.applyMatrix4(source.matrixWorld))).toBeLessThan(1e-5)
         }
