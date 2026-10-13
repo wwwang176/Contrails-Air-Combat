@@ -308,7 +308,7 @@ describe('音效的戰鬥事件接線', () => {
   it('地面戰的砲口聲：回呼排進佇列，playCannons 播完才清', () => {
     expect(ALL).toContain('burn: emitFirePuff, impact: onGroundImpact, fired: noteGroundShot')
     expect(ALL).toContain('battleScenery.rebuild(world, pendingMission?.battle.theater, battle.cfg.groundLivery)')
-    expect(SCENERY).toContain('createGroundBattle(theater, assets.burn, assets.smokeTexture, assets.impact, assets.fired, assets.landed)')
+    expect(SCENERY).toMatch(/createGroundBattle\(theater, assets\.burn, assets\.smokeTexture,\s*assets\.impact, assets\.fired, assets\.landed, cannon\)/)
     expect(ALL).toContain('const cannonAudio = createCannonAudio(audio, audioEar)')
     expect(ALL).toContain('const noteGroundShot = cannonAudio.noteGroundShot')
     const note = body('function noteGroundShot(', CANNONS)
@@ -768,7 +768,7 @@ describe('循環音的起音', () => {
   /** 【槍第一發就到位】開火與砲塔約 10 ms 爬完；引擎與警笛維持 0.1，一下子冒出來很突兀 */
   it('起音時間常數：開火與砲塔 1/300 s，引擎與警笛 0.1 s', () => {
     expect(engine).toMatch(
-      /const LOOP_ATTACK: Record<LoopPool, number> = \{ engine: 0\.1, fire: 0\.01 \/ 3, turret: 0\.01 \/ 3, siren: 0\.1 \}/)
+      /const LOOP_ATTACK: Record<LoopPool, number> = \{\s*engine: 0\.1, fire: 0\.01 \/ 3, turret: 0\.01 \/ 3, siren: 0\.1,/)
   })
 
   /**
@@ -783,7 +783,7 @@ describe('循環音的起音', () => {
   /** 【槍停了就停】開火與砲塔 0.1 秒收完，拖長的話停火後還聽得到一發；引擎與警笛 0.3 秒 */
   it('收尾：開火與砲塔 0.1 秒，引擎與警笛 0.3 秒', () => {
     expect(engine).toMatch(
-      /const LOOP_FADE: Record<LoopPool, number> = \{ engine: 0\.3, fire: 0\.1, turret: 0\.1, siren: 0\.3 \}/)
+      /const LOOP_FADE: Record<LoopPool, number> = \{\s*engine: 0\.3, fire: 0\.1, turret: 0\.1, siren: 0\.3,/)
     const end = engine.slice(engine.indexOf('function endFrame('))
     expect(end).toContain('v.releaseAt = now + LOOP_FADE[pool]')
     expect(end).toContain('setTargetAtTime(0, now, LOOP_FADE[pool] / 3)')

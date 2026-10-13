@@ -5,7 +5,7 @@ import { createAudioOutput } from './output'
 import { createMusic } from './music'
 import { createRunControl } from './runControl'
 import { assetUrl } from '../core/asset'
-import { CATEGORY, POOLS, type Category, type Pool } from './catalog'
+import { CATEGORY, POOLS, VEHICLE_AUDIO_VOICES, type Category, type Pool } from './catalog'
 import { createAudioAssets } from './assets'
 import { createUiAudio } from './uiAudio'
 import { createSelfAudio, type SelfSlot } from './selfAudio'
@@ -24,7 +24,7 @@ import {
  *
  * - **單次音效**：一個聲道池，全部是 `PannedAudio`（左右自己算，見 `spatial.ts`）。
  *   要定位的放在世界座標；不定位的（自己身上的聲音）永遠在正中間。池滿丟最不響的。
- * - **定位循環**：引擎 8、開火 6、砲塔 6、警笛 4 個聲道。每一幀 `beginFrame` → 逐一 `assign`
+ * - **定位循環**：引擎 8、開火 6、砲塔 6、警笛 4；車輛行進、怠速、碎石各 8 個聲道。每一幀 `beginFrame` → 逐一 `assign`
  *   → `endFrame`；這一幀沒被指派的淡出後放掉。
  * - **自己的循環**：引擎、風切、警告、警笛各一個 `Audio`，不定位。
  * - **距離**：定位的聲音接兩級低通（遠處只剩低頻）並依距離再減一點音量
@@ -39,7 +39,7 @@ import {
  */
 
 export type { SelfSlot } from './selfAudio'
-export type LoopPool = 'engine' | 'fire' | 'turret' | 'siren'
+export type LoopPool = 'engine' | 'fire' | 'turret' | 'siren' | 'vehicleDrive' | 'vehicleIdle' | 'vehicleRoll'
 
 export interface AudioEngine {
   /**
@@ -89,7 +89,7 @@ export interface AudioEngine {
   /** 定位聲音的混音增益；不影響自機循環與介面音效。預設 1，導覽用 0.5。 */
   beginFrame(positionedGain?: number): void
   /**
-   * key 是 combatant 的 index；同一個 key 會拿回同一個聲道。
+   * key 是該池的單位 index；同一個 key 會拿回同一個聲道。飛機與地面車輛用不同池。
    * `gainDb` 是這一架自己的增益，疊在類別音量之上（預設 0）—— 音量隨狀態變的循環用（警笛隨空速）。
    * 它同時進 HDR 的響度估計；只改實際增益的話，一架很小聲的循環會被當成全音量，把別的聲音壓下去。
    */
@@ -137,15 +137,24 @@ const VOICE_QUOTA: Partial<Record<Category, number>> = {
   cannon: 22, impact: 12, waterHit: 8, flyby: 8, whistle: 6, hitDealt: 6, splash: 8, flakBurst: 14,
   explosion: 8, blast: 8,
 }
-const LOOP_VOICES: Record<LoopPool, number> = { engine: 8, fire: 6, turret: 6, siren: 4 }
-const LOOP_CATEGORY: Record<LoopPool, Category> = { engine: 'engine', fire: 'fire', turret: 'turret', siren: 'siren' }
+const LOOP_VOICES: Record<LoopPool, number> = {
+  engine: 8, fire: 6, turret: 6, siren: 4,
+  vehicleDrive: VEHICLE_AUDIO_VOICES, vehicleIdle: VEHICLE_AUDIO_VOICES, vehicleRoll: VEHICLE_AUDIO_VOICES,
+}
+const LOOP_CATEGORY: Record<LoopPool, Category> = {
+  engine: 'engine', fire: 'fire', turret: 'turret', siren: 'siren',
+  vehicleDrive: 'vehicle', vehicleIdle: 'vehicle', vehicleRoll: 'vehicle',
+}
 /**
  * 循環音沒被指派之後的淡出，s：時間常數取三分之一，到時就停掉放回池子。
  *
  * 【槍停了就停】開火與砲塔 0.1 s。循環檔裡的每一發與實際擊發不同步，拖長的話停火之後還聽得到一發。
  * 引擎與警笛 0.3 s，飛機離開範圍時才不會一下子斷掉。
  */
-const LOOP_FADE: Record<LoopPool, number> = { engine: 0.3, fire: 0.1, turret: 0.1, siren: 0.3 }
+const LOOP_FADE: Record<LoopPool, number> = {
+  engine: 0.3, fire: 0.1, turret: 0.1, siren: 0.3,
+  vehicleDrive: 0.4, vehicleIdle: 0.4, vehicleRoll: 0.4,
+}
 /**
  * 循環音起音的時間常數，s：從 0（新播）或淡出中被叫回來時用這個爬到目標，之後每幀以 0.1 跟隨。
  *
@@ -153,7 +162,10 @@ const LOOP_FADE: Record<LoopPool, number> = { engine: 0.3, fire: 0.1, turret: 0.
  * 約 10 ms 爬完（時間常數 1/300 s）；再短的話從循環中間的隨機位置切入會「啪」一聲。
  * 引擎與警笛維持 0.1 —— 一下子冒出來很突兀。
  */
-const LOOP_ATTACK: Record<LoopPool, number> = { engine: 0.1, fire: 0.01 / 3, turret: 0.01 / 3, siren: 0.1 }
+const LOOP_ATTACK: Record<LoopPool, number> = {
+  engine: 0.1, fire: 0.01 / 3, turret: 0.01 / 3, siren: 0.1,
+  vehicleDrive: 0.4 / 3, vehicleIdle: 0.4 / 3, vehicleRoll: 0.4 / 3,
+}
 const FULL_BAND = 22000
 /** 左右矩陣逐幀平滑的時間常數，s。約一幀：快速掠過的飛機不會一格一格跳 */
 const PAN_SMOOTH = 0.02
@@ -364,7 +376,9 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
     })
   }
 
-  const loops: Record<LoopPool, LoopVoice[]> = { engine: [], fire: [], turret: [], siren: [] }
+  const loops: Record<LoopPool, LoopVoice[]> = {
+    engine: [], fire: [], turret: [], siren: [], vehicleDrive: [], vehicleIdle: [], vehicleRoll: [],
+  }
   for (const pool of Object.keys(LOOP_VOICES) as LoopPool[]) {
     for (let i = 0; i < LOOP_VOICES[pool]; i++) {
       const v = positional()

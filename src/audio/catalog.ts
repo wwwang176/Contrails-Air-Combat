@@ -3,14 +3,18 @@ import type { ShipAATier } from '../world/shipAA'
 /**
  * 音效目錄：哪一類用哪些檔、多大聲、多遠聽得到。
  *
- * 【檔案一律標準音量】誰比誰大聲只看這裡的 gainDb；檔案本身都是 −16 LUFS，
+ * 【檔案標準音量】誰比誰大聲只看這裡的 gainDb；既有檔案以 −16 LUFS 為基準，
  * 因峰值限制少掉的分貝在 public/audio/manifest.json 的 makeupDb，播放時加回去。
+ * 地面車輛循環沿用試聽確認的 A 加權響度，見 vehicle 類別。
  * 【ref 為 0 表示不定位】自己身上的聲音放在鏡頭位置，不做距離衰減。
  * 數值是起始值，由試玩決定。
  */
 export type Category = 'engine' | 'engineSelf' | 'fire' | 'fireSelf' | 'turret' | 'explosion' | 'splash'
   | 'blast' | 'cannon' | 'flakBurst' | 'hitSelf' | 'hitDealt' | 'flyby' | 'damage' | 'rattle'
-  | 'reload' | 'whistle' | 'radio' | 'warn' | 'wind' | 'impact' | 'waterHit' | 'ui' | 'thunder' | 'siren' | 'sirenSelf'
+  | 'reload' | 'whistle' | 'radio' | 'warn' | 'wind' | 'impact' | 'waterHit' | 'ui' | 'thunder' | 'siren' | 'sirenSelf' | 'vehicle'
+
+/** 車輛的三層共用同一份最近車輛名單，各自保留淡出空間。 */
+export const VEHICLE_AUDIO_VOICES = 8
 
 export interface CategorySpec {
   gainDb: number
@@ -47,6 +51,8 @@ export const CATEGORY: Record<Category, CategorySpec> = {
    */
   engineSelf: { gainDb: -3, ref: 0, max: 0 },
   engine: { gainDb: -3, ref: 150, max: 3000 },
+  /** 車輛素材已做片段內 A 加權響度校正（約 −24.4 dBFS(A)），清單不再加補償。 */
+  vehicle: { gainDb: -3 + 20 * Math.log10(0.8 * 0.7), ref: 40, max: 1200 },
   /**
    * 俯衝警笛（`sirenFile` 有檔的機種）。**自己的不定位**，比引擎大 10 dB；別人的走 3D 定位。
    * 實際大小再乘上空速的曲線（`curves.ts` 的 `sirenParams`）。
@@ -468,6 +474,8 @@ export const FIRST_FILES: readonly string[] =
   [SINGLE_FILES.uiClick, SINGLE_FILES.uiClose]
 
 export const ALL_FILES: readonly string[] = [
+  'on-board-military-tank', 'car-tires-rolling-on-gravel', 'truck-idling-2',
+  'truck-on-rough-terrain-interior', 'gravel-tire-roll', 'truck-idling-1',
   ...['p51d', 'bf109k4', 'f4f4', 'f6f5', 'a6m5', 'ki84', 'he111', 'ju87', 'g4m', 'b17g'].map(engineFile),
   ...new Set(Object.values(FIRE_OF)),
   ...Object.values(SIREN_OF),

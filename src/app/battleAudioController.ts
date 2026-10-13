@@ -3,6 +3,7 @@ import type { Combatant } from '../world/combatant'
 import type { World } from '../world/World'
 import type { AudioEngine } from '../audio/engine'
 import { createAircraftLoopAudio } from '../audio/aircraftLoopAudio'
+import type { createGroundVehicleAudio } from '../audio/groundVehicleAudio'
 import { createBattleAudioCues } from '../audio/battleAudioCues'
 import { createCannonAudio } from '../audio/cannonAudio'
 import { createFlightAudio } from '../audio/flightAudio'
@@ -23,6 +24,7 @@ export interface BattleAudioControllerDeps {
   readonly listenerMotion: ListenerMotion
   readonly flightAudio: FlightAudio
   readonly aircraftLoopAudio: AircraftLoopAudio
+  readonly groundVehicleAudio: ReturnType<typeof createGroundVehicleAudio>
   readonly battleAudioCues: BattleAudioCues
   readonly cameraPosition: Vector3
   /**
@@ -37,7 +39,7 @@ export interface BattleAudioControllerDeps {
 export function createBattleAudioController(deps: BattleAudioControllerDeps) {
   const {
     audio, cannonAudio, listenerMotion, flightAudio, aircraftLoopAudio,
-    battleAudioCues, cameraPosition, ear, renderPositions,
+    battleAudioCues, groundVehicleAudio, cameraPosition, ear, renderPositions,
   } = deps
 
   function reset(): void {
@@ -83,6 +85,7 @@ export function createBattleAudioController(deps: BattleAudioControllerDeps) {
       world.combatants, renderPositions, me, elapsed, flying,
       battleAudioCues.ownTurretVolley,
     )
+    groundVehicleAudio.update(world.groundTargets)
     audio.endFrame()
     flightAudio.update(world, me, elapsed, worldSeconds, arenaWarning, cameraView, introGain)
   }

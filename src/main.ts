@@ -29,6 +29,7 @@ import { createAudioEngine } from './audio/engine'
 import { createCannonAudio } from './audio/cannonAudio'
 import { createFlightAudio } from './audio/flightAudio'
 import { createAircraftLoopAudio } from './audio/aircraftLoopAudio'
+import { createGroundVehicleAudio } from './audio/groundVehicleAudio'
 import { createListenerMotion } from './audio/listenerMotion'
 import { createBattleAudioCues } from './audio/battleAudioCues'
 import { STRIKE_HEIGHT, applyFlash, createStorm, stepStorm } from './render/storm'
@@ -1588,6 +1589,7 @@ const orderTelemetry = createOrderTelemetry()
 const listenerMotion = createListenerMotion()
 const camVel = listenerMotion.velocity
 const aircraftLoopAudio = createAircraftLoopAudio(audio, audioEar, camVel)
+const groundVehicleAudio = createGroundVehicleAudio(audio, audioEar)
 const flightAudio = createFlightAudio(audio, audioEar, input, {
   playHeavyHit: battleAudioCues.playHeavyHit, teamSlot, gun: playerController,
 })
@@ -1597,7 +1599,7 @@ const flightAudio = createFlightAudio(audio, audioEar, input, {
  * 上一架正在裝填、新的這一架沒有，會誤播「裝填完成」。
  */
 const battleAudio = createBattleAudioController({
-  audio, cannonAudio, listenerMotion, flightAudio, aircraftLoopAudio, battleAudioCues,
+  audio, cannonAudio, listenerMotion, flightAudio, aircraftLoopAudio, groundVehicleAudio, battleAudioCues,
   cameraPosition: ctx.camera.position, ear: audioEar, renderPositions,
 })
 function resetAudioState(): void {

@@ -23,6 +23,7 @@ function setup() {
     listenerMotion,
     flightAudio: { reset: vi.fn(), update: vi.fn() },
     aircraftLoopAudio: { reset: vi.fn(), update: vi.fn() },
+    groundVehicleAudio: { update: vi.fn() },
     battleAudioCues: {
       reset: vi.fn(), rebuildVolleyGroups: vi.fn(), playFrame: vi.fn(), ownTurretVolley: false,
     },
@@ -32,11 +33,23 @@ function setup() {
   }
   const controller = createBattleAudioController(deps as unknown as Parameters<typeof createBattleAudioController>[0])
   const player = { index: 1, alive: true } as unknown as Combatant
-  const world = { combatants: [], ships: [], groundTargets: [], projectiles: {}, bombs: {} } as never
+  const world = { combatants: [], ships: [], groundTargets: [], projectiles: {}, bombs: {} } as unknown as
+    Parameters<typeof controller.update>[0]
   return { controller, camera, ear, plane, player, world, listenerMotion, seenAtBegin, deps }
 }
 
 describe('聽者的位置', () => {
+  it('車輛在更新聽者之後、結束循環指派之前更新', () => {
+    const { controller, player, world, deps } = setup()
+    controller.update(world, player, 1, 1 / 60, false, false)
+    expect(deps.groundVehicleAudio.update).toHaveBeenCalledWith(world.groundTargets)
+    expect(deps.groundVehicleAudio.update.mock.invocationCallOrder[0]).toBeGreaterThan(
+      deps.audio.beginFrame.mock.invocationCallOrder[0]!,
+    )
+    expect(deps.groundVehicleAudio.update.mock.invocationCallOrder[0]).toBeLessThan(
+      deps.audio.endFrame.mock.invocationCallOrder[0]!,
+    )
+  })
   it('導覽與滑回共用連續混音增益，滑回不產生聽者速度', () => {
     const { controller, camera, plane, ear, player, world, deps, listenerMotion } = setup()
     for (const [x, gain] of [[5000, 0.5], [3000, 0.6], [1000, 0.75], [100, 0.9], [10, 0.999]] as const) {
