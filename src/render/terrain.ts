@@ -4,9 +4,9 @@ import { createArchipelagoTerrain, createLeyteTerrain, createSeaTerrain } from '
 import type { Terrain, TerrainGfx } from './terrainTypes'
 export type { Terrain, TerrainGfx } from './terrainTypes'
 import {
-  Group, Mesh, MeshStandardMaterial, type BufferGeometry,
+  Group, type Mesh, type BufferGeometry,
 } from 'three'
-import { SCENERY_CHUNK, SCENERY_MIN_TRIS, splitByGrid } from './sceneryChunks'
+import { createStaticScenery } from './staticScenery'
 import { CULL } from './cullRuns'
 import { createFieldClipmap, type ClipLevelSpec } from './fieldClipmap'
 import { floraSplats } from './buildingBake'
@@ -427,18 +427,10 @@ function createInlandTerrain(
   group.add(ground.object)
   group.add(vegetation.object)
   // 【佈景切塊】一整顆的包圍球恆與視錐相交，背對也照畫 —— 見 `SCENERY_CHUNK`
-  let sceneryGroup: Group | null = null
-  let sceneryMaterial: MeshStandardMaterial | null = null
-  if (scenery !== undefined) {
-    sceneryMaterial = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 })
-    sceneryGroup = new Group()
-    const whole = scenery()
-    for (const g of splitByGrid(whole, SCENERY_CHUNK, SCENERY_MIN_TRIS)) {
-      sceneryGroup.add(new Mesh(g, sceneryMaterial))
-    }
-    whole.dispose()
-    group.add(sceneryGroup)
-  }
+  const sceneryView = scenery === undefined ? null : createStaticScenery(
+    scenery(), gfx?.renderer.extensions.has('WEBGL_multi_draw') ?? false,
+  )
+  if (sceneryView !== null) group.add(sceneryView.object)
 
   return {
     object: group,
@@ -471,10 +463,8 @@ function createInlandTerrain(
     },
     cull(camera) {
       vegetation.cull(camera)
-      // 【佈景塊走 three 自己的剔除】`__cull` 關掉時整顆照畫，與切塊前相同
-      if (sceneryGroup !== null) {
-        for (const m of sceneryGroup.children) m.frustumCulled = CULL.enabled
-      }
+      // 【逐塊剔除】`__cull` 關掉時整顆照畫，與切塊前相同。
+      sceneryView?.cull(camera, CULL.enabled)
     },
     settle() { vegetation.settle() },
     dispose() {
@@ -486,10 +476,7 @@ function createInlandTerrain(
       for (const g of villageGeometry) g.dispose()
       if (river !== null) disposeRiverMeshes(river)
       dressing?.dispose()
-      if (sceneryGroup !== null) {
-        for (const m of sceneryGroup.children) (m as Mesh).geometry.dispose()
-        sceneryMaterial?.dispose()
-      }
+      sceneryView?.dispose()
     },
   }
 }

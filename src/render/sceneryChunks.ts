@@ -7,8 +7,8 @@ import { BufferAttribute, BufferGeometry } from 'three'
  * 半徑 12 km —— three 的視錐剔除用包圍球，那顆球恆與視錐相交，背對廠區時照畫全部。
  * 切成方格之後每一格各有自己的包圍球，畫面外的整格丟掉。
  *
- * 【格寬取捨】格數就是 draw call 數。一公里讓廠區切成十幾塊：背對時幾乎全剔，
- * 面對時多十幾次 draw call。
+ * 【格寬取捨】一公里讓廠區切成約十塊，保留逐塊剔除的粒度。
+ * 支援 multi-draw 時由 staticScenery 合批提交；否則每個可見區塊仍各需一次 draw call。
  */
 export const SCENERY_CHUNK = 1000
 
