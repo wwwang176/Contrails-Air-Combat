@@ -219,6 +219,8 @@ export function createDirtImpacts(
       capacity: CAPACITY.spout,
       blending: NormalBlending,
       life: tune.spoutLife,
+      // 靠近時將土柱／雪粉的色彩與濃度交給遮罩，實心土塊仍保留原本畫法。
+      cameraSmoke: true,
       lifeJitter: 0.25,
       sizeFrom: tune.spoutFrom,
       sizeTo: tune.spoutTo,

@@ -202,6 +202,8 @@ export function createWaterMist(
     alphaMap,
     blending: NormalBlending,
     life: MIST_LIFE * pace,
+    // 大片近距離水霧沿用煙霧交接，遮罩保留本身的白藍色與濃度。
+    cameraSmoke: true,
     lifeJitter: MIST_LIFE_JITTER,
     sizeFrom: MIST_SIZE_FROM,
     sizeTo: MIST_SIZE_TO,

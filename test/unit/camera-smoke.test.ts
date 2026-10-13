@@ -6,6 +6,8 @@ import { cameraSmokeEnabled, cameraSmokeResponse, cameraSmokeWeight, sampleCamer
 import { createCameraSmoke } from '../../src/render/cameraSmoke'
 import { addSmokeLighting } from '../../src/render/smokeLighting'
 import { createBlastLightUniforms } from '../../src/render/blastLights'
+import { createWaterMist } from '../../src/render/blastParticles'
+import { createCameraSmokeMask } from '../../src/render/cameraSmokeMask'
 
 const pools: Particles[] = []
 afterEach(() => { for (const p of pools) p.dispose(); pools.length = 0; cameraSmokeEnabled.value = 0 })
@@ -28,6 +30,40 @@ function sample(scene: Scene, eye = new Vector3()) {
 }
 
 describe('鏡頭內的煙量與顏色', () => {
+  it('水霧加入交接並保留原本白藍色，離開或重設後沒有殘影', () => {
+    const scene = new Scene(), view = new PerspectiveCamera(60, 16 / 9, 0.1, 1000)
+    const mist = createWaterMist(1)
+    const effect = createCameraSmoke(new Texture())
+    const mask = createCameraSmokeMask(new Texture())
+    pools.push(mist); scene.add(mist.object)
+    try {
+      mist.emit(0, 0, 0, 0, 0, 0, 10); mist.step(0)
+      const original = new Color()
+      mist.object.getColorAt(0, original)
+      effect.update(scene, view, 1 / 60, 0)
+      expect(effect.stats.culled).toBe(1)
+      const sampled = sample(scene)
+      expect(sampled.color.r).toBeCloseTo(original.r)
+      expect(sampled.color.g).toBeCloseTo(original.g)
+      expect(sampled.color.b).toBeCloseTo(original.b)
+      expect(sampled.color.b).toBeGreaterThan(sampled.color.r)
+      mask.update(scene, view, 1)
+      expect(mask.volumeDensity).toBeGreaterThan(0)
+      expect(mask.volumeColor.r / mask.volumeDensity).toBeCloseTo(original.r)
+      expect(mask.volumeColor.g / mask.volumeDensity).toBeCloseTo(original.g)
+      expect(mask.volumeColor.b / mask.volumeDensity).toBeCloseTo(original.b)
+      view.position.z = 200
+      effect.update(scene, view, 1 / 60, 0)
+      expect(effect.stats.maxDensity).toBe(0)
+      expect(mist.object.geometry.getAttribute('aCameraSmoke').getX(0)).toBe(0)
+      view.position.z = 0
+      effect.update(scene, view, 1 / 60, 0)
+      expect(effect.stats.maxDensity).toBeGreaterThan(0)
+      mist.reset()
+      effect.update(scene, view, 1 / 60, 0)
+      expect(effect.stats.maxDensity).toBe(0)
+    } finally { effect.dispose(); mask.dispose() }
+  })
   it('外側擦過不遮住畫面；進入時連續變濃，深處完整接手', () => {
     expect(cameraSmokeWeight(5, 10)).toBe(0)
     expect(cameraSmokeWeight(3.4, 10)).toBeCloseTo(0.5)

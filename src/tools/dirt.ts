@@ -14,6 +14,7 @@ import { applyTimeOfDay } from '../render/timeOfDay'
 import { hash01 } from '../core/hash'
 import type { TerrainKind } from '../world/terrainKind'
 import { assetUrl } from '../core/asset'
+import { createCameraSmoke } from '../render/cameraSmoke'
 
 /**
  * 彈著土柱展示區 —— 調校用的開發工具，不屬於遊戲。
@@ -36,6 +37,16 @@ let terrain: Terrain = createTerrain(terrainKind)
 ctx.scene.add(terrain.object)
 
 const dustTex = await new TextureLoader().loadAsync(assetUrl('/textures/smoke.png'))
+const cameraSmoke = createCameraSmoke(dustTex)
+let cameraSmokeActive = true
+
+/** 與戰場共用土柱、雪粉與煙塵的近鏡頭交接。 */
+function renderDirtFrame(frameSeconds: number, worldSeconds: number): void {
+  if (cameraSmokeActive) cameraSmoke.update(ctx.scene, ctx.camera, frameSeconds, worldSeconds)
+  else cameraSmoke.reset()
+  ctx.renderer.render(ctx.scene, ctx.camera)
+  if (cameraSmokeActive) cameraSmoke.render(ctx.renderer)
+}
 
 const tune: { -readonly [K in keyof DirtPoolTune]: number } = { ...DIRT_POOL_TUNE }
 
@@ -216,6 +227,8 @@ numRow(sceneRows, '自動重播', 0, 8, 0.5, () => autoEvery, (v) => { autoEvery
 numRow(sceneRows, '風速', 0, 10, 0.5, () => SMOKE_WIND.x, (v) => { SMOKE_WIND.x = v },
   (v) => v.toFixed(1) + ' m/s')
 chkRow(sceneRows, '疊上現行火花', () => showSparks, (v) => { showSparks = v })
+chkRow(sceneRows, '近鏡頭煙塵混合', () => cameraSmokeActive,
+  (v) => { cameraSmokeActive = v; cameraSmoke.reset() })
 
 const strafeRows = document.getElementById('strafe-rows') as HTMLElement
 numRow(strafeRows, '槍數', 1, 8, 1, () => strafe.guns, (v) => { strafe.guns = v }, n0)
@@ -433,9 +446,12 @@ const probe = {
     this.clear()
     fire()
     const dt = 1 / 60
-    for (let t = 0; t < seconds; t += dt) stepAll(dt)
+    for (let t = 0; t < seconds; t += dt) {
+      stepAll(dt)
+      if (cameraSmokeActive) cameraSmoke.update(ctx.scene, ctx.camera, dt, dt)
+    }
     controls.update()
-    ctx.renderer.render(ctx.scene, ctx.camera)
+    renderDirtFrame(0, 0)
     return canvas.toDataURL('image/png')
   },
   /**
@@ -446,7 +462,8 @@ const probe = {
     impacts.reset()
     sparks.reset()
     strafeT = -1
-    ctx.renderer.render(ctx.scene, ctx.camera)
+    cameraSmoke.reset()
+    renderDirtFrame(0, 0)
   },
   /** 開火後每隔 `dt` 秒截一格，拼成一張 `cols` 欄的圖。`crop` 是取畫面中央多寬的比例 */
   sheet(
@@ -460,9 +477,12 @@ const probe = {
     fire()
     const sub = 1 / 120
     for (let f = 0; f < frames; f++) {
-      for (let t = 0; t < dt - 1e-6; t += sub) stepAll(sub)
+      for (let t = 0; t < dt - 1e-6; t += sub) {
+        stepAll(sub)
+        if (cameraSmokeActive) cameraSmoke.update(ctx.scene, ctx.camera, sub, sub)
+      }
       controls.update()
-      ctx.renderer.render(ctx.scene, ctx.camera)
+      renderDirtFrame(0, 0)
       const col = f % cols
       const rowI = Math.floor(f / cols)
       // 取畫面中央、與格子同比例的一塊
@@ -493,7 +513,7 @@ function frame(now: number): void {
   stepAll(dt)
   controls.update()
   terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
-  ctx.renderer.render(ctx.scene, ctx.camera)
+  renderDirtFrame(wall, dt)
 
   const pools = impacts.pools
   const live = poolList().reduce((n, p) => n + p.live, 0)

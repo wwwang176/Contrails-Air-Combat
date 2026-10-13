@@ -268,6 +268,7 @@ export function createGroundBattle(
   })
   const gunSmoke = createParticles({
     capacity: 512, blending: NormalBlending, wind: true, life: 3, lifeJitter: 0.3, sizeFrom: 5, sizeTo: 14,
+    cameraSmoke: true,
     gravity: 0.6, drag: 1.2, alphaFrom: 0.55, shadeJitter: 0.3, color: gunSmokeColor,
   })
   const dust = createDust(1024, 1, smokeTexture)

@@ -19,6 +19,7 @@ import {
 } from '../render/timeOfDay'
 import type { TerrainKind } from '../world/terrainKind'
 import { assetUrl } from '../core/asset'
+import { createCameraSmoke } from '../render/cameraSmoke'
 
 /**
  * 爆炸展示區 —— 純調校用的開發工具，不屬於遊戲。
@@ -73,6 +74,8 @@ const paced = (): number => pace * blastScale(yieldRatio)
  * 一團均勻的灰 —— 那就是「太平面」。這張圖自帶 noise，每一顆的內部就有明暗。
  */
 const smokeTex = await new TextureLoader().loadAsync(assetUrl('/textures/smoke.png'))
+const cameraSmoke = createCameraSmoke(smokeTex)
+let cameraSmokeActive = true
 /** 貼圖版 / 純圓片版。開關留著才比得出它值不值得 */
 let textured = true
 const tex = (): Texture | undefined => (textured ? smokeTex : undefined)
@@ -183,7 +186,10 @@ let sinceFire = 0
 const SCALED: { -readonly [K in keyof BlastParams]: number } = { ...LAND_BLAST }
 
 function fire(): void {
-  if (clearFirst) for (const p of ALL()) p.reset()
+  if (clearFirst) {
+    for (const p of ALL()) p.reset()
+    cameraSmoke.reset()
+  }
   if (!fixedSeed) seed = (seed + 7919) >>> 0
   const y = terrain.heightAt(BX, BZ, elapsed)
   scaleBlast(live(), yieldRatio, SCALED)
@@ -275,6 +281,8 @@ numRow(sceneRows, '播放速度', 0.05, 1, 0.05, () => timeScale, (v) => { timeS
 numRow(sceneRows, '自動重播', 0, 8, 0.5,
   () => autoEvery, (v) => { autoEvery = v }, (v) => (v === 0 ? '關' : v.toFixed(1) + 's'))
 chkRow(sceneRows, '光暈', () => glowOn, (v) => { glowOn = v; fire() })
+chkRow(sceneRows, '近鏡頭煙霧／水霧混合', () => cameraSmokeActive,
+  (v) => { cameraSmokeActive = v; cameraSmoke.reset() })
 chkRow(sceneRows, '煙用貼圖', () => textured,
   (v) => { textured = v; rebuildPaced(); fire() })
 chkRow(sceneRows, '重播前清場', () => clearFirst, (v) => { clearFirst = v })
@@ -502,7 +510,7 @@ const probe: Probe = {
     this.fire(k, style)
     for (let f = 0; f < frames; f++) {
       for (const p of ALL()) p.step(dt)
-      ctx.renderer.render(ctx.scene, ctx.camera)
+      renderBlastFrame(dt, dt)
       const col = f % cols
       const rowI = Math.floor(f / cols)
       g.drawImage(canvas, col * cellW, rowI * cellH, cellW, cellH)
@@ -519,6 +527,14 @@ const probe: Probe = {
 
 let last = performance.now()
 
+/** 展示區與截圖共用遊戲的近鏡頭交接，關閉時可直接比較原始粒子。 */
+function renderBlastFrame(frameSeconds: number, worldSeconds: number): void {
+  if (cameraSmokeActive) cameraSmoke.update(ctx.scene, ctx.camera, frameSeconds, worldSeconds)
+  else cameraSmoke.reset()
+  ctx.renderer.render(ctx.scene, ctx.camera)
+  if (cameraSmokeActive) cameraSmoke.render(ctx.renderer)
+}
+
 function frame(now: number): void {
   // 【牆鐘不縮放、模擬時間才縮放】地形的浪與相機阻尼要走真實時間，否則
   // 慢動作下整個場景像卡住
@@ -533,7 +549,7 @@ function frame(now: number): void {
   for (const p of ALL()) p.step(dt)
   controls.update()
   terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
-  ctx.renderer.render(ctx.scene, ctx.camera)
+  renderBlastFrame(wall, dt)
 
   liveOut.textContent =
     `火 ${fireball.live}　煙 ${smoke.live}　塵 ${dust.live}\n` +
