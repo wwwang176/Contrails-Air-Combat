@@ -30,7 +30,8 @@ describe('90 mm 短促砲口火焰', () => {
     expect(fire[2]!.size.x).toBeGreaterThan(4.4)
     expect(fire[2]!.size.x).toBeLessThan(5.6)
     expect(fire[4]!.size.x).toBeLessThan(fire[2]!.size.x * 0.4)
-    expect(smoke.emit).toHaveBeenCalledTimes(4)
+    // 0.11 秒時前兩塊火焰已開始交接，每塊留下四顆煙。
+    expect(smoke.emit).toHaveBeenCalledTimes(8)
     blast.step(0.1)
     expect(smoke.emit).toHaveBeenCalledTimes(20)
     for (let k = 0; k < fire.length; k++) {
@@ -71,7 +72,7 @@ describe('90 mm 短促砲口火焰', () => {
     blast.dispose()
   })
 
-  it('每隔 0.025 秒多一顆火焰，最後一顆到 0.1 秒才出現', () => {
+  it('每隔 0.0125 秒多一顆火焰，最後一顆到 0.05 秒才出現', () => {
     const blast = createMuzzleBlast({ emit: vi.fn() })
     const fire = blast.object.children[0] as InstancedMesh
     blast.emit(0, 0, 0, 0, 0, -1)
@@ -79,7 +80,7 @@ describe('90 mm 短促砲口火焰', () => {
     expect(fire.count).toBeGreaterThan(0)
     for (let n = 1; n <= 5; n++) {
       expect(frames(fire).filter(f => f.size.lengthSq() > 0)).toHaveLength(n)
-      if (n < 5) blast.step(0.025)
+      if (n < 5) blast.step(0.0125)
     }
     blast.dispose()
   })

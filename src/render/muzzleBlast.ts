@@ -13,7 +13,7 @@ const MUZZLE_FIRE_SCALE = 2
 export const MUZZLE_FIRE_SIZE = 0.35 * MUZZLE_FIRE_SCALE
 export const MUZZLE_FIRE_SECONDS = 0.12
 /** 第一塊到最遠一塊的出現時間差；各塊仍各自燃燒 0.12 秒。 */
-export const MUZZLE_FIRE_SPREAD_SECONDS = 0.1
+export const MUZZLE_FIRE_SPREAD_SECONDS = 0.05
 export const MUZZLE_SMOKE_LIFE_SCALE = 3
 const CAPACITY = 80
 const PROFILE = [0.55, 0.85, 1, 0.65, 0.3] as const
