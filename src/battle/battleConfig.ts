@@ -97,7 +97,7 @@ export interface BattleConfig {
    *
    * 【為什麼在 `BattleConfig` 而不是只留在卡片上】它決定投出去的東西有多痛
    * ——那是模擬的一部分。與 `timeOfDay` 相反：那一個只影響畫面，明文規定
-   * 不進這裡（見 `missions.ts` 的說明）。
+   * 不進這裡（見 `missions/types.ts` 的 `timeOfDay`）。
    */
   readonly blueLoadout?: Loadout
   /**

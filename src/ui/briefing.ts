@@ -22,7 +22,7 @@ export const missionTypeName = (type: MissionType): string => t(TYPE_KEY[type])
  * 簡報頁右欄要畫的東西（選單 spec §2.4）。**純資料，沒有 DOM。**
  *
  * 【為什麼不讓 `menu.ts` 直接讀卡】玩家出擊前要知道自己開什麼、對面幾架、
- * 什麼地形，而這些資料 `missions.ts` 裡全都有。把「卡 → 簡報」寫成純函數，
+ * 什麼地形，而這些資料任務卡（`battle/missions/`）裡全都有。把「卡 → 簡報」寫成純函數，
  * 每一關的欄位就釘得住；
  * `menu.ts` 沒有測試（要 DOM），這裡有。
  */
@@ -83,7 +83,7 @@ function readyBriefing(card: ReadyMissionCard): Briefing {
     ? []
     : [{ id: b.redSpec.id, name: shortName(b.redSpec), role: b.redSpec.role, count: b.redCount }]
 
-  // 【護送／攔截由規則的 owner 決定】`missions.ts` 就是用它決定 convoy 放哪一隊
+  // 【護送／攔截由規則的 owner 決定】`missions/configuration.ts` 就是用它決定 convoy 放哪一隊
   // （護送 `owner: 'blue'`、攔截 `owner: 'red'`）。不另寫一套判斷。
   //
   // 【攻擊隊恆在我方、轟炸機流恆在敵方】`convoyDuty` 是 `strike`／`stream` 時規則

@@ -759,7 +759,7 @@ export function steerCommand(
   // `SteerConfig.sweetYieldTime`。
   //
   // 【為什麼 defend 不讓位】`basis` 永遠對**攻擊目標**建立
-  // （`AiController.ts:332`），而 `defend` 是對**威脅來源**做的（`defendAim`
+  // （`AiController` 的 `buildEngageBasis(self, target, …)`），而 `defend` 是對**威脅來源**做的（`defendAim`
   // 讀 `sit.threatLos`），兩者可以是不同的飛機。對 defend 套讓位會變成
   // 「我正在閃 A，但要不要讓位由我能不能射中 B 決定」—— 無意義的耦合。
   // 排除之後 defend 的行為逐位元不變。要正確地讓位需要對威脅來源另建一組

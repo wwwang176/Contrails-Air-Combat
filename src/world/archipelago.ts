@@ -135,7 +135,7 @@ export interface IslandDesc {
   /**
    * **實際的最高點**，m，落在島心（主瓣的瓣心）。
    *
-   * 其餘的瓣恆低於它（見 `LOBE_SLOPE`），所以多瓣不會讓島長過 `PEAK_MAX`。
+   * 其餘的瓣恆低於它（見 `LOBE_PEAK_MAX`），所以多瓣不會讓島長過 `PEAK_MAX`。
    */
   readonly peak: number
   /** 主瓣排第一（`offset` 為 0），其餘是偏心的次峰 */

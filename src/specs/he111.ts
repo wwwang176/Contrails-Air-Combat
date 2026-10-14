@@ -154,9 +154,10 @@ export const HE111: AircraftSpec = {
    * 但換算成實際滾轉率仍然是 28.7 對 96.3 °/s（400 km/h、出貨值），翼展差兩
    * 倍多，玩起來的關係是對的。量測見 `test/tools/rollrate.probe.ts`。
    *
-   * 【還沒處理的第二層】`controlStiffening.aileronK` 在 400 km/h 又把舵權限
-   * 乘上 0.61（He 111）／0.51（B-17G），兩台戰鬥機是 1.00 —— 同一件「轟炸機
-   * 滾得慢」的事扣了兩次，症狀是滾轉率**隨速度變慢**。見 `docs/backlog.md`。
+   * 【高速再扣一層】`controlStiffening.aileronK` 在 400 km/h 把舵權限再乘上
+   * 0.61（He 111）／0.51（B-17G），兩台戰鬥機是 1.00，所以轟炸機的滾轉率
+   * **隨速度變慢**。這一層是蒙布副翼鼓脹與大展弦比機翼扭轉，不是重複扣分；
+   * `clDa` 管的是滿舵的螺旋角，兩者各管一件事。見 `docs/backlog.md` §2.20。
    */
   moments: {
     cm0: 0.02, cmAlpha: -1.10, cmQ: -18, cmDe: 0.90,

@@ -15,7 +15,7 @@ import type { AircraftSpec, HistoricalReference } from './types'
  *
  * 【為什麼不分陣營】混搭上線之後「陣營」不再是一個選擇 —— 兩隊各自的
  * 清單就是全部的設定。任務模式也不分了：**每一張卡直接指名雙方飛什麼**
- * （`missions.ts` 的 `MissionBattle`）。
+ * （`battle/missions/types.ts` 的 `MissionBattle`）。
  *
  * 【順序】戰鬥機在前、轟炸機在後。選單照它畫卡片。
  */

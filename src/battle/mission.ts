@@ -16,7 +16,7 @@ export type Outcome = 'fighting' | 'victory' | 'defeat'
 /**
  * 這一關怎麼算贏。
  *
- * 【為什麼是可辨識聯集而不是一個函數】關卡是**資料**（`battle/missions.ts`
+ * 【為什麼是可辨識聯集而不是一個函數】關卡是**資料**（`battle/missions/`
  * 是一張表）。函數會把「怎麼打」藏進閉包裡，而閉包不能比較、不能序列化、
  * 也不能在測試裡直接組一個出來。
  */
@@ -117,7 +117,7 @@ export type MissionRules =
      * 炸毀任意 `count` 座敵方地面目標（`world/groundTargets.ts`）。
      *
      * 與 `sink` 同一個形狀：任意幾座、不指名、藍隊全滅才敗。判準是卡片上
-     * 有沒有 `destroyCount`（`missions.ts` 的 `missionRules`）。
+     * 有沒有 `destroyCount`（`missions/configuration.ts` 的 `missionRules`）。
      */
     kind: 'destroy'
     count: number
@@ -217,7 +217,7 @@ export interface MissionTuning {
    * 只有敵人會替它們評分。護送時是紅隊更想打我方轟炸機（那正是這一關
    * 要防的事），攔截時是藍隊更想打敵方轟炸機。**同一個偏置，兩張卡。**
    *
-   * 【起始值，待掃描】見 `missions.ts` 的 `CONVOY_PRIORITY`。
+   * 【起始值，待掃描】見 `missions/shared.ts` 的 `CONVOY_PRIORITY`。
    */
   convoyPriority: number
   /**

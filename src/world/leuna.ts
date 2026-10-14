@@ -14,7 +14,7 @@ import type { RiverEndRule } from './river'
  * **丘陵全部手擺，不撒隨機** —— 出生線、廠區、砲位、脫離方向的空間關係
  * 是關卡設計的一部分，程序化撒的丘陵沒有人在乎廠區落在哪。
  *
- * 【整張圖的佈局都在這個檔案】卡片（`battle/missions.ts`）、佈景
+ * 【整張圖的佈局都在這個檔案】卡片（`battle/missions/allies.ts`）、佈景
  * （`render/geometry/ground/plantScenery.ts`）與地面著色器的墊面與道路
  * （`render/siteSurface.ts`）都引用這裡的常數，不自己寫座標。
  *
@@ -278,7 +278,7 @@ export const PLANT_LAYOUT: readonly { kind: PlantKind; dx: number; dz: number; h
  * 十二座構件的**世界**座標與朝向。`PLANT_LAYOUT` 的局部表轉過來，朝向已經
  * 含 `PLANT_HEADING`。
  *
- * 【使用端拿這一份】任務卡（`battle/missions.ts`）與展示區都不自己做換算 ——
+ * 【使用端拿這一份】任務卡（`battle/missions/allies.ts`）與展示區都不自己做換算 ——
  * 少加一次旋轉，構件會整群站在墊面外，而墊面是著色器畫的、構件是模型，
  * 兩者對不齊在畫面上只是「這些塔怎麼蓋在田裡」。
  */
