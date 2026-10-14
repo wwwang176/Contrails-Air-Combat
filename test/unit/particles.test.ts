@@ -79,6 +79,25 @@ describe('injectBillboard —— 著色器注入（M8 spec §4.3）', () => {
 })
 
 describe('createParticles', () => {
+  it('單顆延長壽命不影響同池其他粒子，格子重用後恢復預設壽命', () => {
+    const p = createParticles({ ...CFG, capacity: 2 })
+    p.emit(0, 0, 0, 0, 0, 0)
+    p.emit(0, 0, 0, 0, 0, 0, 1, -1, 3)
+    p.step(1.1)
+    expect(p.live).toBe(1)
+    expect(instance(p.object, 0).scale.lengthSq()).toBe(0)
+    expect(instance(p.object, 1).scale.lengthSq()).toBeGreaterThan(0)
+    p.step(1.8)
+    expect(p.live).toBe(1)
+    p.step(0.2)
+    expect(p.live).toBe(0)
+    p.emit(0, 0, 0, 0, 0, 0)
+    p.emit(0, 0, 0, 0, 0, 0)
+    p.step(1.1)
+    expect(p.live).toBe(0)
+    p.dispose()
+  })
+
   it('整池只有一個 InstancedMesh —— 1 個 draw call', () => {
     const p = createParticles(CFG)
     expect(p.object).toBeInstanceOf(InstancedMesh)
@@ -179,11 +198,60 @@ describe('createParticles', () => {
     p.dispose()
   })
 
-  it('池子滿了覆蓋最舊的', () => {
+  it('同幀連續發射超過容量，不會重複增加存活數', () => {
     const p = createParticles({ ...CFG, capacity: 2 })
     for (let k = 0; k < 5; k++) p.emit(k, 0, 0, 0, 0, 0)
     p.step(0.1)
     expect(p.live).toBe(2)
+    p.dispose()
+  })
+
+  it('游標前方仍有長命煙時，優先使用其他已死亡的格子', () => {
+    const p = createParticles({ ...CFG, capacity: 3 })
+    p.emit(10, 0, 0, 0, 0, 0, 1, -1, 3)
+    p.emit(20, 0, 0, 0, 0, 0)
+    p.emit(30, 0, 0, 0, 0, 0, 1, -1, 3)
+    p.step(1.1)
+    expect(p.live).toBe(2)
+    p.emit(40, 0, 0, 0, 0, 0)
+    expect(p.live).toBe(3)
+    p.step(0)
+    expect([0, 1, 2].map(i => instance(p.object, i).position.x)).toEqual([10, 40, 30])
+    expect(p.object.geometry.getAttribute('aAlpha').getX(0)).toBeCloseTo(0.5 * (1 - 1.1 / 3))
+    p.dispose()
+  })
+
+  it('全滿時保留較老但濃的長命煙，淘汰已淡出的短命煙', () => {
+    const p = createParticles({ ...CFG, capacity: 3 })
+    p.emit(10, 0, 0, 0, 0, 0, 1, -1, 10)
+    p.step(1)
+    p.emit(20, 0, 0, 0, 0, 0)
+    p.emit(30, 0, 0, 0, 0, 0, 1, -1, 10)
+    p.step(0.8)
+    p.emit(40, 0, 0, 0, 0, 0)
+    p.step(0)
+    expect(p.live).toBe(3)
+    expect([0, 1, 2].map(i => instance(p.object, i).position.x)).toEqual([10, 40, 30])
+    p.dispose()
+  })
+
+  it('混合壽命與滿池替換後，重開仍從空池重新發射', () => {
+    const p = createParticles({ ...CFG, capacity: 2, cameraSmoke: true })
+    p.emit(10, 0, 0, 0, 0, 0, 1, -1, 3)
+    p.emit(20, 0, 0, 0, 0, 0)
+    p.step(0.5)
+    p.object.geometry.getAttribute('aCameraSmoke').setX(1, 1)
+    p.emit(30, 0, 0, 0, 0, 0)
+    expect(p.object.geometry.getAttribute('aCameraSmoke').getX(1)).toBe(0)
+    p.reset()
+    expect(p.live).toBe(0)
+    p.emit(40, 0, 0, 0, 0, 0)
+    p.step(0)
+    expect(p.live).toBe(1)
+    expect(instance(p.object, 0).position.x).toBe(40)
+    expect(instance(p.object, 1).scale.lengthSq()).toBe(0)
+    p.step(1.1)
+    expect(p.live).toBe(0)
     p.dispose()
   })
 

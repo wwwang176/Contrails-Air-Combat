@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { InstancedMesh, Matrix4, Vector3 } from 'three'
-import { createMuzzleBlast, MUZZLE_FIRE_SECONDS } from '../../src/render/muzzleBlast'
+import { createMuzzleBlast, MUZZLE_FIRE_SECONDS, MUZZLE_FIRE_SPREAD_SECONDS } from '../../src/render/muzzleBlast'
 
 function frames(mesh: InstancedMesh) {
   return Array.from({ length: 5 }, (_, k) => {
@@ -15,7 +15,7 @@ describe('90 mm 短促砲口火焰', () => {
     const smoke = { emit: vi.fn() }
     const blast = createMuzzleBlast(smoke)
     blast.emit(10, 20, 30, dx, dy, dz)
-    blast.step(0.02)
+    blast.step(0.11)
     const fire = frames(blast.object.children[0] as InstancedMesh)
     const axis = new Vector3(dx, dy, dz)
     const origin = new Vector3(10, 20, 30)
@@ -28,17 +28,16 @@ describe('90 mm 短促砲口火焰', () => {
       expect(lateral).toBeLessThan(1)
     }
     expect(fire[2]!.size.x).toBeGreaterThan(4.4)
-    expect(fire[2]!.size.x).toBeLessThan(5.2)
+    expect(fire[2]!.size.x).toBeLessThan(5.6)
     expect(fire[4]!.size.x).toBeLessThan(fire[2]!.size.x * 0.4)
-    expect(smoke.emit).not.toHaveBeenCalled()
-    blast.step(0.075)
-    const fading = frames(blast.object.children[0] as InstancedMesh)
+    expect(smoke.emit).toHaveBeenCalledTimes(4)
+    blast.step(0.1)
     expect(smoke.emit).toHaveBeenCalledTimes(20)
-    for (let k = 0; k < fading.length; k++) {
+    for (let k = 0; k < fire.length; k++) {
       const core = smoke.emit.mock.calls[k * 4]!
-      expect(new Vector3(core[0], core[1], core[2]).distanceTo(fading[k]!.position)).toBeLessThan(1e-4)
-      expect(core[6]).toBeGreaterThan(fading[k]!.size.x)
+      expect(core[6]).toBeGreaterThan(fire[k]!.size.x)
     }
+    for (const call of smoke.emit.mock.calls) expect(call[8]).toBe(3)
     blast.step(0.05)
     expect(smoke.emit).toHaveBeenCalledTimes(20)
     blast.dispose()
@@ -55,7 +54,7 @@ describe('90 mm 短促砲口火焰', () => {
     blast.step(0)
     // 池內年齡以 Float32 儲存；重算矩陣允許浮點量化誤差。
     fire.instanceMatrix.array.forEach((value, k) => expect(value).toBeCloseTo(first[k]!, 6))
-    blast.step(MUZZLE_FIRE_SECONDS)
+    blast.step(MUZZLE_FIRE_SECONDS + MUZZLE_FIRE_SPREAD_SECONDS)
     expect(frames(fire).every(f => f.size.lengthSq() === 0)).toBe(true)
     expect(frames(glow).every(f => f.size.lengthSq() === 0)).toBe(true)
     expect(smoke.emit).toHaveBeenCalledTimes(20)
@@ -66,6 +65,22 @@ describe('90 mm 短促砲口火焰', () => {
     blast.reset()
     expect(frames(fire).every(f => f.size.lengthSq() === 0)).toBe(true)
     expect(frames(glow).every(f => f.size.lengthSq() === 0)).toBe(true)
+    smoke.emit.mockClear()
+    blast.step(1)
+    expect(smoke.emit).not.toHaveBeenCalled()
+    blast.dispose()
+  })
+
+  it('每隔 0.025 秒多一顆火焰，最後一顆到 0.1 秒才出現', () => {
+    const blast = createMuzzleBlast({ emit: vi.fn() })
+    const fire = blast.object.children[0] as InstancedMesh
+    blast.emit(0, 0, 0, 0, 0, -1)
+    blast.step(0.001)
+    expect(fire.count).toBeGreaterThan(0)
+    for (let n = 1; n <= 5; n++) {
+      expect(frames(fire).filter(f => f.size.lengthSq() > 0)).toHaveLength(n)
+      if (n < 5) blast.step(0.025)
+    }
     blast.dispose()
   })
 })

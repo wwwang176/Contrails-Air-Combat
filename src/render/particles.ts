@@ -97,10 +97,11 @@ export interface Particles {
    * @param anchor    吸附在哪一個錨點上（見 `anchors.ts`）。**給了它，
    *                  `x/y/z` 與 `vx/vy/vz` 就是那個錨點的區域座標**，每一幀
    *                  由它當下的變換組回世界。省略（或 −1）即自由飛。
+   * @param lifeScale 單顆壽命倍率；不影響同池其他粒子，也不改變移動速度。
    */
   emit(
     x: number, y: number, z: number,
-    vx: number, vy: number, vz: number, sizeScale?: number, anchor?: number,
+    vx: number, vy: number, vz: number, sizeScale?: number, anchor?: number, lifeScale?: number,
   ): void
   /**
    * 積分一幀並寫入實例矩陣。**在渲染幀率呼叫，不在物理步。**
@@ -124,8 +125,8 @@ export interface Particles {
  *
  * 【為什麼用格子索引當種子而不是 `Math.random`】與這個專案其他所有隨機
  * 一樣：純函數才測得起來，而且重播可重現（見 `core/hash.ts` 的 `hash01`）。
- * 環形緩衝繞一圈後同一格會拿到同一個倍率，但那是 6,144 個值之後的事，
- * 而且相鄰的格子拿到的是雜湊值、彼此無關 —— 同一批發射出去的煙壽命各異，
+ * 同一格重用後會拿到同一個倍率；相鄰的格子拿到的是雜湊值、彼此無關，
+ * 同一批發射出去的煙壽命各異，
  * 那正是要的效果。
  */
 export function particleLife(life: number, jitter: number, slot: number): number {
@@ -187,7 +188,7 @@ const ANCHOR_POS = new Vector3()
 const ANCHOR_QUAT = new Quaternion()
 
 /**
- * 廣告板粒子池 —— **單一** `InstancedMesh` 的環形緩衝。
+ * 廣告板粒子池 —— **單一** `InstancedMesh`，循環尋找空位。
  *
  * 火球、黑煙、噴濺各是它的一個實例。三者的幾何完全相同（一個面向相機的
  * 四邊形）、積分器完全相同、淡出曲線完全相同 —— 差別只有數值與混合模式。
@@ -346,24 +347,37 @@ export function createParticles(cfg: ParticleConfig): Particles {
   object.instanceMatrix.needsUpdate = true
   if (object.instanceColor) object.instanceColor.needsUpdate = true
 
+  /** 優先重用死格；全滿才淘汰淡出比例最高的一顆，同濃度依循環順序選。 */
+  function chooseSlot(): number {
+    let faintest = next, highestAgeRatio = -1
+    let i = next
+    // 找到空位就停，不配置暫存陣列，也不排序整池。
+    for (let checked = 0; checked < capacity; checked++) {
+      if (age[i]! >= lifeOf[i]!) return i
+      // 混用長短壽命時，最早出生不代表最淡；以各自的壽命比例比較。
+      const ratio = age[i]! / lifeOf[i]!
+      if (ratio > highestAgeRatio) { highestAgeRatio = ratio; faintest = i }
+      i = i + 1 >= capacity ? 0 : i + 1
+    }
+    return faintest
+  }
+
   return {
     object,
     get live() { return live },
 
-    emit(x, y, z, evx, evy, evz, sizeScale = 1, attach = -1): void {
-      const i = next
+    emit(x, y, z, evx, evy, evz, sizeScale = 1, attach = -1, lifeScale = 1): void {
+      const i = chooseSlot()
       // 槽位重用時不能繼承上一顆煙的交接程度。
       if (cameraHandoff && cameraHandoff.getX(i) !== 0) {
         cameraHandoff.setX(i, 0)
         cameraHandoff.needsUpdate = true
       }
-      next = next + 1 >= capacity ? 0 : next + 1
-      // 【滿了覆蓋最舊的】最舊的正好是最淡的那一顆，覆蓋看不出來；丟棄新的
-      // 則會在最該看到爆炸的時候整批不見。與 sparks.ts 同一個取捨。
+      next = i + 1 >= capacity ? 0 : i + 1
       // 【先用舊壽命判生死，再寫新的】反過來的話，覆蓋一格活著的粒子時
       // 有機會被新壽命誤判成死的而重複計數
       if (age[i]! >= lifeOf[i]!) live++
-      lifeOf[i] = particleLife(life, jitter, i)
+      lifeOf[i] = particleLife(life, jitter, i) * lifeScale
       zeroed[i] = 0
       px[i] = x
       py[i] = y
