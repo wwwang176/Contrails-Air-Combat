@@ -14,8 +14,10 @@ function approach(value: number, want: number, step: number): number {
   return value + Math.max(-step, Math.min(step, want - value))
 }
 
-/** Conservative horizontal sectors measured from the model, not historical mount limits. */
-export function shipMountCanAim(mount: ShipGunMount, yaw: number): boolean {
+/** 共用砲塔左右死角與仰角判定；左右範圍是模型避障設定，並非史實轉角資料。 */
+export function shipMountCanAim(mount: ShipGunMount, yaw: number, pitch?: number): boolean {
+  if (pitch !== undefined && mount.pitchRange
+    && (pitch < mount.pitchRange[0] - 1e-10 || pitch > mount.pitchRange[1] + 1e-10)) return false
   const wrapped = relative(yaw, 0)
   if (!mount.yawSectors) return true
   for (const [lo, hi] of mount.yawSectors) {
@@ -36,8 +38,7 @@ export function stepShipMounts(gun: ShipGun, tracking: boolean, dt: number): boo
   const step = gun.spec.rotationRate * 2 * dt
   for (let i = 0; i < mounts.length; i++) {
     const mount = mounts[i]!, pose = poses[i]!
-    const allowed = tracking && shipMountCanAim(mount, angles.yaw)
-      && (!mount.pitchRange || (targetPitch >= mount.pitchRange[0] - 1e-10 && targetPitch <= mount.pitchRange[1] + 1e-10))
+    const allowed = tracking && shipMountCanAim(mount, angles.yaw, targetPitch)
     const yaw = allowed ? relative(angles.yaw, mount.restYaw) : 0
     const pitch = allowed ? angles.pitch : mount.restPitch
     // Traverse relative to parking: bow mounts never take the shortcut through the stern.

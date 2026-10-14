@@ -13,6 +13,7 @@ import { createBombBay, type BombBay } from '../../src/weapons/bomb'
 import { A6M5_BOMB_LOADOUT } from '../../src/weapons/stores'
 import { SHIP_CLASSES, createShip, type Ship } from '../../src/world/ships'
 import { createShipGuns } from '../../src/world/shipGuns'
+import { placeFleet } from '../../src/battle/missionSpawns'
 
 /**
  * # 任務的目標優先
@@ -43,6 +44,29 @@ function destroyer(x: number, z: number): Ship {
 }
 
 const card = MISSIONS.japan.find((m) => m.id === 'japan-m1') as ReadyMissionCard
+
+describe('任務的艦砲優先目標', () => {
+  it('日 M1 艦隊的 5 吋砲套用轟炸機／魚雷機偏好，其餘砲種不偏好', () => {
+    const config = missionConfigFrom(card)
+    const world = { ships: [] as Ship[] }
+    placeFleet(world, config.fleet)
+    expect(world.ships.length).toBeGreaterThan(0)
+    for (const ship of world.ships) for (const gun of ship.guns) {
+      expect(gun.spec.bomberPriority ?? 1).toBe(gun.zone.tier === 'flak' ? 4 : 1)
+    }
+  })
+
+  it('關卡可取消 5 吋砲偏好，並獨立設定 40 mm 權重', () => {
+    const configured = { ...card, battle: { ...card.battle,
+      fleet: { ...card.battle.fleet!, bomberPriority: { flak: 1, autocannon: 2 } },
+    } }
+    const world = { ships: [] as Ship[] }
+    placeFleet(world, missionConfigFrom(configured).fleet)
+    for (const ship of world.ships) for (const gun of ship.guns) {
+      expect(gun.spec.bomberPriority ?? 1).toBe(gun.zone.tier === 'autocannon' ? 2 : 1)
+    }
+  })
+})
 
 describe('日 M1 的目標優先', () => {
   /** 【陸攻在 F4F 眼中比零戰值錢】少了它，F4F 只看威脅與幾何，會去纏會還手的零戰 */

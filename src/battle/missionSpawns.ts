@@ -42,7 +42,7 @@ export function placeFleet(world: Pick<World, 'ships'>, fleet: MissionFleet | un
       world.ships.length, cls, e.team, p.x, p.z, fleet.heading + (e.heading ?? 0), fleet.speed,
       e.vital === true,
     )
-    ship.guns = createShipGuns(cls)
+    ship.guns = createShipGuns(cls, fleet.bomberPriority)
     ship.gunCooldowns = new Float32Array(cls.zones.length)
     resetShipGuns(ship)
     world.ships.push(ship)

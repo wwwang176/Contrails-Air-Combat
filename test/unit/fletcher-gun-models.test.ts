@@ -311,7 +311,7 @@ describe('Fletcher individual main-gun sectors', () => {
     } finally { renderer.dispose(); dispose(root) }
   })
 
-  it('never fires when every mount is blocked, while the battery still tracks', () => {
+  it('所有砲塔都被死角擋住時，不鎖定也不開火', () => {
     const s = ship(), original = s.guns[0]!
     s.guns = [{ ...original, projectileMounts: original.projectileMounts!.map(m => ({ ...m, yawSectors: [] })) }]
     const gun = s.guns[0]!
@@ -320,8 +320,8 @@ describe('Fletcher individual main-gun sectors', () => {
     } } } as unknown as TurretCombatant
     const p = new Projectiles(64), flak = createFlak()
     for (let i = 0; i < 2400; i++) stepGunPlatform(s, [enemy], p, flak, i / 240, 1 / 240)
-    expect(gun.targetIndex).toBe(0)
-    expect(gun.aim.x).toBeLessThan(-0.5)
+    expect(gun.targetIndex).toBe(-1)
+    expect(gun.aim.toArray()).toEqual(gun.axis.toArray())
     expect(gun.fired).toBe(0)
     expect(flak.live).toBe(0)
     expect(selectShipMount(gun, 1, 0, 0)).toBe(-1)

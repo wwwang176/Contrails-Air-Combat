@@ -1,7 +1,7 @@
 import { Quaternion, Vector3 } from 'three'
 import { gunMountMuzzle, type GunMount } from '../weapons/gunMount'
-import { selectShipMount, stepShipMounts } from './shipGunMounts'
-import { GUN_YAW_HOLD } from '../weapons/gunAim'
+import { selectShipMount, shipMountCanAim, stepShipMounts } from './shipGunMounts'
+import { aimAngles, GUN_PITCH_MAX, GUN_PITCH_MIN, GUN_YAW_HOLD } from '../weapons/gunAim'
 import { SHIP_GUN_LAYOUTS } from '../specs/shipGunLayouts'
 import { DEG } from '../core/math'
 import { hash01 } from '../core/hash'
@@ -74,6 +74,8 @@ export interface GunPlatform {
 
 /** 一層砲位的規格。**每一個數字都是起始值，由試飛裁定。** */
 export interface ShipGunSpec {
+  /** 轟炸機與魚雷機的目標權重；省略為 1，不改變原本的火力分攤。 */
+  readonly bomberPriority?: number
   readonly muzzleVelocity: number
   /** 口徑，mm。與飛機的槍同一格，見 `weapons/armour.ts` */
   readonly caliber: number
@@ -343,13 +345,20 @@ function axisOf(x: number, tier: ShipAATier, out: Vector3): Vector3 {
   return out.set(Math.sign(x) * Math.cos(elev), Math.sin(elev), 0).normalize()
 }
 
-export function createShipGuns(cls: ShipClass): ShipGun[] {
+/** 任務可按砲種調整轟炸機／魚雷機權重；1 表示不偏好。 */
+export type ShipBomberPriority = Readonly<Partial<Record<ShipAATier, number>>>
+const DEFAULT_SHIP_BOMBER_PRIORITY: ShipBomberPriority = { flak: 4 }
+
+export function createShipGuns(cls: ShipClass, priorities: ShipBomberPriority = {}): ShipGun[] {
   const out: ShipGun[] = []
   for (let i = 0; i < cls.zones.length; i++) {
     const zone = cls.zones[i]!
     // Fletcher 主砲可追瞄水平目標；逐座砲塔再限制仰角與船體死角。
-    const spec = cls.id === 'fletcher' && zone.tier === 'flak'
+    const baseSpec = cls.id === 'fletcher' && zone.tier === 'flak'
       ? FLETCHER_FLAK_SPEC : SHIP_GUN_SPECS[zone.tier]
+    const bomberPriority = priorities[zone.tier] ?? DEFAULT_SHIP_BOMBER_PRIORITY[zone.tier] ?? 1
+    if (!Number.isFinite(bomberPriority) || bomberPriority <= 0) throw new Error('艦砲目標權重必須是大於零的有限數值')
+    const spec = bomberPriority === 1 ? baseSpec : { ...baseSpec, bomberPriority }
     const axis = axisOf(zone.position.x, zone.tier, new Vector3())
     const projectileMounts = SHIP_GUN_LAYOUTS[cls.id]?.groups[zone.id]
     out.push({
@@ -487,6 +496,7 @@ const V = /* @__PURE__ */ new Vector3()
 const LEAD = /* @__PURE__ */ new Vector3()
 const WANT = /* @__PURE__ */ new Vector3()
 const BEST_WANT = /* @__PURE__ */ new Vector3()
+const MOUNT_AIM = { yaw: 0, pitch: 0 }
 const E1 = /* @__PURE__ */ new Vector3()
 const E2 = /* @__PURE__ */ new Vector3()
 const SHOT = /* @__PURE__ */ new Vector3()
@@ -672,7 +682,16 @@ function leadInBody(
   // 每個砲位每步至少跑一次，搜尋時還會跑滿全部候選。
   ARC.axis = g.axis
   ARC.halfAngle = (spec.halfAngleDeg ?? SHIP_AA_ARC_DEFAULTS[g.zone.tier].halfAngleDeg) * DEG
-  return inArc(ARC, out)
+  if (!inArc(ARC, out)) return false
+  // 主砲先排除所有實體砲塔都打不到的方向，避免優先目標佔住砲區卻無法開火。
+  if (g.zone.tier === 'flak' && g.projectileMounts) {
+    // 與砲塔追瞄共用近天頂保留水平朝向的規則，避免候選與實際砲座判定不同。
+    aimAngles(out.x, out.y, out.z, g.muzzleYaw ?? 0, 0, GUN_PITCH_MIN, GUN_PITCH_MAX, MOUNT_AIM)
+    const pitch = Math.atan2(out.y, Math.hypot(out.x, out.z))
+    for (const mount of g.projectileMounts) if (shipMountCanAim(mount, MOUNT_AIM.yaw, pitch)) return true
+    return false
+  }
+  return true
 }
 
 /** `leadInBody` 的射界錐暫存。`axis` 存的是參考，不複製。 */
@@ -695,8 +714,8 @@ let LOCKS = new Int32Array(64)
 const SOLO: GunPlatform[] = []
 
 /**
- * 挑目標：敵隊、存活、有解、在射界內，取**全艦隊鎖定數最少**的；鎖定數
- * 相同時取離槍口最近的。
+ * 挑目標：敵隊、存活、有解、在射界內，取 (全艦隊鎖定數 + 1) / 任務權重
+ * 最低的；同分時取離槍口最近的。權重全為 1 時維持原本的平均分攤。
  *
  * 【為什麼不是「最近的」】每門砲各挑最近的話，一支四機小隊壓進來時九艘
  * 船的砲全部咬長機，長機死了下一秒全部轉到第二架 —— 四架依序死在同一段
@@ -716,16 +735,19 @@ function pickTarget(
   const reachSq = reach * reach
   let best = -1
   let bestDist = Infinity
-  let bestLocks = Infinity
+  let bestLoad = Infinity
   for (let k = 0; k < all.length; k++) {
     const o = all[k]!
     if (!o.alive || o.team === ship.team) continue
     const d = o.aircraft.state.position.distanceToSquared(MUZZLE)
     if (d > reachSq) continue
-    const locks = LOCKS[o.index]!
-    if (locks > bestLocks || (locks === bestLocks && d >= bestDist)) continue
+    // G4M 魚雷機與一般轟炸機都屬 bomber；按當下機種判斷，增援也能套用。
+    // 權重折抵火力分配成本，仍會隨集中砲區增加而轉打其他敵機。
+    const priority = o.aircraft.spec?.role === 'bomber' ? spec.bomberPriority ?? 1 : 1
+    const load = (LOCKS[o.index]! + 1) / priority
+    if (load > bestLoad || (load === bestLoad && d >= bestDist)) continue
     if (!leadInBody(o, g, spec, BEST_WANT)) continue
-    bestLocks = locks
+    bestLoad = load
     bestDist = d
     best = o.index
   }

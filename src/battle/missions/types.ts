@@ -2,7 +2,7 @@ import type { Vector3 } from 'three'
 import type { GroundLivery, GroundUnitId } from '../../specs/ground'
 import type { EntryPlanId } from '../entry'
 import type { ShipClassId } from '../../world/ships'
-import type { ShipGunSpec } from '../../world/shipGuns'
+import type { ShipBomberPriority, ShipGunSpec } from '../../world/shipGuns'
 import type { FlarePoint } from '../beats'
 import type { AircraftSpec } from '../../specs/types'
 import type { FeelKind } from '../../specs/feel'
@@ -734,6 +734,8 @@ export interface BlueSpawn {
 }
 
 export interface MissionFleet {
+  /** 按砲種設定轟炸機／魚雷機權重；預設 5 吋砲為 4，其餘為 1。填 1 可取消偏好。 */
+  readonly bomberPriority?: ShipBomberPriority
   /** 艦隊中心的世界座標。 */
   readonly center: Vector3
   /**

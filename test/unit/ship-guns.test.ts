@@ -9,13 +9,14 @@ import { Projectiles } from '../../src/world/Projectiles'
 import { createFlak, type FlakShells } from '../../src/world/flak'
 import type { ShipAATier } from '../../src/world/shipAA'
 import type { TurretCombatant } from '../../src/world/turrets'
+import { stepShipMounts } from '../../src/world/shipGunMounts'
 
 /** 一架不會動的假飛機。只填 `stepGunPlatform` 讀得到的欄位。 */
 function target(index: number, x: number, y: number, z: number, team = 'blue'): TurretCombatant {
   return {
     index, team, alive: true, hp: 100,
     aircraft: {
-      spec: { turrets: [] },
+      spec: { turrets: [], role: 'fighter' },
       state: {
         position: new Vector3(x, y, z),
         velocity: new Vector3(0, 0, 0),
@@ -233,7 +234,7 @@ describe('stepGunPlatform', () => {
   /** 【5 吋砲不進彈丸池】它走近炸引信那條路。 */
   it('5 吋砲產生高砲彈而不是彈丸', () => {
     const f = createFlak()
-    expect(run(shipWith('flak'), [target(0, 0, 2000, 0)], 3, f).live).toBe(0)
+    expect(run(shipWith('flak'), [target(0, -100, 2000, 0)], 3, f).live).toBe(0)
     expect(f.live).toBeGreaterThan(0)
   })
 
@@ -250,7 +251,7 @@ describe('stepGunPlatform', () => {
     // 所以不是「跑一秒就有」——一出現就停，那一刻的引信才是發射時的值。
     let i = -1
     for (let k = 0; k < 10 * 240 && i < 0; k++) {
-      stepGunPlatform(s, [target(0, 0, 2000, 0)], p, f, k * dt, dt)
+      stepGunPlatform(s, [target(0, -100, 2000, 0)], p, f, k * dt, dt)
       i = f.team.findIndex((t) => t !== -1)
     }
     expect(i).toBeGreaterThanOrEqual(0)
@@ -272,7 +273,7 @@ describe('stepGunPlatform', () => {
       const dt = 1 / 240
       const out: number[] = []
       for (let k = 0; k < 60 * 240; k++) {
-        stepGunPlatform(s, [target(0, 0, 2000, 0)], p, f, k * dt, dt)
+        stepGunPlatform(s, [target(0, -100, 2000, 0)], p, f, k * dt, dt)
         for (let i = 0; i < f.fuse.length; i++) {
           if (f.team[i] === -1) continue
           out.push(f.fuse[i]!)
@@ -306,6 +307,65 @@ describe('stepGunPlatform', () => {
 })
 
 describe('艦隊的砲位分攤目標', () => {
+  it.each([90, 0])('Wichita 近天頂保留水平朝向 %s°，索敵與實際砲座判定一致', yaw => {
+    const s = shipWith('flak')
+    s.guns = s.guns.filter(g => g.zone.id === 'flak_p')
+    const gun = s.guns[0]!
+    gun.aim.set(0, 1000, -10).normalize()
+    gun.muzzleYaw = yaw * Math.PI / 180
+    const ready = stepShipMounts(gun, true, 100)
+    expect(ready).toBe(yaw === 90)
+    const position = gun.zone.position.clone().add(new Vector3(0, 1000, -10))
+    run(s, [target(0, position.x, position.y, position.z)], 0.3)
+    expect(gun.targetIndex).toBe(ready ? 0 : -1)
+  })
+
+  it('關閉任務偏好時，5 吋砲恢復選擇較近的戰鬥機', () => {
+    const s = shipWith('flak', SHIP_CLASSES.fletcher)
+    s.guns = createShipGuns(s.cls, { flak: 1 })
+    const all = [target(0, -200, 500, 0), target(1, -400, 600, 0)]
+    all[1]!.aircraft.spec.role = 'bomber'
+    run(s, all, 1)
+    expect(s.guns[0]!.targetIndex).toBe(0)
+  })
+
+  it('5 吋砲偏好較遠的轟炸機，但 40 mm 與 20 mm 維持原選擇', () => {
+    const all = [target(0, -200, 500, 0), target(1, -400, 600, 0)]
+    all[1]!.aircraft.spec.role = 'bomber'
+    for (const tier of ['flak', 'autocannon', 'mg'] as const) {
+      const s = shipWith(tier, SHIP_CLASSES.fletcher)
+      s.guns = s.guns.slice(0, 1)
+      run(s, all, 1)
+      expect(s.guns[0]!.targetIndex, tier).toBe(tier === 'flak' ? 1 : 0)
+    }
+  })
+
+  it.each(['過遠', '越過仰角', '死亡', '友軍'] as const)('優先轟炸機%s時，改打可射擊的戰鬥機', reason => {
+    const s = shipWith('flak', SHIP_CLASSES.fletcher)
+    const all = [target(0, -500, 200, 0), target(1, -800, 300, 0)]
+    const bomber = all[1]!
+    bomber.aircraft.spec.role = 'bomber'
+    if (reason === '過遠') bomber.aircraft.state.position.set(-10000, 300, 0)
+    if (reason === '越過仰角') bomber.aircraft.state.position.copy(s.guns[0]!.zone.position).y += 1000
+    if (reason === '死亡') bomber.alive = false
+    if (reason === '友軍') Object.assign(bomber, { team: 'red' })
+    run(s, all, 8)
+    expect(s.guns[0]!.targetIndex).toBe(0)
+    expect(s.guns[0]!.shots).toBeGreaterThan(0)
+  })
+
+  it('偏好仍分攤火力，並在增援轟炸機出現後重新選擇', () => {
+    const ships = Array.from({ length: 5 }, () => shipWith('flak', SHIP_CLASSES.fletcher))
+    const all = [target(0, -500, 200, 0), target(1, -800, 300, 0)]
+    all[1]!.aircraft.spec.role = 'bomber'
+    all[1]!.alive = false
+    settle(ships, all)
+    expect(locksOf(ships, 2)).toEqual([5, 0])
+    all[1]!.alive = true
+    settle(ships, all, 1)
+    expect(locksOf(ships, 2)).toEqual([1, 4])
+  })
+
   /**
    * 四架疊在同一條垂線上、距離不同：每一門砲的「最近」都是最低的那一架。
    * 900 m 起算，四挺 20 mm 才全部有解（更低的話艦艏艦艉的射界錐蓋不到）。
