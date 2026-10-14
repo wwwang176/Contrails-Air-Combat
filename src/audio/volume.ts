@@ -8,10 +8,10 @@ import type { MessageKey } from '../i18n'
  * 限幅器硬壓，而長時間貼著滿刻度本身就吵、也容易在喇叭端失真。混音該有餘裕，
  * 讓限幅器只在意外的疊加時介入。
  *
- * 【選了多少】−9 dB。齊投與編隊掠過那種最吵的場面實測峰值約 −1.5 dBFS，
- * 減 9 之後落在 −10 附近，留得下一次爆炸的瞬間。**起始值，由試聽裁定。**
+ * 【選了多少】−6 dB。讓一般飛行與開火更清楚，同時保留混音餘裕；
+ * 密集戰鬥與近距離爆炸仍可能觸發限幅，最終大小由試聽裁定。
  */
-export const MIX_HEADROOM_DB = -9
+export const MIX_HEADROOM_DB = -6
 
 export const VOLUME_LEVELS: readonly { labelKey: MessageKey; db: number | null }[] = [
   { labelKey: 'common.off', db: null },
