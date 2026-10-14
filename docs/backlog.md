@@ -4,13 +4,31 @@
 
 規則：**每一條都要有出處**（spec 章節或 `檔案:行號`），否則下一個人無從判斷它還成不成立。沒有出處的條目視為過期。
 
-最後更新：2026-09-26（第十次）
+最後更新：2026-10-14（第十一次）—— 全部條目逐條複查一遍（HEAD `fbd9707a`），每條開頭加
+「**10-14 複查**」一行寫現況與更正後的出處；解掉或前提不成立的把標題畫掉；09-24 之後
+新長出來的未解事項收在**第十三節**。
+
+複查時要知道的三件事：
+
+- `docs/`、`src/specs/*.ts`、`src/weapons/turret.ts` 等一大批檔案在 `352c8b8c`（2026-10-07
+  「同步現行版本的檔案」）才第一次進版控。在那之前這些檔的改值是哪個 commit，`git log`
+  查不到；舊的 `src/battle/missions.ts` 從未進過版控。
+- `abba57a7`（2026-09-26「刪掉遊戲性測試」）刪了 `ai-duel-matrix` 的深度耗能、
+  `normalModeShare`／`reversalShare`、`ai-visible-evasion`、`terrain-in-play` 的 20v20
+  斷言等量尺 —— 引用它們的條目，問題可能還在，但**量尺已經沒了**。
+- 2026-10-06 的重構把設定搬了家：`steer.ts` 的參數 → `src/ai/steerConfig.ts`、
+  `command.ts` 的參數 → `src/ai/commandConfig.ts`、`missions.ts` → `src/battle/missions/shared.ts`
+  與 `configuration.ts`、`resetBattle` → `src/battle/battleRuntime.ts`、`ALL_SPECS` →
+  `src/specs/catalog.ts`。
 
 ---
 
 ## 一、卡在專案負責人（要裁定或試飛）
 
 ### 1.2 三台轟炸機的失速同方向偏高 5–7% —— **已裁定接受，不再問**
+
+> **10-14 複查**：仍成立（已裁定，不是待辦）。`PENDING` 在 `test/performance/historical.test.ts:120`
+> （he111 stall :122、b17g :125、g4m :127–146）；`derivedClMax` 在 `src/specs/types.ts:256-259`。
 
 **2026-09-03 專案負責人：「我覺得就這樣，飛起來 OK，記錄起來不再問。」**
 
@@ -32,7 +50,18 @@
 
 出處：`test/performance/historical.test.ts` 的 `PENDING`。
 
-### 1.3 護送那兩張卡在 `convoyPriority = 5` 之下必敗
+### 1.3 ~~護送那兩張卡在 `convoyPriority = 5` 之下必敗~~ → 盟 M1 的 `convoyPriority` 3 沒量過
+
+> **10-14 複查**：下表的四張卡在 2026-09-13 九關改版後都不在了。現況：
+> - `CONVOY_PRIORITY = 5` 在 `src/battle/missions/shared.ts:42`，但唯一用它的護送卡 `allies-m1`
+>   覆寫成 3（`src/battle/missions/allies.ts:34`，`:31` 註解寫「起始值，要重新掃描」）——
+>   **沒有任何正式卡片拿到 5**
+> - 攔截卡 `germany-m1` 走 `hunt`＋轟炸機流，`convoyPriority: 1`（`germany.ts:106`）；日 M1 另用
+>   `bomberPriority: 20`（`japan.ts:95`）
+> - 軸心護送 He 111 那張卡已經沒有
+> - `src/battle/mission.ts` 的 `convoyPriority` 註解已改指 `missions/shared.ts`（§13.5）
+>
+> **還開著的只剩一件：`allies-m1` 的 3（16 架箱型）沒有量過。** 下面的表與建議是舊卡的紀錄。
 
 專案負責人 2026-08-22 裁定「護送、攔截 AI 索敵選中轟炸機的機會提超一倍」，
 `CONVOY_PRIORITY` 由 2 改為 5。實測（`convoy.probe.ts` 與一次性掃描，
@@ -65,7 +94,10 @@ P-51。要處理得動編制或 `convoyCount`。）
 
 ### 1.4 反轉的三個參數還是起始值
 
-`src/ai/steer.ts` 的 `reversalRange`（500）、`reversalAspect`（90°）、`reversalHold`（2）。
+> **10-14 複查**：仍成立。值搬到 `src/ai/steerConfig.ts:757-759`（500 / 90° / 2），
+> 【最該由人工試飛定案】註解在 `:751`，掃描範圍在 `:381`／`:391`／`:401`（搬家 `9113a30f`）。
+
+原本在 `src/ai/steer.ts` 的 `reversalRange`（500）、`reversalAspect`（90°）、`reversalHold`（2）。
 註解自己寫著：
 
 > 【這一組最該由人工試飛定案】專案負責人對這一項的定位是「難得發生時很精彩」。
@@ -74,6 +106,10 @@ P-51。要處理得動編制或 `convoyCount`。）
 掃描範圍已經寫在各欄位註解裡（300/500/800、60°/90°/120°、1/2/4）。
 
 ### 1.5 `VETERAN` 比 0.3 s 定值時弱了很多，那張表已經對不上
+
+> **10-14 複查**：仍成立。`src/ai/profile.ts:71` 的表還是 14:6、4 場平手、133 s；
+> `reactionDelay: 0.3` 在 `:111`。11:1／12／238 的重跑結果已寫進 `fireDelay` 註解（`:41-46`），
+> `fireDelay` 定為 0.1。十張任務卡一律 `VETERAN`（`src/battle/missions/configuration.ts:240`）。
 
 `src/ai/profile.ts` 裡選 0.3 s 的依據表寫著「VETERAN vs ACE **14:6**、平均
 **133 s**、4 場平手」。2026-09-04 用 `test/tools/fire-delay.probe.ts`（12 開局
@@ -99,6 +135,15 @@ P-51。要處理得動編制或 `convoyCount`。）
 ## 二、已知未解 —— 有 spec 記錄，還沒開工
 
 ### 2.0 AI 沒有主動的能量經營（占位）★ 2026-08-22 人工回報
+
+> **10-14 複查**：部分成立。意圖仍是六種（`src/ai/rules.ts:9`），開局雙方戰鬥機同在
+> `ESCORT_TIER = 4`（`src/battle/order.ts:333`、`:418-419`）。之後補上的：
+> - 有高度優勢時俯衝一擊後拉回原層 —— 一擊脫離的後半段（`87a97670`，09-28）
+> - extend 在角落速度八成五起准往上補高度（`extendClimbFrom: 0.85`，`src/ai/steerConfig.ts:692`，`7326ba58`）
+> - 空層鎖的 `'zoom'` 走法，轉彎時往上抓 400 m（`src/ai/bandState.ts:252`）
+>
+> **還是沒有「主動搶到敵人上方」。**「`steer.ts` 該欄位的長註解」現在在 `steerConfig.ts:282-290`
+> （`pitchSpeedGain`），只剩 5051 這個數字。下文「與 §1.3 有關」指的卡已換掉。
 
 **人工回報**：「P-51 攔截 He 111 時，護航的 Bf 109 追不上 P-51，這樣在史實上
 是合理的嗎？怎麼感覺 Bf 109 的性能弱很多？」
@@ -140,6 +185,14 @@ P-51。要處理得動編制或 `convoyCount`。）
 
 **出處**：spec `2026-08-16-sweet-spot-shot-yield-design.md` §7.5
 
+> **10-14 複查**：部分成立，**根還在、觸發者換了**。`sweetSpotMaxPitch` 從 08-23 起是 0
+> （`f0a934c7`，`src/ai/doctrine.ts:268`），`sweetPitch` 本身不再起作用；但同一位置疊的是
+> `turnPitch`（`turnPlaneMaxPitch` 10°，`doctrine.ts:270`）—— `shrinkTowardNose`（`steer.ts:749`）
+> 之後 `applyPitchBias((sweetPitch+turnPitch)…)`（`:776`）只排除 `rally`，下面三個症狀都換成由
+> `turnPitch` 觸發。例外：engage／approach／merge 的空層鎖下半段排在偏置之後。
+> 數字更正：`defendTilt` 是 31°（`steerConfig.ts:731`，`fc4662ca`），不是 20°；
+> `speedRecoverPitch` 仍是 20°（`:658`）。
+
 2026-08-16 那一輪只解決了「甜蜜區偏置擋住射擊」。**根還在** —— `steerCommand` 的結構是
 「各 mode／intent 產生動作 → 能量上限收桿 → **甜蜜區偏置無條件加回去**」，於是它也會：
 
@@ -155,6 +208,10 @@ P-51。要處理得動編制或 `convoyCount`。）
 
 **出處**：同上 §7.3、§4.2b
 
+> **10-14 複查**：仍成立。`AiController.ts:332` 現在是 `src/ai/AiController.ts:851`
+> （`buildEngageBasis(self, target, …)`）；`steer.ts:768` 的 `intent === 'defend' ? 1` 還在，
+> `steer.ts` 那段註解已改指 `buildEngageBasis`（§13.5）。
+
 `basis` 永遠對**攻擊目標**建立（`AiController.ts:332`），而 `defend` 是對**威脅來源**做的
 （`defendAim` 讀 `sit.threatLos`），兩者可以是不同的飛機。所以射擊讓位那一層在 `defend`
 被完全排除 —— 行為逐位元不變，但也等於那裡沒有讓位。
@@ -165,6 +222,9 @@ P-51。要處理得動編制或 `convoyCount`。）
 
 **出處**：同上 §8.4
 
+> **10-14 複查**：問題還在，**量尺沒了** —— `ai-duel-matrix` 的深度耗能指標在 `abba57a7`
+> 刪除（`grep -rn 深度耗能 test` → 零筆）。只剩試飛判斷。
+
 射擊讓位那一輪之後，對戰矩陣量到的深度耗能由 0.356 升到 0.754。**直接成因是分母被
 截斷**（那個指標的分母是這場仗打了幾步，而 AI 打得中之後仗由 90 秒逾時變成 40 秒擊落）。
 
@@ -173,6 +233,10 @@ P-51。要處理得動編制或 `convoyCount`。）
 ### 2.4 甜蜜區只看迴旋率，沒看爬升
 
 **出處**：`src/ai/doctrine.ts` 的 `sweetSpotAdvantage`；量測 2026-08-16
+
+> **10-14 複查**：部分成立，**目前沒有作用**。`sweetSpotAdvantage`（`src/ai/doctrine.ts:341`）
+> 仍只算持續迴旋率之差，但輸出乘上 `sweetSpotMaxPitch = 0`，「把 109 往只贏 4% 的速度帶壓」
+> 現在不會發生。把 `sweetSpotMaxPitch` 調回非零之前要先處理這一條。
 
 `sweetSpotAdvantage` 用「持續迴旋率之差」當「我在哪裡打得好」，註解明說排除了滾轉。
 **但它也沒有看爬升。** 實測（套 `GAME_FEEL`）：
@@ -187,14 +251,21 @@ P-51。要處理得動編制或 `convoyCount`。）
 
 於是甜蜜區把 109 往「只贏 4%」的速度帶壓，卻沒有用上真正贏 12% 的爬升。
 
-### 2.5 `sweetSpotMaxPitch = 10°` 沒有實證依據
+### 2.5 ~~`sweetSpotMaxPitch = 10°` 沒有實證依據~~ —— 前提不成立
+
+> **10-14 複查**：08-23 已改成 0（`f0a934c7`，`src/ai/doctrine.ts:268`）。同性質的
+> `turnPlaneMaxPitch = 10°`（`:270`）有沒有實證另計。
 
 **出處**：spec `2026-08-11-ai-doctrine-design.md` §7.2、`2026-08-16-...` §7.2
 
 掃過 0/5/10/15/20，**對每一個量測指標都非單調**，量不出這個尺度。留在起手值，由試飛判斷。
 唯一一致的訊號是 20° 會開始放掉射擊解 —— 那正是 2026-08-16 那一輪追出來的病的放大版。
 
-### 2.6 300 m 附近的平衡偏移仍高於開火錐
+### 2.6 ~~300 m 附近的平衡偏移仍高於開火錐~~ —— 已解決（`72711524`，2026-08-23）
+
+> **10-14 複查**：讓位斜坡整段移到開火範圍之外 —— `src/ai/shotYield.ts:24-45` 在
+> `interceptTime ≤ 1.2 s` 時回傳 0（完全讓位），淡出 1.2–2.4 s（`sweetYieldTime`，
+> `src/ai/steerConfig.ts:760`）。下文 0.36 s／250 m 的線性斜坡已不存在。
 
 **出處**：spec `2026-08-16-...` §7.1
 
@@ -203,7 +274,11 @@ P-51。要處理得動編制或 `convoyCount`。）
 
 ### 2.7 `geometryGate` 的 `unload` 常常覆蓋防禦分支
 
-**出處**：spec `2026-08-16-lead-swing-criterion-design.md` §7.6
+**出處**：spec `2026-08-15-lead-swing-criterion-design.md` §7.6
+
+> **10-14 複查**：無法判定。`geometryGate` 在 `src/ai/steer.ts:28`、`unload` 在 `:48`；現行的
+> `unload` 不改瞄準點，只經 `unloadPull` 收拉桿（`:747`），defend 的瞄準點照算（`:652-657`），
+> 「覆蓋」要重新解讀。量尺 `normalModeShare`／`reversalShare` 在 `abba57a7` 刪除，無法重量。
 
 2026-08-16 實測 `reversal` 全是 0%、`normalMode` 是 44~100% —— 也就是 `geometryGate` 的 `unload`
 **常常覆蓋防禦分支**。那是不是問題由試飛判斷。
@@ -211,6 +286,10 @@ P-51。要處理得動編制或 `convoyCount`。）
 ### 2.8 橫飛時 27% 的機動花在看不見的方向
 
 **出處**：`test/tools/aim-ceiling.probe.ts` 的 `anatomy()`；量測 2026-08-16
+
+> **10-14 複查**：仍成立。`anatomy()` 在 `aim-ceiling.probe.ts:399`；破防軸仍是
+> `UP × threatLos` 再抬 `defendTilt`（`src/ai/steer.ts:896-944`）。下表量在 `defendTilt` 改成 31°
+> 之前，數字有效性無法判定。
 
 把 AI 的位移拆成徑向（朝／背觀測者，看不見）與切向（橫越視線，看得見）：
 
@@ -229,13 +308,25 @@ AI 在四個幾何閃的力道幾乎一樣（13% 差距），差的是**看得�
 
 **出處**：`test/tools/aim-ceiling.probe.ts` 檔頭
 
+> **10-14 複查**：仍成立。檔頭說明在 `aim-ceiling.probe.ts:39-56`；`ScriptedBreaker` 已隨
+> `test/integration/ai-visible-evasion.test.ts` 在 `abba57a7` 刪除，只剩註解與 `:379` 的 log 字串。
+> 神諭控制器沒有做。
+
 原本想拿 `ScriptedBreaker` 的 `horizUp` 軸當物理天花板，**實測與靜態都證實那是錯的**
 （橫飛時命令幾乎掉頭 155°、上下方時破防軸整個退化）。
 
 要真的量需要一個**神諭控制器**：每一格直接求「在觀測者視野裡角速度最大的方向」再以最大
 可用 G 拉過去。
 
-### 2.11 撤離卡已關閉 —— 開局幾何救不了「追不到」
+### 2.11 ~~撤離卡已關閉 —— 開局幾何救不了「追不到」~~ —— 前提不成立（卡片已移除）
+
+> **10-14 複查**：沒有任何 `type: 'withdraw'` 的卡（`grep -rn "type: 'withdraw'" src/battle/missions`
+> → 零筆），`playable` 欄位也取消了（改用 `battle: null`，`src/battle/missions/types.ts:256`）。
+> 撤離改成日 M2 炸夠卡車之後的返航節拍（`src/battle/missions/japan.ts:288`，`c91bfc7e`）——
+> 撤離點在前方、不是被追著逃，所以下面的「追不到」不適用。
+> 不存在的：`src/battle/missions.ts`、`EVAC`、`EVAC_MARGIN`、`EVAC_STRAIGHT_*`（`entry.ts` 的引用已改掉，§13.5）。
+> `gap 400`／`climb 200` 還在 `entry.ts:124-128`（`PURSUIT`）。
+> 若要再做「被追著逃」的撤離卡，§2.12 的「追兵會追」仍是前提。
 
 **出處**：spec `2026-08-16-mission-framework-design.md` §8.6、`src/battle/entry.ts`、
 `src/battle/missions.ts` 的 `EVAC`
@@ -278,6 +369,10 @@ DISABLED。」** 兩張撤離卡的 `playable` 已翻成 false。
 **出處**：spec `2026-08-16-mission-framework-design.md` §10 第 3 條、
 `src/ai/AiController.ts`
 
+> **10-14 複查**：部分成立。**僚機撤離已經做了**（`acdc2c15`，09-28）：`AiController.ts:388-395`
+> 的 `evacuating` 由 `src/battle/commandLayer.ts:211-239` 寫入。紅隊「追兵會追」在 `src/ai`
+> 裡沒有。「撤離卡的解鎖條件」隨 §2.11 的卡片消失。
+
 `AiController` 只認識敵機、站位與 `FlightOrder`，**沒有任何任務目標的輸入**。
 後果有兩層：
 
@@ -295,6 +390,9 @@ DISABLED。」** 兩張撤離卡的 `playable` 已翻成 false。
 
 **出處**：Codex 審查 2026-08-16、`test/e2e/mission.e2e.ts:144`
 
+> **10-14 複查**：仍成立。行號更正為 `test/e2e/mission.e2e.ts:202-206`；`main.ts` 的每幀重設在
+> `src/main.ts:1870-1871`。三條路徑都還沒有 e2e。
+
 `mission.e2e.ts` 驗的是「模式分流」——戰鬥還沒結束，`#board-actions` 整塊是藏的，
 讀的只是那兩顆子按鈕的 `hidden`（`main.ts` 每一幀依 `mode` 重設）。
 
@@ -311,6 +409,10 @@ DISABLED。」** 兩張撤離卡的 `playable` 已翻成 false。
 
 **出處**：spec `2026-08-16-mission-framework-design.md` §11.3
 
+> **10-14 複查**：部分成立。「效能面板預設開著」已解決（`52c7c890`，09-13）：`src/core/perf.ts:105`
+> 是 `let visible = false`，詳細資訊收到 F3（`:170-176`）。常駐的基本 FPS 那一格仍是 DOM overlay
+> （`:161`），所以「盤點要含 DOM overlay」這個方法仍成立。
+
 目標列的位置改了兩次才定案，第二次是因為左上角有**效能面板**
 （`src/core/perf.ts` 的 `visible = true`，預設就開著）。它是 `index.html`
 的 DOM overlay 不是 HUD widget，所以只調查 `src/hud/widgets/` 看不到 ——
@@ -323,6 +425,11 @@ DISABLED。」** 兩張撤離卡的 `playable` 已翻成 false。
 
 **出處**：`test/performance/historical.test.ts` 的 `PENDING`、
 `test/tools/bomber-histo.probe.ts`、`test/tools/he111-engine.probe.ts`
+
+> **10-14 複查**：仍成立，引用的數值全部吻合現行碼（He 111 cd0 `he111.ts:117`、mass `:46`、
+> altCritical 與功率 `:244`、clMax `:420`；B-17G cd0 `b17g.ts:155`、mass `:60`、clMax `:376`）。
+> 更正：`CLIMB_BAND` 已不存在；`PENDING`（`historical.test.ts:120`）現在有 17 條、涵蓋
+> he111／b17g／g4m／f4f4／ju87 五台，轟炸機兩台在 `:121-126`、`:228-231`。
 
 **2026-08-20 已解決的部分**：兩台都進了 L2。過程中修掉三個根因——
 
@@ -377,6 +484,10 @@ He 111 的「臨界高度極速」與「海平面爬升」是 2026-08-20 第三�
 
 ### 2.19 ~~`GAME_FEEL` 的六個倍率是照戰鬥機調的~~ 已解決（2026-08-20）
 
+> **10-14 複查**：仍是現況（`020f2bee`；`src/specs/feel.ts:392` `BOMBER_EXCESS_POWER = 0.70`、
+> `:395` `BOMBER_FEEL`）。補一句：分流不再只靠 `role` —— `feelFor(spec, kind?)`（`feel.ts:411`）
+> 允許任務卡覆寫，德 M4 的 Ju 87 用戰鬥機那一組。
+
 轟炸機另訂一組 `BOMBER_FEEL`：`power` 與 `cd0` 同乘 **0.70**，其餘四項與
 `GAME_FEEL` 逐字相同。分流靠 `AircraftSpec.role`（新欄位，必填），不是硬編
 機種清單 —— 下一台轟炸機加進來時型別會直接擋。
@@ -399,6 +510,9 @@ He 111 的「臨界高度極速」與「海平面爬升」是 2026-08-20 第三�
 ### 2.20 滾轉率：已拉到戰時規範；`controlStiffening` 查證後維持現值
 
 **出處**：`test/tools/rollrate.probe.ts`（2026-08-20 新增）
+
+> **10-14 複查**：仍是現況。clDa／clP 四台吻合（`p51d.ts:134`、`bf109k4.ts:84`、`he111.ts:163`、
+> `b17g.ts:200`）。
 
 **兩台轟炸機都查不到公開的飛行測試值**（B-17 的資料只有定性描述：副翼「像
 卡車一樣」、逆偏航明顯）。但查得到**規範**，而規範比任何單一數字好用。
@@ -423,6 +537,11 @@ He 111 的「臨界高度極速」與「海平面爬升」是 2026-08-20 第三�
 戰鬥機的滾轉沒有問題。
 
 ### `controlStiffening.aileronK` —— 一度以為是缺陷，查證後**維持現值**
+
+> **10-14 複查**：仍是現況。數值吻合（`p51d.ts:139`、`bf109k4.ts:91`、`he111.ts:169`、`b17g.ts:205`；
+> vne `b17g.ts:232`）。公式在 `src/physics/aero.ts:129` 的 `controlEffectiveness`，仍不會轉負。
+> 另有獨立的超速因子 `redlineEffectiveness`（`aero.ts:154`），在 `:297` 與它相乘。
+> `he111.ts`、`b17g.ts` 原本寫「扣了兩次」的註解已照本節結論改掉（§13.5）。
 
 `aileronK` 在 400 km/h／3,000 m 把舵權限再乘一次：
 
@@ -480,6 +599,14 @@ k > 1 掉得比臂力上限還快。
 **出處**：砲塔那一輪（2026-08-21）。**這是專案負責人裁定留到下一輪的，不是
 遺漏** —— 那一輪的範圍問過一次，答覆是「這一輪不碰 AI」。
 
+> **10-14 複查**：仍成立，但下一段的描述要改。`src/ai/` 現在**有**讀 `role` 的地方
+> （`AiController.ts:263`／`:937`／`:1006`、`bandState.ts:214`、`safety.ts:266`、`surfaceAttack.ts:123`／`:299`、
+> `escortStation.ts:26`），但「這台扣不扣得到扳機」的閘門沒有（`grep -rn "mounts.length" src/ai` → 零筆）。
+> 非 transit 的轟炸機仍走 `selectTarget`（`AiController.ts:641-655`）→ `raw.firing = burstOpen`（`:1045`），
+> 只有 `duty === 'transit'` 被跳過（`:633`）。踩得到的情境：遭遇戰選轟炸機，或攻擊卡上沒有地面目標可打。
+> 三台轟炸機的 `mounts: []`：`src/weapons/b17g.ts:22`、`he111.ts:22`、`g4m.ts:71`；HUD 那一處在
+> `src/hud/contactFeed.ts:45`。
+
 `src/ai/` 沒有任何一處讀 `AircraftSpec.role`，也沒有任何一處分辨「這台有沒有
 固定前射武器」。所以兩台轟炸機的 AI 與戰鬥機**跑同一套**：會進追擊、會咬尾、
 會在射擊解成立時把 `command.firing` 設成 true —— 而它們的 `battery.mounts`
@@ -496,6 +623,14 @@ k > 1 掉得比臂力上限還快。
 ### 2.22 `resetBattle` 沒有重設 AI 控制器的內部狀態 ★
 
 **既有缺陷**，砲塔那一輪順手量到的，不是那一輪造成的。
+
+> **10-14 複查**：部分成立。`resetBattle` 搬到 `src/battle/battleRuntime.ts:116`。已做的：沿用的控制器
+> 呼叫 `resetAirTactics()`（`battleRuntime.ts:193-196`，`fde5c925`）；`wireBattleAi(…, true)` 呼叫
+> `clearTerrainState()`（`src/app/wireBattleAi.ts`）；有波次的關卡整場重建（`03e2fa1d`）。
+> 還沒做的：`Controller` 介面仍只有 `update`（`src/control/Controller.ts:83-92`）、沒有 `reset?()`；
+> 規則閂鎖、`decisionTimer`、`target` 不歸零；`dropPendingCommands()` 只在 `src/battle/alert.ts:190` 呼叫；
+> `src/main.ts` 的 `restartBattle` 註解已改成「不等價」（§13.5）；`turret-replay.test.ts:129` 仍只測兩場全新的戰局。
+> 實測的 508.939 m 沒有重量。
 
 `resetBattle` 重生了飛機、清了戰績與傷害紀錄、清了彈丸池（那一輪又補上
 `world.time = 0`），但 **`AiController` 的目標、決策計時、規則閂鎖、延遲佇列
@@ -519,6 +654,11 @@ k > 1 掉得比臂力上限還快。
 
 **出處**：2026-08-21 人工提問「戰鬥機會閃躲防禦機槍的瞄準嗎？」。以下全部
 是**讀程式碼**得到的，沒有量測。
+
+> **10-14 複查**：仍成立。`alarmFactor` 在 `src/ai/assess.ts:637`，仍只看機首（FWD）；`ALARM_CONE` 在
+> `:573`；`scanThreat` 搬到 `src/ai/threatScan.ts`。`src/ai` 裡 `turretStates`／`spec.turrets` 零筆，自機
+> `hp` 零筆（`shipAttack.ts:201` 的 `s.cls.hp` 是船）。更正：「十三個檔案」現在是 42 個；有 6 個檔從
+> `world/Projectiles` import 了 `PROJECTILE_LIFETIME` 常數 —— 但仍然不讀彈丸本身。
 
 **答案是不會。** 三個層次：
 
@@ -577,6 +717,11 @@ k > 1 掉得比臂力上限還快。
 
 **出處**：編組表那一輪（2026-08-21）的 spec §7.1。**已知且刻意不修。**
 
+> **10-14 複查**：仍成立，而且**現在踩得到** —— 遭遇戰的 `addFlight`（`src/battle/skirmish.ts:162`，
+> `21e2bd38`）可以把任何機種加到任一邊，沒有陣營限制。十張任務卡每隊仍是同陣營。
+> `factionOf` 已不存在，改讀 `spec.faction`（`src/specs/types.ts:137`，多了 `'soviet'`）；呼叫端在
+> `src/battle/createBattle.ts:246`／`:250`、`battleRuntime.ts:212`／`:216`、`reinforcements.ts:67`（取 `members[0]`）。
+
 `battle/setup.ts` 的
 
 ```ts
@@ -597,6 +742,10 @@ Bf109 + He 111 都是軸心國）。
 
 **出處**：編組表那一輪（2026-08-21）**實際踩了兩次**，兩次都不是型別檢查
 抓到的。這一條不是缺陷，是**下一次做這種欄位遷移時必讀的東西**。
+
+> **10-14 複查**：仍成立（流程提醒）。兩處症狀現場都補了型別標註（`test/tools/spawn-snapshot.ts:123-140`）。
+> 位置更正：`DEFAULT_BATTLE` 在 `src/battle/battleDefaults.ts:9`、`BattleConfig` 在 `battleConfig.ts:19`、
+> `createBattle` 在 `createBattle.ts:41`。範例裡的 `blueCount` 已不是 `BattleConfig` 的欄位。
 
 TypeScript 的多餘屬性檢查**只對「新鮮的物件字面值」生效**。下面兩種寫法在
 欄位被刪掉之後一個字都不會報錯，而那些欄位會被**靜靜忽略**：
@@ -630,7 +779,12 @@ createBattle(controller, cfg, seed)      // cfg 不是「新鮮的」，不檢�
 3. **遷移前後要比對一次場景有沒有變成預設值。** repo 裡沒有存出生表的
    基準，要自己在遷移前印一份，遷移後逐字比對 —— 「行數不對」一眼就看得出來。
 
-### 2.26 護航機把攔截方的目標全部吸走 —— 已修（2026-08-21）
+### 2.26 ~~護航機把攔截方的目標全部吸走~~ —— 已修（2026-08-21，`a1c7c78e`）
+
+> **10-14 複查**：現行位置：`TargetBoard.priority` 在 `src/ai/target.ts:545`，乘法在 `targetScore`
+> 最後一步（`:387`、`:446`），資料由 `src/battle/createBattle.ts:190-199` 寫入。數字變了：
+> `CONVOY_PRIORITY` 是 5（`src/battle/missions/shared.ts:42`），盟 M1 覆寫成 3；另有同類旋鈕
+> `bomberPriority`（`createBattle.ts:193`，日 M1 設 20）。`ESCORT_TIER` 在 `order.ts:333`，沒變。
 
 **症狀**：同盟攔截（4 架 P-51 對上「若干護航機 + 4 架 He 111」）跑到判定
 為止，被護送的那幾架的血量：
@@ -662,9 +816,15 @@ createBattle(controller, cfg, seed)      // cfg 不是「新鮮的」，不檢�
 **兩張卡都成立**的值。這個旋鈕掛在轟炸機身上、只有敵人替它們評分，所以
 護送與攔截是同一個偏置的兩側 —— 不能只照一張卡調。
 
-### 2.27 轟炸機現在很軟，而兩張軸心卡還不成立
+### 2.27 ~~轟炸機現在很軟，而兩張軸心卡還不成立~~ —— 前提不成立（卡片已換）
 
 **出處**：護送／攔截那一輪（2026-08-21），`convoy.probe.ts`。
+
+> **10-14 複查**：九關改版後沒有軸心護送卡；軸心攔截 B-17 變成 `germany-m1`（`germany.ts:88`），
+> 規則不同：轟炸機流、獵殺 6 架、沒有抵達判敗。`convoy.probe.ts` 現在只跑 `allies-m1` 與測試用的
+> `test-intercept`（`:125-128`）。數字：hp 仍是 5000（`b17g.ts:243`）／3000（`he111.ts:270`）、
+> `CONVOY_DISTANCE` 12000（`shared.ts:21`）；**`TURRET_DAMAGE_SCALE` 現在是 0.46875**
+> （`src/weapons/turret.ts:178`），不是 0.25。
 
 §2.26 修好之後，玩家席位交給 AI 代飛：
 
@@ -693,6 +853,12 @@ createBattle(controller, cfg, seed)      // cfg 不是「新鮮的」，不檢�
 
 **出處**：護送／攔截那一輪（2026-08-21），`convoy.probe.ts` 表一、表二。
 **這一條不是缺陷，是一個裁定的已知代價。**
+
+> **10-14 複查**：部分成立。機制仍在（`AiController.transit`，`src/ai/AiController.ts:385`；transit 連閃躲
+> 都不讓，`:954-960`）。`allies-escort` 已換成 `allies-m1`：`redCount: 10` 沒變，但被護送的是 **16 架
+> 箱型**、`need: 8`，另有兩波 +4 架 Bf 109 與重生 —— 下面「四架對十架、50 秒全滅」那張表已過時。
+> 「讓護航機真的去掩護」已實作（`escortStation`，`AiController.ts:254-273`，`44811feb`）。
+> 護欄 `harmless` 還在（`test/integration/mission-convoy.test.ts:19`）。
 
 第一版讓被護送的那幾架沿用一般的集合令，於是 `defendLatch` 一上意圖就變成
 `defend`（2026-08-07「閃躲永遠優先」）。實測：接觸之前滾轉恆為 0.0°、
@@ -732,18 +898,24 @@ createBattle(controller, cfg, seed)      // cfg 不是「新鮮的」，不檢�
 以下常數的註解都寫著「起始值，待實測回填」，但多數**量不出來**
 （§2.5 的 `sweetSpotMaxPitch` 就是前車之鑑）。**要動由試飛判斷。**
 
-| 檔案 | 常數 |
+| 檔案（10-14 複查後的位置） | 常數 |
 |---|---|
-| `src/ai/fire.ts` | `trackingCone` / `minRange` / `maxLosRate`（全部） |
-| `src/ai/station.ts` | 全部 |
-| `src/ai/command.ts` | 側翼與集火八個 |
-| `src/ai/rules.ts` | 部分（`turnEnter` 等已由實測回填） |
-| `src/ai/safety.ts` | `factor` / `clearance` / `recoveryPitch` |
-| `src/ai/steer.ts` | `maxOffsetAngle` / `defendOffset` / 反轉三項（見 §1.4） |
-| `src/ai/assess.ts` | `THREAT_CONE` / `THREAT_RANGE` / 跟蹤因子 |
-| `src/battle/missions.ts` | `CONVOY_DISTANCE`（護送／攔截的航程）|
-| `src/battle/order.ts` | `CONVOY_LANE`（被護送者的橫向間隔）|
-| `src/ai/fire.ts` | `DEFAULT_AI_BURST`（點放 0.9 / 0.15，**已掃描一輪**，見下）|
+| `src/ai/fire.ts:23`、`:29-33` | `trackingCone` / `minRange` / `maxLosRate`（全部） |
+| `src/ai/station.ts:48`、`:129` | 全部 |
+| `src/ai/commandConfig.ts:148-157`、`:264-272` | 側翼與集火八個 |
+| `src/ai/rules.ts` | 部分 —— 已回填的是 `cornerEnter`／`cornerExit`／`floorExempt`（`:363`）；`turnEnter`（`:376`）與 `recoverExit`（`:220`）仍是起始值 |
+| `src/ai/safety.ts:236` | `factor` / `fighterClearance`（30）、`bomberClearance`（100）/ `recoveryPitch` —— 單一的 `clearance` 120 已拆成兩個（`133f9c5a`） |
+| `src/ai/steerConfig.ts:634`、`:381-401`（值 `:757-759`） | `maxOffsetAngle` / `defendOffset` / 反轉三項（見 §1.4） |
+| `src/ai/assess.ts:494-513` | `THREAT_CONE` / `THREAT_RANGE` / 跟蹤因子（另有 `TRACK_SATURATION`） |
+| `src/battle/missions/shared.ts:21` | `CONVOY_DISTANCE`（現在的註解已不寫「起始值」）|
+| `src/battle/order.ts:342-344` | `CONVOY_LANE`（被護送者的橫向間隔）|
+| `src/ai/fire.ts:91` | `DEFAULT_AI_BURST`（點放 0.9 / 0.15）|
+
+09-24 之後新增的起始值見**第十三節**。
+
+> **10-14 複查**：下面這張點放掃描表在 09-26 之前就過期了 —— `2639a5a0`（09-21）讓工作週期跟著瞄準
+> 品質走（`burstDuty`，80…20%），`fb3250d9`（09-23）讓每段長度隨機。現行的表與門檻在 `src/ai/fire.ts:66-71`
+> （1.20 s／36.5%／1.78%／18.3%，門檻 ≥1.1 s／≤38%／≥1.5%）。
 
 **AI 戰鬥機點放的掃描（2026-08-21，20v20、150 秒、種子 20260805）。**
 與上表其餘各項不同，這一個**量得到**——`test/tools/targeting-burst.probe.ts`
@@ -774,7 +946,10 @@ createBattle(controller, cfg, seed)      // cfg 不是「新鮮的」，不檢�
 ## 四、人工回報過、還沒回頭確認的
 
 - **AI 低空纏鬥時飛進海裡** —— 安全層已有處置，但沒有回頭確認人工回報的那個情境是否消失
+  - **10-14 複查**：無法判定，repo 裡沒有回頭確認的紀錄。之後加了 Worker 防墜（`133f9c5a`）與
+    `7326ba58`、`785fead2`，見 `docs/ai-ground-collision-recovery.md`
 - **「再打一場」的問題** —— 專案負責人 2026-08-13 說「後續再觀察」，之後沒有再回報
+  - **10-14 複查**：無法判定。已有修補 `3978eb86`（08-15）與 `177039c0`（09-09），之後沒有回報
 
 ---
 
@@ -804,6 +979,9 @@ createBattle(controller, cfg, seed)      // cfg 不是「新鮮的」，不檢�
 **它明寫不是規範** —— 硬性門檻只在 `historical.test.ts` 與 `specs.test.ts`。
 數字會過期，過期就跑 `test/tools/aircraft-compare.probe.ts` 重生。
 
+> **10-14 複查**：**那份文件已過期** —— 它寫「四台現有機種」，`src/specs/` 現在有十一個機種
+> （十台 `ALL_SPECS` 加 Yak-1B）；`historical.test.ts` 在 `test/performance/`。要用之前先重生。
+
 ---
 
 ## 七、地形這一輪做了什麼、還沒做什麼
@@ -817,9 +995,9 @@ heightmap 是唯一真相：CPU 的 `heightAt` 與畫面上的 mesh 讀同一份
 
 - ~~**遭遇戰選單選地形**~~ —— 2026-08-28 做掉了，連同「開場高度」一起
   （spec `2026-08-27-terrain-in-play-design.md`）。見下面 §7.1。
-- **大島海岸線與內陸地形** —— 專案負責人裁定最終要三種。資料結構長得到
-  （它們只是不同的 heightmap），但內陸那一種要處理「沒有海」，
-  `createTerrain` 現在無條件建 ocean。
+- ~~**大島海岸線與內陸地形**~~ —— **已解決**：內陸農地 `d0dfa36f`（08-29）、雷伊泰海岸線
+  `bb3e62b2`（09-23）；`createTerrain` 依種類分支、不再無條件建海（`src/render/terrain.ts:132-150`、
+  `src/world/terrainKind.ts:24`）。
 - **AI 的路徑層：集合點要繞開山** ★ —— **這是漏掉的中間層，優先於下面那項。**
 
   現在戰術層下的每一個指令都當世界上沒有山，安全層只能在最後一刻擋、
@@ -840,17 +1018,29 @@ heightmap 是唯一真相：CPU 的 `heightAt` 與畫面上的 mesh 讀同一份
   只有爬不上去的（轟炸機、低速）才左右繞 —— 這與安全層「先試拉起、
   拉不過才轉」是同一個判斷，只是提前到「決定要去哪」的時候做。
 
+  **10-14 複查**：仍成立 —— `commandPlanning.ts`、`command.ts` 都不讀地形；`OrderKind` 在
+  `src/ai/commandTypes.ts:48`。
+
 - **AI 的地形戰術層** —— 不追進峽谷、把敵人往山逼、用地形甩掉追兵。
   **依賴上面那一項**：要「把敵人往山壁逼」，AI 得先會算「繞到山的哪一側」。
-  要動 `steer.ts` / `tactics.ts` / `command.ts`。
+  要動 `steer.ts` / `command.ts` 與相位邏輯（`rules.ts`／`doctrine.ts`）。
+  **10-14 複查**：仍成立；原本寫的 `tactics.ts` 在 git 全部歷史裡都不存在。
 - **島的 LOD** —— 一座島在 40 km 外仍然畫滿。**已經量了**：
   `frame-time.e2e.ts` 的逐層消融顯示關掉 islands 省 p50 **6.35 ms（25.1%）**，
   是海面兩層合計 20.9 ms 的三成（Intel Iris Xe，1707×960 @ DPR 1.5，
   解鎖 vsync）。**對 1% low 沒有可辨識的影響**（−6.9 ms 落在雜訊裡），
   所以那 25% 是穩定的繪製成本，不是尖峰。
   靜態島預生成 2–3 級 LOD 很便宜，值得做，但不是這一輪。
+  **10-14 複查**：仍成立。`9c055a42`（10-13）做的是合批加逐塊視錐裁切（`src/render/terrainBatch.ts`），
+  不是 LOD。6.35 ms 是峰高減半、海面改 30 m 格之前量的，要重量。
 
 **兩個已知的行為特性，不是缺陷：**
+
+> **10-14 複查**：數字過期。島的峰高在 `db118da8`（09-08）減半（`PEAK_MAX` 1000→500，錨島
+> 900／850→450／425，`src/world/archipelago.ts:43`、`:195-198`），下面 915 m／197 秒／370–967 m 都是舊島；
+> 斷言「它在爬」仍在 `test/integration/terrain-avoidance.test.ts:259-274`。`clearance` 120 已拆成
+> 30／100（`src/ai/safety.ts:245-246`），第二條的前提不成立；護欄 `worstClear > 50` 仍在 `:257`。
+> 46 秒那個數字只印不斷言（`:39`、`:229`），也是舊島量的。
 
 - 轟炸機正撞一座 915 m 的島時，50 秒內繞不出去也爬不過去。He 111 的爬升率
   約 4.5 m/s，爬過去要 197 秒；轉彎半徑 375 m 而島的膨脹半徑 1,820 m。
@@ -876,6 +1066,9 @@ spec `2026-08-27-terrain-in-play-design.md`。開工前量到一件事：**上�
 中空 4,000），地圖在交會區兩側各釘一座寫死的錨島（peak 900 與 850，
 中間留 1,608 m 的通道）。實測甲板 20v20 有 **7/40** 架被地形接管過。
 
+> **10-14 複查**：島的高度已減半（見 §7）；「7/40 被接管」的量測在 `abba57a7` 刪掉，
+> `terrain-in-play.test.ts` 現在只驗出生點。開場高度 600／1,500／4,000 仍正確（`src/battle/skirmish.ts:96-100`）。
+
 ### 7.1.1 ~~地形不擋子彈，也不擋 AI 的判斷~~ —— 2026-08-28 做掉了
 
 spec `2026-08-28-terrain-occlusion-design.md`。做了三件：
@@ -886,7 +1079,8 @@ spec `2026-08-28-terrain-occlusion-design.md`。做了三件：
   砲塔 AI     pickTarget 不選被擋住的目標
 ```
 
-**還剩兩件，都是刻意留的：**
+**還剩兩件，都是刻意留的：**（10-14 複查：兩件都仍成立 —— 砲塔扳機 `src/world/turrets.ts:398-404`、
+`SEARCH_INTERVAL` `:97`；`targetScore`（`src/ai/target.ts:387`）沒有遮蔽判斷）
 
 - **砲塔的扳機**。搜尋每 `SEARCH_INTERVAL`（1 秒）一次，扳機是每步的 ——
   160 座 × 240 Hz 的遮蔽查詢付不起。代價是目標剛轉到山後的那**最多一秒**
@@ -917,7 +1111,10 @@ spec `2026-08-28-terrain-occlusion-design.md`。做了三件：
 是兩回事，那條射線屬於 `world/`。（2026-08-28 就是照這個做的：
 `world/occlusion.ts`。）
 
-### 7.1.2 已知行為：甲板關卡會有極少數撞山
+### 7.1.2 ~~已知行為：甲板關卡會有極少數撞山~~ —— 前提不成立
+
+> **10-14 複查**：`clearance = 120` 已拆成戰鬥機 30／轟炸機 100（`133f9c5a`，`src/ai/safety.ts:245-246`），
+> 又加了 Worker 防墜預演，160 m 的取捨沒有對應的常數了。撞山現在還發不發生，無法判定。
 
 `clearance = 120 m` 是照**平的海面**訂的。地形會自己迎上來 —— 實測一架
 滿血 P-51D 俯衝追人，2.5 秒掉 240 m 而腳下地形同時升 85 m，接近率
@@ -935,6 +1132,10 @@ spec `2026-08-28-terrain-occlusion-design.md`。做了三件：
 
 所以 §7 的「AI 的路徑層」**還要再等一件事**：撤退令要先發得出來。
 
+> **10-14 複查**：機制仍成立 —— 閘門在 `src/ai/commandPlanning.ts:129`（`MIN_TRIP_RATIO = 3` 在 `:20`），
+> `withdrawRange` 2000，`FLANK_ENABLED = false`（`command.ts:29`）。量出「0 張」的那段量測已隨
+> `abba57a7` 刪除，張數無法用現有測試重量。
+
 ### 7.1.4 兩個給下一個人的提醒
 
 - **`createBattle` 的 seed 不是這條路徑的變因。** 換三個種子跑同一組參數，
@@ -942,6 +1143,9 @@ spec `2026-08-28-terrain-occlusion-design.md`。做了三件：
 - **`battleConfigFrom` 的高度走白名單。** 寫
   `battleConfigFrom({ ...setup, altitude: 800 })` 會**靜靜地**退回 4,000。
   既有探針都是「先呼叫、再覆寫回傳值」，所以不受影響。
+
+> **10-14 複查**：兩條都仍成立。`pickAltitude` 白名單在 `src/battle/skirmish.ts:258-273`、`battleConfigFrom`
+> 在 `:304`；`createBattle` 在 `src/battle/createBattle.ts:41`，seed 只用來配名字（`:246`、`:250`）。
 
 ---
 
@@ -964,7 +1168,15 @@ spec `2026-08-28-lowpoly-ocean-design.md`。開工前量到一件事：**海面�
 背對背實測（`test/e2e/ocean-ab.e2e.ts`）：海面成本 **18.25 → 8.90 ms**，
 整幀 40.0 → 30.8 ms。扣掉海的基準線兩邊相同，所以差的就是海。
 
+> **10-14 複查**：上表數字過期 —— 格子在 `c003ef63`（09-28）由 60 m 改成 30 m（`src/render/oceanGeometry.ts:14`），
+> Nyquist 下限 60 m、吸附 240 m（`OCEAN_SNAP`，`:105`）、近海 425,984 三角形（`:33`）。三道浪 380／250／165
+> 沒變（`src/core/oceanWaves.ts:49-53`）。
+
 ### 8.1 明確留下來的
+
+> **10-14 複查**：整面白點仍成立（`oceanShaders.ts:306-311`，面縮成 30 m 後馬賽克感較輕）；
+> **「遠海沒有白點」前提不成立** —— `5c1686b6`（同一天）就給遠海鋪了虛擬的面（`oceanShaders.ts:218-236`）；
+> 中距離條紋要用眼睛看，無法判定。
 
 - **面內的小白點**。現在是整個三角面亮起來。若哪天覺得像馬賽克，退路是用面的
   `id` 決定一個小點的位置 —— spec §5 有寫。
@@ -998,13 +1210,18 @@ spec `2026-08-28-lowpoly-ocean-design.md`。開工前量到一件事：**海面�
 順帶更正三件寫進文件的事實錯誤：`SEA_AERIAL_STRENGTH` 是 **0**（「近深遠淺」
 來自菲涅耳天空反射，不是大氣透視）；`three@0.180` 的內建材質是 GLSL3、`flat`
 可用（不用它的理由是 indexed 幾何共用頂點，與版本無關）；`heightAt` 在 `main.ts`
-有**六個**呼叫點，`tools/range.ts` 另有五個。
+有**六個**呼叫點，`tools/range.ts` 另有五個。（10-14 複查：`main.ts` 現在只剩 1 處實際呼叫（`:254`），
+`tools/range.ts` 是 5 行 7 處。）
 
 ---
 
 ## 九、多瓣的島與海岸浪花（2026-08-28）
 
 ### 9.1 這一輪刻意沒做的
+
+> **10-14 複查**：三項都仍成立。`SHORE_DENSITY` 在 `src/render/oceanStyle.ts:177`、`SHORE_BAND` 在
+> `src/world/archipelago.ts:91`；沙灘 12 m 現在叫 `GRASS_MIN_HEIGHT`（`src/render/island.ts:38`）；
+> 淺灘變色沒做（shore map 只調白點密度，`oceanShaders.ts:329-355`）。「46 m 寬」是峰高減半前的數字。
 
 - **沙灘台地。** 沙灘（水線到 12 m）在錨島上只有 46 m 寬 ≈ 一格多一點，所以
   畫面上只有一圈細邊。多瓣之後海岸線本身變化很多，先看那樣夠不夠。
@@ -1013,6 +1230,10 @@ spec `2026-08-28-lowpoly-ocean-design.md`。開工前量到一件事：**海面�
 - **浪花的密度與帶寬**（`SHORE_DENSITY` 0.45、`SHORE_BAND` 200 m）是起手值。
 
 ### 9.2 `occlusion` 的取樣步長 —— 要不要用 CPU 換精度
+
+> **10-14 複查**：決策仍成立（`LOS_DIVISOR = 2` 在 `src/world/occlusion.ts:43`、`HIT_DIVISOR = 4` 在 `:45`），
+> 但下表是峰高減半前的解析坡度。出貨群島高度場（40 m 格、三角化之後）重量的最陡坡度：錨島 1.10、
+> tier-1 1.91、小礁 1.90，`losBlocked` 漏判約 11／19／19 m，寫在 `src/world/occlusion.ts` 的註解裡。
 
 那一層的註解原本寫「坡度 ≤ 0.5，漏判 5 m 以下」。**那個數字從來沒有對過**：
 
@@ -1034,6 +1255,10 @@ spec `2026-08-28-lowpoly-ocean-design.md`。開工前量到一件事：**海面�
 決定。
 
 ### 9.3 三條護欄互相拉扯 —— 而且解不在任何一個固定值上
+
+> **10-14 複查**：部分成立。三條護欄裡「繞島 > 0」與 20v20 撞山斷言已在 `abba57a7` 刪掉，只剩
+> `terrain-avoidance` 的不撞與 `worstClear > 50`。下表都是 900 m 島的數字。`LOBE_OFFSET` 在
+> `src/world/archipelago.ts:278`。
 
 次峰把島的某一環整個墊高，而那一環是不是飛機飛過去的地方，決定一切：
 
@@ -1065,6 +1290,9 @@ spec `2026-08-28-lowpoly-ocean-design.md`。開工前量到一件事：**海面�
 
 ### 9.4 兩條掃描對地形形狀是混沌的
 
+> **10-14 複查**：`LOBE_SLOPE` 在 `193b37ae`（08-28）就移除了，改為 `LOBE_PEAK_MAX = 0.9`
+> （`src/world/archipelago.ts:310`）。「不要把單次數字當趨勢」的提醒仍有效。
+
 `LOBE_SLOPE` 由 1.2 掃到 2.0 時，撞山數與繞島數**都不是單調的**。20v20 的
 纏鬥與 768 組的掃描都是混沌系統，所以不要把單一次的數字當趨勢，也不要拿它們
 當旋鈕的刻度盤：定值要靠「每一條都寬鬆過關」，不是「剛好過關」。
@@ -1084,7 +1312,10 @@ spec `2026-08-28-lowpoly-ocean-design.md`。開工前量到一件事：**海面�
 
 兩個補完之後三條護欄反而更好：最低離地 58.2 → **89.1 m**。
 
-待辦（都不是這一輪引入的）：
+待辦（都不是這一輪引入的）：（10-14 複查：補掉的兩個仍在 —— `CEILING_MARGIN = 25` 在
+`src/ai/terrainSense.ts:150`、s = 0 只進 floor 在 `:331-340`。第一個待辦仍成立（`:346-350`）；第二個部分成立
+—— `checkClimb` 仍用 `tan(recoveryPitch)` 畫直線（`:320`、`:326`），但 `133f9c5a` 加的
+`src/ai/recoveryRollout.ts` 用完整物理預演改出、含滾轉。）
 
 - **`checkClimb` 補的是「離瓣心最近的點」，但判準是 `高度 − s·tan(爬升角)`。**
   兩者的極值差幾公尺（Codex 造的例子是 0.59 m）。要修的話補點要解那個函數的
@@ -1099,10 +1330,15 @@ spec `2026-08-28-lowpoly-ocean-design.md`。開工前量到一件事：**海面�
 的量測表都是用舊模型跑的，白做一輪。
 
 **掃描參數時一律用 `cp` 備份還原，不要用 git。** 這是 2026-08-27 之後的第二次。
+（10-14 複查：仍切題，`CLAUDE.md` 沒有對應的規則。）
 
 ## 十、戰場邊界與 AI 的絕對牽引（2026-08-28）
 
-### 10.1 邊界的定值（專案負責人裁定）
+### 10.1 ~~邊界的定值（專案負責人裁定）~~ —— 已做（`0435715c`，08-29；任務也套用 `fb90f441`，10-05）
+
+> **10-14 複查**：下文「還沒做」是錯的。`SKIRMISH_ARENA` 半徑 12000（`src/world/arena.ts:27`）、
+> `ARENA_COUNTDOWN = 15`（`:36`）、`arenaKills` 只殺玩家（`:81`）。之後加的規則：`ARENA_CEILING 10000`（`:33`）、
+> `ARENA_MIN_RADIUS 10000`；任務的界半徑 10～13 km（各卡的 `arena:`；spec `2026-10-05-mission-arena-clouds-design.md`）。
 
 **半徑 12 km 的圓柱、越界倒數 15 秒、歸零爆炸。** 不是正方體 —— 正方體的
 角落比面心遠 41%，玩家看到的「離界多遠」會隨方位跳，而圓柱只有一個半徑、
@@ -1111,6 +1347,13 @@ HUD 一個數字、AI 的返場也只是「朝原點轉」。
 還沒做，這一輪只是定值。
 
 ### 10.2 AI 沒有任何絕對的牽引 —— **記錄，先不處理**
+
+> **10-14 複查**：仍成立。沒目標就平飛（`src/ai/AiController.ts:798-805`）；`rallyCommand` 在 `src/ai/rally.ts:45`，
+> 只由命令觸發（`AiController.ts:797`），指揮官的集合點錨在敵群（`commandPlanning.ts:153`）、不是戰場中心；
+> `extendRange: 1500`（`src/ai/rules.ts:405`）。邊界只對玩家生效（見 §10.1），spec
+> `2026-10-05-mission-arena-clouds-design.md` 也寫明「AI 仍然沒有邊界」。`ai-rejoin` 只是一支測試
+> （`test/integration/ai-rejoin.test.ts`），src 裡沒有這個符號。下表數字沒有重量；附註「沒有把地形接給 AI」
+> 已過時（有 `src/ai/terrainSense.ts`）。
 
 評估邊界時量的，headless、只算 AI、只在雙方都還有飛機的時候取樣：
 
@@ -1151,6 +1394,14 @@ HUD 一個數字、AI 的返場也只是「朝原點轉」。
 樹、樹籬灌木、樹林、犁溝條紋、村落與教堂尖塔，帶四段 LOD。農地與群島兩張圖
 都長。範圍與維持半徑（R = 2 km、喬木間距 12 m）由專案負責人裁定。
 
+> **10-14 複查（整節共通）**：維持半徑現在是 6 km（群島 12 km）；遠級改成 `gl.POINTS`（`491f8448`、`9f713fdd`）。
+> 植被池現有 13 個：`broadNear/Mid/Point`、`coneNear/Mid/Point`、`bushNear/Point` 與五個建築池
+> （`src/render/floraShapes.ts:24-28`、`src/render/vegetationPolicy.ts:262`）—— 下文的 `broadL0`／`coneL0`／
+> `treeMid`／`treeFar`／`bush`、`broadFar`／`coneFar`、「池數 8 個」都是舊名。`lodFor` 現在是
+> `lodFor(dist, prev, outer)`（`vegetationPolicy.ts:209`）。常數現值：`FLORA_RADIUS 6000`（`:8`）、
+> `ISLAND_RADIUS 12000`（`:166`）、`MAX_PER_TILE 384`（`:140`）、`TILES_PER_FRAME 16`（`:49`）。
+> 下文引用的 `scratchpad/gl-trace.ts`、`flora-cost.ts`、`flora-cost-vsync.ts` 不在 repo 裡。
+
 ### 11.1 量到的數字
 
 ```
@@ -1175,6 +1426,10 @@ HUD 一個數字、AI 的返場也只是「朝原點轉」。
 
 ### 11.2 幾件不是猜出來的事
 
+> **10-14 複查**：三件仍成立。對切線也是樹籬：`src/render/flora.ts:537`、`SPLIT_CHANCE` 在 `src/render/fields.ts:70`；
+> `isGrass` 在 `src/render/island.ts:77`（用在 `islandFlora.ts:140`，坡度壓密度在 `:86`）；站址取中點在
+> `src/render/farmVillagePlacement.ts:83`。
+
 **對切線也是樹籬，佔全部樹籬帶的 11.8%。** `SPLIT_CHANCE` 切出來的那一刀
 `fieldAt` 認定它是樹籬、著色器把它畫成暗帶，但它不在任何一條格線上。
 走線只走格線的話，那些樹籬會畫在地上卻沒有樹。
@@ -1186,7 +1441,9 @@ HUD 一個數字、AI 的返場也只是「朝原點轉」。
 **站址是兩顆區塊種子的中點。** 中點到兩顆等距，所以落在它們的 Voronoi
 邊界上，也就是凹路上 —— 村子在路口是**構造保證的**，不是事後檢查。
 
-### 11.3 一個效能缺陷與它的解法
+### 11.3 ~~一個效能缺陷與它的解法~~ —— 已解決（`423de271`、`11ef1b4f`）
+
+> **10-14 複查**：距離閘與逐池標髒、雙緩衝都在（`vegetationRebuild.ts:279-285`）。本節的歸因已被 §11.8／§11.11 推翻。
 
 植被一開始讓 1% low 由 55 ms 掉到 166 ms、頓挫由 0.8/s 升到 12.7/s，而 p50
 只多 3.4 ms。三次對照量測把成本釘死：
@@ -1210,6 +1467,10 @@ HUD 一個數字、AI 的返場也只是「朝原點轉」。
 
 ### 11.4 內陸農地在真實的仗裡
 
+> **10-14 複查**：仍成立。`HILL_PEAK_MAX = 120`（`src/world/farmland.ts:37`）、`HILL_GAP = 200`（`:74`）；
+> 勒熱夫的丘陵也受同一上限（`src/world/rzhevHills.ts:103`）。「丘陵數 40」現在是 `HILL_GRID = 9` 的 81 個候選、
+> 重疊的丟掉（`farmland.ts:49`），實際數量要執行才知道。下文「錨島 900 m」已減半。
+
 2026-08-29 量的一組，180 秒的 20v20、甲板高度：
 
 ```
@@ -1226,6 +1487,11 @@ HUD 一個數字、AI 的返場也只是「朝原點轉」。
 
 ### 11.5 沒做的（刻意）
 
+> **10-14 複查**：1、3、4 仍成立（`grep -rln vegetation src/physics src/ai` → 零筆；`vegetation.ts:33-35`）。
+> 2 結果仍成立（`src/render/settlementGround.ts:24-25`「村不鋪」），但理由已不成立 —— `fieldShaders.ts:140` 的
+> `villageDistance` 已經在 GLSL 裡重算站址。5 部分成立：「3 km 淡出」已過時，現在半徑 6 km、外圈逐格抖開
+> （`OUTER_JITTER`，`vegetationPolicy.ts:225-236`，`e9e5ade1`），圈外的建築與樹冠烘進遠處地面（`src/render/buildingBake.ts`）。
+
 1. **樹沒有碰撞。** 貼地穿過樹籬會穿模。加碰撞是玩法改動 —— 會讓貼地纏鬥
    突然變致命 —— 是專案負責人的決定。
 2. **村落沒有院子地色。** 要在 GLSL 裡重算站址（種子＋鄰格＋驗證），會讓
@@ -1238,6 +1504,10 @@ HUD 一個數字、AI 的返場也只是「朝原點轉」。
    （遠景環共用同一支著色器），樹在 3 km 處淡出而沒有可見的環。
 
 ### 11.6 修訂（2026-08-29 下午，試飛回報三件）
+
+> **10-14 複查**：繞序（`34c1248e`，測試 `test/unit/flora-shapes.test.ts:319-335`）、換級換樹種（`bfe2d943`）、
+> 盒濾波（`57ce1bc5`，現在在 `fieldShaders.ts:341`）都已解決。「第三級買不到效能」前提不成立 —— 現在有第三級，
+> 是點不是網格（`floraShapes.ts:33` `POINT_POOLS`）。半徑 3 km 已被 6 km 取代；樹幹 900 m、灌木 1,200 m 仍成立。
 
 **樹的三角形繞反了。** `cylinder` / `cone` / `octa` 三個圓形基本體的繞序是
 反的，五個植被幾何與教堂尖頂因此內面朝外。材質是 `FrontSide`，所以畫面上是
@@ -1276,7 +1546,9 @@ clamp((min(d + w, halfW) - max(d - w, 0.0)) / (2.0 * w), 0.0, 1.0)
 足跡在函數第一行無條件算、吃世界座標；**不能用 `best` 自己的導數**（它是五個
 距離取 min，角平分線上不可微）。
 
-### 11.7 上傳的停頓 —— 改善了，但沒解掉，而且它是既有的
+### 11.7 ~~上傳的停頓 —— 改善了，但沒解掉，而且它是既有的~~ —— 已解決（`11ef1b4f`）
+
+> **10-14 複查**：雙緩衝在 `src/render/vegetationPools.ts:183`、DynamicDraw 在 `:213`。
 
 半徑放到 3 km 之後 1% low 由 105 掉到 190 ms。對照：
 
@@ -1299,7 +1571,9 @@ clamp((min(d + w, halfW) - max(d - w, 0.0)) / (2.0 * w), 0.0, 1.0)
 **那一百毫秒後來查出來了，而且與植被無關 —— 見 §11.8。上面那句
 「2.8 MB 要一百多毫秒」是錯的歸因。**
 
-### 11.8 那一百毫秒：碎片與砲塔槍管每幀空傳實例矩陣
+### 11.8 ~~那一百毫秒：碎片與砲塔槍管每幀空傳實例矩陣~~ —— 已解決（`f62c7093`）
+
+> **10-14 複查**：`touched` 閘在 `src/render/debris.ts:390`、`src/render/turretBarrels.ts:205-207`。
 
 把 `WebGL2RenderingContext.prototype.bufferSubData` 包起來逐幀計時，量到
 **上傳佔掉全部幀時間的 70%**（三十秒裡 20,980 ms / 8,100 次 / 417.8 MB）。
@@ -1330,7 +1604,7 @@ clamp((min(d + w, halfW) - max(d - w, 0.0)) / (2.0 * w), 0.0, 1.0)
 順帶：這也解釋了為什麼「先修 debris」單獨量沒有改善 —— 只要還有一個
 每幀上傳存在，同步點就還在，時間只是移到下一個呼叫上。
 
-### 11.9 還沒解掉：150 ms 的尾巴
+### 11.9 ~~還沒解掉：150 ms 的尾巴~~ —— 已解決（量測口徑，見 §11.11）
 
 修完之後 1% low 仍有約 150 ms，而且**關植被時一樣有**。已排除的：
 
@@ -1342,6 +1616,9 @@ clamp((min(d + w, halfW) - max(d - w, 0.0)) / (2.0 * w), 0.0, 1.0)
 `scratchpad/gl-trace.ts`。**後來查出來了，見 §11.11。**
 
 ### 11.10 公告板級與 6 km 維持半徑
+
+> **10-14 複查**：6 km 與每幀 16 格仍成立（`3be2d66e`，`vegetationPolicy.ts:8`、`:49`）。**公告板與下面「三件非做對
+> 不可的事」前提不成立** —— 遠級已改成 `gl.POINTS`（`491f8448`、`9f713fdd`，`src/render/vegetation.ts:20`、`:30-31`）。
 
 專案負責人裁定灌木的距離比照喬木、喬木的距離加倍。6 km 圈內有十五萬叢灌木，
 八面體是 125 萬個三角形，所以遠處換成公告板（1～2 tri、沒有貼圖）。
@@ -1364,6 +1641,11 @@ clamp((min(d + w, halfW) - max(d - w, 0.0)) / (2.0 * w), 0.0, 1.0)
 並拿掉「這一幀有生新格就不重建」那個條件。
 
 ### 11.11 量測口徑：解鎖 vsync 會把尾巴放大二十倍
+
+> **10-14 複查**：口徑論述仍成立（`test/e2e/frame-time.e2e.ts:154` 仍關 vsync）；`flora-cost.ts`、`flora-cost-vsync.ts`
+> 不在 repo 裡。最後的「只傳變的那一段」**仍成立（已緩解）**：池仍是打包的（`vegetation.ts:220`），希爾伯特排序只讓
+> 相對順序固定（`vegetationRebuild.ts:133-142`），每次重建仍上傳 `[0, used)` 整段（`:272-285`）；緩解是雙緩衝、
+> 分幀重建（`REBUILD_BUDGET 10000`）與逐格剔除、逐段繪製（`0fc102a3`）。
 
 `flora-cost.ts` 與 `test/e2e/frame-time.e2e.ts` 都關掉 vsync（`--disable-gpu-vsync`），
 理由是「量的是餘裕不是畫面幀率」。**但那個口徑會把停頓放大到假的程度。**
@@ -1412,7 +1694,15 @@ Spec `2026-08-30-draw-calls-and-uploads-design.md`。病灶是農地・代飛纏
 2.90 ms，所以大半不是「畫」，是**每幀把實例緩衝打上去**與**每架飛機三十個
 draw call**。
 
+> **10-14 複查**：「每架三十個 draw call」前提不成立 —— 飛機全部改走 GLB 載入路徑，依材質合併成約 3 個
+> draw call、翼板逐零件再多 2～3 個（`src/render/geometry/glb.ts:266-301`）。
+
 ### 12.1 做了什麼
+
+> **10-14 複查**：本節的三個 commit hash（`4c08903`、`de01621`、`a11aaf6`）在 repo 裡都查不到。
+> - 逐池上傳閘與 `count` —— 已解決，實際是 `74aca42c`；渦流的區間累積在 `src/render/vortex.ts:390`
+> - 天空最後畫 —— 實作在（`e7822836`，`src/render/sky.ts:112`、`:224`），**要不要回退仍待負責人裁定**
+> - 飛機靜態零件合併 —— 前提不成立：合併成了 GLB 載入流程的一部分，沒有獨立提交可以 `git revert`
 
 **逐池的上傳閘與 `count`**（commit `4c08903`）。曳光彈、火花、水花、兩個
 槍焰池加上 `touched` 與 `addUpdateRange`，渦流的區間改在 `writeTrail` 當下
@@ -1460,6 +1750,10 @@ draw call**。
 
 ### 12.2 沒做、為什麼
 
+> **10-14 複查**：兩件都不再是待辦。烘變換的合併已被取代 —— `glb.ts:232-233` 對每個 mesh 做
+> `applyMatrix4(matrixWorld)` 再合併。地面的距離 LOD 換了做法：田色 clipmap（`src/render/fieldClipmap.ts`，
+> 接線在 `src/render/terrain.ts:287`；spec `2026-09-17-field-clipmap-showcase-design.md`）。
+
 **烘變換的合併。**把 `scale` ＋ `position` 的零件（整流罩、凸出物，佔一架的
 一半）也併起來要 `clone().applyMatrix4(matrixWorld)`。那一步一定改像素：
 CPU 用 float64 算完存成 float32，GPU 是 float32 矩陣乘 float32 頂點，最低位
@@ -1470,6 +1764,9 @@ b17g 由 40 降到 22 —— 也就是 20v20 的 1,220 個 draw call 降到約 3
 **地面著色器的距離 LOD。**一定會改遠處的像素，這一輪的目標是不改畫面。
 
 ### 12.3 逐像素比對這支工具本來是壞的
+
+> **10-14 複查**：工具修好了（`e7822836`），環境抖動仍成立 —— 因應寫在 `test/e2e/pixel-identical.e2e.ts:50-53`、
+> 植被關閉在 `:122`；`plane-identical.e2e.ts:13` 仍用 `readPixels` 當判準。
 
 `pixel-identical.e2e.ts` 在這一輪之前**證明不了任何事**：同一份程式跑兩次，
 33 張截圖沒有一張逐 byte 相同（0.2～0.9% 的像素在跳，最大差 171/255）。
@@ -1488,8 +1785,94 @@ b17g 由 40 降到 22 —— 也就是 20v20 的 1,220 個 draw call 降到約 3
 
 ---
 
+## 十三、2026-09-24 之後新長出來的（2026-10-14 收）
+
+### 13.1 卡在專案負責人
+
+- **AI 回升與「飛過頭就往上拉」還沒試飛。** spec `2026-09-28-band-regain-design.md` 檔頭仍寫「待人工試飛」；
+  回升四個旋鈕與 `airPass*` 都是起始值（`src/ai/steerConfig.ts:783-791`）。
+- **德 M4 勒熱夫的六件「試玩後由負責人決定」**（spec `2026-10-03-germany-m4-rzhev-winter-design.md` §6）：
+  - 進場時 Ju 87 與 Yak 約十秒就在村子上空相遇，難度沒定
+  - 蘇軍突擊要等玩家炸掉砲才觸發
+  - 地面戰只是畫面 —— `atGun` 在模擬裡沒有掛砲，誰都打不死
+  - 炸彈不分敵我，玩家可能炸到友軍
+  - 蘇軍輕防空幾乎打不到 Ju 87，主要威脅是 Yak
+  - 白漆的斑駁程度
+- **勒熱夫雪地的辨識度。** 白漆的砲與戰車離 50 m 就看不出來（spec `2026-10-12-mission-intro-shots.md`
+  「踩過的坑」）；彈坑圖沿用夏季那張在雪上對比太高、白霧加白地可能失去深度（勒熱夫 spec §7）。
+- **艦船塗裝、舷號、髒污等截圖裁定**：顏色、舷號位置與字高是起始值；Essex／Wichita／LST 的迷彩、
+  依關卡指定塗裝寫「試作看過再說」（spec `2026-09-30-ship-livery-design.md`「不做」）。
+- **日 M3 的擊沉條件**：spec `2026-10-08-rennell-alert-design.md` §6 寫「8 艘裡 4 艘不改，等試飛」
+  （`src/battle/missions/japan.ts:364`）。
+- **即時陰影擱置在 `feat/shadows`**（唯一沒合併的分支，`99dd8f04`、`a18bb21f`、`a2fbf4a8`）：洛伊納 +4.4 ms
+  （基準 21.0 ms）、內陸低空 +1.95 ms，做不做是負責人的決定。
+- ~~**光暈（bloom）**~~ —— **已裁定拔掉，不再問**（`f3dc0ec5`，09-29）：Iris Xe 機庫上 GPU 成本低檔約 1.7 ms、
+  高檔約 4.3 ms，不划算。記在這裡免得有人再做一次。
+
+### 13.2 起始值待回填（這段期間新長出來的）
+
+| 位置 | 常數 |
+|---|---|
+| `src/ai/diveBomb.ts` | 斯圖卡俯衝的整組 `DIVE_*`，約 25 個；`DIVE_MIN_HEIGHT` 800（`:73`）與 `DIVE_FLIP_PAST` 50（`:39`）是負責人指定（spec `2026-10-02-stuka-dive-bombing-design.md` §4.5、§7） |
+| `src/battle/missions/germany.ts` | 德 M4 的 Yak 架數與進場時間（`:326`、`:332`）、護航配置（`:188`）；全 AI 量測 420 秒時 Ju 87 只剩 3 架（spec `2026-10-03-yak1b-enemy-design.md` §5、§7） |
+| 勒熱夫 spec | 佈局、地面戰的數量／位置／時間／砲擊串／音量衰減 |
+| `src/battle/missions/japan.ts:353-360` | 日 M3 警戒的巡邏線（兩端各 5 km、折返半徑 500 m、陸攻間距 400 m；spec §9） |
+| `src/ai/steer.ts:176` | `TRACK_TURN_CONE` 10°；同 spec 的「射擊窗太短就脫離」說要另案，沒有後續（spec `2026-09-28-ai-track-level-design.md` §3、§4） |
+| `src/world/bomb.ts:40`、`src/render/wind.ts:20` | 投放漂移 `DROP_DRIFT_ACCEL` 0.2 m/s²、煙的風 1–3 m/s |
+| `src/camera/CameraRig.ts:82-86` | 望遠 `ZOOM_MAGNIFICATION` 2.5、`ZOOM_LIFT` 0.3、`ZOOM_TIME` 0.07 |
+| `src/render/dirtImpact.ts:124` | 土柱剔除距離 `DIRT_CULL` 1,500 m 與色值 |
+| 散在各處 | 艦砲與防空的搖晃振幅與射界（`src/world/shipGuns.ts`、`shipAA.ts`）、後座機槍與雷聲音量（`src/audio/battleAudioCues.ts`、`thunderVoice.ts`）、開場導覽的鏡位與秒數（各卡的 `intro`） |
+
+### 13.3 已知未解
+
+- **AI 的 Ju 87 被追殺不閃也不還擊，而且 Ju 87 全滅就判敗**（`defeatOnBombers`，`src/battle/missions/germany.ts:320`）
+  —— 玩家自己還活著也算失敗。真人與 AI 在這一點的差別沒量過（spec `2026-10-03-yak1b-enemy-design.md` §5、§7）。
+- **斯圖卡分批進場的間隔沒有機制維持。** 2+2+2 只決定開場站位，相位會慢慢飄回去（斯圖卡 spec §4.6）。
+- **開場導覽**：鏡位不會自動規劃，每關手寫；導覽期間玩家仍會受傷（現有十關都還沒碰到）
+  （spec `2026-10-12-mission-intro-design.md`「不做」）。
+- **近鏡頭煙霧分層交接上了線但沒有淨收益。** `createCameraSmokeMask` 無條件建立（`src/render/cameraSmoke.ts:11`）；
+  量測是濃煙核心 GPU 省 4–5%、其他場景沒有穩定改善、CPU 提交成本上升
+  （`docs/benchmarks/2026-10-14-camera-smoke-handoff.json`；`3ad86714`）。留不留沒有結論。
+- **地面目標規格刻意沒做的兩件**：AI 不會依「主要目標」挑目標，仍照價值挑；德 M2 停放的 B-17 是一個盒子命中盒，
+  沒有飛機的傷害模型（spec `2026-09-29-ground-objectives-design.md` §4；`src/specs/ground.ts:184-188`）。
+
+### 13.4 已知限制（刻意不做，或先用替代品）
+
+- **借用的資產**：
+  - Yak-1B 的引擎與開火聲借 Bf 109 K-4（`src/audio/catalog.ts:214`、`:223`）
+  - 德 M4 的德軍卡車借蘇軍卡車的模型（`src/specs/ground.ts:124`）
+  - 蘇軍輕防空借德軍 2 cm 四聯裝的模型（`src/world/rzhev.ts:229`）
+  - Bf 109 是「E-4 外型 + K-4 性能」，而且 K-4 與勒熱夫（1942）的年代對不上（`src/specs/bf109k4.ts`）
+- **勒熱夫的歷史與美術細節**（勒熱夫 spec §1、§2、§6）：德軍番號與 Stuka 大隊待查證；雪地上的碎片與窗框仍是
+  夏季綠 —— `bodyColorOf` 只看機種、不看塗裝（`src/main.ts:915`）；沒有光禿枝幹的樹；縱隊沒有搭乘步兵、
+  前導車不會踩雷。
+- **地形與土柱**：洛伊納的河沒有河槽、小地圖不畫河、河上沒有橋（spec `2026-09-24-leuna-river-design.md`「不做」）；
+  草原沒有真的沖溝、作物不隨季節變（spec `2026-10-01-steppe-fields-design.md` §4）；子彈打地沒有音效；
+  地表一張地圖只有一種，不依座標分（`src/render/dirtImpact.ts:140`）。
+- **只有玩家的前機槍會過熱**；AI、砲塔、後座、代飛都不吃過熱（spec `2026-10-08-gun-overheat-design.md`）。
+- **其他**：
+  - 虎式 `tiger` 有登記但沒有任務用到（`src/specs/ground.ts:109`）
+  - 德軍線的選單順序與 id 不一樣（`germany-m4` 排第二關，`src/battle/missions/germany.ts:80-85`）；
+    測試與 i18n 都以 id 取卡
+  - 戰鬥中沒有音樂，音樂只在選單播（spec `2026-10-09-menu-music-design.md`）
+  - 沒有戰役進度存檔；`localStorage` 只存偏好與「看過沒」（`git grep -n localStorage -- src`）
+  - 顯示內插讓畫面固定落後物理約一個子步（4.17 ms）（spec `2026-10-12-render-interpolation-design.md`）
+  - 除錯資訊與 `src/tools/**` 維持中文，不跟語言設定（spec `2026-09-29-i18n-design.md` §4）
+
+### 13.5 ~~複查時發現的過期原始碼註解~~ —— 2026-10-14 一併改掉
+
+- `src/specs/he111.ts`、`src/specs/b17g.ts` 的「扣了兩次」改成 §2.20 的結論
+- `src/battle/entry.ts` 不再引用不存在的 `EVAC_STRAIGHT_*`；`src/ai/steer.ts` 不再引用 `AiController.ts:332`
+- `src/main.ts` 的 `restartBattle` 註解改成「與新建一場不等價」（§2.22）
+- `src/world/occlusion.ts` 的坡度表改用出貨群島高度場重量的值（§9.2）
+- `src/world/archipelago.ts` 的 `LOBE_SLOPE` 改指 `LOBE_PEAK_MAX`（§9.4）
+- 十二處指向不存在的 `missions.ts` 的註解改指 `src/battle/missions/` 底下的實際檔案
+  （`git grep -n "missions\.ts\b" -- src` → 零筆）
+
+---
+
 ## 已解決（畫掉，留紀錄）
 
-- ~~**`ai-duel-matrix` 深度耗能護欄**~~ —— 2026-08-16 專案負責人裁定放寬到 0.95。理由：那條指標的分母是仗的長度，AI 打得中之後仗提早結束，**護欄變紅的時機正好是它贏的時候**。詳見 spec `2026-08-16-sweet-spot-shot-yield-design.md` §8.4
-- ~~**甜蜜區偏置擋住扳機**~~ —— 2026-08-16 由射擊讓位解決（0% → 100% 開火佔時），專案負責人試飛驗收通過
+- ~~**`ai-duel-matrix` 深度耗能護欄**~~ —— 2026-08-16 專案負責人裁定放寬到 0.95。理由：那條指標的分母是仗的長度，AI 打得中之後仗提早結束，**護欄變紅的時機正好是它贏的時候**。詳見 spec `2026-08-16-sweet-spot-shot-yield-design.md` §8.4。（10-14 複查：放寬是 `db982340`；這條護欄後來在 `abba57a7` 隨遊戲性測試一起刪除）
+- ~~**甜蜜區偏置擋住扳機**~~ —— 2026-08-16 由射擊讓位解決（0% → 100% 開火佔時），專案負責人試飛驗收通過（實作在 `src/ai/shotYield.ts`）
 - ~~**「B-17G 撞了四條護欄」**~~ —— 2026-08-20 實跑證實那四支（`hitbox`、`propulsion`、`low-speed-authority`、`envelope`）加 `historical` 共 98 條全綠，是 B-17G spec 剛落地時的過期筆記
