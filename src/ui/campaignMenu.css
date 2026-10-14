@@ -156,9 +156,13 @@
   .campaign-pane > .back { position: fixed; top: 6px; left: max(12px, env(safe-area-inset-left)); padding: 8px 14px; min-height: 38px; box-sizing: border-box; }
   .campaign-heading { margin: 0 0 8px; display: flex; align-items: baseline; gap: 12px; }
   .campaign-heading h1 { font-size: 18px; margin: 0; }
-  .campaign-cards { gap: 12px; min-height: 0; flex: 1; }
-  #ui .campaign-card { padding: 6px 6px 0; overflow-y: auto; }
-  .campaign-card .photo { height: clamp(64px, calc(100dvh - 248px), 170px); }
+  /* 三張卡片共用照片／文字列，依最長文字決定底部高度，其餘留給照片。 */
+  .campaign-cards { gap: 0 12px; min-height: 0; flex: 1; grid-template-rows: minmax(64px, 1fr) auto; }
+  #ui .campaign-card {
+    display: grid; grid-row: span 2; grid-template-rows: subgrid; row-gap: 0;
+    padding: 6px 6px 0; overflow-y: auto;
+  }
+  .campaign-card .photo { height: auto; min-height: 64px; }
   .campaign-card-body { padding: 9px 6px 0; }
   .campaign-card .t { font-size: 16px; }
   .campaign-count { font-size: 10px; }
