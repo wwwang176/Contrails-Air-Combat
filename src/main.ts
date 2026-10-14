@@ -111,6 +111,7 @@ import {
 import type { DisplayPositionPool } from './core/displayPositionPool'
 import { createScoreboard } from './ui/scoreboard'
 import { createBattleScoreboard } from './app/battleScoreboard'
+import { missionCompletion } from './app/missionCompletion'
 import { buildAfterAction } from './app/afterAction'
 import { resetGEffect } from './hud/widgets/gEffect'
 import { TORPEDO_RUN_SAMPLES } from './world/torpedo'
@@ -495,7 +496,7 @@ const pauseAbandon = pauseEl.querySelector('[data-act="abandon"]') as HTMLElemen
 const scoreboard = createScoreboard(boardEl)
 const battleScoreboard = createBattleScoreboard(scoreboard, (endedAt) => buildAfterAction(
   battle, world.combatants, mode, pendingMission, endedAt - battleStartedAt,
-))
+), (outcome) => missionCompletion.record(mode === 'mission' ? pendingMission?.id ?? null : null, outcome))
 
 const aircraftVisuals = createAircraftVisuals(ctx.scene)
 const visuals = aircraftVisuals.visuals

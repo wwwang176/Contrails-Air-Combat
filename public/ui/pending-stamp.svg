@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 60" fill="none">
+  <!-- 與完成章採用相同邊框輪廓及留白，切換狀態時可見大小不變。 -->
+  <path d="m5 5 169-1 2 49-170 2Z" stroke="#a18e6e" stroke-width="2"/>
+  <path d="m10 10 159-1 1 39-159 2Z" stroke="#a18e6e" stroke-width="1" opacity=".8"/>
+</svg>

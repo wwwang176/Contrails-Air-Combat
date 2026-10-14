@@ -11,15 +11,18 @@ const BOARD_PERIOD = 0.25
 export function createBattleScoreboard(
   scoreboard: Pick<Scoreboard, 'render' | 'setVisible'>,
   afterAction: (endedAt: number) => AfterAction,
+  onEnded?: (outcome: Exclude<Outcome, 'fighting'>) => boolean,
 ) {
   let battleEndedAt = -1
   let aarDrawn = false
   let boardNextDraw = 0
+  let firstCompletion = false
 
   function reset(): void {
     battleEndedAt = -1
     aarDrawn = false
     boardNextDraw = 0
+    firstCompletion = false
   }
 
   /**
@@ -35,7 +38,11 @@ export function createBattleScoreboard(
     elapsed: number,
     sinceEnd: number,
   ): void {
-    if (outcome !== 'fighting' && battleEndedAt < 0) battleEndedAt = elapsed
+    if (outcome !== 'fighting' && battleEndedAt < 0) {
+      battleEndedAt = elapsed
+      // 勝負確定就存檔，不必等慢動作結束或使用者按結算按鈕。
+      firstCompletion = onEnded?.(outcome) ?? false
+    }
     const final = boardRevealed(outcome, sinceEnd)
     const showBoard = held || final
     // 只在顯示中而且到時間了才建列。結算戰報畫過就不再動，
@@ -45,7 +52,7 @@ export function createBattleScoreboard(
         sortScoreRows(scoreRows(roster, seats, 'blue')),
         sortScoreRows(scoreRows(roster, seats, 'red')),
         final ? (outcome === 'victory' ? 'victory' : 'defeat') : null,
-        final ? afterAction(battleEndedAt) : null,
+        final ? { ...afterAction(battleEndedAt), firstCompletion } : null,
       )
       aarDrawn = final
       boardNextDraw = elapsed + BOARD_PERIOD

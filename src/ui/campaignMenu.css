@@ -35,6 +35,10 @@
 #ui .mission-tab.on { background-color: var(--dossier-paper-lit); }
 .mission-tab.on::before { background: var(--dossier-red); }
 .mission-tab .k { font: 11px/1.5 var(--f-ui); color: #5c4b31; }
+/* 蓋在卡片上緣，不參與按鈕排版，也不擋住關卡名稱。 */
+.mission-tab .completion-stamp--compact { position: absolute; top: -8px; right: 8px; margin: 0; }
+/* 簡報右上角只放一枚狀態章，通關前後佔用相同大小。 */
+.mission-head-stamps { flex: none; }
 .mission-tab .n { margin-top: 3px; font: 600 14px/1.5 var(--f-body); }
 .mission-tab .soonmark { font-size: 11px; }
 @media (hover: hover) { #ui .mission-tab:hover { background-color: var(--dossier-paper-lit); } }
@@ -49,7 +53,6 @@
 .mission-head h2 { font: 600 24px/1.4 var(--f-body); letter-spacing: .04em; }
 .mission-kind { display: block; margin-bottom: 4px; color: #c7ad81; font: 12px/1.3 var(--f-ui); letter-spacing: .15em; }
 .mission-meta { margin-top: 7px; font: 12px/1.5 var(--f-ui); color: #c2b192; }
-.mission-stamp { flex: none; padding: 5px 10px; border: 2px solid #ad5440; color: #d37b60; font: 600 12px/1.3 var(--f-body); letter-spacing: .14em; }
 .mission-objective { grid-area: 2 / 1 / 3 / -1; border-left: 2px solid #ccb681; padding-left: 12px; color: #efe0bb; font: 400 15px/1.6 var(--f-body); }
 .mission-summary { grid-area: 3 / 1 / 4 / -1; margin: 0; color: #c5b695; font: 13px/1.7 var(--f-body); }
 .mission-forces { grid-area: 4 / 2; border-top: 1px solid #7d6845; overflow-y: auto; min-height: 0; }
@@ -107,6 +110,9 @@
   .mission-nav { flex: none; padding: 0; border-right: 0; border-bottom: 1px solid #7d6845; overflow: visible; }
   .mission-camphead { display: none; }
   .mission-tabs { flex-direction: row; overflow-x: auto; padding: 5px; gap: 5px; scrollbar-width: thin; }
+  /* 橫向捲動區替上緣印章留裁切空間，按鈕本身維持原尺寸。 */
+  .mission-tabs:has(.completion-stamp) { padding-top: 18px; }
+  .mission-tab .completion-stamp--compact { top: -10px; right: 6px; height: 14px; }
   #ui .mission-tab { width: auto; min-width: 130px; flex: 1 0 0; min-height: 44px; padding: 5px 10px 5px 14px; }
   .mission-tab .k { font-size: 10px; }
   .mission-tab .n { font-size: 13px; margin-top: 1px; white-space: nowrap; }
@@ -116,7 +122,7 @@
   .mission-head h2 { font-size: 19px; }
   .mission-kind { display: none; }
   .mission-meta { font-size: 11px; margin-top: 4px; }
-  .mission-stamp { font-size: 10px; padding: 3px 5px; border-width: 1px; }
+  .mission-head-stamps { display: none; }
   .mission-objective { margin: 8px 0; font-size: 14px; padding-left: 8px; }
   .mission-summary { font-size: 12px; margin-top: 8px; }
   .mission-summary p { max-height: none; overflow: visible; }
@@ -175,7 +181,6 @@
 .mission-tab:not(.on) { filter: brightness(.8) saturate(.7); }
 .mission-tab.on::before { box-shadow: 2px 0 #e4be8a88; }
 .mission-head { padding-bottom: 12px; border-bottom: 1px solid #a48c5555; }
-.mission-stamp { transform: rotate(-4deg); box-shadow: inset 0 0 0 2px #ad544022; text-shadow: 1px 0 #ad544055; }
 .mission-sidebar { grid-area: 4 / 2; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
 .mission-forces { flex: 1 1 auto; border: 1px solid #a48c5555; background: #080a061c; padding: 0 12px; }
 .mission-map { padding: 15px 14px 10px; box-shadow: 0 7px 16px #0009, inset 0 0 22px #65482955; }

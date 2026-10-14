@@ -6,6 +6,8 @@ import { briefingOf, missionTypeName, type Briefing } from './briefing'
 import { escapeHtml } from './menuOptions'
 import { campaignLabel, silBadge } from './menuAircraft'
 import { renderMissionDiagram } from './missionDiagram'
+import { missionCompletion } from '../app/missionCompletion'
+import { completionStamp, pendingStamp } from './completionStamp'
 
 const CAMPAIGN_BLURB: Record<Campaign, { readonly lineKey: MessageKey }> = {
   allies: { lineKey: 'campaign.allies.blurb' },
@@ -51,9 +53,10 @@ export function createMenuCampaign(
   }
   function renderBrief(card: MissionCard): void {
     const b = briefingOf(card)
+    const completed = missionCompletion.has(card.id)
     const head = `<header class="mission-head"><div><span class="mission-kind">${escapeHtml(b.kind)}</span><h2>${escapeHtml(b.title)}</h2>`
       + `<div class="mission-meta">${escapeHtml(formatMonth(card.period.year, card.period.month))} · ${escapeHtml(t(card.placeKey))}</div></div>`
-      + `<span class="mission-stamp">${escapeHtml(t('brief.stamp'))}</span></header>`
+      + `<div class="mission-head-stamps">${completed ? completionStamp('brief') : pendingStamp()}</div></header>`
     el.brief.classList.toggle('mission-unready', card.battle === null)
     if (card.battle === null) {
       el.brief.innerHTML = `<div class="brief-intel">${head}<p class="mission-summary">${escapeHtml(b.summary)}</p>`
@@ -93,7 +96,8 @@ export function createMenuCampaign(
       b.setAttribute('aria-pressed', String(i === k))
       // 【e2e 用 id 選卡】標題會改，id 不會
       b.dataset['mission'] = m.id
-      b.innerHTML = `<div class="k">${escapeHtml(t('menu.stage', { n: i + 1 }))} ${escapeHtml(missionTypeName(m.type))}</div><div class="n">${escapeHtml(t(m.titleKey))}</div>`
+      b.innerHTML = `<div class="k">${escapeHtml(t('menu.stage', { n: i + 1 }))} ${escapeHtml(missionTypeName(m.type))}</div>`
+        + `<div class="n">${escapeHtml(t(m.titleKey))}</div>${missionCompletion.has(m.id) ? completionStamp('compact') : ''}`
         + (ready ? '' : `<div class="soonmark">${escapeHtml(t('brief.soon'))}</div>`)
       b.addEventListener('click', () => {
         picked[campaign] = i

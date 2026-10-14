@@ -1,5 +1,6 @@
 import { t, type MessageKey } from '../i18n'
 import { playerOf, tallyOf, type ScoreRow } from './scoreboardRows'
+import { completionStamp } from './completionStamp'
 
 export { scoreRows, sortScoreRows, tallyOf, playerOf, type ScoreRow, type Tally } from './scoreboardRows'
 
@@ -16,6 +17,8 @@ export function formatDuration(seconds: number): string {
  * 【沒有命中率】`Pilot` 沒有發數與命中的紀錄。不做假數字。
  */
 export interface AfterAction {
+  /** 只有本場首次完成任務時播放蓋章動畫。 */
+  readonly firstCompletion?: boolean
   readonly mode: 'mission' | 'skirmish'
   /** 卡名的鍵，遭遇戰是 `result.skirmish` */
   readonly titleKey: MessageKey
@@ -68,6 +71,10 @@ export function createScoreboard(root: HTMLElement): Scoreboard {
   const tally = root.querySelector('#aar-tally') as HTMLElement
   const details = root.querySelector('#aar-details') as HTMLElement
   const tables = root.querySelector('#tables') as HTMLElement
+  const completion = document.createElement('div')
+  completion.className = 'aar-completion'
+  completion.hidden = true
+  banner.after(completion)
 
   function table(rows: ScoreRow[], team: 'blue' | 'red', title: string): string {
     const body = rows.map((r) => {
@@ -115,10 +122,13 @@ export function createScoreboard(root: HTMLElement): Scoreboard {
   let last: Parameters<Scoreboard['render']> | null = null
 
   function draw(blue: ScoreRow[], red: ScoreRow[], outcome: 'victory' | 'defeat' | null,
-    extra: AfterAction | null): void {
+    extra: AfterAction | null, animate = true): void {
     const mode = extra?.mode ?? 'skirmish'
     banner.textContent = outcome === null ? '' : t(BANNER_KEY[mode][outcome])
     banner.className = outcome ?? ''
+    const completed = extra?.mode === 'mission' && outcome === 'victory'
+    completion.hidden = !completed
+    completion.innerHTML = completed ? completionStamp('result', animate && extra?.firstCompletion === true) : ''
     tables.innerHTML = table(blue, 'blue', t('side.mine')) + table(red, 'red', t('side.foe'))
     const full = extra !== null
     sub.hidden = !full
@@ -140,7 +150,7 @@ export function createScoreboard(root: HTMLElement): Scoreboard {
       draw(blue, red, outcome, extra)
     },
     refresh() {
-      if (last !== null) draw(...last)
+      if (last !== null) draw(...last, false)
     },
     setVisible(v) {
       const opening = v && root.hidden

@@ -25,6 +25,25 @@ function fixture() {
 }
 
 describe('計分板的重畫時機', () => {
+  it('勝負確定立即通知一次，首次完成動畫等結算顯示，下一場重設', () => {
+    const f = fixture()
+    const onEnded = vi.fn().mockReturnValueOnce(true).mockReturnValue(false)
+    const board = createBattleScoreboard(f.view, f.afterAction, onEnded)
+    board.update(UNREAD_ROSTER, SEATS, 'fighting', false, 10, 0)
+    expect(onEnded).not.toHaveBeenCalled()
+    board.update(UNREAD_ROSTER, SEATS, 'victory', false, 11, 0)
+    expect(onEnded).toHaveBeenCalledTimes(1)
+    expect(onEnded).toHaveBeenCalledWith('victory')
+    expect(f.view.render).not.toHaveBeenCalled()
+    board.update(f.roster, SEATS, 'victory', false, 12, END_BOARD_DELAY_SECONDS)
+    expect(onEnded).toHaveBeenCalledTimes(1)
+    expect(f.view.render.mock.calls[0]![3]?.firstCompletion).toBe(true)
+    board.reset()
+    board.update(f.roster, SEATS, 'defeat', false, 20, END_BOARD_DELAY_SECONDS)
+    expect(onEnded).toHaveBeenLastCalledWith('defeat')
+    expect(f.view.render.mock.calls[1]![3]?.firstCompletion).toBe(false)
+  })
+
   it('隱藏時不建列、也不建戰報', () => {
     const f = fixture()
     f.board.update(UNREAD_ROSTER, SEATS, 'fighting', false, 10, 0)
