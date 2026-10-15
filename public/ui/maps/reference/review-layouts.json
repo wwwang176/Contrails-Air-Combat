@@ -1773,7 +1773,7 @@
         "units": [
           "bf109k4"
         ],
-        "label": "Bf 109 K-4 × 8",
+        "label": "Bf 109 K-4 × 6",
         "x": 230,
         "y": 270,
         "model": "bf109k4",
@@ -1786,7 +1786,7 @@
         "units": [
           "b17g"
         ],
-        "label": "B-17G × 8",
+        "label": "B-17G × 14",
         "x": 990,
         "y": 370,
         "model": "b17g",
@@ -1799,7 +1799,7 @@
         "units": [
           "p51d"
         ],
-        "label": "P-51D × 4",
+        "label": "P-51D × 6",
         "x": 990,
         "y": 590,
         "posture": "defend",

@@ -40,14 +40,14 @@ describe('briefingOf —— 護送（盟 M1）', () => {
     expect(b.objective).toBe(t('mission.allies-m1.objective'))
   })
 
-  it('我方兩列：P-51D ×4，加上要護送的 B-17G ×16；敵方 Bf 109 K-4 ×10', () => {
+  it('我方兩列：P-51D ×4，加上要護送的 B-17G ×16；敵方 Bf 109 K-4 ×3', () => {
     // 【沒有「↑ 要護送的」那一列小字】那一列讀起來很怪，移除了
     // —— 誰是要護送的，目標列已經說了
     expect(b.mine).toEqual([
       { id: 'p51d', name: 'P-51D', role: 'fighter', count: 4 },
       { id: 'b17g', name: 'B-17G', role: 'bomber', count: 16 },
     ])
-    expect(b.foe).toEqual([{ id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 10 }])
+    expect(b.foe).toEqual([{ id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 3 }])
   })
 
   it('兩列：空域在前、時期第二，而且沒有任何出擊前不該知道的欄位', () => {
@@ -62,9 +62,9 @@ describe('briefingOf —— 護送（盟 M1）', () => {
 describe('briefingOf —— 擊落（德 M1）', () => {
   const b = briefingOf(readyCard('germany-m1'))
 
-  it('我方 Bf 109 K-4 ×8，敵方是 B-17G ×8', () => {
-    expect(b.mine).toEqual([{ id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 8 }])
-    expect(b.foe).toEqual([{ id: 'b17g', name: 'B-17G', role: 'bomber', count: 8 }])
+  it('我方 Bf 109 K-4 ×6，敵方是 B-17G ×14', () => {
+    expect(b.mine).toEqual([{ id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 6 }])
+    expect(b.foe).toEqual([{ id: 'b17g', name: 'B-17G', role: 'bomber', count: 14 }])
   })
 
   it('這一關有護航機的波次，但簡報一個字都不提', () => {

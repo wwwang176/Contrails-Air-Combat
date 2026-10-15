@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { CAMPAIGNS, MISSIONS, missionConfigFrom } from '../../src/battle/missions'
 import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
 import { SCHWARM_SIZE } from '../../src/battle/flights'
-import { MAX_SIDE, MAX_COMBATANTS } from '../../src/battle/skirmish'
+import { MAX_COMBATANTS } from '../../src/battle/skirmish'
 import { sideCount, WAVE_LANE } from '../../src/battle/order'
 import { P51D } from '../../src/specs/p51d'
 import { B17G } from '../../src/specs/b17g'
@@ -321,15 +321,14 @@ describe('返航的翻譯', () => {
 })
 
 describe('德軍兩張卡的席位', () => {
-  it('加上波次之後兩隊都還在上限內', () => {
+  it('加上波次預留後，雙方總席位仍在共用特效池容量內', () => {
     for (const id of ['germany-m1', 'germany-m3']) {
       const m = readyCard(id)
       const cfg = missionConfigFrom(m)
       const extra = (m.battle.waves ?? []).reduce((s, w) => s + w.count, 0)
       const red = sideCount(cfg.units, 'red') + extra
       const blue = sideCount(cfg.units, 'blue')
-      expect(red, id).toBeLessThanOrEqual(MAX_SIDE)
-      expect(blue, id).toBeLessThanOrEqual(MAX_SIDE)
+      // MAX_SIDE 限制遭遇戰的編組選單；任務可以兵力不對稱，特效池按雙方總席位配置。
       expect(red + blue, id).toBeLessThanOrEqual(MAX_COMBATANTS)
     }
   })

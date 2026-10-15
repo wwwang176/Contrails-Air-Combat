@@ -155,8 +155,8 @@ export function createBattle(
     flightTeams.push(r.team)
   }
   // 【上限由測試守，不在這裡拋】與現有的架數同一個做法 ——
-  // `missions/configuration.ts` 已經記著「大於 MAX_SIDE 不會拋，只會建一個超出特效
-  // 池容量的場」，而 `missions.test.ts` 逐張卡檢查。在這裡拋要把
+  // 任務含增援預留的雙方總席位必須在共用特效池容量內，由任務測試檢查。
+  // 每方可以不等量；在這裡拋要把
   // `MAX_COMBATANTS` 從 `skirmish.ts` import 進來，而那一支 import 的是
   // 本檔 —— 會繞成循環
   world.reserve(capacity)

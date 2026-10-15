@@ -94,8 +94,7 @@ export const GERMANY: readonly MissionCard[] = [
       blueSpec: BF109K4, redSpec: P51D, convoySpec: B17G,
       /**
        * 【在路途上攔截】B-17 是 transit：從進場點直飛終點、不迴轉、不投彈。
-       * 到了終點就從進場點重新進場（`conveyor` 節拍），轟炸機流因此不斷。
-       * 終點不判勝負 —— 數的是累計擊落，攔下哪一批不重要。
+       * 每架只飛一趟；十四架全部擊落獲勝，任何一架抵達終點就突破攔截、判敗。
        *
        * 【沒有地面目標、沒有廠區】廠區屬於盟 M2。地形是晚秋的內陸（農地的高度場
        * 配洛伊納的色盤）—— `leuna` 會把廠區的墊面與佈景烤進地形，拿掉 `ground`
@@ -103,28 +102,32 @@ export const GERMANY: readonly MissionCard[] = [
        *
        * 【開場沒有戰鬥機】護航的 P-51 全部由波次給，`redSpec` 是它們的機種。
        */
-      blueCount: 8, redCount: 0,
-      convoyCount: 8, convoyDuty: 'stream', convoyPriority: 1,
-      // 【終點在我方後方 12 km】紅方從 z = −5,000 出發，一趟 17 km。**起始值**
-      targetDistance: 12000, targetRadius: 1000, seconds: Infinity,
+      // 4＋2 兩個分隊；14 架轟炸機分三排進場，保留隊友支援與逐批攔截的時間。
+      blueCount: 6, redCount: 0,
+      convoyCount: 14, convoyPriority: 1,
+      convoyRows: { size: 6, depth: 600 },
+      convoyCruiseTas: 250 / 3.6,
+      interceptConvoy: 'mine',
+      // 紅方只要抵達一架就贏；必須攔下全部轟炸機。
+      need: 1,
+      // 編隊中心從 z = −5 km 飛向 +16.85 km，250 km/h 下約五分鐘進入終點圈。
+      targetDistance: 16850, targetRadius: 1000, seconds: Infinity,
       entry: 'headOn',
       terrain: 'autumnFarmland',
-      // 南北一條走廊：轟炸機流從 z −5 km 飛到終點 +12 km
-      arena: { x: 750, z: 3500, radius: 12000 },
+      // 戰場中心隨航線往南移，讓進場點與終點圈都留在戰場範圍內。
+      arena: { x: 750, z: 5900, radius: 12000 },
       // 秋冬陰天的層積雲
       clouds: { yMin: 800, yMax: 1500, amount: 'many' },
       timeOfDay: 'novemberNoon',
-      // 【只算轟炸機】打護航機過不了關。**起始值，由試飛裁定**
-      huntCount: 6, huntRole: 'bomber',
       /**
        * 【開場導覽】先認清攔截目標，再交代護航威脅與我方戰鬥機：
        *
        * ```
-       *   1  領頭 B-17 開場在 (50, 3,700, −5,000)，其餘七架沿 x 正向每隔 200 m 並排；
+       *   1  B-17 按 6＋6＋2 分三排，排距 600 m、橫向間距 200 m；
        *      從它右前側近拍，沿隊列看過去，前景一架特寫、後景帶出整批轟炸機
        *   2  領頭 P-51 開場在 (3,150, 3,700, −5,000)，從左前上方迎拍，辨識護航機
        *   3  玩家長機 Bf 109 開場在 (−350, 4,300, 5,000)，從右前下方沿左後側僚機隊列迎拍；
-       *      長機在前景，後方兩架僚機分別落後約 120、180 m 且高 50 m，最後接回玩家視角
+       *      長機在前景，僚機落後約 120 m 且高 50 m，最後接回玩家視角
        * ```
        *
        * 三段都跟著飛機移動並慢慢靠近；只有 B-17 是擊落計數的目標。**鏡位與秒數是起始值。**
@@ -143,7 +146,7 @@ export const GERMANY: readonly MissionCard[] = [
           back: -14, backTo: -10, up: -8, side: 26, lead: 0, lookUp: 0, fov: 34,
         },
       ],
-      // 紅隊席位 8 + 4 + 4 = 16
+      // 開場護航 4＋2 架，第 45 秒再來 4 架；紅隊席位 14 + 4 + 2 + 4 = 24。
       waves: [
         {
           when: { kind: 'clock', at: 0 },
@@ -152,7 +155,14 @@ export const GERMANY: readonly MissionCard[] = [
           side: 'theirs', spec: P51D, count: 4,
         },
         {
-          when: { kind: 'clock', at: 60 },
+          when: { kind: 'clock', at: 0 },
+          warnKey: 'mission.germany-m1.wave.escort',
+          warnLead: 0,
+          side: 'theirs', spec: P51D, count: 2,
+        },
+        {
+          // 第 41 秒預警，加上 4 秒預警時間，於第 45 秒進場。
+          when: { kind: 'clock', at: 41 },
           warnKey: 'mission.germany-m1.wave.more',
           warnLead: 4,
           side: 'theirs', spec: P51D, count: 4,

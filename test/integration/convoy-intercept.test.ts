@@ -6,6 +6,34 @@ import { readyCard } from '../fixtures/mission'
 
 const DT = 1 / 240
 describe('任務攔截接線', () => {
+  it('德 M1 的我方 AI 攔截轟炸機，擊落第十三架尚未過關、第十四架獲勝', () => {
+    const b = createBattle(new AiController(), missionConfigFrom(readyCard('germany-m1')), 20261015)
+    for (let i = 0; i < 48; i++) stepBattle(b, DT)
+    for (const c of b.world.combatants.filter(c => c.alive)) {
+      expect((c.controller as AiController).interceptConvoy).toBe(c.team === 'blue')
+    }
+    const bombers = b.convoy!.seats.map(s => b.world.combatants[s]!)
+    for (const c of bombers) expect(c.spawnTas * 3.6).toBeCloseTo(250)
+    for (const c of bombers.slice(0, 13)) b.world.destroy(c)
+    stepBattle(b, DT)
+    expect(b.outcome).toBe('fighting')
+    b.world.destroy(bombers[13]!)
+    stepBattle(b, DT)
+    expect(b.outcome).toBe('victory')
+  })
+
+  it('德 M1 抵達的 B-17 不循環、不算擊落，第一架抵達就判敗', () => {
+    const b = createBattle(new AiController(), missionConfigFrom(readyCard('germany-m1')), 20261015)
+    const cv = b.convoy!
+    const c = b.world.combatants[cv.seats[0]!]!
+    c.aircraft.state.position.copy(cv.goal)
+    stepBattle(b, DT)
+    expect(cv.arrived.filter(Boolean)).toHaveLength(1)
+    expect(c.aircraft.state.position.distanceTo(c.spawnPosition)).toBeGreaterThan(15000)
+    expect(b.redKilledBombers).toBe(0)
+    expect(b.outcome).toBe('defeat')
+  })
+
   it('美 M1 只啟用德軍戰鬥機，重開與兩批整隊重生也沿用設定', () => {
     const b = createBattle(new AiController(), missionConfigFrom(readyCard('allies-m1')), 20261015)
     for (let i = 0; i < 48; i++) stepBattle(b, DT)
