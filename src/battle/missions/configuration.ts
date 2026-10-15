@@ -1,5 +1,6 @@
 import type { BattleConfig } from '../battleConfig'
 import { Vector3 } from 'three'
+import { unitFrame } from '../flightSpawn'
 import { DEFAULT_BATTLE } from '../battleDefaults'
 import { VETERAN } from '../../ai/profile'
 import { ENTRY_PLANS, type EntryPlan, type SideEntry } from '../entry'
@@ -219,9 +220,24 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
         ), DEFAULT_BATTLE.schwarmSpacing)
   const mixed = b.blueOthers === undefined ? solo : otherBlueFlights(solo, b.blueOthers)
   // 【藍方開場重排在拆單機之後】`spreadBlue` 只收單機小隊
-  const units = b.blueSpawn === undefined
+  const spread = b.blueSpawn === undefined
     ? mixed
     : spreadBlue(mixed, b.blueSpawn, altitude, DEFAULT_BATTLE.schwarmSpacing)
+  const offset = b.playerFlightOffset
+  const playerPlaced = offset === undefined ? spread : spread.map(unit => unit.player !== true ? unit : {
+    ...unit,
+    slide: (unit.slide ?? 0) + offset.x,
+    rise: (unit.rise ?? 0) + offset.y,
+    depth: (unit.depth ?? 0) + offset.z,
+  })
+  const convoyTeam = rules.kind === 'convoy' ? rules.owner : b.convoyDuty === 'stream' ? 'red' : 'blue'
+  const spawnAltitude = b.convoySpawnAltitude
+  const units = spawnAltitude === undefined ? playerPlaced : playerPlaced.map(unit => {
+    if (unit.team !== convoyTeam || unit.members[0] !== b.convoySpec) return unit
+    // 由共用出生幾何反算高度差，避免重複維護 tier、climb、rise 的計算規則。
+    const height = unitFrame({ ...DEFAULT_BATTLE, altitude }, unit).leadY
+    return { ...unit, rise: (unit.rise ?? 0) + spawnAltitude - height }
+  })
   // 【縱隊排在最後】`depart` 節拍用索引範圍指認它們，而地面目標的索引就是在這張
   // 清單裡的位置
   const ground: GroundEntry[] = [

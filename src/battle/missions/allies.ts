@@ -25,6 +25,8 @@ export const ALLIES: readonly MissionCard[] = [
        */
       blueCount: 4, redCount: 3,
       convoyCount: 16, convoyBox: true,
+      // P-51 從箱型後方進場；預留直飛時的爬升，第三鏡與中央排 B-17 幾乎同高穿出。
+      playerFlightOffset: { x: 0, y: -655, z: 900 },
       // 至少送達 6 架；存活與已抵達合計不足 6 架時判敗。
       need: 6,
       targetDistance: 8450,
@@ -42,16 +44,16 @@ export const ALLIES: readonly MissionCard[] = [
       // 夏天的晴天積雲，在 4,000 m 的轟炸機腳下
       clouds: { yMin: 1200, yMax: 1800, amount: 'some' },
       /**
-       * 【開場導覽】先認清護送的 B-17，再看同層編隊與迎面攔截的 Bf 109：
+       * 【開場導覽】先認清護送的 B-17，再看攔截的 Bf 109，最後迎拍玩家飛越轟炸機群：
        *
        * ```
        *   1  領頭 B-17 開場在 (−1,000, 3,700, 5,000)，從左前上方近拍，慢慢靠近機首
-       *   2  中層六架在 x −1,000～−500、y 3,700 m 並排，從左側 1.1 km 用 14° 長焦
-       *      由前方 550 m 移到 350 m，保留斜角，讓六架機身錯開而不互相蓋住
-       *   3  領頭 Bf 109 開場在 (−50, 4,300, −5,000)，從左前上方迎拍，慢慢靠近
+       *   2  領頭 Bf 109 開場在 (750, 4,300, −5,000)，從左前上方迎拍，慢慢靠近
+       *   3  玩家 P-51 由 (−750, 3,645, 5,900) 向北追上 B-17，鏡頭在機首前方回看；
+       *      第三鏡貼近中央排穿出，收尾繞回同一架玩家飛機
        * ```
        *
-       * 三段都跟著飛機移動，近景辨識機型、長焦交代要保護的編隊。**鏡位與秒數是起始值。**
+       * 三段都跟著飛機移動，超越使用原本的速度差。**鏡位與秒數是起始值。**
        */
       intro: [
         {
@@ -59,12 +61,12 @@ export const ALLIES: readonly MissionCard[] = [
           back: -65, backTo: -40, up: 12, side: -38, lead: 0, fov: 42,
         },
         {
-          kind: 'follow', seconds: 3, subject: { air: 'blue', role: 'bomber' },
-          back: -550, backTo: -350, up: 80, side: -1100, lead: 60, fov: 14,
-        },
-        {
           kind: 'follow', seconds: 2.5, subject: { air: 'red', role: 'fighter' },
           back: -50, backTo: -30, up: 30, side: -40, lead: 0, fov: 30,
+        },
+        {
+          kind: 'follow', seconds: 4.5, subject: { player: true },
+          back: -40, backTo: -34, up: 5, side: -8, sideTo: -12, lead: 0, lookUp: 2, fov: 46,
         },
       ],
       /**
@@ -123,12 +125,12 @@ export const ALLIES: readonly MissionCard[] = [
       altitude: 1500,
       ground: LEUNA_GROUND,
       /**
-       * 【開場導覽】廠區設施、外圍重高砲，再接回進場的 B-17：
+       * 【開場導覽】廠區設施、高空俯拍煉油廠，再接回進場的 B-17：
        *
        * ```
        *   1  從西南側低角度橫移，看冷卻塔 (−709, −7,242)、儲氣槽 (−683, −7,125)
        *      與煙囪 (−560, −7,214)，三座都是可炸的任務目標
-       *   2  南側外圈重高砲 (−113, −1,874)，從東南側離地 22 m、水平距離約 20 m 以 45° 俯拍
+       *   2  從廠區上方約 1,200 m 向北俯拍，緩緩推進，交代煉油廠的建物與道路配置
        *   3  玩家 B-17 開場在 (−750, 1,350, 5,000)，從左前方約 55 m 迎拍並緩緩靠近；
        *      前景保留玩家完整機身特寫，後景帶入其他轟炸機，收尾繞回同一架飛機的機尾
        * ```
@@ -142,9 +144,9 @@ export const ALLIES: readonly MissionCard[] = [
           lookFrom: { x: -650, y: 35, z: -7200 }, lookTo: { x: -650, y: 35, z: -7200 },
         },
         {
-          kind: 'pan', seconds: 3, aboveGround: true, fov: 45,
-          from: { x: -99.2, y: 22, z: -1860 }, to: { x: -102.2, y: 22, z: -1857.3 },
-          lookFrom: { x: -113.2, y: 2, z: -1874 }, lookTo: { x: -113.2, y: 2, z: -1874 },
+          kind: 'pan', seconds: 3, aboveGround: true, fov: 55,
+          from: { x: -450, y: 1200, z: -6350 }, to: { x: -400, y: 1100, z: -6550 },
+          lookFrom: { x: -250, y: 0, z: -7250 }, lookTo: { x: -200, y: 0, z: -7350 },
         },
         {
           kind: 'follow', seconds: 2.5, subject: { player: true },
@@ -213,6 +215,7 @@ export const ALLIES: readonly MissionCard[] = [
       // 【開場導覽】先貼著海面沿航母右舷由艦首滑到艦尾，再從領頭零戰的右前下方近拍。
       // 第 6 秒領頭機約在 (315, 1,482, −4,234)，後景同路零戰向 x 536～1,415、
       // 高度 1,544～1,719 m 展開；沿隊列斜向看回去，前景留完整機身，後景多架以天空襯托。
+      // 第三鏡從玩家 F6F 左前上方近拍，再繞回同一架飛機的操作視角。
       // **鏡位與秒數是起始值。**
       intro: [
         {
@@ -222,6 +225,10 @@ export const ALLIES: readonly MissionCard[] = [
         {
           kind: 'follow', seconds: 3.5, subject: { air: 'red', role: 'fighter' },
           back: -22, backTo: -18, up: -4, side: 42, lead: 0, lookUp: 2, fov: 38,
+        },
+        {
+          kind: 'follow', seconds: 3, subject: { player: true },
+          back: -24, backTo: -20, up: 6, side: -28, sideTo: -32, lead: 0, lookUp: 1, fov: 38,
         },
       ],
       /**

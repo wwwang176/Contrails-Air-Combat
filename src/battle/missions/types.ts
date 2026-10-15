@@ -329,6 +329,8 @@ type IntroShotKind =
     readonly backTo?: number
     readonly up: number
     readonly side: number
+    /** 鏡位結束時的橫向偏移；省略時維持原側距。 */
+    readonly sideTo?: number
     readonly lead: number
     readonly lookUp?: number
   }
@@ -449,6 +451,8 @@ export interface MissionBattle {
    * 攻擊航路飛。
    */
   readonly blueStacked?: true
+  /** 玩家小隊的出生位移（世界座標公尺）；整隊平移，保留僚機站位與其他編隊。 */
+  readonly playerFlightOffset?: IntroPoint
   /**
    * 藍隊分批前後排開：每 `size` 架一批，相鄰兩批在世界座標 z 上差 `depth` 公尺，前後交錯進場
    * （`order.ts` 的 `waveColumn`）。**省略 = 橫隊。** 只是開場站位，玩家在第一批。
@@ -497,6 +501,8 @@ export interface MissionBattle {
   readonly convoyBox?: true
   /** 魚雷機等攻擊群前後分排，相鄰排錯開半格；排距為 m，與 convoyBox 擇一。 */
   readonly convoyRows?: { readonly size: number; readonly depth: number }
+  /** 被護送／攻擊編隊的出生海拔，m；省略時保留原有高度分層。 */
+  readonly convoySpawnAltitude?: number
   /**
    * `convoySpec` 那幾架的職務。**省略 = `transit`。**
    *
