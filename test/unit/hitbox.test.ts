@@ -13,6 +13,7 @@ import { A6M5 } from '../../src/specs/a6m5'
 import { G4M } from '../../src/specs/g4m'
 import { JU87 } from '../../src/specs/ju87'
 import { YAK1B } from '../../src/specs/yak1b'
+import { FW190 } from '../../src/specs/fw190'
 import { loadGlbTemplatesForNode } from '../fixtures/glb'
 import type { AircraftSpec } from '../../src/specs/types'
 
@@ -41,7 +42,7 @@ import type { AircraftSpec } from '../../src/specs/types'
  * （最大的兩塊是尾砲塔 2,528 點與上部砲塔＋背脊 2,214 點）。那些地方打得到
  * 但不扣血，而且不會有任何症狀。「有些機種不掃」本身就是缺陷的溫床。
  */
-const CASES: readonly AircraftSpec[] = [P51D, BF109K4, F6F5, KI84, A6M5, HE111, B17G, G4M, JU87, YAK1B]
+const CASES: readonly AircraftSpec[] = [P51D, BF109K4, FW190, F6F5, KI84, A6M5, HE111, B17G, G4M, JU87, YAK1B]
 
 /**
  * 【為什麼要先載樣板】`buildAircraft` 對 GLB 機種要求樣板先載好，而正式路徑（`preloadAircraftModels`）走的是

@@ -10,6 +10,7 @@ import { G4M_MODEL } from './g4m.model'
 import { F4F4_MODEL } from './f4f4.model'
 import { JU87_MODEL } from './ju87.model'
 import { YAK1B_MODEL } from './yak1b.model'
+import { FW190_MODEL } from './fw190.model'
 import type { Texture } from 'three'
 import { buildFromTemplate, glbTemplate, liveryTexture, loadGlbTemplate, type GlbAircraft } from './glb'
 import type { AircraftSpec } from '../../specs/types'
@@ -74,6 +75,7 @@ export const GLB_MODELS: Record<string, GlbAircraft> = {
   ju87: JU87_MODEL,
   /** 德 M4 的蘇軍對手，低模 */
   yak1b: YAK1B_MODEL,
+  fw190: FW190_MODEL,
 }
 
 /**
@@ -227,6 +229,7 @@ const BODY_COLORS: Record<string, number> = {
   f4f4: F4F4_MODEL.bodyColor,
   ju87: JU87_MODEL.bodyColor,
   yak1b: YAK1B_MODEL.bodyColor,
+  fw190: FW190_MODEL.bodyColor,
 }
 
 /** 零件用它上色 —— 打爆的飛機掉下來的碎片必須跟機身同色。 */

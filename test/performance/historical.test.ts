@@ -13,6 +13,7 @@ import { A6M5, A6M5_HISTORICAL } from '../../src/specs/a6m5'
 import { G4M, G4M_HISTORICAL } from '../../src/specs/g4m'
 import { JU87, JU87_HISTORICAL } from '../../src/specs/ju87'
 import { YAK1B, YAK1B_HISTORICAL } from '../../src/specs/yak1b'
+import { FW190, FW190_HISTORICAL } from '../../src/specs/fw190'
 import type { AircraftSpec, HistoricalReference } from '../../src/specs/types'
 
 const TOLERANCE = 0.05
@@ -180,6 +181,8 @@ const PENDING: readonly { id: string; check: Check; reason: string }[] = [
    * 「380 km/h @ 4,100 m」與手冊的額定高度互相矛盾，採手冊。
    */
   { id: 'ju87', check: 'peak', reason: '模型峰值在 5,500 m（389.8 km/h），照手冊高空檔額定高度 5,400 m；二手的 4,100 m 與它矛盾' },
+  /** Rechlin 報告與美方對繳獲機的報告都沒有失速數字；185 km/h 是二手區間 174–197 的中點 */
+  { id: 'fw190', check: 'stall', reason: '沒有一手來源。185 km/h 是二手區間 174–197 的中點，只拿來定 clMax' },
 ]
 
 const CASES: {
@@ -199,6 +202,15 @@ const CASES: {
     checks: ['vmaxCritical', 'climb', 'stall', 'ceiling', 'peak'],
   },
   { spec: BF109K4, hist: BF109K4_HISTORICAL, checks: ALL },
+  /**
+   * 【守四項＋峰值，失速進 PENDING】四項出自 Rechlin 1945-03-02 的同一份報告（W.Nr. 210006，
+   * 3,250 rpm 起飛／緊急出力、不開 MW 50、帶 ETC 504 掛架），見 `specs/fw190.ts` 的檔頭。
+   */
+  {
+    spec: FW190,
+    hist: FW190_HISTORICAL,
+    checks: ['vmaxCritical', 'vmaxSeaLevel', 'climb', 'ceiling', 'peak'],
+  },
   /**
    * 【五項全守，而且質量沒有校準過】四項驗收值出自同一份試飛報告（Patuxent
    * River 1944-09-07、F6F-5 No. 58310、12,420 lb、軍用出力），所以「三項各自

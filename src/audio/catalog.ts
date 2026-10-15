@@ -212,18 +212,20 @@ export type Pool = keyof typeof POOLS
  * 【Ju 87 的是兩挺翼內 MG 17（1,150 發/分）】左右擺開；後座的單管 MG 15 走砲塔檔（`turretFile`）。
  *
  * 【Yak-1B 暫用 Bf 109 K-4 的循環】同樣是機首的一門機砲加機槍；專屬的循環還沒做。
+ *
+ * 【Fw 190 D-9 暫用 Ki-84 的循環】同樣是兩門 20 mm 機砲加兩挺 13 mm 級機槍；專屬的循環還沒做。
  */
 const FIRE_OF: Record<string, string> = {
   p51d: 'fire-m2x6', f4f4: 'fire-m2x6', f6f5: 'fire-m2x6',
   bf109k4: 'fire-bf109k4', a6m5: 'fire-a6m5', ki84: 'fire-ki84',
-  ju87: 'fire-ju87', yak1b: 'fire-bf109k4',
+  ju87: 'fire-ju87', yak1b: 'fire-bf109k4', fw190: 'fire-ki84',
 }
 
 /**
- * 引擎聲借用別台的檔。**Yak-1B 暫用 Bf 109 K-4 的**：同是液冷倒 V 12 缸、機首單發。
- * 其餘每個機種都有自己的檔（`engine-<機種 id>`）。
+ * 引擎聲借用別台的檔。**Yak-1B 與 Fw 190 D-9 暫用 Bf 109 K-4 的**：同是液冷倒 V 12 缸、
+ * 機首單發。其餘每個機種都有自己的檔（`engine-<機種 id>`）。
  */
-const ENGINE_OF: Readonly<Record<string, string>> = { yak1b: 'bf109k4' }
+const ENGINE_OF: Readonly<Record<string, string>> = { yak1b: 'bf109k4', fw190: 'bf109k4' }
 
 export function engineFile(specId: string): string {
   return `engine-${ENGINE_OF[specId] ?? specId}`
@@ -421,14 +423,24 @@ export function groundGunTier(unitId: string): string | null {
  * 的話，長度由素材自己的衰減決定，射速由 `roundsPerMinute` 決定，每台飛機都對。
  */
 export function volleyPool(weaponId: string, guns: number): Pool | null {
-  const id = `volley-${weaponId}x${guns}`
+  const id = `volley-${soundWeapon(weaponId)}x${guns}`
   return id in POOLS ? id as Pool : null
 }
 
 /** 前機槍過熱的空響：武器 id 與挺數 → 空響庫。沒有對應的庫回 null（那一組過熱時不響） */
 export function jamPool(weaponId: string, guns: number): Pool | null {
-  const id = `gun-jam-${weaponId}x${guns}`
+  const id = `gun-jam-${soundWeapon(weaponId)}x${guns}`
   return id in POOLS ? id as Pool : null
+}
+
+/**
+ * 齊射庫與空響庫借用別種武器的檔：武器 id → 借用的武器 id。
+ * **MG 151/20 暫用 ホ5 的**：同是 20 mm 機砲、初速與射速相近；專屬的庫還沒做。
+ */
+const WEAPON_SOUND_OF: Readonly<Record<string, string>> = { mg151: 'ho5' }
+
+function soundWeapon(weaponId: string): string {
+  return WEAPON_SOUND_OF[weaponId] ?? weaponId
 }
 
 /**

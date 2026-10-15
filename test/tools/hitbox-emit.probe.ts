@@ -30,6 +30,7 @@ import { G4M } from '../../src/specs/g4m'
 import { F4F4 } from '../../src/specs/f4f4'
 import { JU87 } from '../../src/specs/ju87'
 import { YAK1B } from '../../src/specs/yak1b'
+import { FW190 } from '../../src/specs/fw190'
 import type { AircraftSpec } from '../../src/specs/types'
 import { cluster, grow, inBox, mergeEmpty, patchHoles, sliceWing, splitTail } from './hitbox-fit'
 import { areaOf, boxTris } from './hitbox-projection'
@@ -91,7 +92,7 @@ const line = (b: HitBox, tag: string): string => {
 
 // 環境變數 `ID=yak1b` 只算一台
 const ONLY = process.env['ID']
-for (const spec of [P51D, F6F5, F4F4, BF109K4, KI84, A6M5, HE111, B17G, G4M, JU87, YAK1B]
+for (const spec of [P51D, F6F5, F4F4, BF109K4, FW190, KI84, A6M5, HE111, B17G, G4M, JU87, YAK1B]
   .filter((s) => ONLY === undefined || s.id === ONLY)) {
   const { pts, tris } = mesh(spec)
   const axes = ASPECTS.map((a) => {

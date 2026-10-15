@@ -27,6 +27,7 @@ import {
 } from './recoveryRecording'
 import { P51D } from '../specs/p51d'
 import { BF109K4 } from '../specs/bf109k4'
+import { FW190 } from '../specs/fw190'
 import { A6M5 } from '../specs/a6m5'
 import { F4F4 } from '../specs/f4f4'
 import { F6F5 } from '../specs/f6f5'
@@ -40,7 +41,7 @@ import type { AircraftSpec } from '../specs/types'
 /** 兩架並排的橫向間距，m。只影響畫面，物理各跑各的 */
 const LANE = 40
 
-const SPECS: readonly AircraftSpec[] = [P51D, BF109K4, A6M5, F4F4, F6F5, KI84, B17G, HE111, JU87, G4M]
+const SPECS: readonly AircraftSpec[] = [P51D, BF109K4, FW190, A6M5, F4F4, F6F5, KI84, B17G, HE111, JU87, G4M]
 
 // ── 場景 ─────────────────────────────────────────────────────────
 

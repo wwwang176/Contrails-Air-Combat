@@ -13,6 +13,8 @@ import { volleyPool } from '../../src/audio/catalog'
 // 跨模組：MK 108 的單發傷害是拿 hp 校準的，所以要讀機體資料。
 // 與 hitbox.test.ts 守「槍口在機翼命中盒內」是同一個模式。
 import { BF109K4 } from '../../src/specs/bf109k4'
+import { FW190 } from '../../src/specs/fw190'
+import { FW190_BATTERY } from '../../src/weapons/fw190'
 import { B17G } from '../../src/specs/b17g'
 import { KI84 } from '../../src/specs/ki84'
 import { A6M5 } from '../../src/specs/a6m5'
@@ -166,7 +168,7 @@ describe('L3 火力平衡的相對關係', () => {
  */
 describe('自己開火的齊射庫涵蓋所有可駕駛的有前射武器機種', () => {
   it('每一種前射武器都有對應的庫', () => {
-    for (const b of [P51D_BATTERY, BF109K4_BATTERY, F6F5_BATTERY, F4F4_BATTERY, A6M5_BATTERY, KI84_BATTERY, JU87_BATTERY]) {
+    for (const b of [P51D_BATTERY, BF109K4_BATTERY, FW190_BATTERY, F6F5_BATTERY, F4F4_BATTERY, A6M5_BATTERY, KI84_BATTERY, JU87_BATTERY]) {
       const count = new Map<string, number>()
       for (const m of b.mounts) count.set(m.weapon.id, (count.get(m.weapon.id) ?? 0) + 1)
       for (const [id, n] of count) expect(volleyPool(id, n), `${id} ×${n}`).not.toBeNull()
@@ -175,7 +177,7 @@ describe('自己開火的齊射庫涵蓋所有可駕駛的有前射武器機種'
 
   /** 同一種槍的幾挺是一起擊發的（`stepCadence` 共用射速），所以一組只播一次 */
   it('同型槍共用一個射速', () => {
-    for (const b of [P51D_BATTERY, BF109K4_BATTERY, A6M5_BATTERY, KI84_BATTERY]) {
+    for (const b of [P51D_BATTERY, BF109K4_BATTERY, FW190_BATTERY, A6M5_BATTERY, KI84_BATTERY]) {
       const rpm = new Map<string, number>()
       for (const m of b.mounts) {
         const seen = rpm.get(m.weapon.id)
@@ -335,7 +337,7 @@ describe('MAX_MOUNTS —— 槍焰的容量上界（M7 spec §5.2）', () => {
     //
     // 【由兩台改成掃全部】原本只點名 P-51D 與 K-4，而新機種
     // 正是最可能踩到上界的那一種。改成走機體資料，加一台就自動納入。
-    for (const spec of [P51D, BF109K4, F6F5, KI84, A6M5, HE111, B17G, G4M, JU87]) {
+    for (const spec of [P51D, BF109K4, FW190, F6F5, KI84, A6M5, HE111, B17G, G4M, JU87]) {
       expect(spec.battery.mounts.length, `${spec.id} 超過 MAX_MOUNTS`)
         .toBeLessThanOrEqual(MAX_MOUNTS)
     }
