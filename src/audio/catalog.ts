@@ -188,6 +188,7 @@ export const POOLS = {
   'volley-type99-2x2': range('volley-type99-2x2', 3),
   'volley-ho103x2': range('volley-ho103x2', 3),
   'volley-ho5x2': range('volley-ho5x2', 3),
+  'volley-mg151x2': range('volley-mg151x2', 3),
   /**
    * 前機槍過熱時扣扳機的空響。**與齊射同一套分組**（武器 id ×挺數）：同一組的 N 挺各「喀」一下，
    * 錯開 0～15 ms、音高 ±2.5%、音量 ±1.5 dB、左右照槍的位置（與齊射的左右相同）。
@@ -203,6 +204,7 @@ export const POOLS = {
   'gun-jam-type99-2x2': range('gun-jam-type99-2x2', 3),
   'gun-jam-ho103x2': range('gun-jam-ho103x2', 3),
   'gun-jam-ho5x2': range('gun-jam-ho5x2', 3),
+  'gun-jam-mg151x2': range('gun-jam-mg151x2', 3),
 } as const satisfies Record<string, readonly string[]>
 export type Pool = keyof typeof POOLS
 
@@ -213,12 +215,13 @@ export type Pool = keyof typeof POOLS
  *
  * 【Yak-1B 暫用 Bf 109 K-4 的循環】同樣是機首的一門機砲加機槍；專屬的循環還沒做。
  *
- * 【Fw 190 D-9 暫用 Ki-84 的循環】同樣是兩門 20 mm 機砲加兩挺 13 mm 級機槍；專屬的循環還沒做。
+ * 【Fw 190 D-9 是機首兩挺 MG 131（900 發/分）加翼根兩門 MG 151/20（700 發/分）】翼根砲離中軸
+ * 不到 1 m，左右擺得比 Ki-84 的翼砲窄。
  */
 const FIRE_OF: Record<string, string> = {
   p51d: 'fire-m2x6', f4f4: 'fire-m2x6', f6f5: 'fire-m2x6',
   bf109k4: 'fire-bf109k4', a6m5: 'fire-a6m5', ki84: 'fire-ki84',
-  ju87: 'fire-ju87', yak1b: 'fire-bf109k4', fw190: 'fire-ki84',
+  ju87: 'fire-ju87', yak1b: 'fire-bf109k4', fw190: 'fire-fw190',
 }
 
 /**
@@ -423,24 +426,14 @@ export function groundGunTier(unitId: string): string | null {
  * 的話，長度由素材自己的衰減決定，射速由 `roundsPerMinute` 決定，每台飛機都對。
  */
 export function volleyPool(weaponId: string, guns: number): Pool | null {
-  const id = `volley-${soundWeapon(weaponId)}x${guns}`
+  const id = `volley-${weaponId}x${guns}`
   return id in POOLS ? id as Pool : null
 }
 
 /** 前機槍過熱的空響：武器 id 與挺數 → 空響庫。沒有對應的庫回 null（那一組過熱時不響） */
 export function jamPool(weaponId: string, guns: number): Pool | null {
-  const id = `gun-jam-${soundWeapon(weaponId)}x${guns}`
+  const id = `gun-jam-${weaponId}x${guns}`
   return id in POOLS ? id as Pool : null
-}
-
-/**
- * 齊射庫與空響庫借用別種武器的檔：武器 id → 借用的武器 id。
- * **MG 151/20 暫用 ホ5 的**：同是 20 mm 機砲、初速與射速相近；專屬的庫還沒做。
- */
-const WEAPON_SOUND_OF: Readonly<Record<string, string>> = { mg151: 'ho5' }
-
-function soundWeapon(weaponId: string): string {
-  return WEAPON_SOUND_OF[weaponId] ?? weaponId
 }
 
 /**

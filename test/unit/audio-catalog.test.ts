@@ -282,10 +282,17 @@ describe('音效目錄', () => {
     expect(ALL_FILES).toContain('engine-fw190')
   })
 
-  /** 【MG 151/20 借ホ5 的齊射與空響庫】少了借用，那兩門機砲自己駕駛時開火與過熱都不出聲、也不報錯 */
-  it('MG 151/20 的齊射庫與空響庫借ホ5 的', () => {
-    expect(volleyPool('mg151', 2)).toBe('volley-ho5x2')
-    expect(jamPool('mg151', 2)).toBe('gun-jam-ho5x2')
+  /** Fw 190 D-9：機首 MG 131 ×2 與翼根 MG 151/20 ×2 各有自己的齊射庫與空響庫，遠處用自己的開火循環 */
+  it('Fw 190 D-9 的槍聲：自己的開火循環，MG 151/20 有自己的齊射庫與空響庫', () => {
+    expect(fireFile('fw190')).toBe('fire-fw190')
+    expect((manifest['fire-fw190'] as { loop: boolean }).loop).toBe(true)
+    expect(volleyPool('mg151', 2)).toBe('volley-mg151x2')
+    expect(jamPool('mg151', 2)).toBe('gun-jam-mg151x2')
+    for (const f of [...POOLS['volley-mg151x2'], ...POOLS['gun-jam-mg151x2']]) {
+      expect(manifest[f], f).toBeDefined()
+      expect((manifest[f] as { loop: boolean }).loop, f).toBe(false)
+      expect(existsSync(`public/audio/${f}.mp3`), f).toBe(true)
+    }
   })
 
   it('每種轟炸機砲塔都對得到檔案', () => {
