@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createBattle, stepBattle, DEFAULT_BATTLE, type BattleConfig } from '../../src/battle/setup'
+import { createBattle, stepBattle, resetBattle, DEFAULT_BATTLE, type BattleConfig } from '../../src/battle/setup'
 import {
   missionConfigFrom, type MissionBattle, type ReadyMissionCard,
 } from '../../src/battle/missions'
@@ -45,6 +45,30 @@ function rollDeg(a: Aircraft): number {
 }
 
 describe('護送：被護送的那幾架平行飛向終點', () => {
+  it('美 M1 的 B-17 開場與重開皆為 250 km/h，航行會維持而非加速至全油門極速', () => {
+    // 保留物理與航線，移除敵機傷害，避免將戰損混入定速控制驗證。
+    const cfg = missionConfigFrom(readyCard('allies-m1'))
+    const b = createBattle(new Idle(), {
+      ...cfg,
+      units: cfg.units.map(u => ({
+        ...u, members: u.members.map(m => ({ ...m, battery: harmless(m.battery) })),
+      })),
+    }, SEED)
+    const bombers = b.convoy!.seats.map(s => b.world.combatants[s]!)
+    for (const c of bombers) expect(c.aircraft.state.velocity.length() * 3.6).toBeCloseTo(250, 6)
+    for (let i = 0; i < 60 * 240; i++) {
+      stepBattle(b, DT)
+      if (i >= 30 * 240 && i % 240 === 0) {
+        for (const c of bombers) {
+          expect(c.alive).toBe(true)
+          expect(Math.abs(c.aircraft.state.velocity.length() * 3.6 - 250)).toBeLessThan(2)
+        }
+      }
+    }
+    resetBattle(b)
+    for (const c of bombers) expect(c.aircraft.state.velocity.length() * 3.6).toBeCloseTo(250, 6)
+  }, 30_000)
+
   it('接觸之前滾轉恆為零 —— 一台一個小隊真的消掉了僚機走位', () => {
     const b = battleFor(readyCard('allies-m1'))
     const cv = b.convoy

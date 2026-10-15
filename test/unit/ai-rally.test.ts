@@ -5,6 +5,8 @@ import { createCommand } from '../../src/control/Controller'
 import { rallyAim, rallyCommand } from '../../src/ai/rally'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
 import { P51D } from '../../src/specs/p51d'
+import { B17G } from '../../src/specs/b17g'
+import { THROTTLE_FLOOR } from '../../src/input/throttle'
 
 /** 在 4000 m、機首朝 −Z、以 200 m/s 平飛的飛機 */
 function flyer(): Aircraft {
@@ -50,6 +52,27 @@ describe('rallyAim', () => {
 })
 
 describe('rallyCommand', () => {
+  it('指定巡航速度時，低於目標加油、超速先收油再減速，不直接改速度', () => {
+    const target = 250 / 3.6
+    const self = new Aircraft(B17G, 3700, target)
+    const cmd = createCommand()
+    const point = new Vector3(0, 3700, -10000)
+    rallyCommand(self, point, cmd, target)
+    const cruiseThrottle = cmd.throttle
+    expect(cmd.brake).toBe(0)
+    self.state.velocity.set(0, 0, -(target - 5))
+    rallyCommand(self, point, cmd, target)
+    expect(cmd.throttle).toBeGreaterThan(cruiseThrottle)
+    expect(cmd.brake).toBe(0)
+    self.state.velocity.set(0, 0, -(target + 10))
+    rallyCommand(self, point, cmd, target)
+    expect(cmd.throttle).toBe(THROTTLE_FLOOR)
+    expect(cmd.brake).toBeGreaterThan(0)
+    expect(cmd.brake).toBeLessThanOrEqual(1)
+    expect(self.state.velocity.length()).toBe(target + 10)
+    expect(cmd.firing).toBe(false)
+  })
+
   it('遠離集合點時全推力，不減速', () => {
     const self = flyer()
     const cmd = createCommand()

@@ -220,6 +220,8 @@ export interface MissionTuning {
    * 【起始值，待掃描】見 `missions/shared.ts` 的 `CONVOY_PRIORITY`。
    */
   convoyPriority: number
+  /** 此陣營的戰鬥機優先攔截被護送單位；省略時不改變空戰決策。 */
+  readonly interceptConvoy?: Team
   /**
    * 戰鬥機要優先掃射的地面單位。**省略 = 不覆寫空戰優先序。**
    *

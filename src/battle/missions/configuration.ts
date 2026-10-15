@@ -243,6 +243,9 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
     // 那時這一份與 `NEUTRAL_TUNING` 的行為逐字相同
     tuning: {
       convoyPriority: b.convoyPriority,
+      ...(b.interceptConvoy === undefined ? {} : {
+        interceptConvoy: b.interceptConvoy === 'mine' ? 'blue' as const : 'red' as const,
+      }),
       ...(b.priorityGroundUnit === undefined
         ? {}
         : { priorityGroundUnit: b.priorityGroundUnit }),
@@ -250,6 +253,7 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
       ...(b.airOnly === undefined ? {} : { airOnly: b.airOnly }),
     },
     ...(beats === undefined ? {} : { beats }),
+    ...(b.convoyCruiseTas === undefined ? {} : { convoyCruiseTas: b.convoyCruiseTas }),
     // 【轟炸機流的終點】不判勝負，只給 transit 的那幾架一個飛去的點
     ...(b.convoyDuty === 'stream'
       ? {
