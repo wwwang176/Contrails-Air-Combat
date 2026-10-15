@@ -73,6 +73,7 @@ export interface ConvoyIndex {
 }
 
 interface ConvoyConfig {
+  readonly convoyCruiseTas?: number
   readonly rules: MissionRules
   readonly route?: TransitRoute
   readonly beats?: readonly Beat[]
@@ -130,6 +131,7 @@ export function createConvoy(
       points.push(point)
       convoyOrders[convoyFlights[t]!] = {
         kind: 'rally',
+        ...(cfg.convoyCruiseTas === undefined ? {} : { cruiseTas: cfg.convoyCruiseTas }),
         point,
         radius: rules.radius,
         targetFlight: -1,

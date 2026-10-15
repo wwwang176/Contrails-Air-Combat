@@ -60,6 +60,8 @@ export type OrderKind = 'rally' | 'flank' | 'focus'
  */
 export interface FlightOrder {
   readonly kind: OrderKind
+  /** 航行目標真空速，m/s；省略時集合／撤離仍使用全推力。 */
+  readonly cruiseTas?: number
   /**
    * 飛行點。`rally` 發令後不再變；`flank` **由 `stepCommand` 每步重寫**；
    * `focus` 不使用（恆為原點）。

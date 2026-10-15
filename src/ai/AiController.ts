@@ -66,6 +66,7 @@ import { NO_INTERCEPT } from '../world/lead'
 import { bestSustainedTurnRadiusCached } from '../analysis/envelope'
 import { scanThreat } from './threatScan'
 import { ESCORT_OFFSETS, selectEscortIndex } from './escortStation'
+import { createConvoyInterceptState, resetConvoyIntercept, selectConvoyIntercept } from './convoyIntercept'
 
 /**
  * 高度鎖的緩衝，m：鎖畫在參考高度（轟炸機／目標）下方這麼多。
@@ -180,6 +181,9 @@ export class AiController implements Controller {
    * 任務卡由 `MissionTuning.airOnly` 接進來。
    */
   airOnly = false
+  /** 任務指定優先攔截被護送編隊；由戰鬥指揮層依陣營接線。 */
+  interceptConvoy = false
+  readonly convoyIntercept = createConvoyInterceptState()
   /** `escortStation` 守著的友軍轟炸機，`board.candidates` 的索引；−1 = 沒有。只在決策拍重選 */
   private escortIndex = -1
 
@@ -285,6 +289,7 @@ export class AiController implements Controller {
     // 新的一場 —— 與地形的承諾同一個理由，也同一個呼叫點。
     resetSurfaceAttack(this.surface, this)
     this.escortIndex = -1
+    resetConvoyIntercept(this.convoyIntercept)
     this.resetAirTactics()
   }
 
@@ -630,6 +635,13 @@ export class AiController implements Controller {
         this.stationError = 0
       }
       this.threatSource = this.scanThreat(self)
+      // 任務選敵先於一般空戰；沒有護送目標時原路回退，不改其他場次。
+      const intercepting = this.interceptConvoy && !this.transit && !this.evacuating
+        && this.board !== null && selectConvoyIntercept(
+          this.convoyIntercept, this.board, this.selfIndex,
+          reference === null ? -1 : this.stationReferenceIndex, period, this.targetConfig,
+        )
+      if (!intercepting) resetConvoyIntercept(this.convoyIntercept)
       if (this.transit) {
         // 【被護送的不挑目標，而且要把槽位還回去】`assignments` 是全場共用
         // 的一份，`countLocks` 靠它算分攤折扣。一架永遠不會開火的轟炸機
@@ -641,6 +653,9 @@ export class AiController implements Controller {
         if (b && this.selfIndex >= 0 && this.selfIndex < b.assignments.length) {
           b.assignments[this.selfIndex] = -1
         }
+      } else if (intercepting && this.board !== null) {
+        this.targetIndex = this.convoyIntercept.targetIndex
+        this.target = this.board.candidates[this.targetIndex]?.aircraft ?? null
       } else if (this.board) {
         // 【角色分派】有站位參考機 = 僚機，走四級準則；否則是自由獵手
         this.target = reference
@@ -666,7 +681,7 @@ export class AiController implements Controller {
       // 【集火時僚機不能被清掉目標】它要靠既有的 LEVEL_FOCUS（「打參考機
       // 正在打的那一架」）跟上長機。清掉會讓它掉進「沒有目標 → 飛站位」，
       // 集火就只剩長機一架在打 —— 那個戰術的整個意義就沒了
-      if (this.order !== null && this.order.kind !== 'focus'
+      if (!intercepting && this.order !== null && this.order.kind !== 'focus'
         && reference && this.wingmanState.level > LEVEL_SELF_DEFENCE) {
         this.target = null
         this.targetIndex = -1
@@ -674,7 +689,7 @@ export class AiController implements Controller {
       // 【只覆寫長機】僚機走 LEVEL_FOCUS，那一級本來就有自衛與掩護插隊，
       // 「有人正在打我」不會被集火命令擋住。與集合點同一個手法：只操縱
       // 長機，編隊靠既有機制跟上，wingman.ts 一個字不動
-      if (this.focusTarget !== null && !reference) {
+      if (!intercepting && this.focusTarget !== null && !reference) {
         this.target = this.focusTarget
         // 【集火的權威索引在命令上】`assignments` 那一格是它自由選的那一架
         this.targetIndex = this.order !== null ? this.order.focusIndex : -1
@@ -682,7 +697,7 @@ export class AiController implements Controller {
 
       // 【地面任務時直接威脅優先】已經取得射擊解、正在打我的那一架蓋過自由選的
       // 目標 —— 下面的地面分支被它擋下來之後，空戰接的就是這一架
-      if (this.priorityGroundUnit !== null && !this.evacuating) {
+      if (!intercepting && this.priorityGroundUnit !== null && !this.evacuating) {
         const threat = this.threatSource
         const threatIndex = threat !== null && threatFactor(threat, self) > 0
           ? this.board?.candidates.findIndex((candidate) => candidate.aircraft === threat) ?? -1
@@ -697,6 +712,10 @@ export class AiController implements Controller {
         }
       }
     }
+
+    // 攔截期間不接受一般集火／集合改派；撤離與巡航在上面已排除。
+    const intercepting = this.convoyIntercept.phase !== 'none'
+    const order = intercepting ? null : this.order
 
     // ── 轟炸機的對艦排在空中接戰與站位之前 ────────────────────
     //
@@ -717,7 +736,7 @@ export class AiController implements Controller {
     // 【任務指定了地面優先目標就不插隊】日 M2 灘頭擱淺的 LST 是紅隊的船，
     // 這一段排在卡車分支之前 —— 不擋的話疾風整隊掛著炸彈去炸 LST，車隊沒人管。
     // 地面目標打光之後，下面「沒有目標」那一支的對艦仍然接得住
-    if (this.bombBay !== null && this.bombBay.capacity > 0
+    if (!intercepting && this.bombBay !== null && this.bombBay.capacity > 0
       && this.priorityGroundUnit === null && !this.evacuating
       && attackShip(this.surface, this, self, decide, dt, raw, this.aim, this.burstOpen)) {
       resetGroundStrafe(this.surface.groundStrafe)
@@ -732,7 +751,7 @@ export class AiController implements Controller {
     // 卡片只給單位 id；這裡不看國家、機種或關卡。沒有指定時短路，其他任務
     // 逐字走原路徑。敵機已經取得直接射擊解時，`threatFactor > 0` 與僚機的
     // LEVEL_SELF_DEFENCE 使用同一定義，先讓自衛插隊，不能為任務目標白白送命。
-    const priorityGround = this.evacuating ? null : this.priorityGroundUnit
+    const priorityGround = this.evacuating || intercepting ? null : this.priorityGroundUnit
     const directThreat = this.threatSource !== null
       && threatFactor(this.threatSource, self) > 0
     if (priorityGround !== null && !directThreat
@@ -759,7 +778,7 @@ export class AiController implements Controller {
       // 取得同一架時不會觸發換目標的重置，一回來就誤判成飛過頭
       this.resetAirTactics()
 
-      if (!this.evacuating && strafeGround(this.surface, this, self, decide, raw, this.aim, this.burstOpen)) {
+      if (!intercepting && !this.evacuating && strafeGround(this.surface, this, self, decide, raw, this.aim, this.burstOpen)) {
         // 【地面目標排在站位之前】理由見 `strafeGround`。`raw` 已經寫滿
       } else if (reference && !this.evacuating) {
         // 【撤離時不回站位】長機可能是玩家，玩家留下來打的話僚機也會被綁在
@@ -787,14 +806,14 @@ export class AiController implements Controller {
         // 「沒有更好的事做」。命令的位階比較高。
         //
         // 這一格什麼都不必做，`attackShip` 已經寫滿 `raw` 了。
-      } else if (this.order !== null && this.order.kind !== 'focus') {
+      } else if (order !== null && order.kind !== 'focus') {
         // 【長機收到命令且場上沒有值得打的敵人】飛集合點。這一格與下面的
         // 平飛是同一個位置的兩種答案 —— 有命令就有地方去。
         //
         // 【集火要排除】它的 `point` 是零向量。這一格不看意圖，所以少了
         // 這個條件，「集火令的長機在目標剛陣亡的那一瞬沒有目標」就會變成
         // 「往世界原點的海平面俯衝」
-        rallyCommand(self, this.order.point, raw)
+        rallyCommand(self, order.point, raw, order.cruiseTas)
       } else {
         // 沒有目標也沒有站位時維持機首方向平飛。這比「保持上一格的指令」
         // 安全——上一格可能是一個俯衝中的脫離向量。
@@ -955,7 +974,7 @@ export class AiController implements Controller {
       // 見 `transit` 的註解。寫在這一行而不是另開一個 `Intent` 值：轉向的
       // 行為與 rally **逐字相同**（純追擊一個固定點、不開火），差別只在
       // 「有沒有東西搶得走它」—— 那是一個條件，不是一種飛法。
-      if (this.order !== null && this.order.kind !== 'focus') {
+      if (order !== null && order.kind !== 'focus') {
         this.intent = !this.transit && this.rules.defendLatch ? 'defend' : 'rally'
       }
 
@@ -1017,7 +1036,7 @@ export class AiController implements Controller {
       // 【集火沒有點】它的 `point` 是一個沒有意義的零向量。意圖不會是
       // 'rally' 所以那個分支不會跑，但傳一個假的點進去是在賭別人不會改
       // 那個分支
-      this.order === null || this.order.kind === 'focus' ? null : this.order.point,
+      order === null || order.kind === 'focus' ? null : order.point,
       raw, DEFAULT_STEER, this.track.latched, this.band,
     )
     // 【迴轉時不壓機鼻】見 `holdTurnLevel`。只管朝敵人轉的意圖 —— 脫離、防禦、

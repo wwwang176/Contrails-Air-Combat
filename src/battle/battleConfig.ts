@@ -61,6 +61,8 @@ export interface BattleConfig {
    * （德 M1）要前者、不要後者 —— 勝負是 `hunt`。
    */
   readonly route?: TransitRoute
+  /** transit 編隊的出生與目標真空速，m/s；省略時維持原行為。 */
+  readonly convoyCruiseTas?: number
   /**
    * 這一場的艦隊。**省略 = 一艘船都不產生**，而 `World` 那三段推進都是
    * 零長度早退，所以既有的空戰逐位元不變。

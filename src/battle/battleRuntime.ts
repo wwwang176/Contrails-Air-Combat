@@ -1,6 +1,7 @@
 import { AiController } from '../ai/AiController'
 import { PlayerController } from '../control/PlayerController'
 import { resetShip } from '../world/ships'
+import { resetConvoyIntercept } from '../ai/convoyIntercept'
 import { resetShipGuns } from '../world/shipGuns'
 import { resetGroundTarget } from '../world/groundTargets'
 import { resetBalloon } from '../world/balloons'
@@ -195,6 +196,7 @@ export function resetBattle(
     // 上一場記下的回升高度與離場（見 `AiController.resetAirTactics`）
     if (c.controller instanceof AiController) {
       c.controller.resetAirTactics()
+      resetConvoyIntercept(c.controller.convoyIntercept)
       continue
     }
     const ai = new AiController()

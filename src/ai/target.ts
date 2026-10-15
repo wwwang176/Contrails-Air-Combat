@@ -717,12 +717,13 @@ export function createTargetState(): TargetState {
  *
  * @param dt 距離上次呼叫的秒數。呼叫端是 10 Hz 的決策節拍，所以這裡通常是
  *           0.1 —— 最小停留因此以「秒」而不是「拍數」計。
+ * @param eligible 可選的任務候選遮罩；1 才能選，省略時所有敵機照舊參與。
  *
  * 熱路徑之外（10 Hz），但仍然不配置。
  */
 export function selectTarget(
   state: TargetState, board: TargetBoard, selfIndex: number,
-  dt: number, cfg: TargetConfig,
+  dt: number, cfg: TargetConfig, eligible?: Uint8Array,
 ): Aircraft | null {
   const { candidates, assignments, priority } = board
   const self = candidates[selfIndex]
@@ -738,7 +739,8 @@ export function selectTarget(
   // 【立即重選就是靠這裡】現任失效時把記憶清成「沒有現任」，下面的
   // `current < 0` 分支就會直接接受最佳解，完全繞過最小停留。
   const held = state.current >= 0 ? candidates[state.current] : undefined
-  if (held === undefined || !held.alive || held.team === self.team) {
+  if (held === undefined || !held.alive || held.team === self.team
+    || (eligible !== undefined && eligible[state.current] !== 1)) {
     state.current = -1
     state.dwell = 0
   }
@@ -747,6 +749,7 @@ export function selectTarget(
   let bestScore = -1
   for (let i = 0; i < candidates.length; i++) {
     const c = candidates[i]!
+    if (eligible !== undefined && eligible[i] !== 1) continue
     if (!c.alive || c.team === self.team) continue
     const locks = countLocks(board, self.team, selfIndex, i)
     const s = targetScore(self.aircraft, c.aircraft, locks, cfg, priority[i]!)

@@ -20,7 +20,7 @@ interface CommandSeats {
 
 type CommandBattle = CommandSeats & Pick<Battle,
   'commandUnits' | 'blueCommand' | 'redCommand' | 'blueOrderFlights' | 'redOrderFlights'
-  | 'blueFlightIndices' | 'redFlightIndices' | 'convoy' | 'evacOrder' | 'alert'>
+  | 'blueFlightIndices' | 'redFlightIndices' | 'convoy' | 'evacOrder' | 'alert' | 'cfg'>
 
 type PressureBattle = Pick<Battle, 'pressureTimer' | 'board'>
 
@@ -230,6 +230,9 @@ export function stepCommandLayer(b: CommandBattle, dt: number): void {
     for (let p = 0; p < flight.count; p++) {
       const ai = cs[flight.members[p]!]!.controller
       if (ai instanceof AiController) {
+        // 每步同步，增援、重生與玩家換座位後的新控制器也會收到任務。
+        ai.interceptConvoy = flight.team === b.cfg.tuning.interceptConvoy
+          && cs[flight.members[p]!]!.aircraft.spec.role === 'fighter'
         ai.order = order
         ai.focusTarget = focus
         // 【無條件飛完航程】被護送的那幾架連閃躲都不讓位，見

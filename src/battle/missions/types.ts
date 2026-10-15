@@ -518,6 +518,10 @@ export interface MissionBattle {
    * 機制、兩個可以分開調的數字。詳見 `mission.ts` 的 `MissionTuning`。
    */
   readonly convoyPriority: number
+  /** 哪一側以攔截敵方護送編隊為首要任務；省略時使用一般空戰。 */
+  readonly interceptConvoy?: 'mine' | 'theirs'
+  /** 航行中編隊的目標真空速，m/s；省略時沿用原本全油門航行。 */
+  readonly convoyCruiseTas?: number
   /**
    * 終點在該隊機首方向多遠，m。沒有終點的任務為 0。
    *

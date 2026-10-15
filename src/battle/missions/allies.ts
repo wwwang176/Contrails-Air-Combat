@@ -23,17 +23,21 @@ export const ALLIES: readonly MissionCard[] = [
        * 【藍隊 20 席用滿】4 架 P-51 加 16 架 B-17，沒有我方增援的空間。
        * 16 架排成三中隊箱型（`order.ts` 的 `pushBox`），一條橫線會超出抵達半徑。
        */
-      blueCount: 4, redCount: 10,
+      blueCount: 4, redCount: 3,
       convoyCount: 16, convoyBox: true,
-      // 【送到一半才算贏】湊不到 8 架時當場判敗（`mission.ts` 的 convoy）
-      need: 8,
+      // 至少送達 6 架；存活與已抵達合計不足 6 架時判敗。
+      need: 6,
+      targetDistance: 8450,
       /**
-       * 【3 而不是 `CONVOY` 的 5】**起始值，要重新掃描**：`docs/backlog.md`
-       * §1.3 的量測是 4 架轟炸機，16 架箱型的砲塔數是那時的四倍。
+       * 【優先突破護航、攻擊 B-17】提高被護送者的選敵權重，讓 Bf 109
+       * 更集中攻擊轟炸機；距離、射擊角度與自衛仍由共用 AI 判斷。
        */
-      convoyPriority: 3,
+      convoyPriority: 30,
+      interceptConvoy: 'theirs',
+      // 以 250 km/h 真空速護航，出生與途中都使用同一個目標速度。
+      convoyCruiseTas: 250 / 3.6,
       terrain: 'farmland',
-      // 南北一條走廊：箱子從 z +5.5 km 飛到終點 −12 km，從側面進場的波次在 x +8.2 km
+      // 南北一條走廊：箱子從 z +5.5 km 飛到終點 −8.45 km，從側面進場的波次在 x +8.2 km
       arena: { x: 0, z: -3000, radius: 12000 },
       // 夏天的晴天積雲，在 4,000 m 的轟炸機腳下
       clouds: { yMin: 1200, yMax: 1800, amount: 'some' },
@@ -64,37 +68,18 @@ export const ALLIES: readonly MissionCard[] = [
         },
       ],
       /**
-       * 【航程約 2 分 50 秒】終點在 z = −12,000、轟炸機出生在 z ≈ +5,000，
-       * 以 B-17G 的開局巡航 355 km/h 飛 17 km。兩個波次與重生填滿那三分鐘。
+       * 【航程約 3 分鐘】終點在 z = −8,450、轟炸機出生在 z ≈ +5,000，
+       * 以 250 km/h 巡航，計入抵達圈半徑與箱型縱深後約 3 分鐘達標。
+       * 不使用定時增援；開場小隊全滅後才整隊補回，最多兩批。
        *
-       * 紅隊席位 10 + 4 + 4 = 18 ≤ 20；重生回收席位，不另外佔。
+       * 紅隊同時最多 3 架，整場最多 3 + 3 + 3 = 9 架次。
        * 全部的秒數與架數都是**起始值，由試飛裁定。**
        */
       recycle: {
-        side: 'theirs', batches: 3,
+        side: 'theirs', batches: 2,
         warnKey: 'mission.allies-m1.recycle',
         warnLead: 5,
       },
-      waves: [
-        {
-          when: { kind: 'clock', at: 60 },
-          // 【不宣稱方位】預警在戰鬥中顯示，玩家那時可能朝任何方向
-          warnKey: 'mission.allies-m1.wave.more',
-          warnLead: 5,
-          side: 'theirs', spec: BF109K4, count: 4,
-          // 【從後方】省略的話沿用紅方的正面進場
-          starboard: Math.PI,
-        },
-        {
-          when: { kind: 'clock', at: 110 },
-          warnKey: 'mission.allies-m1.wave.join',
-          warnLead: 5,
-          side: 'theirs', spec: BF109K4, count: 4,
-          starboard: 90 * DEG,
-          // 【高出任務高度 1,000 m】從箱子與護航機的上方壓下來
-          altitude: 5000,
-        },
-      ],
     },
   },
   {

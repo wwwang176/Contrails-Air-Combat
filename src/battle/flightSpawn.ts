@@ -16,7 +16,7 @@ import type { FlightPlan } from './order'
 
 /** 生成只讀出生幾何與手感設定，不需要任務、UI 或戰果狀態。 */
 type SpawnConfig = Pick<BattleConfig,
-  'altitude' | 'tas' | 'entryRange' | 'schwarmSpacing' | 'lateralOffset' | 'altitudeSpread' | 'feels'>
+  'altitude' | 'tas' | 'entryRange' | 'schwarmSpacing' | 'lateralOffset' | 'altitudeSpread' | 'feels' | 'convoyCruiseTas'>
 
 const UP = new Vector3(0, 1, 0)
 const FWD = new Vector3(0, 0, -1)
@@ -209,7 +209,8 @@ export function spawnMember(
   placeMember(frame, k, made, SPAWN)
 
   // 排在出生點之後：IAS 的換算吃的是這一架真正的出生高度
-  const tas = openingTas(base, frame.nominalTas, cruise, SPAWN.y)
+  const transitTas = unit.duty === 'transit' ? cfg.convoyCruiseTas : undefined
+  const tas = openingTas(base, transitTas ?? frame.nominalTas, transitTas ?? cruise, SPAWN.y)
 
   const aircraft = new Aircraft(spec, SPAWN.y, tas)
   aircraft.state.position.copy(SPAWN)
