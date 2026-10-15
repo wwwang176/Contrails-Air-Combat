@@ -89,9 +89,9 @@ async function main(): Promise<void> {
     await page.screenshot({ path: SHOTS + 'vis-2-god.png' })
 
     await page.keyboard.down('ShiftLeft')
-    await page.keyboard.down('KeyE')          // 升高
+    await page.keyboard.down('KeyR')          // 升高
     await page.waitForTimeout(6000)
-    await page.keyboard.up('KeyE')
+    await page.keyboard.up('KeyR')
     await page.keyboard.up('ShiftLeft')
     await page.waitForTimeout(1500)
     await page.screenshot({ path: SHOTS + 'vis-3-high.png' })

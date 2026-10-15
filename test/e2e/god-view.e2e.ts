@@ -217,9 +217,9 @@ async function main(): Promise<void> {
     await page.keyboard.up('KeyS')
     // 【再爬高一段】對準之後畫面裡只有藍方 —— 紅方在更北邊。俯角固定 −45°，
     // 所以拉高就等於把視錐涵蓋的那塊地面按比例放大，兩隊才會同時進來。
-    await page.keyboard.down('KeyE')
+    await page.keyboard.down('KeyR')
     await page.waitForTimeout(1400)
-    await page.keyboard.up('KeyE')
+    await page.keyboard.up('KeyR')
     await page.keyboard.up('ShiftLeft')
     await page.waitForTimeout(800)
     await page.screenshot({ path: SHOTS + 'god-2b-markers.png' })
@@ -275,9 +275,9 @@ async function main(): Promise<void> {
     // 【怎麼判斷「海還在」】把鏡頭壓到低空俯視，畫面下半應該幾乎全是海色。
     // 網格的邊跑掉的話下半會出現大片天空色。**這一條沒有自動判準** ——
     // WebGL 那張畫布讀不回像素，只能人工看
-    await page.keyboard.down('KeyQ')
+    await page.keyboard.down('KeyF')
     await page.waitForTimeout(2000)
-    await page.keyboard.up('KeyQ')
+    await page.keyboard.up('KeyF')
     const far = await page.screenshot({ path: SHOTS + 'god-5-far-low.png' })
     console.log(`[人工看] ${SHOTS}god-5-far-low.png —— 畫面下半應為海，不是天空或黑色`)
 

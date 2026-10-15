@@ -116,8 +116,8 @@ export function attachInput(
         case 'KeyS': state.godMove.back = true; break
         case 'KeyA': state.godMove.left = true; break
         case 'KeyD': state.godMove.right = true; break
-        case 'KeyE': state.godMove.up = true; break
-        case 'KeyQ': state.godMove.down = true; break
+        case 'KeyR': state.godMove.up = true; break
+        case 'KeyF': state.godMove.down = true; break
         case 'ShiftLeft': case 'ShiftRight': state.godMove.boost = true; break
         case 'Tab': state.scoreboardHeld = true; break
         default: return
@@ -146,8 +146,8 @@ export function attachInput(
       case 'KeyS': hold.down = false; state.braking = false; state.godMove.back = false; break
       case 'KeyA': state.godMove.left = false; break
       case 'KeyD': state.godMove.right = false; break
-      case 'KeyE': state.godMove.up = false; break
-      case 'KeyQ': state.godMove.down = false; break
+      case 'KeyR': state.godMove.up = false; break
+      case 'KeyF': state.godMove.down = false; break
       case 'ShiftLeft': case 'ShiftRight': state.godMove.boost = false; break
       case 'Tab': state.scoreboardHeld = false; break
       case 'KeyV': state.zoom = false; break

@@ -87,9 +87,9 @@ async function main(): Promise<void> {
     await page.keyboard.press('KeyG')
     await page.waitForTimeout(1000)
     await page.keyboard.down('ShiftLeft')
-    await page.keyboard.down('KeyE')
+    await page.keyboard.down('KeyR')
     await page.waitForTimeout(6000)
-    await page.keyboard.up('KeyE')
+    await page.keyboard.up('KeyR')
     await page.keyboard.up('ShiftLeft')
     await page.waitForTimeout(2000)
 

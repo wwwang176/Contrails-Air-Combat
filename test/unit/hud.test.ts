@@ -555,11 +555,11 @@ describe('上帝視角的 HUD', () => {
   })
 
   /** 【提示行要換】上帝視角下 W/S 不是油門，寫著油門就是騙人 */
-  it('上帝視角的提示行提到 WASD 與 Q/E，不提油門的 W/S', () => {
+  it('上帝視角的提示行提到 WASD 與 R/F，不提油門的 W/S', () => {
     for (const table of [zh, en]) {
       const god = table[hintKeys(true)]
       expect(god).toContain('WASD')
-      expect(god).toContain('Q/E')
+      expect(god).toContain('R/F')
       expect(god).not.toContain('W/S')
       expect(table[hintKeys(false)]).toContain('W/S')
     }

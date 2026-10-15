@@ -503,14 +503,14 @@ describe('attachInput：上帝視角', () => {
     const state = createInputState()
     attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
     dom.win.fire('keydown', key('KeyG'))
-    for (const c of ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'ShiftLeft']) {
+    for (const c of ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyR', 'KeyF', 'ShiftLeft']) {
       dom.win.fire('keydown', key(c))
     }
     expect(state.godMove).toEqual({
       forward: true, back: true, left: true, right: true,
       up: true, down: true, boost: true,
     })
-    for (const c of ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'ShiftLeft']) {
+    for (const c of ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyR', 'KeyF', 'ShiftLeft']) {
       dom.win.fire('keyup', key(c))
     }
     expect(state.godMove).toEqual({
@@ -558,7 +558,7 @@ describe('attachInput：上帝視角', () => {
     const state = createInputState()
     const b = attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
     dom.win.fire('keydown', key('KeyG'))
-    dom.win.fire('keydown', key('KeyE'))
+    dom.win.fire('keydown', key('KeyR'))
     expect(state.godMove.up).toBe(true)
     b.clearHolds()
     expect(state.godMove.up).toBe(false)

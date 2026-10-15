@@ -399,7 +399,7 @@ export const en: Record<MessageKey, string> = {
   'touch.sight': 'Sight',
 
   'hud.keys': 'W/S throttle   V Zoom   Right mouse free look   I autopilot   G god view   H readouts   F3 perf   ESC pause',
-  'hud.godKeys': 'Mouse look   WASD move   Q/E up/down   Shift fast   Tab scores   G exit   ESC pause',
+  'hud.godKeys': 'Mouse look   WASD move   R/F up/down   Shift fast   Tab scores   G exit   ESC pause',
   'hud.aiBanner': 'AI is flying. Press I to take back control',
   'hud.godBanner': 'God view. AI is flying. Press G to return to the cockpit',
   'hud.returnToArena': 'Return to the battle area',
