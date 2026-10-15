@@ -47,8 +47,9 @@ export const HE111_BATTERY: Battery = {
  *   nose     量測  機體 z −2.93（機首尖端 −3.23 之後 0.30）、**偏右 x 0.25**
  *                   —— 真機的機首機槍座就是偏右的，那也是它機首不對稱的
  *                   原因（機首有固定 0.147 的橫向偏心）
- *   dorsal   量測  開口機體 z 1.85…3.05，取中段 2.40；機身背線在該站 1.59，
- *                   槍口取罩子外的 1.72
+ *   dorsal   量測  罩子後端的斜口：上緣 z 2.48、y 1.72，下緣接回機背
+ *                   z 2.85、y 1.36；蒙皮點取斜口中心 (0, 1.54, 2.65)，
+ *                   槍管從開口伸出去
  *   ventral  量測  吊艙後窗機體 z 4.51…5.51，艙底在 z 4.911 是 −1.077
  *                   （截面中心 −0.732、半高 0.345）；槍口取艙尾 5.30、y −0.85
  *   beam     量測  出貨 GLB（`he111.glb`）兩側側窗的玻璃：x ±0.70…0.82、
@@ -67,7 +68,7 @@ export const HE111_TURRETS: readonly Turret[] = [
     halfAngle: 40 * DEG, rotationRate: 90 * DEG, guns: 1 },
   // 【機背是 MG 131】H-16 起的實際配置，13 mm 取代原本的 7.92 mm。
   // 與 Bf109 的機首兩挺是**同一份** `MG131` —— 同一款槍就該是同一個物件
-  { id: 'dorsal', weapon: MG131, position: muzzleAt(new Vector3(0, 1.72, 2.40),
+  { id: 'dorsal', weapon: MG131, position: muzzleAt(new Vector3(0, 1.54, 2.65),
       new Vector3(0, 0.64, 0.77).normalize()),
     axis: new Vector3(0, 0.64, 0.77).normalize(),
     halfAngle: 70 * DEG, rotationRate: 90 * DEG, guns: 1 },
