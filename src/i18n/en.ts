@@ -45,7 +45,7 @@ export const en: Record<MessageKey, string> = {
   'dossier.strength.f6f5': 'Tough',
   'dossier.strength.b17g': 'Tough · Heavy guns',
   'dossier.strength.bf109k4': 'Heavy guns · Good climb',
-  'dossier.strength.fw190': 'Quick roll · Heavy guns',
+  'dossier.strength.fw190': 'Good climb · Quick roll',
   'dossier.strength.he111': 'Balanced',
   'dossier.strength.a6m5': 'Dogfighter',
   'dossier.strength.ki84': 'Heavy guns · All-rounder',

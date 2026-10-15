@@ -47,7 +47,7 @@ export const zh = {
   'dossier.strength.f6f5': '耐打',
   'dossier.strength.b17g': '耐打・火力強',
   'dossier.strength.bf109k4': '火力強・爬升快',
-  'dossier.strength.fw190': '滾轉快・火力強',
+  'dossier.strength.fw190': '爬升快・滾轉快',
   'dossier.strength.he111': '均衡',
   'dossier.strength.a6m5': '纏鬥強',
   'dossier.strength.ki84': '火力強・全能',
