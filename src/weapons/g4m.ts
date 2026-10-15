@@ -110,8 +110,8 @@ export const G4M_BATTERY: Battery = {
  * （`turretPivot`），表裡的蒙皮點照「旋轉點該在哪」反推：蒙皮點 = 旋轉點 + 0.45 × axis。
  *
  * ```
- *   nose     `G4M_NoseGlass`  Y −0.82…0.62、Z −6.10…−5.34    旋轉點在玻璃鼻錐的中心
- *                              (0, −0.10, −5.72)
+ *   nose     `G4M_NoseGlass`  Y −0.65…0.50、Z −6.10…−5.35    旋轉點在玻璃鼻錐的中心
+ *                              (0, −0.075, −5.72)
  *   dorsal   `G4M_Turret`     半橢球，底貼機背：Y 1.04…1.46、Z 2.35…3.35
  *                              旋轉點在球心 = 底面中心 (0, 1.04, 2.85)
  *   beamL/R  `G4M_BlisterL/R` 半橢球，底貼機身側面：X ±0.97…1.22、Y −0.43…0.13、
@@ -133,7 +133,7 @@ export const G4M_TURRETS: readonly Turret[] = [
   {
     id: 'nose',
     weapon: TYPE92,
-    position: muzzleAt(new Vector3(0, -0.10, -6.17), new Vector3(0, 0, -1)),
+    position: muzzleAt(new Vector3(0, -0.075, -6.17), new Vector3(0, 0, -1)),
     axis: new Vector3(0, 0, -1),
     halfAngle: 45 * DEG, // 電動 360° 迴轉鼻錐，射界比 He 111 的球窩座好
     rotationRate: 90 * DEG,
