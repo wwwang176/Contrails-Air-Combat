@@ -223,6 +223,7 @@ export const en: Record<MessageKey, string> = {
   'back.campaign': 'Campaigns',
 
   'skirmish.title': 'Order of battle',
+  'skirmish.intro': 'Enemy aircraft ahead. Prepare to engage.',
   'skirmish.sub': 'Up to five flights of four',
   'skirmish.presets': 'Scenarios',
   'skirmish.terrain': 'Battlefield',
@@ -239,6 +240,7 @@ export const en: Record<MessageKey, string> = {
   'confirm.abandon.no': 'Keep flying',
   'confirm.restart.title': 'Restart this battle?',
   'confirm.menu.title': 'Leave this battle for the main menu?',
+  'confirm.setup.title': 'Leave this battle for skirmish setup?',
   'tutorial.ok': 'Got it',
 
   'settings.title': 'Settings',

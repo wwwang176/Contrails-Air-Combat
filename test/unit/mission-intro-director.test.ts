@@ -32,6 +32,21 @@ function fixture() {
 }
 
 describe('黑邊吃遊戲時間', () => {
+  it('鏡位序號跟隨導覽時鐘，跳過、停止與重播都不殘留', () => {
+    const f = fixture()
+    expect(f.director.shotIndex).toBe(-1)
+    f.director.begin([PAN, PAN], f.input, new Quaternion())
+    expect(f.director.shotIndex).toBe(0)
+    f.director.frameStart(f.input, f.camera, 2)
+    expect(f.director.shotIndex).toBe(1)
+    f.input.skipRequested = true
+    f.director.frameStart(f.input, f.camera, 0)
+    expect(f.director.shotIndex).toBe(-1)
+    f.director.begin([PAN], f.input, new Quaternion())
+    expect(f.director.shotIndex).toBe(0)
+    f.director.stop()
+    expect(f.director.shotIndex).toBe(-1)
+  })
   it('開始時收著，照遊戲時間滑入；不推進（暫停）就不動', () => {
     const f = fixture()
     f.director.begin([PAN], f.input, new Quaternion())

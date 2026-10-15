@@ -34,6 +34,7 @@ export function createMissionHud(
 
   function fillMissionHud(
     battle: MissionDisplay, mode: 'skirmish' | 'mission', pendingMission: MissionCardText | null, elapsed: number,
+    skirmishOpening = false,
   ): void {
     // ── 任務目標 ──────────────────────────────────────────
     //
@@ -44,18 +45,18 @@ export function createMissionHud(
     // 【計量的種類跟著 `hasTarget` 走】有撤離點就顯示距離、沒有就顯示剩餘
     // 敵機數 —— 與 `stepMission` 寫進 `metric` 的意思逐條對應。
     const m = battle.mission
-    hudFrame.objectiveActive = mode === 'mission'
+    hudFrame.objectiveActive = mode === 'mission' || skirmishOpening
     // 【撤離節拍改寫過的優先】它把 `mission` 換掉了，卡片上那一句已經不成立
     const objectiveKey = battle.objectiveKey ?? pendingMission?.battle.objectiveKey ?? null
     hudFrame.objectiveText = objectiveKey === null ? '' : t(objectiveKey)
     hudFrame.objectiveMetric = m.metric
     hudFrame.objectiveMetricKind = m.metricKind
     // 【橫幅在目標改變的那一刻出現】開場是卡片上那一句短句；返航節拍換掉
-    // 目標時是那一則訊息 —— 兩者走同一條。遭遇戰沒有橫幅
+    // 目標時是那一則訊息 —— 兩者走同一條。遭遇戰只在第一鏡顯示電報
     //
     // 【以鍵判斷換了沒有】語言切換只換字，不算新的橫幅
     const banner = mode !== 'mission'
-      ? null
+      ? skirmishOpening ? 'skirmish.intro' : null
       : battle.objectiveKey ?? pendingMission?.battle.bannerKey ?? objectiveKey
     if (banner !== bannerKey) {
       bannerKey = banner

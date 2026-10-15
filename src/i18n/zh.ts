@@ -225,6 +225,7 @@ export const zh = {
   'back.campaign': '陣營',
 
   'skirmish.title': '出擊編組',
+  'skirmish.intro': '前方發現敵機，準備接戰。',
   'skirmish.sub': '最多五個小隊，每隊四架',
   'skirmish.presets': '想定',
   'skirmish.terrain': '戰場',
@@ -241,6 +242,7 @@ export const zh = {
   'confirm.abandon.no': '繼續任務',
   'confirm.restart.title': '要重新開始這一場嗎？',
   'confirm.menu.title': '要離開這一場回主選單嗎？',
+  'confirm.setup.title': '要離開這一場回遭遇戰設定嗎？',
   'tutorial.ok': '了解',
 
   'settings.title': '設定',

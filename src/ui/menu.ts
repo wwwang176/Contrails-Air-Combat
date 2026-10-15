@@ -232,10 +232,10 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     if (act === 'tutorialOk') { nextTutorial(); return }
     if (act === 'planePickCancel') { closeOverlay(planePick); return }
     if (act === 'help') { hooks.onHelp(); return }
-    // 【回主選單也要問過】遭遇戰的出口，按下去這一場就沒了 —— 與放棄任務同一類
+    // 【回設定頁也要問過】沿用原本按鈕事件名稱，確認後回到遭遇戰編組。
     if (act === 'toMenu') { openOverlay(menuAsk); return }
     if (act === 'toMenuNo') { closeOverlay(menuAsk); return }
-    if (act === 'toMenuYes') { closeOverlay(menuAsk); hooks.onEvent('toMenu'); return }
+    if (act === 'toMenuYes') { closeOverlay(menuAsk); hooks.onEvent('toSetup'); return }
     if (act === 'abandon') { openOverlay(confirm); return }
     if (act === 'abandonNo') { closeOverlay(confirm); return }
     if (act === 'abandonYes') { closeOverlay(confirm); hooks.onEvent('toMission'); return }

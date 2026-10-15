@@ -9,12 +9,12 @@ const srcOf = (name: string): string =>
   Object.entries(SOURCES).find(([k]) => k.endsWith(name))![1].replace(/\r\n/g, '\n')
 
 /**
- * 暫停選單的「回主選單」要先問過（遭遇戰的出口）。
+ * 暫停選單的「回設定頁」要先問過（遭遇戰的出口）。
  *
  * 【它在防什麼】按下去這一場就結束了，誤按回不去。
  */
-describe('暫停選單：回主選單要先確認', () => {
-  it('index.html 有回主選單的確認框，兩顆按鈕', () => {
+describe('暫停選單：回設定頁要先確認', () => {
+  it('index.html 有回設定頁的確認框，兩顆按鈕', () => {
     const html = srcOf('index.html')
     const from = html.indexOf('<section id="menu-confirm"')
     expect(from).toBeGreaterThanOrEqual(0)
@@ -24,7 +24,7 @@ describe('暫停選單：回主選單要先確認', () => {
     expect(section).toContain('data-act="toMenuYes"')
   })
 
-  it('按回主選單只打開確認框；確認之後才換畫面', () => {
+  it('按回設定頁只打開確認框；確認之後才換畫面', () => {
     const menu = srcOf('menu.ts')
     const line = (act: string): string => {
       const at = menu.indexOf(`if (act === '${act}')`)
@@ -36,10 +36,10 @@ describe('暫停選單：回主選單要先確認', () => {
     expect(line('toMenuNo')).toContain('closeOverlay(')
     expect(line('toMenuNo')).not.toContain('onEvent')
     expect(line('toMenuYes')).toContain('closeOverlay(')
-    expect(line('toMenuYes')).toContain("onEvent('toMenu')")
+    expect(line('toMenuYes')).toContain("onEvent('toSetup')")
   })
 
-  it('關掉暫停時一併關掉回主選單的確認框', () => {
+  it('關掉暫停時一併關掉回設定頁的確認框', () => {
     const menu = srcOf('menu.ts')
     const from = menu.indexOf('setPaused(v) {')
     const body = menu.slice(from, menu.indexOf('\n    },', from))

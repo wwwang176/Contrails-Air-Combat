@@ -129,6 +129,10 @@ export function introCameraPose(
 
 /** 跟拍的對象，見 `IntroSubject`。沒有就回 null */
 function subjectPose(scene: IntroScene, subject: IntroSubject): Pose | null {
+  if ('aircraft' in subject) {
+    const plane = scene.combatants.find(c => c.index === subject.aircraft && c.alive)
+    return plane === undefined ? null : scene.aircraftPose?.(plane) ?? plane.aircraft.state
+  }
   if ('player' in subject) {
     const player = scene.player
     return player?.alive === true ? scene.aircraftPose?.(player) ?? player.aircraft.state : null
