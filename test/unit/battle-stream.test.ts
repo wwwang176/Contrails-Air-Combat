@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { createBattle, stepBattle } from '../../src/battle/setup'
 import { missionConfigFrom } from '../../src/battle/missions'
-import { readyCard } from '../fixtures/mission'
+import { cardWith, readyCard } from '../fixtures/mission'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Command, Controller } from '../../src/control/Controller'
 
 /**
  * # 轟炸機流：有終點、但勝負不看抵達
  *
- * 德 M1 的 B-17 是 transit —— 飛向終點、不交戰、不投彈。規則是 hunt，抵達不
+ * 合成測試卡的 B-17 是 transit —— 飛向終點、不交戰、不投彈。規則是 hunt，抵達不
  * 判定任何事；到了終點就從起點重新進場（`conveyor` 節拍），離場不算擊落。
  */
 
@@ -23,8 +23,14 @@ class Idle implements Controller {
   }
 }
 
+function streamConfig() {
+  return missionConfigFrom(cardWith('germany-m1', {
+    convoyCount: 8, convoyDuty: 'stream', huntCount: 6, huntRole: 'bomber',
+  }))
+}
+
 function battle() {
-  return createBattle(new Idle(), missionConfigFrom(readyCard('germany-m1')), 20260913)
+  return createBattle(new Idle(), streamConfig(), 20260913)
 }
 
 describe('轟炸機流', () => {
@@ -65,7 +71,7 @@ describe('轟炸機流', () => {
 
   it('有 transit 卻既不是護送規則、也沒有終點，照樣拋錯', () => {
     // 【傳送帶一起拿掉】它自己也會因為沒有終點而拋，留著的話量不到這一條
-    const { route: _route, beats, ...cfg } = missionConfigFrom(readyCard('germany-m1'))
+    const { route: _route, beats, ...cfg } = streamConfig()
     const rest = (beats ?? []).filter((x) => x.kind !== 'conveyor')
     expect(() => createBattle(new Idle(), { ...cfg, beats: rest }, 1)).toThrow()
   })

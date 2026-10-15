@@ -156,9 +156,9 @@ export const zh = {
   'mission.allies-m3.wave.torpedo': '低空發現敵方魚雷機',
 
   'mission.germany-m1.title': '梅澤堡上空',
-  'mission.germany-m1.summary': '駕駛 Bf 109 K-4 衝進 B-17 轟炸機群，甩開護航的野馬，把轟炸機打下來。',
+  'mission.germany-m1.summary': '駕駛 Bf 109 K-4 攔截 B-17 轟炸機群，擊落全部 14 架；任何一架抵達終點，攔截即告失敗。',
   'mission.germany-m1.place': '德國中部 梅澤堡—洛伊納',
-  'mission.germany-m1.objective': '擊落敵方轟炸機',
+  'mission.germany-m1.objective': '擊落全部 14 架轟炸機',
   'mission.germany-m1.banner': '轟炸機群來了，攔住它們',
   'mission.germany-m1.wave.escort': '前方轟炸機群，有戰鬥機護航',
   'mission.germany-m1.wave.more': '警告：敵方護航機接近中',

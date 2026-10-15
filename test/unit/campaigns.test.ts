@@ -161,15 +161,18 @@ describe('德 M2 波爾塔瓦', () => {
 describe('德 M1 梅澤堡上空', () => {
   const card = MISSIONS.germany.find((m) => m.id === 'germany-m1') as ReadyMissionCard
 
-  it('擊落 6 架轟炸機；8 架 K-4 攔 8 架 B-17 的轟炸機流；洛伊納、十一月正午', () => {
+  it('六架 K-4 攔截十四架 B-17，全部擊落獲勝、任何一架抵達判敗', () => {
     const b = card.battle
-    expect(b.huntCount).toBe(6)
-    expect(b.huntRole).toBe('bomber')
+    expect(b.need).toBe(1)
+    expect(b.huntCount).toBeUndefined()
+    expect(b.interceptConvoy).toBe('mine')
+    expect(b.convoyCruiseTas).toBe(250 / 3.6)
     expect(b.blueSpec.id).toBe('bf109k4')
-    expect(b.blueCount).toBe(8)
+    expect(b.blueCount).toBe(6)
     expect(b.convoySpec?.id).toBe('b17g')
-    expect(b.convoyCount).toBe(8)
-    expect(b.convoyDuty).toBe('stream')
+    expect(b.convoyCount).toBe(14)
+    expect(b.convoyRows).toEqual({ size: 6, depth: 600 })
+    expect(b.convoyDuty).toBeUndefined()
     expect(b.redCount).toBe(0)
     expect(b.targetDistance).toBeGreaterThan(0)
     expect(b.targetRadius).toBeGreaterThan(0)
@@ -183,26 +186,32 @@ describe('德 M1 梅澤堡上空', () => {
     expect(card.battle.recycle).toBeUndefined()
   })
 
-  it('護航機兩批各四架 P-51', () => {
+  it('護航機開場四加二架 P-51，第 45 秒再來四架', () => {
     const waves = card.battle.waves!
-    expect(waves).toHaveLength(2)
+    expect(waves).toHaveLength(3)
+    expect(waves.map(w => w.count)).toEqual([4, 2, 4])
+    expect(waves.map(w => w.when)).toEqual([
+      { kind: 'clock', at: 0 }, { kind: 'clock', at: 0 }, { kind: 'clock', at: 41 },
+    ])
+    expect(waves.map(w => w.warnLead)).toEqual([0, 0, 4])
     for (const w of waves) {
       expect(w.side).toBe('theirs')
       expect(w.spec.id).toBe('p51d')
-      expect(w.count).toBe(4)
     }
   })
 
-  it('照這張卡建得起來、規則是 hunt、B-17 在紅隊而且是 transit、跑一秒不炸', () => {
+  it('單趟攔截建得起來、B-17 在紅隊而且是 transit、跑一秒不炸', () => {
     const cfg = missionConfigFrom(card)
     const bombers = cfg.units.filter((u) => u.members[0]!.id === 'b17g')
-    expect(bombers).toHaveLength(8)
+    expect(bombers).toHaveLength(14)
+    expect(cfg.units.filter(u => u.team === 'blue').map(u => u.members.length)).toEqual([4, 2])
     for (const u of bombers) {
       expect(u.team).toBe('red')
       expect(u.duty).toBe('transit')
     }
     const b = createBattle({ update() {} }, cfg, 1)
-    expect(b.cfg.rules).toEqual({ kind: 'hunt', count: 6, role: 'bomber' })
+    expect(b.cfg.rules).toMatchObject({ kind: 'convoy', owner: 'red', need: 1 })
+    expect(b.cfg.beats?.some(beat => beat.kind === 'conveyor')).toBe(false)
     for (let i = 0; i < 240; i++) stepBattle(b, 1 / 240)
     expect(b.mission.outcome).toBe('fighting')
   })

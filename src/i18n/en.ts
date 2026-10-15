@@ -154,9 +154,9 @@ export const en: Record<MessageKey, string> = {
   'mission.allies-m3.wave.torpedo': 'Torpedo bombers down low',
 
   'mission.germany-m1.title': 'Over Merseburg',
-  'mission.germany-m1.summary': 'Fly the Bf 109 K-4 into the B-17 stream, shake off the escorting Mustangs and bring the bombers down.',
+  'mission.germany-m1.summary': 'Intercept the B-17 formation in your Bf 109 K-4 and shoot down all 14 bombers. If any bomber reaches its destination, the interception fails.',
   'mission.germany-m1.place': 'Merseburg–Leuna, central Germany',
-  'mission.germany-m1.objective': 'Shoot down the enemy bombers',
+  'mission.germany-m1.objective': 'Shoot down all 14 bombers',
   'mission.germany-m1.banner': 'Bombers inbound! Stop them',
   'mission.germany-m1.wave.escort': 'Bombers ahead with fighter escorts',
   'mission.germany-m1.wave.more': 'Warning: escort fighters closing',

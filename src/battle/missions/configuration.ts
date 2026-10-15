@@ -142,9 +142,8 @@ function routePoint(
  * 這裡的來源是本檔的常數表，夾制只會把一個寫錯的關卡藏起來。
  *
  * 【但「寫錯就會炸」只對一半】`blueCount` 為 0 時 `createBattle` 確實會拋
- * 「玩家沒有被建立」；**大於 `MAX_SIDE` 不會拋**，只會建一個超出特效池容量
- * 假設的超大戰場。所以那道保險由
- * `test/unit/campaigns.test.ts` 補上。
+ * 「玩家沒有被建立」；**雙方總席位超出特效池容量也不會拋**。
+ * 因此由任務測試檢查設定，波次測試也把增援預留算進 `MAX_COMBATANTS`。
  */
 export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
   const b = card.battle
