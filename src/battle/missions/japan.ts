@@ -90,6 +90,7 @@ export const JAPAN: readonly MissionCard[] = [
       // 誤成 transit 的話它們會直飛到一個不存在的終點
       convoySpec: G4M, convoyCount: 8, convoyDuty: 'strike',
       convoyRows: { size: 4, depth: 140 },
+      convoySpawnAltitude: 201,
       // 【F4F 先打陸攻】沒有偏置時 F4F 會去纏會還手的零戰。20 倍以上 F4F 鎖陸攻的
       // 比例就不再上升。**起始值。**
       bomberPriority: 20,
@@ -104,20 +105,20 @@ export const JAPAN: readonly MissionCard[] = [
        * 【開場導覽】先交代護送的魚雷機與其攻擊目標，再呈現玩家的高空掩護位置：
        *
        * ```
-       *   1  G4M 每排四架、前後相隔 140 m，從右後方約 30 度近拍後排最右一架，其餘編隊在後景
+       *   1  G4M 由 201 m 進場，每排四架、前後相隔 140 m；右後方約 30 度近拍後排最右一架
        *   2  前方巡洋艦第 2.5～5 秒由 (0, 0, −270) 航行到 (0, 0, −290)，左舷前上方近拍艦身與砲塔
-       *   3  第 6 秒玩家約在 (−750, 1,311, 4,249)，魚雷機在 y 529、z 4,450 附近；
+       *   3  第 6 秒玩家約在 (−750, 1,311, 4,249)，魚雷機在 y 180、z 4,450 附近；
        *      由玩家後上方朝北俯拍，讓零戰在前景、魚雷機兩排在下方後景，漸變回操作視角
        * ```
        *
        * 魚雷機鏡頭沿航線移動，避免轉彎時鏡頭繞機身、甩出後方編隊；玩家跟拍以俯角
-       * 涵蓋約 800 m 下方的被護送編隊。**鏡位與秒數是起始值。**
+       * 涵蓋約 1,100 m 下方的被護送編隊。**鏡位與秒數是起始值。**
        */
       intro: [
         {
           kind: 'pan', seconds: 2.5, fov: 50,
-          from: { x: -370, y: 730, z: 5122 }, to: { x: -364, y: 701, z: 4897 },
-          lookFrom: { x: -435, y: 705, z: 5070 }, lookTo: { x: -429, y: 676, z: 4845 },
+          from: { x: -335, y: 226, z: 5122 }, to: { x: -331, y: 208, z: 4893 },
+          lookFrom: { x: -400, y: 201, z: 5070 }, lookTo: { x: -396, y: 183, z: 4841 },
         },
         {
           kind: 'pan', seconds: 2.5, fov: 42,
@@ -162,7 +163,8 @@ export const JAPAN: readonly MissionCard[] = [
       arena: { x: 2000, z: 2000, radius: 11000 },
       // 【開場導覽】先在車隊第一輛卡車的前方路邊貼地拍，卡車由 30 m 外迎面開到 12 m
       // （它前面 30 m 是半履帶車，鏡頭在兩車之間）；再從內陸高處沿灘頭橫移，LST
-      // 卸貨區旁的九輛目標卡車（x 1,900～3,700）都在畫面裡。**鏡位與秒數是起始值。**
+      // 卸貨區旁的九輛目標卡車（x 1,900～3,700）都在畫面裡；最後由右前側特寫玩家 Ki-84。
+      // **鏡位與秒數是起始值。**
       intro: [
         {
           kind: 'follow', seconds: 3.6, subject: { ground: 'usTruck' },
@@ -172,6 +174,10 @@ export const JAPAN: readonly MissionCard[] = [
           kind: 'pan', seconds: 3.4,
           from: { x: 2300, y: 450, z: -2700 }, to: { x: 3300, y: 450, z: -2700 },
           lookFrom: { x: 2600, y: 0, z: -3700 }, lookTo: { x: 3000, y: 0, z: -3700 },
+        },
+        {
+          kind: 'follow', seconds: 3, subject: { player: true },
+          back: -22, backTo: -18, up: 5, side: 25, sideTo: 29, lead: 0, lookUp: 1, fov: 38,
         },
       ],
       // 暴雨的雲低又多；暗色雲與天空接近，要多才看得出來

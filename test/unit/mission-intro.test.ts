@@ -143,6 +143,19 @@ describe('follow 的迎面低角度', () => {
     expect(look.y).toBeCloseTo(t.position.y + 1.5, 6)
   })
 
+  it('橫移依機體右側方向推進，超出鏡位時間仍停在端點', () => {
+    const t = truck()
+    t.orientation.setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 2)
+    const shot = { ...FRONT, side: 6, sideTo: 10 }
+    const pos = new Vector3()
+    const look = new Vector3()
+    for (const [time, side] of [[-1, 6], [2, 8], [5, 10]]) {
+      introCameraPose(shot, time!, scene([t]), pos, look)
+      expect(pos.z).toBeCloseTo(-side!, 6)
+      expect(look.toArray()).toEqual([0, t.position.y + 1.5, 0])
+    }
+  })
+
   it('高度貼著鏡頭正下方的地面：地比卡車高的地方不會鑽進地裡', () => {
     const t = truck()
     const pos = new Vector3()

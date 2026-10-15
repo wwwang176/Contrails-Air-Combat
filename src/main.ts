@@ -118,6 +118,7 @@ import { TORPEDO_RUN_SAMPLES } from './world/torpedo'
 import { resetDamageMarks } from './hud/damageMarks'
 import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
 import { createMissionIntroDirector } from './app/missionIntroDirector'
+import { skirmishIntro } from './app/skirmishIntro'
 import { nearestGroundIndex, type IntroScene } from './app/missionIntro'
 import type { BombState, Impact } from './world/bomb'
 import { resetBombBay, type BombBay } from './weapons/bomb'
@@ -329,12 +330,12 @@ const introScene: IntroScene = {
 
 /**
  * 這一場的開場導覽。**每次進關卡都播**（出擊、再打一場、重新開始）；任務卡沒有
- * 鏡位的關與遭遇戰不播
+ * 鏡位的關不播；遭遇戰依當場編組建立兩個跟拍鏡位
  */
 function beginMissionIntro(): void {
   introEl.classList.toggle('touch', touch.active)
   missionIntro.begin(
-    mode === 'mission' ? pendingMission?.battle.intro : undefined,
+    mode === 'mission' ? pendingMission?.battle.intro : skirmishIntro(world.combatants, player, battle.flights),
     input, player.aircraft.state.orientation,
   )
 }
@@ -1845,7 +1846,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
 
   // 【導覽期間橫幅停在中央】結束後才接著滑進任務列
   if (missionIntro.active) holdMissionBanner(elapsed)
-  fillMissionHud(battle, mode, pendingMission, elapsed)
+  fillMissionHud(battle, mode, pendingMission, elapsed, mode === 'skirmish' && missionIntro.shotIndex === 0)
   if (hudFrame.objectiveHasTarget) {
     const target = battle.mission.target
     hudFrame.objectivePoint.behind = projectMarker(target.x, target.y, target.z, hudFrame.objectivePoint)

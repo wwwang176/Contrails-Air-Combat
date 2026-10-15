@@ -39,6 +39,22 @@ describe('任務 HUD：敵方還沒警戒', () => {
 })
 
 describe('任務 HUD 的資料', () => {
+  it('遭遇戰只在第一鏡播電報；切鏡或跳過後收起，重開可再播', () => {
+    const f = fixture()
+    f.feed.fillMissionHud(f.battle, 'skirmish', null, 0, true)
+    f.feed.fillMissionHud(f.battle, 'skirmish', null, 2, true)
+    expect(f.frame.objectiveActive).toBe(true)
+    expect(f.frame.objectiveBanner).toBe('a:skirmish.intro')
+    expect(f.frame.objectiveBannerTypeAge).toBe(2)
+    expect(f.playPool).toHaveBeenCalledTimes(1)
+    f.feed.fillMissionHud(f.battle, 'skirmish', null, 3, false)
+    expect(f.frame.objectiveActive).toBe(false)
+    expect(f.frame.objectiveBanner).toBe('')
+    f.feed.resetMissionBanner()
+    f.feed.fillMissionHud(f.battle, 'skirmish', null, 10, true)
+    expect(f.frame.objectiveBannerTypeAge).toBe(0)
+    expect(f.playPool).toHaveBeenCalledTimes(2)
+  })
   it('橫幅／訊息換了新的鍵才播無線電；沒有時把經過時間清成 -1', () => {
     const f = fixture()
     f.battle.message = MESSAGE

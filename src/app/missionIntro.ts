@@ -116,9 +116,10 @@ export function introCameraPose(
   RIGHT.set(1, 0, 0).applyQuaternion(orientation)
   const k = Math.min(1, Math.max(0, local / shot.seconds))
   const back = shot.backTo === undefined ? shot.back : shot.back + (shot.backTo - shot.back) * k
+  const side = shot.sideTo === undefined ? shot.side : shot.side + (shot.sideTo - shot.side) * k
   pos.copy(t.position)
     .addScaledVector(FWD, -back)
-    .addScaledVector(RIGHT, shot.side)
+    .addScaledVector(RIGHT, side)
   const ground = scene.groundAt
   const floor = ground === undefined ? t.position.y : Math.max(t.position.y, ground(pos.x, pos.z))
   pos.y = floor + shot.up
@@ -129,6 +130,10 @@ export function introCameraPose(
 
 /** 跟拍的對象，見 `IntroSubject`。沒有就回 null */
 function subjectPose(scene: IntroScene, subject: IntroSubject): Pose | null {
+  if ('aircraft' in subject) {
+    const plane = scene.combatants.find(c => c.index === subject.aircraft && c.alive)
+    return plane === undefined ? null : scene.aircraftPose?.(plane) ?? plane.aircraft.state
+  }
   if ('player' in subject) {
     const player = scene.player
     return player?.alive === true ? scene.aircraftPose?.(player) ?? player.aircraft.state : null

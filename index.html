@@ -891,9 +891,9 @@
         <button class="dossier-action" data-act="resume" data-i18n="common.resume">繼續</button>
         <button class="command-button" data-act="settings" data-i18n="settings.title">設定</button>
         <button class="command-button" data-act="restart" data-i18n="pause.restart">重新開始</button>
-        <!-- 兩個出口依模式擇一顯示（main.ts）：遭遇戰回主選單，任務先問過
+        <!-- 兩個出口依模式擇一顯示（main.ts）：遭遇戰回設定頁，任務先問過
              再回該陣營的任務表。理由與結算板相同：不逐幀改 data-act -->
-        <button class="command-button pause-exit" data-act="toMenu" data-i18n="pause.toMenu">回主選單</button>
+        <button class="command-button pause-exit" data-act="toMenu" data-i18n="board.toSetup">回設定頁</button>
         <button class="command-button pause-exit" data-act="abandon" hidden data-i18n="pause.abandon">放棄任務</button>
         </div>
         </div>
@@ -943,13 +943,13 @@
           <footer><button class="command-button" data-act="planePickCancel" data-i18n="common.cancel">取消</button></footer>
         </div>
       </section>
-      <!-- 回主選單的確認。遭遇戰的出口，與放棄任務同一類 -->
+      <!-- 回設定頁的確認。遭遇戰的出口，與放棄任務同一類 -->
       <section id="menu-confirm" class="screen command-overlay command-confirm" style="--v:.60" hidden>
         <div class="ask">
-          <h2 data-i18n="confirm.menu.title">要離開這一場回主選單嗎？</h2>
+          <h2 data-i18n="confirm.setup.title">要離開這一場回遭遇戰設定嗎？</h2>
           <div class="row">
             <button class="go" data-act="toMenuNo" data-i18n="common.resume">繼續</button>
-            <button class="btn" data-act="toMenuYes" data-i18n="pause.toMenu">回主選單</button>
+            <button class="btn" data-act="toMenuYes" data-i18n="board.toSetup">回設定頁</button>
           </div>
         </div>
       </section>

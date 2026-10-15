@@ -17,7 +17,7 @@ export type ScreenEvent =
   | 'back'       // 子畫面的返回
   | 'fight'      // 開始戰鬥／再打一場
   | 'toMenu'     // 暫停選單：回主選單
-  | 'toSetup'    // 結算：回設定頁（遭遇戰）
+  | 'toSetup'    // 暫停／結算：回設定頁（遭遇戰）
   | 'toMission'  // 結算：回任務列表（任務模式）
 
 /**
