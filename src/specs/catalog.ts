@@ -2,6 +2,7 @@ import { P51D, P51D_HISTORICAL } from './p51d'
 import { F6F5, F6F5_HISTORICAL } from './f6f5'
 import { F4F4, F4F4_HISTORICAL } from './f4f4'
 import { BF109K4, BF109K4_HISTORICAL } from './bf109k4'
+import { FW190, FW190_HISTORICAL } from './fw190'
 import { KI84, KI84_HISTORICAL } from './ki84'
 import { A6M5, A6M5_HISTORICAL } from './a6m5'
 import { G4M, G4M_HISTORICAL } from './g4m'
@@ -19,7 +20,7 @@ import type { AircraftSpec, HistoricalReference } from './types'
  *
  * 【順序】戰鬥機在前、轟炸機在後。選單照它畫卡片。
  */
-export const ALL_SPECS: readonly AircraftSpec[] = [P51D, BF109K4, F6F5, F4F4, KI84, A6M5, B17G, HE111, JU87, G4M]
+export const ALL_SPECS: readonly AircraftSpec[] = [P51D, BF109K4, FW190, F6F5, F4F4, KI84, A6M5, B17G, HE111, JU87, G4M]
 
 /**
  * 機種代號 → 史實參考。編組頁顯示極速用。
@@ -29,7 +30,7 @@ export const ALL_SPECS: readonly AircraftSpec[] = [P51D, BF109K4, F6F5, F4F4, KI
  * 這張表的完整性由測試守：`ALL_SPECS` 每個 id 都要在表上。
  */
 export const HISTORICAL: Record<string, HistoricalReference> = {
-  p51d: P51D_HISTORICAL, bf109k4: BF109K4_HISTORICAL, f6f5: F6F5_HISTORICAL, f4f4: F4F4_HISTORICAL,
+  p51d: P51D_HISTORICAL, bf109k4: BF109K4_HISTORICAL, fw190: FW190_HISTORICAL, f6f5: F6F5_HISTORICAL, f4f4: F4F4_HISTORICAL,
   ki84: KI84_HISTORICAL, a6m5: A6M5_HISTORICAL,
   b17g: B17G_HISTORICAL, he111: HE111_HISTORICAL, ju87: JU87_HISTORICAL, g4m: G4M_HISTORICAL,
 }

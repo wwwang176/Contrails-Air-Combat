@@ -188,6 +188,7 @@ export const POOLS = {
   'volley-type99-2x2': range('volley-type99-2x2', 3),
   'volley-ho103x2': range('volley-ho103x2', 3),
   'volley-ho5x2': range('volley-ho5x2', 3),
+  'volley-mg151x2': range('volley-mg151x2', 3),
   /**
    * 前機槍過熱時扣扳機的空響。**與齊射同一套分組**（武器 id ×挺數）：同一組的 N 挺各「喀」一下，
    * 錯開 0～15 ms、音高 ±2.5%、音量 ±1.5 dB、左右照槍的位置（與齊射的左右相同）。
@@ -203,6 +204,7 @@ export const POOLS = {
   'gun-jam-type99-2x2': range('gun-jam-type99-2x2', 3),
   'gun-jam-ho103x2': range('gun-jam-ho103x2', 3),
   'gun-jam-ho5x2': range('gun-jam-ho5x2', 3),
+  'gun-jam-mg151x2': range('gun-jam-mg151x2', 3),
 } as const satisfies Record<string, readonly string[]>
 export type Pool = keyof typeof POOLS
 
@@ -212,11 +214,14 @@ export type Pool = keyof typeof POOLS
  * 【Ju 87 的是兩挺翼內 MG 17（1,150 發/分）】左右擺開；後座的單管 MG 15 走砲塔檔（`turretFile`）。
  *
  * 【Yak-1B 暫用 Bf 109 K-4 的循環】同樣是機首的一門機砲加機槍；專屬的循環還沒做。
+ *
+ * 【Fw 190 D-9 是機首兩挺 MG 131（900 發/分）加翼根兩門 MG 151/20（700 發/分）】翼根砲離中軸
+ * 不到 1 m，左右擺得比 Ki-84 的翼砲窄。
  */
 const FIRE_OF: Record<string, string> = {
   p51d: 'fire-m2x6', f4f4: 'fire-m2x6', f6f5: 'fire-m2x6',
   bf109k4: 'fire-bf109k4', a6m5: 'fire-a6m5', ki84: 'fire-ki84',
-  ju87: 'fire-ju87', yak1b: 'fire-bf109k4',
+  ju87: 'fire-ju87', yak1b: 'fire-bf109k4', fw190: 'fire-fw190',
 }
 
 /**
@@ -476,7 +481,7 @@ export const FIRST_FILES: readonly string[] =
 export const ALL_FILES: readonly string[] = [
   'on-board-military-tank', 'car-tires-rolling-on-gravel', 'truck-idling-2',
   'truck-on-rough-terrain-interior', 'gravel-tire-roll', 'truck-idling-1',
-  ...['p51d', 'bf109k4', 'f4f4', 'f6f5', 'a6m5', 'ki84', 'he111', 'ju87', 'g4m', 'b17g'].map(engineFile),
+  ...['p51d', 'bf109k4', 'fw190', 'f4f4', 'f6f5', 'a6m5', 'ki84', 'he111', 'ju87', 'g4m', 'b17g'].map(engineFile),
   ...new Set(Object.values(FIRE_OF)),
   ...Object.values(SIREN_OF),
   ...Object.values(POOLS).flat(),

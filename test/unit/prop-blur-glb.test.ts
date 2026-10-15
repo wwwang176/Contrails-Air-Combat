@@ -14,6 +14,7 @@ import { JU87 } from '../../src/specs/ju87'
 import { KI84 } from '../../src/specs/ki84'
 import { P51D } from '../../src/specs/p51d'
 import { YAK1B } from '../../src/specs/yak1b'
+import { FW190 } from '../../src/specs/fw190'
 
 beforeAll(async () => { await loadGlbTemplatesForNode() })
 
@@ -26,7 +27,7 @@ const discsOf = (g: Object3D): Mesh[] => {
 /** 槳葉片數：P-51D、Ki-84、G4M 二四型是四葉，其餘三葉 */
 const BLADES: [string, typeof P51D, number][] = [
   ['p51d', P51D, 4], ['ki84', KI84, 4], ['g4m', G4M, 4], ['bf109k4', BF109K4, 3], ['a6m5', A6M5, 3],
-  ['f4f4', F4F4, 3], ['f6f5', F6F5, 3], ['yak1b', YAK1B, 3], ['ju87', JU87, 3], ['b17g', B17G, 3], ['he111', HE111, 3],
+  ['f4f4', F4F4, 3], ['f6f5', F6F5, 3], ['yak1b', YAK1B, 3], ['fw190', FW190, 3], ['ju87', JU87, 3], ['b17g', B17G, 3], ['he111', HE111, 3],
 ]
 
 describe('遊戲的槳盤用殘影材質', () => {

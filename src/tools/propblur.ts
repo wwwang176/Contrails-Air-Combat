@@ -17,6 +17,7 @@ import { JU87 } from '../specs/ju87'
 import { KI84 } from '../specs/ki84'
 import { P51D } from '../specs/p51d'
 import { YAK1B } from '../specs/yak1b'
+import { FW190 } from '../specs/fw190'
 
 /**
  * 螺旋槳殘影的調整頁 —— 開發工具，**不屬於遊戲**。
@@ -27,7 +28,7 @@ import { YAK1B } from '../specs/yak1b'
  * 進入方式：`npm run dev` 之後開 /tools/propblur.html。
  */
 
-const SPECS: readonly AircraftSpec[] = [P51D, BF109K4, A6M5, KI84, F4F4, F6F5, YAK1B, JU87, B17G, HE111, G4M]
+const SPECS: readonly AircraftSpec[] = [P51D, BF109K4, FW190, A6M5, KI84, F4F4, F6F5, YAK1B, JU87, B17G, HE111, G4M]
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)

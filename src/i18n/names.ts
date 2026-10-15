@@ -15,6 +15,7 @@ import type { ShipClassId } from '../world/ships'
 const AIRCRAFT: Readonly<Record<string, MessageKey>> = {
   p51d: 'name.aircraft.p51d',
   bf109k4: 'name.aircraft.bf109k4',
+  fw190: 'name.aircraft.fw190',
   f6f5: 'name.aircraft.f6f5',
   f4f4: 'name.aircraft.f4f4',
   ki84: 'name.aircraft.ki84',
@@ -29,6 +30,7 @@ const WEAPON: Readonly<Record<string, MessageKey>> = {
   'm2-50cal': 'name.weapon.m2-50cal',
   mk108: 'name.weapon.mk108',
   mg131: 'name.weapon.mg131',
+  mg151: 'name.weapon.mg151',
   mg15: 'name.weapon.mg15',
   mg17: 'name.weapon.mg17',
   type97: 'name.weapon.type97',
@@ -119,7 +121,7 @@ export function groundUnitName(id: GroundUnitId): string {
  * 漏填的代價只是那一列比別人長，看得見、修得快。
  */
 export const SHORT_NAME: Record<string, string> = {
-  p51d: 'P-51D', bf109k4: 'Bf 109 K-4', f6f5: 'F6F-5', f4f4: 'F4F-4', ki84: 'Ki-84', a6m5: 'A6M5',
+  p51d: 'P-51D', bf109k4: 'Bf 109 K-4', fw190: 'Fw 190 D-9', f6f5: 'F6F-5', f4f4: 'F4F-4', ki84: 'Ki-84', a6m5: 'A6M5',
   b17g: 'B-17G', he111: 'He 111', ju87: 'Ju 87', g4m: 'G4M',
 }
 

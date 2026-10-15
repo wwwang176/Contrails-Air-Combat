@@ -84,7 +84,10 @@ describe('briefingOf —— 打擊（德 M3）', () => {
   it('空域與時期', () => {
     expect(fact(b, 'place')).toBe(t('mission.germany-m3.place'))
     expect(fact(b, 'period')).toBe(formatMonth(1945, 1))
-    expect(b.mine).toEqual([{ id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 10 }])
+    expect(b.mine).toEqual([
+      { id: 'fw190', name: 'Fw 190 D-9', role: 'fighter', count: 4 },
+      { id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 6 },
+    ])
   })
 
   it('敵方是停在地上的 P-51D ×16：四批都列進來（不只 clock 0 的兩批），等於要擊毀的架數', () => {

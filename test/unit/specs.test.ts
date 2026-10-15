@@ -10,6 +10,7 @@ import { A6M5, A6M5_HISTORICAL } from '../../src/specs/a6m5'
 import { G4M } from '../../src/specs/g4m'
 import { JU87 } from '../../src/specs/ju87'
 import { YAK1B, YAK1B_HISTORICAL } from '../../src/specs/yak1b'
+import { FW190, FW190_HISTORICAL } from '../../src/specs/fw190'
 import { MAX_TURRETS } from '../../src/weapons/turret'
 import { HIT_PARTS } from '../../src/world/hit'
 
@@ -20,6 +21,7 @@ const CASES = [
   { spec: KI84, hist: KI84_HISTORICAL },
   { spec: A6M5, hist: A6M5_HISTORICAL },
   { spec: YAK1B, hist: YAK1B_HISTORICAL },
+  { spec: FW190, hist: FW190_HISTORICAL },
 ]
 
 describe('機種資料', () => {
@@ -157,7 +159,7 @@ describe('機種資料', () => {
  * 檔案裡。這裡照既有做法，但 `turrets` 是**必填**欄位，所以漏掉的機種會先被
  * 型別擋下來，不會靜靜地沒有測試在跑。
  */
-const ALL = [P51D, BF109K4, F6F5, KI84, A6M5, HE111, B17G, G4M, JU87, YAK1B]
+const ALL = [P51D, BF109K4, FW190, F6F5, KI84, A6M5, HE111, B17G, G4M, JU87, YAK1B]
 
 describe('砲塔欄位', () => {
   /**

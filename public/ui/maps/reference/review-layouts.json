@@ -229,9 +229,17 @@
     ],
     "air": [
       {
-        "label": "Bf 109 K-4 × 10",
+        "label": "Fw 190 D-9 × 4",
         "team": "blue",
-        "x": 600,
+        "x": 500,
+        "y": 715,
+        "model": "fw190",
+        "flip": false
+      },
+      {
+        "label": "Bf 109 K-4 × 6",
+        "team": "blue",
+        "x": 700,
         "y": 715,
         "model": "bf109k4",
         "flip": false

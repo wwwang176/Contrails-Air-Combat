@@ -272,6 +272,29 @@ describe('音效目錄', () => {
     expect(engineFile('yak1b')).toBe('engine-bf109k4')
   })
 
+  /** Jumo 213：與 DB 605 同是倒 V12、轉速較高，專屬的引擎聲 */
+  it('Fw 190 D-9 有自己的引擎聲：循環檔、有包絡、檔案在 public/audio、在載入清單裡', () => {
+    expect(engineFile('fw190')).toBe('engine-fw190')
+    const e = manifest['engine-fw190'] as { loop: boolean; envelopeDb?: number[] } | undefined
+    expect(e?.loop).toBe(true)
+    expect(e?.envelopeDb?.length).toBeGreaterThan(10)
+    expect(existsSync('public/audio/engine-fw190.mp3')).toBe(true)
+    expect(ALL_FILES).toContain('engine-fw190')
+  })
+
+  /** Fw 190 D-9：機首 MG 131 ×2 與翼根 MG 151/20 ×2 各有自己的齊射庫與空響庫，遠處用自己的開火循環 */
+  it('Fw 190 D-9 的槍聲：自己的開火循環，MG 151/20 有自己的齊射庫與空響庫', () => {
+    expect(fireFile('fw190')).toBe('fire-fw190')
+    expect((manifest['fire-fw190'] as { loop: boolean }).loop).toBe(true)
+    expect(volleyPool('mg151', 2)).toBe('volley-mg151x2')
+    expect(jamPool('mg151', 2)).toBe('gun-jam-mg151x2')
+    for (const f of [...POOLS['volley-mg151x2'], ...POOLS['gun-jam-mg151x2']]) {
+      expect(manifest[f], f).toBeDefined()
+      expect((manifest[f] as { loop: boolean }).loop, f).toBe(false)
+      expect(existsSync(`public/audio/${f}.mp3`), f).toBe(true)
+    }
+  })
+
   it('每種轟炸機砲塔都對得到檔案', () => {
     for (const s of ALL_SPECS) {
       for (const t of s.turrets) expect(manifest[turretFile(t.weapon.id, t.guns)], `${s.id} ${t.id}`).toBeDefined()

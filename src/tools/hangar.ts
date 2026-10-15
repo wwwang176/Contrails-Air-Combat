@@ -31,6 +31,7 @@ import { F6F5 } from '../specs/f6f5'
 import { F4F4 } from '../specs/f4f4'
 import { JU87 } from '../specs/ju87'
 import { YAK1B } from '../specs/yak1b'
+import { FW190 } from '../specs/fw190'
 import type { AircraftSpec } from '../specs/types'
 import { assetUrl } from '../core/asset'
 
@@ -47,7 +48,7 @@ import { assetUrl } from '../core/asset'
  * 進入方式：`npm run dev` 之後開 /tools/hangar.html。加 `?livery=winter` 看任務卡的冬季塗裝。
  */
 
-const SPECS: AircraftSpec[] = [P51D, BF109K4, F6F5, F4F4, KI84, A6M5, HE111, JU87, B17G, G4M, YAK1B]
+const SPECS: AircraftSpec[] = [P51D, BF109K4, FW190, F6F5, F4F4, KI84, A6M5, HE111, JU87, B17G, G4M, YAK1B]
 
 /** 網址 `?livery=` 指定的塗裝變體；這個機種沒登記那個變體就是 `undefined`（預設塗裝） */
 function variantFor(spec: AircraftSpec): string | undefined {
@@ -333,7 +334,7 @@ const specButtons = SPECS.map((s, i) => {
   // 【為什麼查表而不是三元式】`id === 'p51d' ? 'P-51D' : 'Bf 109'`
   // —— 那在只有兩台時剛好對，第三台一加就會被標成「Bf 109」而且不會有
   // 任何東西提醒你。查表少一筆是一個 undefined，看得見
-  b.textContent = ({ p51d: 'P-51D', bf109k4: 'Bf 109 K-4', f6f5: 'F6F-5', f4f4: 'F4F-4', ki84: 'Ki-84', a6m5: 'A6M5', g4m: 'G4M', he111: 'He 111', ju87: 'Ju 87', b17g: 'B-17G', yak1b: 'Yak-1B' } as Record<string, string>)[s.id] ?? s.id
+  b.textContent = ({ p51d: 'P-51D', bf109k4: 'Bf 109 K-4', fw190: 'Fw 190 D-9', f6f5: 'F6F-5', f4f4: 'F4F-4', ki84: 'Ki-84', a6m5: 'A6M5', g4m: 'G4M', he111: 'He 111', ju87: 'Ju 87', b17g: 'B-17G', yak1b: 'Yak-1B' } as Record<string, string>)[s.id] ?? s.id
   b.dataset['id'] = s.id
   b.onclick = () => { specIndex = i; rebuild() }
   specRow.appendChild(b)

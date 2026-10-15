@@ -408,6 +408,11 @@ export interface MissionBattle {
    * 的話這一層要自己去猜哪幾架是哪一種。
    */
   readonly blueCount: number
+  /**
+   * 我方主力裡**玩家以外**的戰鬥機小隊整隊用這個機種（`order.ts` 的 `otherBlueFlights`）；
+   * 玩家那一隊是 `blueSpec`。架數都算在 `blueCount` 裡。**省略 = 全部是 `blueSpec`。**
+   */
+  readonly blueOthers?: AircraftSpec
   readonly redCount: number
   /**
    * 複寫這一關陸上重高砲的規格。**省略 = `GROUND_FLAK_SPEC`。**

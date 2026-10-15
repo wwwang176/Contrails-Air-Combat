@@ -8,6 +8,7 @@ import { BF109K4_BATTERY } from '../../src/weapons/bf109k4'
 import { A6M5_BATTERY } from '../../src/weapons/a6m5'
 import { KI84_BATTERY } from '../../src/weapons/ki84'
 import { YAK1B_BATTERY } from '../../src/weapons/yak1b'
+import { FW190_BATTERY } from '../../src/weapons/fw190'
 import { P51D_BATTERY } from '../../src/weapons/p51d'
 import { F4F4_BATTERY } from '../../src/weapons/f4f4'
 import { F6F5_BATTERY } from '../../src/weapons/f6f5'
@@ -118,10 +119,10 @@ describe('快過熱的槍機聲音量', () => {
 })
 
 describe('各機的秒數與空響間隔', () => {
-  /** 機砲連射比較吃：K-4（MK 108）4 秒；混裝機砲的零戰、疾風、Yak 5 秒；其餘 6 秒 */
+  /** 機砲連射比較吃：K-4（MK 108）4 秒；混裝機砲的零戰、疾風、Yak、Fw 190 5 秒；其餘 6 秒 */
   it('各機型的過熱秒數', () => {
     expect(overheatSeconds(BF109K4_BATTERY)).toBe(4)
-    for (const b of [A6M5_BATTERY, KI84_BATTERY, YAK1B_BATTERY]) expect(overheatSeconds(b)).toBe(5)
+    for (const b of [A6M5_BATTERY, KI84_BATTERY, YAK1B_BATTERY, FW190_BATTERY]) expect(overheatSeconds(b)).toBe(5)
     for (const b of [P51D_BATTERY, F4F4_BATTERY, F6F5_BATTERY, JU87_BATTERY]) expect(overheatSeconds(b)).toBe(6)
   })
 

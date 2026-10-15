@@ -4,7 +4,8 @@ import { DEFAULT_BATTLE } from '../battleDefaults'
 import { VETERAN } from '../../ai/profile'
 import { ENTRY_PLANS, type EntryPlan, type SideEntry } from '../entry'
 import {
-  WAVE_LANE, convoyLine, lineAbreast, pincer, rotateEntry, soloBombers, spreadBlue, stackedEntry, waveColumn,
+  WAVE_LANE, convoyLine, lineAbreast, otherBlueFlights, pincer, rotateEntry, soloBombers, spreadBlue,
+  stackedEntry, waveColumn,
 } from '../order'
 import { SCHWARM_SIZE } from '../flights'
 import type { Beat, BeatCondition, RecycleBeat, ReinforceBeat, WithdrawBeat } from '../beats'
@@ -217,10 +218,11 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
           plan, b.blueSpec, b.blueCount, b.redSpec, b.redCount, b.redStarboard,
           DEFAULT_BATTLE.entryRange, DEFAULT_BATTLE.lateralOffset,
         ), DEFAULT_BATTLE.schwarmSpacing)
+  const mixed = b.blueOthers === undefined ? solo : otherBlueFlights(solo, b.blueOthers)
   // 【藍方開場重排在拆單機之後】`spreadBlue` 只收單機小隊
   const units = b.blueSpawn === undefined
-    ? solo
-    : spreadBlue(solo, b.blueSpawn, altitude, DEFAULT_BATTLE.schwarmSpacing)
+    ? mixed
+    : spreadBlue(mixed, b.blueSpawn, altitude, DEFAULT_BATTLE.schwarmSpacing)
   // 【縱隊排在最後】`depart` 節拍用索引範圍指認它們，而地面目標的索引就是在這張
   // 清單裡的位置
   const ground: GroundEntry[] = [

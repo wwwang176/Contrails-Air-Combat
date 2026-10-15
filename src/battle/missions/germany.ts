@@ -10,6 +10,7 @@ import {
 import { GROUND_FLAK_SPEC } from '../../world/shipGuns'
 import { JU87 } from '../../specs/ju87'
 import { YAK1B } from '../../specs/yak1b'
+import { FW190 } from '../../specs/fw190'
 import {
   ARTILLERY_ZONE, BATTLE_HAZE, COLUMN_GAP, COLUMN_SPEED, COLUMN_STAGGER, COLUMN_TURN_RADIUS, GERMAN_AT_GUNS,
   GERMAN_DUG_PANZERS, GERMAN_DUG_PANZER_SCRIPTED, GERMAN_FLAK, GERMAN_INFANTRY, GERMAN_MORTARS, GERMAN_RESERVE_EAST,
@@ -410,10 +411,12 @@ export const GERMANY: readonly MissionCard[] = [
     placeKey: 'mission.germany-m3.place', period: { year: 1945, month: 1 },
     battle: {
       objectiveKey: 'mission.germany-m3.objective', bannerKey: 'mission.germany-m3.banner',
-      blueSpec: BF109K4, redSpec: P51D, convoySpec: null,
+      blueSpec: FW190, redSpec: P51D, convoySpec: null,
       // 【敵機全部從地上來】沒有空中巡邏，起飛的野馬全部由波次給。
       // 紅隊席位：跑道頭 4 ＋ 停機墊 12（四個小隊）；藍隊 4 ＋ 4 ＋ 2
       blueCount: 10, redCount: 0,
+      // 玩家那一隊 4 架 Fw 190 D-9，另外兩隊（4 ＋ 2）是 Bf 109 K-4
+      blueOthers: BF109K4,
       convoyCount: 0, convoyPriority: 1,
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       // 【從東邊橫切】史實上 JG 11 從德國那一側來。橫切跑道與停機線，一趟只
@@ -438,7 +441,7 @@ export const GERMANY: readonly MissionCard[] = [
        *   1  北側停機墊 P-51 在 (−1,020, 0, −2,995)，從機首前側約 45° 俯拍
        *   2  跑道入口第一架 P-51 第 6 秒約在 (−750, 0, −1,876)，從東北前側約 45° 俯拍，
        *      拉遠涵蓋跑道入口的四架野馬，交代前機轉北加速、後機排隊滑行
-       *   3  玩家 Bf 109 第 6 秒約在 (5,748, 367, −2,500)，右前上方特寫，
+       *   3  玩家 Fw 190 第 6 秒約在 (5,748, 367, −2,500)，右前上方特寫，
        *      讓樹林與田野在機身後方掠過，交代低空進場，收尾跟隨玩家漸變回操作視角
        * ```
        *
