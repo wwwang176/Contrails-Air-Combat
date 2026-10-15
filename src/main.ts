@@ -35,7 +35,7 @@ import { createBattleAudioCues } from './audio/battleAudioCues'
 import { STRIKE_HEIGHT, applyFlash, createStorm, stepStorm } from './render/storm'
 import { rollThunder } from './audio/thunderVoice'
 import { createRain } from './render/rain'
-import { DAY_PALETTES, applyTimeOfDay, type TimeOfDay } from './render/timeOfDay'
+import { DAY_PALETTES, paletteOf, applyTimeOfDay, type TimeOfDay } from './render/timeOfDay'
 import { flatSeaCrashPolicy } from './world/seaCrash'
 import { arenaKills, createArenaState, SKIRMISH_ARENA, stepArena, type ArenaBounds } from './world/arena'
 import { createTerrain, preloadTerrainScenery, type TerrainGfx, type TerrainKind } from './render/terrain'
@@ -1386,7 +1386,7 @@ function buildBattleTerrain(): void {
   const timeOfDay = mode === 'mission' && pendingMission !== null
     ? pendingMission.battle.timeOfDay ?? 'noon'
     : setup.timeOfDay
-  applyTimeOfDay(ctx, terrain, timeOfDay)
+  applyTimeOfDay(ctx, terrain, timeOfDay, terrainKind)
   // 子彈打進地面的顏色跟著地圖：雪原噴雪粉夾泥土，其他噴土
   dirt.setSurface(dirtSurfaceOf(terrainKind))
   sceneWeather.reset(timeOfDay)
@@ -1403,7 +1403,7 @@ function buildBattleTerrain(): void {
       arenaBounds,
       card !== null ? card.id : `skirmish:${terrainKind}:${timeOfDay}`,
     ),
-    cloudColorOf(DAY_PALETTES[timeOfDay], CLOUD_COLOR),
+    cloudColorOf(paletteOf(timeOfDay, terrainKind), CLOUD_COLOR),
   )
 }
 
@@ -1939,7 +1939,7 @@ const menuReel: MenuReel = createMenuReel({
   },
   setClouds(list) {
     if (list.length === 0) clouds.clear()
-    else clouds.set(list, cloudColorOf(DAY_PALETTES[menuTimeOfDay], CLOUD_COLOR))
+    else clouds.set(list, cloudColorOf(paletteOf(menuTimeOfDay, terrainKind), CLOUD_COLOR))
   },
   fade: document.getElementById('reel-fade') as HTMLElement,
   subjectX() {
@@ -2030,7 +2030,7 @@ const NO_SHIPS: readonly Ship[] = []
  */
 function setMenuTimeOfDay(tod: TimeOfDay): void {
   menuTimeOfDay = tod
-  applyTimeOfDay(ctx, terrain, tod)
+  applyTimeOfDay(ctx, terrain, tod, terrainKind)
   syncFireSmokeLighting()
   sceneWeather.set(tod)
 }

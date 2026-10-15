@@ -1,4 +1,4 @@
-import { Color, FogExp2 } from 'three'
+import { Color, FogExp2, type MeshStandardMaterial, type PointsMaterial } from 'three'
 import { skyColorAt } from './sky'
 
 /**
@@ -30,17 +30,18 @@ export const FOG_COLOR: Color = skyColorAt(0, new Color())
  * `1 − exp(−(d·ρ)²)`，近處由二次項壓到幾乎是零，沒有起點可言。而「近處
  * 不影響、遠處吃滿」正是這裡要的形狀。
  *
- * 【0.7e-5 是怎麼來的】它要同時滿足三件相互拉扯的事：
+ * 【正午的空氣透視】近處保留辨識度，中遠景逐漸淡入天色：
  *
- *   5 km（纏鬥距離）    0.1 %   —— 敵機的顏色不能被霧改掉
- *   30 km（全戰場）     4.3 %   —— 一層薄薄的空氣感，遠處不會銳利得像貼圖
- *   140 km（幾何地平線）  62 %   —— 海面也吃霧：遠海只化掉一半多，海天那一階
- *                                  還在；再濃的話地平線糊成一片
+ *   5 km（纏鬥距離）    1.2 %   —— 輕微霧感，仍看得清飛機與地面細節
+ *   30 km（全戰場）      35 %   —— 降低遠景對比，避免像一張攤平的地圖
+ *   140 km（幾何地平線）近 100 % —— 極遠處的陸地與海面融入地平線天色
  *
- * **前兩個**數字被 `test/unit/fog.test.ts` 釘住。要改密度就得同時面對那兩個
- * 後果，那正是那兩條測試存在的理由。
+ * 這三個距離的辨識度由 `test/unit/fog.test.ts` 守住。
  */
-export const FOG_DENSITY = 0.7e-5
+export const FOG_DENSITY = 2.2e-5
+
+/** 海面、群島與海岸的正午沿用較淡的霧，保留海天交界。 */
+export const MARITIME_FOG_DENSITY = 0.7e-5
 
 /**
  * 指數霧的因子，0..1。0 = 完全看得到，1 = 完全是霧色。
@@ -62,4 +63,22 @@ export function createFog(): FogExp2 {
   // 會被當成 sRGB 再轉一次，顏色會差一截。同理不能用 `getHex()` 繞一圈。
   fog.color.copy(FOG_COLOR)
   return fog
+}
+
+/** 地表薄霧：近處也混入場景霧色，再交給原有距離霧；不增加透明面或繪製次數。 */
+export function installGroundHaze(material: MeshStandardMaterial | PointsMaterial, amount: { value: number }): void {
+  const compile = material.onBeforeCompile
+  const cacheKey = material.customProgramCacheKey()
+  material.onBeforeCompile = function (shader, renderer) {
+    compile.call(this, shader, renderer)
+    shader.uniforms['uGroundHaze'] = amount
+    shader.fragmentShader = 'uniform float uGroundHaze;\n' + shader.fragmentShader
+      .replace('#include <fog_fragment>', `
+#ifdef USE_FOG
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, uGroundHaze);
+#endif
+#include <fog_fragment>`)
+  }
+  material.customProgramCacheKey = () => cacheKey + ':ground-haze'
+  material.needsUpdate = true
 }

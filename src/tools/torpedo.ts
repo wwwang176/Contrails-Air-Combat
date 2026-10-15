@@ -378,7 +378,7 @@ const coneSet = (k: keyof BlastParams) => (v: number): void => {
 tabs(viewTabs, ['release', 'chase', 'target'], (id) => { view = id as ViewId })
 tabs(todTabs, TIME_OF_DAY_IDS, (id) => {
   tod = id as TimeOfDay
-  applyTimeOfDay(ctx, terrain, tod)
+  applyTimeOfDay(ctx, terrain, tod, 'sea')
 })
 
 numRow(releaseRows, '投放高度', 5, 250, 5, () => agl, (v) => { agl = v }, m)
@@ -458,7 +458,7 @@ for (const el of Array.from(viewTabs.children)) {
 for (const el of Array.from(todTabs.children)) {
   el.classList.toggle('on', (el as HTMLElement).dataset['id'] === tod)
 }
-applyTimeOfDay(ctx, terrain, tod)
+applyTimeOfDay(ctx, terrain, tod, 'sea')
 for (const p of [glow, smoke, dust]) p.reset()
 dump()
 fire()

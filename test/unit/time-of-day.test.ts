@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Color, Vector3, type Mesh, type MeshStandardMaterial, type ShaderMaterial } from 'three'
 import {
-  DAY_PALETTES, TIME_OF_DAY_IDS, applyTimeOfDay, paletteSkyColorAt, paletteSunDir,
+  DAY_PALETTES, TIME_OF_DAY_IDS, applyTimeOfDay, paletteOf, paletteSkyColorAt, paletteSunDir,
   type DayPalette, type PaletteTarget,
 } from '../../src/render/timeOfDay'
 import {
@@ -253,6 +253,80 @@ describe('Ocean.setPalette', () => {
 })
 
 describe('applyTimeOfDay', () => {
+  it('雪原正午沿用德 M4 色盤，夜間沿用晚秋內陸光照並補薄霧與粒子植被色調', () => {
+    expect(paletteOf('noon', 'rzhev')).toEqual(DAY_PALETTES.winterMorning)
+    expect(paletteOf('night', 'rzhev')).toEqual({
+      ...paletteOf('night', 'autumnFarmland'),
+      groundHaze: 0.35,
+      foliage: 0.085, foliageTint: 0xbfd4ff,
+    })
+    for (const tod of TIME_OF_DAY_IDS.filter(t => t !== 'noon' && t !== 'night')) {
+      expect(paletteOf(tod, 'rzhev')).toBe(DAY_PALETTES[tod])
+    }
+    expect(paletteOf('noon', 'farmland')).toBe(DAY_PALETTES.noon)
+    expect(paletteOf('night', 'farmland')).toBe(DAY_PALETTES.night)
+  })
+
+  it('正午切換海面、群島、海岸與內陸時，霧密度不殘留且不改共用色盤', () => {
+    const seen: DayPalette[] = []
+    const target = { setPalette: (p: DayPalette) => seen.push(p) }
+    for (const terrain of ['sea', 'farmland', 'archipelago', 'leuna', 'leyte', 'poltava', 'autumnFarmland', 'farmland'] as const) {
+      applyTimeOfDay(target, target, 'noon', terrain)
+    }
+    expect(seen.map(p => p.fogDensity)).toEqual([
+      0.7e-5, 0.7e-5, 2.2e-5, 2.2e-5, 0.7e-5, 0.7e-5,
+      3.5e-5, 3.5e-5, 0.7e-5, 0.7e-5, 2.2e-5, 2.2e-5,
+      3.5e-5, 3.5e-5, 2.2e-5, 2.2e-5,
+    ])
+    expect(DAY_PALETTES.noon.fogDensity).toBe(2.2e-5)
+    expect(seen[0]).toEqual({ ...DAY_PALETTES.noon, fogDensity: 0.7e-5 })
+    expect(paletteOf('noon', 'autumnFarmland')).toEqual(DAY_PALETTES.novemberNoon)
+    expect(seen[6]).toEqual(DAY_PALETTES.novemberNoon)
+    expect(seen[7]).toBe(seen[6])
+    expect(seen[12]).toEqual(DAY_PALETTES.novemberNoon)
+    expect(seen[13]).toBe(seen[12])
+    expect(seen[14]).toBe(DAY_PALETTES.noon)
+  })
+
+  it('海面與一般內陸時段不變，洛伊納晨昏只比照正午霧量', () => {
+    for (const tod of TIME_OF_DAY_IDS.filter(t => t !== 'noon')) {
+      expect(paletteOf(tod, 'sea')).toBe(DAY_PALETTES[tod])
+      expect(paletteOf(tod, 'farmland')).toBe(DAY_PALETTES[tod])
+      if (tod === 'dawn' || tod === 'dusk') {
+        expect(paletteOf(tod, 'leuna')).toEqual({
+          ...DAY_PALETTES[tod], fogDensity: paletteOf('noon', 'leuna').fogDensity,
+        })
+      } else {
+        expect(paletteOf(tod, 'leuna')).toBe(DAY_PALETTES[tod])
+      }
+    }
+    expect(DAY_PALETTES.storm.fogDensity).toBe(7e-5)
+  })
+
+  it('晚秋清晨與黃昏覆寫色調與霧，保留太陽角度，切回內陸不殘留', () => {
+    for (const tod of ['dawn', 'dusk'] as const) {
+      const base = DAY_PALETTES[tod]
+      const original = { ...base }
+      const autumn = paletteOf(tod, 'autumnFarmland')
+      expect(autumn.skyHorizon).not.toBe(base.skyHorizon)
+      expect(autumn.sunColor).not.toBe(base.sunColor)
+      expect(autumn.fogDensity).toBeGreaterThan(base.fogDensity)
+      expect(autumn.sunDir).toEqual(base.sunDir)
+      expect(autumn.stars).toBe(base.stars)
+      expect(paletteOf(tod, 'farmland')).toBe(base)
+      expect(base).toEqual(original)
+      expect(paletteOf(tod, 'autumnFarmland')).toBe(autumn)
+    }
+  })
+
+  it('晚秋內陸夜間沿用原色盤，雷雨僅加濃霧且不影響其他地形', () => {
+    expect(paletteOf('night', 'autumnFarmland')).toBe(DAY_PALETTES.night)
+    expect(paletteOf('storm', 'autumnFarmland')).toEqual({
+      ...DAY_PALETTES.storm, fogDensity: 8.5e-5,
+    })
+    expect(paletteOf('storm', 'farmland')).toBe(DAY_PALETTES.storm)
+  })
+
   /**
    * 【它存在的唯一理由：不會漏掉海】天空那一半在 `SceneContext`、海那一半在
    * `Terrain`，兩者沒有共同的擁有者。呼叫端各叫各的話，漏掉海的症狀是

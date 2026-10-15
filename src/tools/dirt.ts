@@ -382,7 +382,7 @@ function setTerrain(k: TerrainKind): void {
   const aim = AIM_DEFAULT[k] ?? [0, 0]
   aimX = aim[0]
   aimZ = aim[1]
-  applyTimeOfDay(ctx, terrain, 'noon')
+  applyTimeOfDay(ctx, terrain, 'noon', terrainKind)
   setSurface(k === 'rzhev' ? 'snow' : 'soil')
   placeCamera()
   fire()
@@ -410,7 +410,7 @@ const controls = new OrbitControls(ctx.camera, ctx.renderer.domElement)
 controls.enableDamping = true
 controls.dampingFactor = 0.08
 placeCamera()
-applyTimeOfDay(ctx, terrain, 'noon')
+applyTimeOfDay(ctx, terrain, 'noon', terrainKind)
 dump()
 fire()
 

@@ -46,6 +46,7 @@ const ctx = createScene(canvas)
 await Promise.all([preloadTerrainScenery('leuna'), preloadTerrainScenery('poltava')])
 
 let terrain: Terrain = createTerrain('sea')
+let terrainKind: TerrainKind = 'sea'
 ctx.scene.add(terrain.object)
 
 const fireball = createFireball()
@@ -391,7 +392,7 @@ let tod: TimeOfDay = 'noon'
 const todTabs = document.getElementById('tod') as HTMLElement
 tabs(todTabs, TIME_OF_DAY_IDS.map((t) => ({ id: t, name: DAY_PALETTES[t].name })), (id) => {
   tod = id as TimeOfDay
-  applyTimeOfDay(ctx, terrain, tod)
+  applyTimeOfDay(ctx, terrain, tod, terrainKind)
 })
 
 /**
@@ -409,6 +410,7 @@ function placeCamera(): void {
 }
 
 function setTerrain(k: TerrainKind): void {
+  terrainKind = k
   ctx.scene.remove(terrain.object)
   terrain.dispose()
   terrain = createTerrain(k)
@@ -416,7 +418,7 @@ function setTerrain(k: TerrainKind): void {
   placeCamera()
   // 【新地形不知道現在是幾點】剛建出來是正午 —— 少了這一行，切完地形天是
   // 黃昏而海是中午的藍（`daylight.ts` 為同一件事留過同一句）
-  applyTimeOfDay(ctx, terrain, tod)
+  applyTimeOfDay(ctx, terrain, tod, terrainKind)
   fire()
 }
 
@@ -455,7 +457,7 @@ for (const el of Array.from(terrainTabs.children)) {
 for (const el of Array.from(todTabs.children)) {
   el.classList.toggle('on', (el as HTMLElement).dataset.id === 'noon')
 }
-applyTimeOfDay(ctx, terrain, tod)
+applyTimeOfDay(ctx, terrain, tod, terrainKind)
 dump()
 fire()
 

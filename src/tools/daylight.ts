@@ -7,7 +7,7 @@ import { createShipModels } from '../render/ships'
 import { preloadShipModels } from '../render/shipAssets'
 import { buildAircraft, preloadAircraftModels } from '../render/geometry/buildAircraft'
 import {
-  DAY_PALETTES, TIME_OF_DAY_IDS, applyTimeOfDay, type DayPalette, type TimeOfDay,
+  DAY_PALETTES, TIME_OF_DAY_IDS, applyTimeOfDay, paletteOf, type DayPalette, type TimeOfDay,
 } from '../render/timeOfDay'
 import { createShip, SHIP_CLASSES, type Ship } from '../world/ships'
 import { createShipGuns } from '../world/shipGuns'
@@ -52,9 +52,12 @@ type DemoTerrain = TerrainKind | 'leuna-real'
 const leunaRealField = await loadLeunaDem()
 
 let terrain: Terrain = createTerrain('sea')
+let terrainKind: TerrainKind = 'sea'
 ctx.scene.add(terrain.object)
 
 function setTerrain(kind: DemoTerrain): void {
+  const previousPreset = paletteOf(selectedTod, terrainKind)
+  terrainKind = kind === 'leuna-real' ? 'leuna' : kind
   ctx.scene.remove(terrain.object)
   terrain.dispose()
   terrain = kind === 'leuna-real'
@@ -63,10 +66,16 @@ function setTerrain(kind: DemoTerrain): void {
   ctx.scene.add(terrain.object)
   // 【新的地形不知道現在是幾點】它剛建出來是正午 —— 少了這一行，切完地形
   // 天是黃昏而海是中午的藍
+  // 依地形切換完整預設；同一份預設則保留手動調整。
+  const preset = paletteOf(selectedTod, terrainKind)
+  if (preset !== previousPreset) live = { ...preset }
+  ctx.setPalette(live)
   terrain.setPalette(live)
+  refreshAll()
+  dump()
   const leuna = kind === 'leuna' || kind === 'leuna-real'
   // 內陸沒有海，船浮在田上很怪
-  const inland = kind === 'farmland' || leuna
+  const inland = kind === 'farmland' || kind === 'autumnFarmland' || leuna
   shipModels.object.visible = !inland
   // 【洛伊納把廠區擺上去】12 座構件與 8 座砲位，就是任務裡的那一份佈局；
   // 飛機停在投彈航路上 —— 地形、廠區、天色三者只有同時在畫面上才判斷得出來
@@ -76,12 +85,12 @@ function setTerrain(kind: DemoTerrain): void {
     plane.group.quaternion.identity()
   } else {
     // 【內陸把飛機抬高】田地的丘陵最高到 HILL_PEAK_MAX，60 m 會插進山裡
-    plane.group.position.set(-45, kind === 'farmland' ? 420 : 60, -140)
+    plane.group.position.set(-45, inland ? 420 : 60, -140)
     plane.group.quaternion.setFromAxisAngle(new Vector3(0, 1, 0), 0.55)
   }
   placeCamera(kind)
-  // 【洛伊納的色盤是為深秋正午調的】切到它時段跟著切
-  if (leuna) selectTod('novemberNoon')
+  // 洛伊納的一般正午由地形覆寫成秋天色盤，與任務、遭遇戰使用同一路徑。
+  if (leuna) selectTod('noon')
 }
 
 /** 內陸的視野要拉遠拉高才看得到田與樹的層次；洛伊納從廠區上空看投彈航路。 */
@@ -89,7 +98,7 @@ function placeCamera(kind: DemoTerrain): void {
   if (kind === 'leuna' || kind === 'leuna-real') {
     ctx.camera.position.set(0, 4600, -2500)
     controls.target.set(0, 0, -7000)
-  } else if (kind === 'farmland') {
+  } else if (kind === 'farmland' || kind === 'autumnFarmland') {
     ctx.camera.position.set(0, 520, 900)
     controls.target.set(0, 60, -600)
   } else {
@@ -161,6 +170,8 @@ placeCamera('sea')
  */
 type Mutable = { -readonly [K in keyof DayPalette]: DayPalette[K] }
 let live: Mutable = { ...DAY_PALETTES.dusk }
+/** 保留玩家選的時段，避免切離晚秋地形後仍沿用覆寫後的秋天正午。 */
+let selectedTod: TimeOfDay = 'dusk'
 
 /** 太陽方向以仰角／方位角操作 —— 直接調三個分量沒有人調得動。 */
 let sunElev = 0
@@ -305,6 +316,8 @@ function dump(): void {
     '    seaHorizon: ' + h(live.seaHorizon) + ',',
     '    sparkle: ' + live.sparkle + ',',
     '    foliage: ' + live.foliage + ',',
+    '    foliageTint: ' + h(live.foliageTint ?? 0xffffff) + ',',
+    '    groundHaze: ' + (live.groundHaze ?? 0) + ',',
     '    fogDensity: ' + live.fogDensity.toExponential(1) + ',',
     '  },',
   ].join('\n')
@@ -316,6 +329,7 @@ const TERRAINS: readonly { kind: DemoTerrain, name: string }[] = [
   { kind: 'sea', name: '海面' },
   { kind: 'archipelago', name: '群島' },
   { kind: 'farmland', name: '內陸' },
+  { kind: 'autumnFarmland', name: '晚秋內陸' },
   { kind: 'leuna', name: '洛伊納' },
   { kind: 'leuna-real', name: '洛伊納（實測高程）' },
   { kind: 'poltava', name: '波爾塔瓦' },
@@ -339,12 +353,13 @@ for (const t of TERRAINS) {
 const tabs = document.getElementById('tabs') as HTMLElement
 
 function selectTod(tod: TimeOfDay): void {
-  live = { ...DAY_PALETTES[tod] }
+  selectedTod = tod
+  live = { ...paletteOf(tod, terrainKind) }
   for (const b of Array.from(tabs.children)) b.classList.toggle('on', b.id === 't-' + tod)
   refreshAll()
   // 【走 applyTimeOfDay 而不是 apply()】按鈕代表「遊戲裡看到的那一組」，
   // 所以它要經過與 `main.ts` 完全相同的那一支
-  applyTimeOfDay(ctx, terrain, tod)
+  applyTimeOfDay(ctx, terrain, tod, terrainKind)
   dump()
 }
 

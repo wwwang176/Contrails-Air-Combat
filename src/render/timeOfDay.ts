@@ -1,7 +1,8 @@
 import { Color, Vector3 } from 'three'
 import { SKY_GRADIENT_POWER, SKY_HORIZON, SKY_ZENITH } from './sky'
 import { SEA_COLOR, SEA_HORIZON_COLOR } from './oceanStyle'
-import { FOG_DENSITY } from './fog'
+import { FOG_DENSITY, MARITIME_FOG_DENSITY } from './fog'
+import type { TerrainKind } from '../world/terrainKind'
 import type { TimeOfDay } from '../world/timeOfDay'
 // 【只匯入型別】這兩支都要用這裡的值，值匯入會成環
 
@@ -77,6 +78,10 @@ export interface DayPalette {
    * `POINT_LIGHT` 本身就是量出來的、不是算出來的。同一條規矩：拿眼睛校。
    */
   readonly foliage: number
+  /** 遠方粒子植被的光照色，sRGB；省略時不染色，與亮度倍率分開調整。 */
+  readonly foliageTint?: number
+  /** 地面與植被額外混入霧色的比例，0～1；不改全場距離霧與物件光照。 */
+  readonly groundHaze?: number
   readonly fogDensity: number
 }
 
@@ -154,7 +159,8 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     seaColor: 0x13243a,
     seaHorizon: 0x6e5468,
     sparkle: 0.85,
-    foliage: 0.5,
+    foliage: 0.32,
+    foliageTint: 0xffc6ae,
     fogDensity: 0.9e-5,
   },
   night: {
@@ -240,7 +246,7 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
      * 【雨幕】15 km 外蓋掉三分之二、25 km 外幾乎全白 —— 場地外的遠景陸地是低模，
      * 要讓它化進天色裡（`render/leyteGround.ts`）。5 km 的纏鬥距離上敵機只淡一成。
      */
-    fogDensity: FOG_DENSITY * 10,
+    fogDensity: 7.0e-5,
   },
   /**
    * 十一月下旬的清晨，雪原：太陽只有 10° 高、陽光冷白，天空與地平線是灰白，**霧也是白的**
@@ -279,8 +285,65 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
   },
 }
 
-export function paletteOf(tod: TimeOfDay): DayPalette {
-  return DAY_PALETTES[tod]
+type TerrainPaletteOverrides = Partial<Record<TimeOfDay, Partial<DayPalette>>>
+
+const MARITIME_OVERRIDES: TerrainPaletteOverrides = {
+  noon: { fogDensity: MARITIME_FOG_DENSITY },
+}
+
+/** 地形只列出要覆寫的欄位；未列出的時段與欄位沿用基本設定。 */
+const TERRAIN_OVERRIDES: Partial<Record<TerrainKind, TerrainPaletteOverrides>> = {
+  sea: MARITIME_OVERRIDES,
+  archipelago: MARITIME_OVERRIDES,
+  leyte: MARITIME_OVERRIDES,
+  leuna: {
+    // 洛伊納的一般正午沿用美 M2 原本的秋天正午完整色盤，任務與遭遇戰共用。
+    noon: DAY_PALETTES.novemberNoon,
+    // 清晨與黃昏只比照正午霧量，保留各自的天空與光照色調。
+    dawn: { fogDensity: DAY_PALETTES.novemberNoon.fogDensity },
+    dusk: { fogDensity: DAY_PALETTES.novemberNoon.fogDensity },
+  },
+  rzhev: {
+    // 雪原正午沿用德 M4 已調好的冬季色調、雪地反光與白霧。
+    noon: DAY_PALETTES.winterMorning,
+    // 夜間沿用晚秋內陸光照與距離霧，雪地與植被混入同一份夜霧色，降低近處反差。
+    night: { groundHaze: 0.35, foliage: 0.085, foliageTint: 0xbfd4ff },
+  },
+  autumnFarmland: {
+    // 晨霧偏冷灰，保留清晨的暖光與低太陽角度。
+    dawn: {
+      skyHorizon: 0xd8cbc1, skyZenith: 0x64788c, skyPower: 0.8,
+      sunColor: 0xf3ceaa, sunIntensity: 1.25,
+      hemiSky: 0xadb7c3, hemiGround: 0x353430,
+      ambientColor: 0xd6dce3, fogDensity: 4.0e-5,
+    },
+    noon: DAY_PALETTES.novemberNoon,
+    // 夕陽保留暖色，降低天空飽和度，霧比清晨稍淡。
+    dusk: {
+      skyHorizon: 0xd5ad98, skyZenith: 0x59677f, skyPower: 0.7,
+      sunColor: 0xefb080, sunIntensity: 1.4,
+      hemiSky: 0xa2a4b4, hemiGround: 0x342c27,
+      ambientColor: 0xdfcbbd, fogDensity: 3.8e-5,
+    },
+    // 晚秋雷雨只加濃雨霧，沿用原本的雷雨色調與光照。
+    storm: { fogDensity: 8.5e-5 },
+  },
+}
+
+/** 每個地形與時段組合只合成一次，不修改共用的基本色盤。 */
+const TERRAIN_PALETTES = new Map<string, DayPalette>()
+
+export function paletteOf(tod: TimeOfDay, terrain?: TerrainKind): DayPalette {
+  const base = DAY_PALETTES[tod]
+  const override = terrain === undefined ? undefined : TERRAIN_OVERRIDES[terrain]?.[tod]
+  if (override === undefined) return base
+  const key = `${terrain}:${tod}`
+  let palette = TERRAIN_PALETTES.get(key)
+  if (palette === undefined) {
+    palette = { ...base, ...override }
+    TERRAIN_PALETTES.set(key, palette)
+  }
+  return palette
 }
 
 /**
@@ -309,8 +372,9 @@ export function applyTimeOfDay(
   ctx: PaletteTarget,
   world: PaletteTarget | null,
   tod: TimeOfDay,
+  terrain?: TerrainKind,
 ): void {
-  const p = DAY_PALETTES[tod]
+  const p = paletteOf(tod, terrain)
   ctx.setPalette(p)
   world?.setPalette(p)
 }

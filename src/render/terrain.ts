@@ -4,8 +4,9 @@ import { createArchipelagoTerrain, createLeyteTerrain, createSeaTerrain } from '
 import type { Terrain, TerrainGfx } from './terrainTypes'
 export type { Terrain, TerrainGfx } from './terrainTypes'
 import {
-  Group, type BufferGeometry,
+  Group, Mesh, MeshStandardMaterial, Points, PointsMaterial, type BufferGeometry,
 } from 'three'
+import { installGroundHaze } from './fog'
 import { createStaticScenery } from './staticScenery'
 import { CULL } from './cullRuns'
 import { createFieldClipmap, type ClipLevelSpec } from './fieldClipmap'
@@ -75,7 +76,7 @@ export const FIELD_CLIP_HORIZON: ClipLevelSpec = { size: 2048, metersPerTexel: 6
 /**
  * 最外層外面那一層：117 m 一格蓋 240 km，田色與疊圖都烘。它外面才是平均色。
  *
- * 【為什麼要它】晴天的霧很淡（正午 30 km 只吃掉 4%），飛高之後 30 km 外的地面佔
+ * 【為什麼要它】正午 30 km 的地面仍保留約 65% 本色，飛高之後 30 km 外的地面佔
  * 畫面一大片，一片平均色就是一塊平平的色帶。平均色退到 60～86 km 外，那裡的
  * 地面 117 m 一格已經小於一個像素
  */
@@ -293,6 +294,7 @@ function createInlandTerrain(
     horizon.mesh.material = clipmap.material
     ground.setMaterial(clipmap.material)
   }
+  const groundHaze = { value: 0 }
   const group = new Group()
   // 【場外回 0，不是 −Infinity】內陸沒有海可以退回去。遮蔽層與植被拿到的
   // 也是這一份 —— 見 `outsideZero`
@@ -406,6 +408,17 @@ function createInlandTerrain(
     season,
     ...(dressing !== undefined ? { capacity: dressing.capacity } : steppe ? { capacity: STEPPE_CAPACITY } : {}),
   })
+  if (season === 'winterSteppe') {
+    // 地面、遠景與植被共用薄霧，避免樹木換成粒子後浮亮；共用材質只安裝一次。
+    const materials = new Set<MeshStandardMaterial | PointsMaterial>()
+    for (const root of [ground.object, horizon.mesh, vegetation.object]) root.traverse(o => {
+      if (!(o instanceof Mesh || o instanceof Points)) return
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        if (m instanceof MeshStandardMaterial || m instanceof PointsMaterial) materials.add(m)
+      }
+    })
+    for (const material of materials) installGroundHaze(material, groundHaze)
+  }
   // 【河掛在陸地底下】它是地表的一部分：`__gfx` 關陸地時一起關，群組的位置
   // 契約也不動。放在換材質那一圈之後 —— 那一圈把每一個孩子都當成田
   const river = rivers === undefined ? null : buildRiverMeshes(rivers)
@@ -437,9 +450,11 @@ function createInlandTerrain(
     collisionHeightAt: surface,
     // 【河也是水】炸彈落河噴水柱、殘骸沉下去、墜機不揚土
     waterAt: rivers === undefined ? () => -Infinity : (x, z) => rivers.index.waterAt(x, z),
-    // 【內陸沒有海】田地、遠景環與近中兩級的樹都走標準材質，換了燈自己就
-    // 變暗；要補的只有吃不到光的點池
-    setPalette(p) { vegetation.setPointLight(p.foliage) },
+    // 模型由燈光調色；另更新粒子植被與地表薄霧，切回白天時清除夜間薄霧。
+    setPalette(p) {
+      vegetation.setPointLight(p.foliage, p.foliageTint)
+      groundHaze.value = p.groundHaze ?? 0
+    },
     islands: farm.hills,
     land: { field: solid, ceiling: HILL_PEAK_MAX, landAbove: -Infinity },
     fieldClip: clipmap,

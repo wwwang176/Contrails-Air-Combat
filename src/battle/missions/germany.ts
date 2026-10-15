@@ -118,7 +118,7 @@ export const GERMANY: readonly MissionCard[] = [
       arena: { x: 750, z: 5900, radius: 12000 },
       // 秋冬陰天的層積雲
       clouds: { yMin: 800, yMax: 1500, amount: 'many' },
-      timeOfDay: 'novemberNoon',
+      timeOfDay: 'noon',
       /**
        * 【開場導覽】先認清攔截目標，再交代護航威脅與我方戰鬥機：
        *

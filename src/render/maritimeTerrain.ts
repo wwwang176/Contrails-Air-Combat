@@ -75,7 +75,7 @@ export function createLeyteTerrain(): Terrain {
     oceanHeight: ocean.heightUniforms,
     setPalette(p) {
       ocean.setPalette(p)
-      flora.setPointLight(p.foliage)
+      flora.setPointLight(p.foliage, p.foliageTint)
     },
     update(time, centerX, centerZ) {
       ocean.update(time, centerX, centerZ)
@@ -184,7 +184,7 @@ export function createArchipelagoTerrain(): Terrain {
     oceanHeight: ocean.heightUniforms,
     setPalette(p) {
       ocean.setPalette(p)
-      flora.setPointLight(p.foliage)
+      flora.setPointLight(p.foliage, p.foliageTint)
     },
     update(time, centerX, centerZ) {
       ocean.update(time, centerX, centerZ)
