@@ -78,6 +78,10 @@ export interface DayPalette {
    * `POINT_LIGHT` 本身就是量出來的、不是算出來的。同一條規矩：拿眼睛校。
    */
   readonly foliage: number
+  /** 遠方粒子植被的光照色，sRGB；省略時不染色，與亮度倍率分開調整。 */
+  readonly foliageTint?: number
+  /** 地面與植被額外混入霧色的比例，0～1；不改全場距離霧與物件光照。 */
+  readonly groundHaze?: number
   readonly fogDensity: number
 }
 
@@ -155,7 +159,8 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     seaColor: 0x13243a,
     seaHorizon: 0x6e5468,
     sparkle: 0.85,
-    foliage: 0.5,
+    foliage: 0.32,
+    foliageTint: 0xffc6ae,
     fogDensity: 0.9e-5,
   },
   night: {
@@ -291,6 +296,12 @@ const TERRAIN_OVERRIDES: Partial<Record<TerrainKind, TerrainPaletteOverrides>> =
   sea: MARITIME_OVERRIDES,
   archipelago: MARITIME_OVERRIDES,
   leyte: MARITIME_OVERRIDES,
+  rzhev: {
+    // 雪原正午沿用德 M4 已調好的冬季色調、雪地反光與白霧。
+    noon: DAY_PALETTES.winterMorning,
+    // 夜間沿用晚秋內陸光照與距離霧，雪地與植被混入同一份夜霧色，降低近處反差。
+    night: { groundHaze: 0.35, foliage: 0.085, foliageTint: 0xbfd4ff },
+  },
   autumnFarmland: {
     // 晨霧偏冷灰，保留清晨的暖光與低太陽角度。
     dawn: {

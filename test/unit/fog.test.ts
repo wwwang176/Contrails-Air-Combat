@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { Color, type Mesh, type MeshStandardMaterial, type ShaderMaterial } from 'three'
-import { createFog, fogFactor, FOG_COLOR, FOG_DENSITY } from '../../src/render/fog'
+import { Color, MeshStandardMaterial, PointsMaterial, type Mesh, type ShaderMaterial, type WebGLProgramParametersWithUniforms, type WebGLRenderer } from 'three'
+import { createFog, fogFactor, FOG_COLOR, FOG_DENSITY, installGroundHaze } from '../../src/render/fog'
 import {
   createSky, skyColorAt, SKY_GRADIENT_POWER, SKY_HORIZON, SKY_ZENITH,
 } from '../../src/render/sky'
@@ -9,6 +9,34 @@ import { createOcean } from '../../src/render/ocean'
 import { FAR_SEA_SIZE, FAR_SEA_Y } from '../../src/render/oceanGeometry'
 import { SEA_COLOR } from '../../src/render/oceanStyle'
 import { DEFAULT_GOD_CAMERA } from '../../src/camera/godCamera'
+
+describe('地表薄霧', () => {
+  it('保留原地形著色器與距離霧，濃度可在編譯後歸零且不共用其他材質的狀態', () => {
+    const material = new MeshStandardMaterial()
+    material.customProgramCacheKey = () => 'field-textures'
+    material.onBeforeCompile = shader => {
+      shader.uniforms['uFieldTexture'] = { value: '原本的地形貼圖' }
+    }
+    const amount = { value: 0.35 }
+    installGroundHaze(material, amount)
+    const shader = { uniforms: {}, fragmentShader: '#include <fog_fragment>' } as WebGLProgramParametersWithUniforms
+    material.onBeforeCompile(shader, {} as WebGLRenderer)
+    expect(shader.uniforms['uFieldTexture']?.value).toBe('原本的地形貼圖')
+    expect(shader.fragmentShader).toContain('#include <fog_fragment>')
+    expect(material.customProgramCacheKey()).toBe('field-textures:ground-haze')
+    amount.value = 0
+    expect(shader.uniforms['uGroundHaze']?.value).toBe(0)
+    const other = new PointsMaterial()
+    other.onBeforeCompile = s => { s.vertexShader = '原本的粒子尺寸與俯角補光' }
+    installGroundHaze(other, { value: 0.2 })
+    const otherShader = { uniforms: {}, fragmentShader: '#include <fog_fragment>' } as WebGLProgramParametersWithUniforms
+    other.onBeforeCompile(otherShader, {} as WebGLRenderer)
+    expect(otherShader.uniforms['uGroundHaze']?.value).toBe(0.2)
+    expect(otherShader.vertexShader).toBe('原本的粒子尺寸與俯角補光')
+    material.dispose()
+    other.dispose()
+  })
+})
 
 describe('fogFactor', () => {
   it('零距離沒有霧', () => {

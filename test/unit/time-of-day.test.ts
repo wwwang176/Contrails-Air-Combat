@@ -253,6 +253,20 @@ describe('Ocean.setPalette', () => {
 })
 
 describe('applyTimeOfDay', () => {
+  it('雪原正午沿用德 M4 色盤，夜間沿用晚秋內陸光照並補薄霧與粒子植被色調', () => {
+    expect(paletteOf('noon', 'rzhev')).toEqual(DAY_PALETTES.winterMorning)
+    expect(paletteOf('night', 'rzhev')).toEqual({
+      ...paletteOf('night', 'autumnFarmland'),
+      groundHaze: 0.35,
+      foliage: 0.085, foliageTint: 0xbfd4ff,
+    })
+    for (const tod of TIME_OF_DAY_IDS.filter(t => t !== 'noon' && t !== 'night')) {
+      expect(paletteOf(tod, 'rzhev')).toBe(DAY_PALETTES[tod])
+    }
+    expect(paletteOf('noon', 'farmland')).toBe(DAY_PALETTES.noon)
+    expect(paletteOf('night', 'farmland')).toBe(DAY_PALETTES.night)
+  })
+
   it('正午切換海面、群島、海岸與內陸時，霧密度不殘留且不改共用色盤', () => {
     const seen: DayPalette[] = []
     const target = { setPalette: (p: DayPalette) => seen.push(p) }

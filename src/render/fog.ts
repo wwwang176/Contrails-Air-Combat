@@ -1,4 +1,4 @@
-import { Color, FogExp2 } from 'three'
+import { Color, FogExp2, type MeshStandardMaterial, type PointsMaterial } from 'three'
 import { skyColorAt } from './sky'
 
 /**
@@ -63,4 +63,22 @@ export function createFog(): FogExp2 {
   // 會被當成 sRGB 再轉一次，顏色會差一截。同理不能用 `getHex()` 繞一圈。
   fog.color.copy(FOG_COLOR)
   return fog
+}
+
+/** 地表薄霧：近處也混入場景霧色，再交給原有距離霧；不增加透明面或繪製次數。 */
+export function installGroundHaze(material: MeshStandardMaterial | PointsMaterial, amount: { value: number }): void {
+  const compile = material.onBeforeCompile
+  const cacheKey = material.customProgramCacheKey()
+  material.onBeforeCompile = function (shader, renderer) {
+    compile.call(this, shader, renderer)
+    shader.uniforms['uGroundHaze'] = amount
+    shader.fragmentShader = 'uniform float uGroundHaze;\n' + shader.fragmentShader
+      .replace('#include <fog_fragment>', `
+#ifdef USE_FOG
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, uGroundHaze);
+#endif
+#include <fog_fragment>`)
+  }
+  material.customProgramCacheKey = () => cacheKey + ':ground-haze'
+  material.needsUpdate = true
 }

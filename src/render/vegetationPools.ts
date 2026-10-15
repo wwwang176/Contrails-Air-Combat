@@ -377,7 +377,10 @@ export function createVegetationPools(cap: Record<PoolName, number>, season: Sea
     }
   }
 
-  function setPointLight(scale: number): void { pointMaterial.color.setScalar(scale) }
+  function setPointLight(scale: number, tint = 0xffffff): void {
+    // 色盤以 sRGB 指定，先轉成線性光照色；切回未染色時段也要清除舊色。
+    pointMaterial.color.setHex(tint).multiplyScalar(scale)
+  }
 
   function dispose(): void {
     disposeFloraGeometries(geometries)

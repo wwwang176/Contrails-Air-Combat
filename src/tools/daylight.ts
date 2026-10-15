@@ -316,6 +316,8 @@ function dump(): void {
     '    seaHorizon: ' + h(live.seaHorizon) + ',',
     '    sparkle: ' + live.sparkle + ',',
     '    foliage: ' + live.foliage + ',',
+    '    foliageTint: ' + h(live.foliageTint ?? 0xffffff) + ',',
+    '    groundHaze: ' + (live.groundHaze ?? 0) + ',',
     '    fogDensity: ' + live.fogDensity.toExponential(1) + ',',
     '  },',
   ].join('\n')
