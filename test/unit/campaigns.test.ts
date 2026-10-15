@@ -863,7 +863,7 @@ describe('盟 M2 的卡片', () => {
     expect(b.ground!.every((e) => e.team === 'red')).toBe(true)
     expect(b.destroyCount).toBe(6)
     expect(b.terrain).toBe('leuna')
-    expect(b.timeOfDay).toBe('novemberNoon')
+    expect(b.timeOfDay).toBe('noon')
     expect(b.blueSpec.id).toBe('b17g')
     expect(b.blueCount).toBe(12)
     // 【高度要釘住】它是這一關唯一覆寫預設的飛行參數，掉回 4,000 不會報錯

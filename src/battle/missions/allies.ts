@@ -113,8 +113,8 @@ export const ALLIES: readonly MissionCard[] = [
       arena: { x: 0, z: -4000, radius: 13000 },
       // 高過 1,500 m 的投彈高度，不擋攻擊路線
       clouds: { yMin: 2000, yMax: 2600, amount: 'few' },
-      // 十一月的正午：太陽低、天色灰（`render/timeOfDay.ts`）
-      timeOfDay: 'novemberNoon',
+      // 洛伊納地形會將一般正午套成秋天正午的完整色盤，與遭遇戰一致。
+      timeOfDay: 'noon',
       /**
        * 【1,500 m 而不是預設的 4,000】史實的投彈高度在 7,000 m 以上，但
        * 那個高度上廠區只剩一片灰色的紋理，而投下的彈要飛四十秒才落地。

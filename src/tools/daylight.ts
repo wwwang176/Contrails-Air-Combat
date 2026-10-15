@@ -89,8 +89,8 @@ function setTerrain(kind: DemoTerrain): void {
     plane.group.quaternion.setFromAxisAngle(new Vector3(0, 1, 0), 0.55)
   }
   placeCamera(kind)
-  // 【洛伊納的色盤是為深秋正午調的】切到它時段跟著切
-  if (leuna) selectTod('novemberNoon')
+  // 洛伊納的一般正午由地形覆寫成秋天色盤，與任務、遭遇戰使用同一路徑。
+  if (leuna) selectTod('noon')
 }
 
 /** 內陸的視野要拉遠拉高才看得到田與樹的層次；洛伊納從廠區上空看投彈航路。 */

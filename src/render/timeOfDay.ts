@@ -296,6 +296,13 @@ const TERRAIN_OVERRIDES: Partial<Record<TerrainKind, TerrainPaletteOverrides>> =
   sea: MARITIME_OVERRIDES,
   archipelago: MARITIME_OVERRIDES,
   leyte: MARITIME_OVERRIDES,
+  leuna: {
+    // 洛伊納的一般正午沿用美 M2 原本的秋天正午完整色盤，任務與遭遇戰共用。
+    noon: DAY_PALETTES.novemberNoon,
+    // 清晨與黃昏只比照正午霧量，保留各自的天空與光照色調。
+    dawn: { fogDensity: DAY_PALETTES.novemberNoon.fogDensity },
+    dusk: { fogDensity: DAY_PALETTES.novemberNoon.fogDensity },
+  },
   rzhev: {
     // 雪原正午沿用德 M4 已調好的冬季色調、雪地反光與白霧。
     noon: DAY_PALETTES.winterMorning,

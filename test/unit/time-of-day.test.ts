@@ -275,21 +275,30 @@ describe('applyTimeOfDay', () => {
     }
     expect(seen.map(p => p.fogDensity)).toEqual([
       0.7e-5, 0.7e-5, 2.2e-5, 2.2e-5, 0.7e-5, 0.7e-5,
-      2.2e-5, 2.2e-5, 0.7e-5, 0.7e-5, 2.2e-5, 2.2e-5,
+      3.5e-5, 3.5e-5, 0.7e-5, 0.7e-5, 2.2e-5, 2.2e-5,
       3.5e-5, 3.5e-5, 2.2e-5, 2.2e-5,
     ])
     expect(DAY_PALETTES.noon.fogDensity).toBe(2.2e-5)
     expect(seen[0]).toEqual({ ...DAY_PALETTES.noon, fogDensity: 0.7e-5 })
     expect(paletteOf('noon', 'autumnFarmland')).toEqual(DAY_PALETTES.novemberNoon)
+    expect(seen[6]).toEqual(DAY_PALETTES.novemberNoon)
+    expect(seen[7]).toBe(seen[6])
     expect(seen[12]).toEqual(DAY_PALETTES.novemberNoon)
     expect(seen[13]).toBe(seen[12])
     expect(seen[14]).toBe(DAY_PALETTES.noon)
   })
 
-  it('其他時段不因地形更改濃度，雷雨保持原值', () => {
+  it('海面與一般內陸時段不變，洛伊納晨昏只比照正午霧量', () => {
     for (const tod of TIME_OF_DAY_IDS.filter(t => t !== 'noon')) {
       expect(paletteOf(tod, 'sea')).toBe(DAY_PALETTES[tod])
       expect(paletteOf(tod, 'farmland')).toBe(DAY_PALETTES[tod])
+      if (tod === 'dawn' || tod === 'dusk') {
+        expect(paletteOf(tod, 'leuna')).toEqual({
+          ...DAY_PALETTES[tod], fogDensity: paletteOf('noon', 'leuna').fogDensity,
+        })
+      } else {
+        expect(paletteOf(tod, 'leuna')).toBe(DAY_PALETTES[tod])
+      }
     }
     expect(DAY_PALETTES.storm.fogDensity).toBe(7e-5)
   })
