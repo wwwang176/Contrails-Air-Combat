@@ -75,9 +75,15 @@ function addUnit(rows: BriefingUnit[], spec: AircraftSpec, count: number): void 
 
 function readyBriefing(card: ReadyMissionCard): Briefing {
   const b = card.battle
+  const cfg = missionConfigFrom(card)
+  // 【玩家以外的小隊換機種時，玩家那一隊的架數從編組表讀】小隊大小由排法決定，卡片上沒有
+  const own = b.blueOthers === undefined
+    ? b.blueCount
+    : cfg.units.find((f) => f.player === true)!.members.length
   const mine: BriefingUnit[] = [
-    { id: b.blueSpec.id, name: shortName(b.blueSpec), role: b.blueSpec.role, count: b.blueCount },
+    { id: b.blueSpec.id, name: shortName(b.blueSpec), role: b.blueSpec.role, count: own },
   ]
+  if (b.blueOthers !== undefined) addUnit(mine, b.blueOthers, b.blueCount - own)
   // 【沒有敵機就不列】零架的那一列是「一支根本沒起飛的敵軍」
   const foe: BriefingUnit[] = b.redCount === 0
     ? []
@@ -88,7 +94,7 @@ function readyBriefing(card: ReadyMissionCard): Briefing {
   //
   // 【攻擊隊恆在我方、轟炸機流恆在敵方】`convoyDuty` 是 `strike`／`stream` 時規則
   // 不是護送，沒有 owner 可讀；`missionConfigFrom` 就是照這兩個值排隊伍的
-  const rules = missionConfigFrom(card).rules
+  const rules = cfg.rules
   if (b.convoySpec !== null) {
     const unit: BriefingUnit = {
       id: b.convoySpec.id, name: shortName(b.convoySpec),

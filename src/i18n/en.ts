@@ -168,7 +168,7 @@ export const en: Record<MessageKey, string> = {
   'mission.germany-m2.banner': 'Airfield ahead. Bombs ready',
 
   'mission.germany-m3.title': 'Operation Bodenplatte',
-  'mission.germany-m3.summary': 'Fly the Bf 109 K-4 in at treetop height and catch the Mustangs before they take off.',
+  'mission.germany-m3.summary': 'Fly the Fw 190 D-9 in at treetop height and catch the Mustangs before they take off.',
   'mission.germany-m3.place': 'Y-29 airfield, Asch, Belgium',
   'mission.germany-m3.objective': 'Destroy every enemy fighter',
   'mission.germany-m3.banner': 'Strike the airfield at low altitude. Destroy the fighters before they take off.',

@@ -211,11 +211,12 @@ describe('德 M1 梅澤堡上空', () => {
 describe('德 M3 底板行動', () => {
   const card = MISSIONS.germany.find((m) => m.id === 'germany-m3') as ReadyMissionCard
 
-  it('Y-29、拂曉、10 架 K-4、開場沒有敵機在天上；停機線全部都要打掉', () => {
+  it('Y-29、拂曉、玩家開 Fw 190 共 10 架、開場沒有敵機在天上；停機線全部都要打掉', () => {
     const b = card.battle
     expect(b.terrain).toBe('asch')
     expect(b.timeOfDay).toBe('dawn')
-    expect(b.blueSpec.id).toBe('bf109k4')
+    expect(b.blueSpec.id).toBe('fw190')
+    expect(b.blueOthers?.id).toBe('bf109k4')
     expect(b.blueCount).toBe(10)
     expect(b.redSpec.id).toBe('p51d')
     expect(b.redCount).toBe(0)
@@ -223,6 +224,19 @@ describe('德 M3 底板行動', () => {
     expect(b.destroyUnit).toBe('parkedP51')
     expect(b.priorityGroundUnit).toBe('parkedP51')
     expect(missionConfigFrom(card).tuning.priorityGroundUnit).toBe('parkedP51')
+  })
+
+  /** 【整隊換，不在小隊裡混】玩家那一隊全是 Fw 190，另外兩隊全是 Bf 109 */
+  it('編組：玩家那一隊 4 架 Fw 190，另外兩隊（4 ＋ 2）整隊是 Bf 109', () => {
+    const blue = missionConfigFrom(card).units.filter((f) => f.team === 'blue')
+    const ids = (f: (typeof blue)[number]) => [...new Set(f.members.map((m) => m.id))]
+    expect(blue.filter((f) => f.player === true).map(ids)).toEqual([['fw190']])
+    expect(blue.find((f) => f.player === true)!.members).toHaveLength(4)
+    const others = blue.filter((f) => f.player !== true)
+    expect(others.map(ids)).toEqual([['bf109k4'], ['bf109k4']])
+    expect(others.map((f) => f.members.length).sort()).toEqual([2, 4])
+    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
+    expect(b.player.aircraft.spec.id).toBe('fw190')
   })
 
   it('玩家在機場東邊約 7.5 km、朝西飛，橫切跑道', () => {

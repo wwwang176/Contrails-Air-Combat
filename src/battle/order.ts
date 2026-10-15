@@ -162,6 +162,17 @@ export function lineAbreast(
   return out
 }
 
+/**
+ * 藍隊裡玩家以外、`duty: 'combat'` 的小隊整隊換成 `spec`。玩家那一隊不換。
+ *
+ * 只改 `members` 的機種，站位、小隊數、索引順序都不動。
+ */
+export function otherBlueFlights(order: OrderOfBattle, spec: AircraftSpec): OrderOfBattle {
+  return order.map((f) => (f.team !== 'blue' || f.duty !== 'combat' || f.player === true
+    ? f
+    : { ...f, members: f.members.map(() => spec) }))
+}
+
 /** 分層擺位時相鄰兩個小隊的縱深間距，m。**起始值，由試飛裁定** */
 export const STACK_DEPTH = 500
 
