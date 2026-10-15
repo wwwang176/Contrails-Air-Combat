@@ -35,20 +35,21 @@ describe('fogFactor', () => {
  * 敵機會一起變灰，而沒有東西會紅。
  */
 describe('霧的濃度落在設計意圖上', () => {
-  it('5 km（纏鬥距離）幾乎沒有霧', () => {
-    expect(fogFactor(5_000, FOG_DENSITY)).toBeLessThan(0.01)
+  it('5 km（纏鬥距離）有輕微霧感，仍保留辨識度', () => {
+    expect(fogFactor(5_000, FOG_DENSITY)).toBeGreaterThan(0.005)
+    expect(fogFactor(5_000, FOG_DENSITY)).toBeLessThan(0.02)
   })
 
-  it('30 km（上帝視角的全戰場）有一層薄薄的空氣感', () => {
+  it('30 km（上帝視角的全戰場）降低遠景對比，仍看得出地形', () => {
     const f = fogFactor(30_000, FOG_DENSITY)
-    expect(f).toBeGreaterThan(0.02)
-    expect(f).toBeLessThan(0.08)
+    expect(f).toBeGreaterThan(0.25)
+    expect(f).toBeLessThan(0.45)
   })
 
-  it('幾何地平線（約 140 km）上遠海只化掉一半多 —— 海面也吃霧，再濃海天那一階就糊了', () => {
+  it('幾何地平線（約 140 km）上的極遠景融入天色', () => {
     const f = fogFactor(140_000, FOG_DENSITY)
-    expect(f).toBeGreaterThan(0.4)
-    expect(f).toBeLessThan(0.8)
+    expect(f).toBeGreaterThan(0.99)
+    expect(f).toBeLessThanOrEqual(1)
   })
 
 })
