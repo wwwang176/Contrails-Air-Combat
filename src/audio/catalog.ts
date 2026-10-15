@@ -222,10 +222,10 @@ const FIRE_OF: Record<string, string> = {
 }
 
 /**
- * 引擎聲借用別台的檔。**Yak-1B 與 Fw 190 D-9 暫用 Bf 109 K-4 的**：同是液冷倒 V 12 缸、
- * 機首單發。其餘每個機種都有自己的檔（`engine-<機種 id>`）。
+ * 引擎聲借用別台的檔。**Yak-1B 暫用 Bf 109 K-4 的**：同是液冷倒 V 12 缸、機首單發。
+ * 其餘每個機種都有自己的檔（`engine-<機種 id>`）。
  */
-const ENGINE_OF: Readonly<Record<string, string>> = { yak1b: 'bf109k4', fw190: 'bf109k4' }
+const ENGINE_OF: Readonly<Record<string, string>> = { yak1b: 'bf109k4' }
 
 export function engineFile(specId: string): string {
   return `engine-${ENGINE_OF[specId] ?? specId}`
@@ -488,7 +488,7 @@ export const FIRST_FILES: readonly string[] =
 export const ALL_FILES: readonly string[] = [
   'on-board-military-tank', 'car-tires-rolling-on-gravel', 'truck-idling-2',
   'truck-on-rough-terrain-interior', 'gravel-tire-roll', 'truck-idling-1',
-  ...['p51d', 'bf109k4', 'f4f4', 'f6f5', 'a6m5', 'ki84', 'he111', 'ju87', 'g4m', 'b17g'].map(engineFile),
+  ...['p51d', 'bf109k4', 'fw190', 'f4f4', 'f6f5', 'a6m5', 'ki84', 'he111', 'ju87', 'g4m', 'b17g'].map(engineFile),
   ...new Set(Object.values(FIRE_OF)),
   ...Object.values(SIREN_OF),
   ...Object.values(POOLS).flat(),

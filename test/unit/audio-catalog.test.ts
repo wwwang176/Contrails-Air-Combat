@@ -264,13 +264,22 @@ describe('音效目錄', () => {
     for (const d of [1000, 2000]) expect(loud('siren', d) - loud('engine', d), `${d} m`).toBeGreaterThanOrEqual(8)
   })
 
-  it('借用別台引擎聲的只有 Yak-1B 與 Fw 190 D-9（借 Bf 109 K-4）', () => {
+  it('借用別台引擎聲的只剩 Yak-1B（借 Bf 109 K-4）', () => {
     for (const s of ALL_SPECS) {
-      if (s.id === 'yak1b' || s.id === 'fw190') expect(engineFile(s.id)).toBe('engine-bf109k4')
+      if (s.id === 'yak1b') expect(engineFile(s.id)).toBe('engine-bf109k4')
       else expect(engineFile(s.id), s.id).toBe(`engine-${s.id}`)
     }
     expect(engineFile('yak1b')).toBe('engine-bf109k4')
-    expect(engineFile('fw190')).toBe('engine-bf109k4')
+  })
+
+  /** Jumo 213：與 DB 605 同是倒 V12、轉速較高，專屬的引擎聲 */
+  it('Fw 190 D-9 有自己的引擎聲：循環檔、有包絡、檔案在 public/audio、在載入清單裡', () => {
+    expect(engineFile('fw190')).toBe('engine-fw190')
+    const e = manifest['engine-fw190'] as { loop: boolean; envelopeDb?: number[] } | undefined
+    expect(e?.loop).toBe(true)
+    expect(e?.envelopeDb?.length).toBeGreaterThan(10)
+    expect(existsSync('public/audio/engine-fw190.mp3')).toBe(true)
+    expect(ALL_FILES).toContain('engine-fw190')
   })
 
   /** 【MG 151/20 借ホ5 的齊射與空響庫】少了借用，那兩門機砲自己駕駛時開火與過熱都不出聲、也不報錯 */
