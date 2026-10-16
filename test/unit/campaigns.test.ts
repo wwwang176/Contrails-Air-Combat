@@ -551,9 +551,12 @@ describe('日 M2 雷伊泰前線', () => {
     expect(b.vehicleConvoy?.route).toBe(LEYTE_ROAD)
   })
 
-  it('沒有撤離：卡片不帶返航，建出來的節拍裡也沒有', () => {
-    expect(b.withdraw).toBeUndefined()
-    expect((missionConfigFrom(card).beats ?? []).some((x) => x.kind === 'withdraw')).toBe(false)
+  it('撤離點從玩家當下的位置往 +Z（Ki-84 來的方向）3 km、高度等於任務高度', () => {
+    const w = missionConfigFrom(card).beats?.find((x) => x.kind === 'withdraw')
+    expect(w?.kind).toBe('withdraw')
+    if (w?.kind !== 'withdraw') return
+    expect(w.fromPlayer).toBe(true)
+    expect([w.point.x, w.point.y, w.point.z]).toEqual([0, b.altitude, 3000])
   })
 
   it('炸毀 20 輛卡車過關', () => {
@@ -637,14 +640,30 @@ describe('有 interdict 的卡一定打得贏', () => {
     const b = card.battle
     const rule = b.interdict!
 
-    /** 走真正的 `stepBattle`：摧毀數由 `setup.ts` 數，停著的與車隊的卡車一起算 */
-    it(`${card.id}：炸到 count 輛就判勝，差一輛還在打`, () => {
+    it(`${card.id}：有「摧毀 ≥ count」觸發的返航`, () => {
+      const w = b.withdraw!
+      expect(w.when.kind).toBe('destroyed')
+      if (w.when.kind !== 'destroyed') return
+      expect(w.when.atLeast).toBe(rule.count)
+      expect(w.when.unit).toBe(rule.unit)
+    })
+
+    /**
+     * 走真正的 `stepBattle`：摧毀數由 `setup.ts` 數，停著的與車隊的卡車一起算。
+     * 差一輛還是截斷；炸到 count 輛換成撤離、不判勝；飛進撤離圈才判勝
+     */
+    it(`${card.id}：炸到 count 輛換成撤離，飛進撤離圈才判勝`, () => {
       const battle = createBattle({ update() {} }, missionConfigFrom(card), 1)
       const trucks = battle.world.groundTargets.filter((t) => t.unit.id === rule.unit && t.team === 'red')
       for (const t of trucks.slice(0, rule.count - 1)) t.alive = false
       stepBattle(battle, 1 / 240)
-      expect(battle.mission.outcome).toBe('fighting')
+      expect(battle.rules.kind).toBe('interdict')
       trucks[rule.count - 1]!.alive = false
+      stepBattle(battle, 1 / 240)
+      expect(battle.rules.kind).toBe('evacuate')
+      expect(battle.mission.outcome).toBe('fighting')
+      if (battle.rules.kind !== 'evacuate') return
+      battle.player.aircraft.state.position.copy(battle.rules.point)
       stepBattle(battle, 1 / 240)
       expect(battle.mission.outcome).toBe('victory')
     })
@@ -673,12 +692,16 @@ describe('有 interdict 的卡一定打得贏', () => {
     })
   }
 
-  it('同一步炸夠又有卡車抵達：判勝', () => {
+  it('同一步炸夠又有卡車抵達：撤離先生效、不判敗（stepBeats 排在勝負判定之前）', () => {
     const card = cards[0]!
     const { waves: _w, ...rest } = card.battle
     const one: ReadyMissionCard = {
       ...card,
-      battle: { ...rest, interdict: { count: 1, leak: 1, unit: 'usTruck' } },
+      battle: {
+        ...rest,
+        interdict: { count: 1, leak: 1, unit: 'usTruck' },
+        withdraw: { ...card.battle.withdraw!, when: { kind: 'destroyed', atLeast: 1, unit: 'usTruck' } },
+      },
     }
     const battle = createBattle({ update() {} }, missionConfigFrom(one), 1)
     const trucks = battle.world.groundTargets.filter((t) => t.unit.id === 'usTruck')
@@ -686,7 +709,27 @@ describe('有 interdict 的卡一定打得贏', () => {
     trucks[1]!.alive = false
     trucks[1]!.arrived = true
     stepBattle(battle, 1 / 240)
-    expect(battle.mission.outcome).toBe('victory')
+    // 【兩個都要看】返航會重設 `mission`；判敗若先發生，定案的是 `outcome` 那一份
+    expect(battle.outcome).toBe('fighting')
+    expect(battle.mission.outcome).toBe('fighting')
+    expect(battle.rules.kind).toBe('evacuate')
+  })
+
+  /** 撤離點跟著玩家：在哪裡炸完，就從那裡往 +Z 量 3 km */
+  it('日 M2：撤離點是炸完那一刻玩家的位置往 +Z 3 km', () => {
+    const card = cards.find((c) => c.id === 'japan-m2')!
+    const rule = card.battle.interdict!
+    const battle = createBattle({ update() {} }, missionConfigFrom(card), 1)
+    const trucks = battle.world.groundTargets.filter((t) => t.unit.id === rule.unit && t.team === 'red')
+    for (const t of trucks.slice(0, rule.count)) t.alive = false
+    battle.player.aircraft.state.position.set(2500, 300, -3000)
+    stepBattle(battle, 1 / 240)
+    expect(battle.rules.kind).toBe('evacuate')
+    if (battle.rules.kind !== 'evacuate') return
+    const p = battle.rules.point
+    expect(Math.abs(p.x - 2500)).toBeLessThan(2)
+    expect(Math.abs(p.z - (-3000 + 3000))).toBeLessThan(2)
+    expect(p.y).toBe(card.battle.altitude)
   })
 })
 

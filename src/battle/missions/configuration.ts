@@ -376,6 +376,7 @@ function withdrawBeat(w: MissionWithdraw, altitude: number): WithdrawBeat {
     when: triggerToCondition(w.when),
     messageKey: w.messageKey,
     point: evacuatePoint(altitude, w.distance),
+    fromPlayer: w.from === 'player',
     radius: w.radius,
     seconds: w.seconds,
   }

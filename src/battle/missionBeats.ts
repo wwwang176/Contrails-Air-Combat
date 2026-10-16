@@ -1,3 +1,4 @@
+import { Vector3 } from 'three'
 import type { Battle } from './battleState'
 import type { Team } from '../world/team'
 import type { AircraftSpec } from '../specs/types'
@@ -156,8 +157,16 @@ export function stepBeats(b: Battle): void {
       // 倒數永遠停在原值、計量顯示的是敵機數，飛進撤離圈也不會判勝
       //
       // 【就地寫回，不換 `MissionState` 物件】見 `Battle.mission` 的註解
+      //
+      // 【相對玩家的撤離點配置一個新座標】整場只生效一次。不能就地改 `beat.point`：
+      // 節拍屬於 `BattleConfig`，「重新開始」用同一份設定再建一場，改了它下一場會從
+      // 上一場的撤離點再位移一次
+      const p = b.player.aircraft.state.position
+      const point = beat.fromPlayer
+        ? new Vector3(p.x + beat.point.x, beat.point.y, p.z + beat.point.z)
+        : beat.point
       b.rules = {
-        kind: 'evacuate', point: beat.point, radius: beat.radius, seconds: beat.seconds,
+        kind: 'evacuate', point, radius: beat.radius, seconds: beat.seconds,
       }
       resetMissionState(b.rules, b.mission)
       b.evacOrder = evacOrderOf(b.rules)

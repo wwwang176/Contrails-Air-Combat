@@ -102,7 +102,12 @@ export interface WithdrawBeat {
   readonly when: BeatCondition
   /** 畫面中心的文字的鍵 */
   readonly messageKey: MessageKey
+  /**
+   * 撤離點的世界座標。`fromPlayer` 時是相對位移：生效那一刻加上玩家的水平位置，
+   * 高度照用 `point.y`
+   */
   readonly point: Vector3
+  readonly fromPlayer: boolean
   readonly radius: number
   readonly seconds: number
 }

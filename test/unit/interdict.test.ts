@@ -10,8 +10,8 @@ import { createGroundTarget } from '../../src/world/groundTargets'
 /**
  * # 截斷車隊
  *
- * 摧毀數到 count 判勝；卡車抵達到 leak、藍隊全滅判敗，同一步兩者都成立時判勝。
- * 抵達退場的車不算摧毀；節拍條件與抵達數都只數指定的單位。
+ * 規則只判敗（卡車抵達、藍隊全滅），摧毀數達標不判勝 —— 勝利由返航節拍轉成的
+ * 撤離給。抵達退場的車不算摧毀；節拍條件與抵達數都只數指定的單位。
  */
 
 const RULES: MissionRules = { kind: 'interdict', count: 6, leak: 4, unit: 'truck' }
@@ -41,21 +41,10 @@ describe('interdict 規則', () => {
     expect(s.outcome).toBe('defeat')
   })
 
-  it('摧毀數到 count 判勝', () => {
+  it('摧毀數到 count 不判勝（勝利只來自撤離）', () => {
     const s = createMissionState(RULES)
-    stepMission(RULES, inputs({ targetsDestroyed: 5 }), DT, s)
+    stepMission(RULES, inputs({ targetsDestroyed: 9 }), DT, s)
     expect(s.outcome).toBe('fighting')
-    stepMission(RULES, inputs({ targetsDestroyed: 6 }), DT, s)
-    expect(s.outcome).toBe('victory')
-  })
-
-  it('同一步炸到 count 又抵達 leak、或藍隊全滅：判勝', () => {
-    const a = createMissionState(RULES)
-    stepMission(RULES, inputs({ targetsDestroyed: 6, targetsArrived: 4 }), DT, a)
-    expect(a.outcome).toBe('victory')
-    const b = createMissionState(RULES)
-    stepMission(RULES, inputs({ targetsDestroyed: 6, aliveBlue: 0 }), DT, b)
-    expect(b.outcome).toBe('victory')
   })
 
   it('計量：還差幾輛、分母是 count、抵達數給目標列', () => {

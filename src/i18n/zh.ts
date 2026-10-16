@@ -192,11 +192,12 @@ export const zh = {
   'mission.japan-m1.recycle': '警告：敵方戰鬥機再度升空',
 
   'mission.japan-m2.title': '雷伊泰前線',
-  'mission.japan-m2.summary': '駕駛疾風掛彈攻擊美軍補給車隊與路口的補給點，趕在車隊抵達前線之前。',
+  'mission.japan-m2.summary': '駕駛疾風掛彈攻擊美軍補給車隊與路口的補給點，趕在車隊抵達前線之前，然後撤離。',
   'mission.japan-m2.place': '菲律賓 雷伊泰島',
   'mission.japan-m2.objective': '炸毀補給卡車',
   'mission.japan-m2.banner': '轟炸補給車隊，阻止它們抵達前線',
   'mission.japan-m2.wave.carrier': '敵方戰鬥機接近中',
+  'mission.japan-m2.withdraw': '撤離戰區',
 
   'mission.japan-m3.title': '倫內爾島',
   'mission.japan-m3.summary': '駕駛一式陸攻趁著黃昏貼海飛行，用魚雷擊沉美軍艦隊。',

@@ -234,7 +234,7 @@ export const JAPAN: readonly MissionCard[] = [
       },
       // 【雷雨】雨、閃電與雷聲（`render/rain.ts`、`render/storm.ts`）。雷伊泰戰役正值雨季
       timeOfDay: 'storm',
-      // 【26 輛卡車（車隊 9、灘頭 9、路口 8）：炸 20 輛過關、放走 7 輛就輸】20 + 7 > 26，
+      // 【26 輛卡車（車隊 9、灘頭 9、路口 8）：炸 20 輛就撤離、放走 7 輛就輸】20 + 7 > 26，
       // 兩條不會同時可能。只有車隊那 9 輛開得到前線
       interdict: { count: 20, leak: 7, unit: 'usTruck' },
       /**
@@ -292,6 +292,17 @@ export const JAPAN: readonly MissionCard[] = [
           side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI - 0.4, along: 0.18, altitude: 3000,
         },
       ],
+      withdraw: {
+        when: { kind: 'destroyed', atLeast: 20, unit: 'usTruck' },
+        messageKey: 'mission.japan-m2.withdraw',
+        // 【從炸完的地方往 Ki-84 來的方向飛 3 km】卡車散在灘頭到西路一路，第 20 輛在哪裡
+        // 炸掉說不準；從玩家當下的位置量，撤離的路程每一場都一樣長
+        distance: -3000,
+        from: 'player',
+        // 【圈小】要對準了才飛得進去，不是往那個方向飛就結束
+        radius: 600,
+        seconds: Infinity,
+      },
     },
   },
   {
