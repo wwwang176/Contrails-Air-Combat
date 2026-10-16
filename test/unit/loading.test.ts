@@ -123,9 +123,33 @@ describe('載入畫面的接線', () => {
     expect(start).toContain('preloadAircraftModels(fileLoaded)')
     expect(start).toContain('preloadShipModels(shipIds, fileLoaded)')
     expect(start).toContain('preloadGroundModels(undefined, fileLoaded)')
+    expect(start).toContain('preloadFloraModels(undefined, fileLoaded)')
     const total = start.slice(start.indexOf('const fileTotal'), start.indexOf('\n', start.indexOf('const fileTotal')))
-    for (const part of ['AIRCRAFT_MODEL_COUNT', 'shipIds.length', 'groundModelUrls().length', 'BALLOON_MODEL_COUNT']) {
+    for (const part of [
+      'AIRCRAFT_MODEL_COUNT', 'shipIds.length', 'groundModelUrls().length', 'BALLOON_MODEL_COUNT',
+      'FLORA_MODEL_COUNT',
+    ]) {
       expect(total, part).toContain(part)
+    }
+  })
+
+  /**
+   * 【開場那一份地形在預載之後重建】它在模組載入時就建了，近處的樹是程序幾何的
+   * 退路；選單短片只在地形種類換了才重建。少了這一步，選單第一段一直是舊樹。
+   */
+  it('開場預載之後、主迴圈開始之前重建一次地形，舊的移出場景並釋放', () => {
+    const main = srcOf('main.ts')
+    const start = main.slice(main.indexOf('const initialRecoveryFailure'))
+    const startCode = start.slice(start.indexOf('await preloadStartupAssets(loading)'), start.indexOf('requestAnimationFrame(frame)'))
+    const order = [
+      'ctx.scene.remove(terrain.object)', 'terrain.dispose()',
+      'terrain = createTerrain(terrainKind, terrainGfx())', 'aiTerrain = terrain', 'ctx.scene.add(terrain.object)',
+    ]
+    let at = 0
+    for (const line of order) {
+      const i = startCode.indexOf(line, at)
+      expect(i, line).toBeGreaterThan(0)
+      at = i
     }
   })
 

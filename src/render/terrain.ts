@@ -16,8 +16,8 @@ import { buildBlasts, buildGardens, buildStreets } from './steppeGeometry'
 import { createFarmGround } from './farmGround'
 import { createFarHorizon } from './farHorizon'
 import {
-  BUSH_RANGE, FLORA_RADIUS, LOD_NEAR, lodFor, OUTER_JITTER, outerFor, POINT_NEAR,
-  TILE_SIZE,
+  BUSH_NEAR, BUSH_RANGE, bushLevelFor, FLORA_RADIUS, LOD_HIGH, LOD_NEAR, LOD_NONE, lodFor,
+  OUTER_JITTER, outerFor, POINT_NEAR, TILE_SIZE,
 } from './vegetationPolicy'
 import { createVegetation } from './vegetation'
 import {
@@ -94,12 +94,19 @@ function floraRings(x: number, z: number, cx: number, cz: number): string[] {
   const d = Math.hypot((i + 0.5) * TILE_SIZE - cx, (j + 0.5) * TILE_SIZE - cz)
   const outer = outerFor(i, j)
   const lod = lodFor(d, -1, outer)
-  const tree = lod >= 3 ? '不畫（烘在地面）'
-    : lod === 2 ? `點（${km(POINT_NEAR)}～這一格的外圈）`
-      : lod === 1 ? `簡化樹冠（${km(LOD_NEAR)}～${km(POINT_NEAR)}）`
-        : `完整樹冠＋樹幹（${km(LOD_NEAR)} 內）`
-  const bush = lod >= 3 ? '不畫（烘在地面）' : d > BUSH_RANGE ? `點（${km(BUSH_RANGE)} 外）` : `模型（${km(BUSH_RANGE)} 內）`
-  const house = lod >= 3 ? '不畫（屋頂色塊烘在地面）' : '模型'
+  const tree = [
+    `高模（${km(LOD_HIGH)} 內）`,
+    `中模（${km(LOD_HIGH)}～${km(LOD_NEAR)}）`,
+    `簡化樹冠（${km(LOD_NEAR)}～${km(POINT_NEAR)}）`,
+    `點（${km(POINT_NEAR)}～這一格的外圈）`,
+  ][lod] ?? '不畫（烘在地面）'
+  const bush = lod >= LOD_NONE ? '不畫（烘在地面）' : [
+    `高模（${km(LOD_HIGH)} 內）`,
+    `中模（${km(LOD_HIGH)}～${km(BUSH_NEAR)}）`,
+    `八面體（${km(BUSH_NEAR)}～${km(BUSH_RANGE)}）`,
+    `點（${km(BUSH_RANGE)} 外）`,
+  ][bushLevelFor(d, -1)]!
+  const house = lod >= LOD_NONE ? '不畫（屋頂色塊烘在地面）' : '模型'
   return [
     `這一格：格心 ${km(d)}，外圈 ${km(outer)}（每格 ${km(FLORA_RADIUS * (1 - OUTER_JITTER))}～${km(FLORA_RADIUS)}）`,
     `樹：${tree}`, `灌木：${bush}`, `房子：${house}`,

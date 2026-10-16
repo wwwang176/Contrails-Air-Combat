@@ -2,7 +2,9 @@ import type { FloraBuffer } from '../core/floraBuffer'
 import { FLORA_STRIDE, SHAPE_ONE } from '../core/floraBuffer'
 import { POINT_SIZE, POINT_Y, type PointPool, type PoolName } from './floraShapes'
 import type { createVegetationPools } from './vegetationPools'
-import { BUILDING_POOLS, IS_POINT, POOL_LUT, POOL_NAMES, SLOT_SPAN, TINT_RANGE } from './vegetationPolicy'
+import {
+  BUILDING_POOLS, IS_POINT, LUT_KIND_STRIDE, POOL_LUT, POOL_NAMES, SLOT_SPAN, TINT_RANGE, lutRow,
+} from './vegetationPolicy'
 
 type Pools = Pick<ReturnType<typeof createVegetationPools>,
   'altPt' | 'pointBase' | 'altMat' | 'altCol' | 'side' | 'pointRuns' |
@@ -13,7 +15,7 @@ interface Tiles {
   readonly slotBuf: readonly (FloraBuffer | null)[]
   readonly slotUsed: Uint8Array
   readonly slotLod: Int8Array
-  readonly slotBush: Uint8Array
+  readonly slotBush: Int8Array
   readonly slotKey: Float64Array
 }
 
@@ -158,7 +160,7 @@ export function createVegetationRebuild(
       const data = buf.data
       const kinds = buf.kind
       const shapes = buf.shape
-      const row = (slotLod[s]! + 1) * 2 + slotBush[s]!
+      const row = lutRow(slotLod[s]!, slotBush[s]!)
       for (let p = 0; p < poolCount; p++) {
         tileFrom[p] = jobCounts[p]!
         const b = p * 6
@@ -166,7 +168,7 @@ export function createVegetationRebuild(
         acc[b + 3] = -Infinity; acc[b + 4] = -Infinity; acc[b + 5] = -Infinity
       }
       for (let k = 0; k < n; k++) {
-        const p = POOL_LUT[kinds[k]! * 10 + row]!
+        const p = POOL_LUT[kinds[k]! * LUT_KIND_STRIDE + row]!
         if (p < 0 || jobDirty[p] === 0) continue
         const at = jobCounts[p]!
         if (at >= capOf[p]!) {

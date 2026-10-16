@@ -6,8 +6,8 @@ import { createVegetationPools } from './vegetationPools'
 import { createVegetationRebuild } from './vegetationRebuild'
 import {
   TILE_SIZE, FLORA_RADIUS, TILES_PER_FRAME, REBUILD_BUDGET, MAX_PER_TILE, CAPACITY,
-  SLOT_SPAN, POOL_NAMES, BUILDING_POOLS, outerFor, lodFor, BUSH_RANGE,
-  LOD_HYSTERESIS, REBUILD_EVERY, REBUILD_MOVE, REBUILD_IDLE,
+  SLOT_SPAN, POOL_NAMES, BUILDING_POOLS, outerFor, lodFor, bushLevelFor,
+  REBUILD_EVERY, REBUILD_MOVE, REBUILD_IDLE, LOD_NONE, BROAD_BY_LOD, CONE_BY_LOD, BUSH_BY_LEVEL,
 } from './vegetationPolicy'
 import type { Season } from './season'
 
@@ -15,17 +15,18 @@ import type { Season } from './season'
  * 植被的引擎：**跟著鏡頭的 tile 快取 ＋ 分級的 InstancedMesh 池。**
  *
  * ```
- *   近   0 – 900 m        樹幹 ＋ 樹冠
+ *   高   0 – 300 m        高模（`flora_*.glb`）
+ *   近   300 – 900        中模（`flora_*_mid.glb`）
  *   中   900 – 3,000      只有樹冠 —— 900 m 外樹幹不足 1 px
  *   點   3,000 – 半徑     `gl.POINTS`，一株一個頂點
  *   外   > 半徑            不畫。農地那邊由著色器的 18 m 暗帶接手
- *   灌木 0 – 1,200 八面體、1,200 – 半徑 點
+ *   灌木 0 – 300 高模、300 – 600 中模、600 – 1,200 八面體、1,200 – 半徑 點
  *   建築 圈內都畫         一座 18 tri、圈內約 50 座，分級沒有意義
  * ```
  *
- * 【每一級都分樹種】闊葉兩級都是圓的，針葉兩級都是尖的 —— 換級只讓樹變
- * 簡單，不換剪影也不換顏色。點的邊長解的是「與它取代的那一級側影**同面積**」，
- * 所以過門檻時被遮住的地是連續的。
+ * 【每一級都分樹種】闊葉每一級都是圓的，針葉每一級都是尖的 —— 換級只讓樹變
+ * 簡單，不換顏色。高模與中模的枝、葉團、圓錐層同位置同大小，只差分段數；點的
+ * 邊長解的是「與它取代的那一級側影**同面積**」，所以過門檻時被遮住的地是連續的。
  *
  * 【遠處為什麼是點】6 km 的樹只有 2.1 px 寬 —— 那個尺度上形狀是看不出來的，
  * 而點一株只要一個頂點與 56 byte，一片轉向鏡頭的網格要三到六個頂點與 152。
@@ -186,7 +187,8 @@ export function createVegetation(
   const slotJ = new Int32Array(tileCache)
   const slotUsed = new Uint8Array(tileCache)
   const slotLod = new Int8Array(tileCache)
-  const slotBush = new Uint8Array(tileCache)
+  /** 灌木的級數（`bushLevelFor`），−1 = 還沒定級 */
+  const slotBush = new Int8Array(tileCache)
   /**
    * 逐格的外圈半徑，m。**建格時算一次。**
    *
@@ -223,11 +225,15 @@ export function createVegetation(
    */
   const poolDirty: Record<PoolName, boolean> =
     Object.fromEntries(POOL_NAMES.map((n) => [n, true])) as Record<PoolName, boolean>
-  /** 某一格由 `a` 級換到 `b` 級，會動到哪些池 */
+  /** 某一格的樹在第 `lod` 級時落在哪兩個池。換級時新舊兩級各標一次 */
   function markLevel(lod: number): void {
-    if (lod === 0) { poolDirty.broadNear = true; poolDirty.coneNear = true }
-    else if (lod === 1) { poolDirty.broadMid = true; poolDirty.coneMid = true }
-    else if (lod === 2) { poolDirty.broadPoint = true; poolDirty.conePoint = true }
+    if (lod < 0 || lod >= LOD_NONE) return
+    poolDirty[BROAD_BY_LOD[lod]!] = true
+    poolDirty[CONE_BY_LOD[lod]!] = true
+  }
+  /** 某一格的灌木在第 `level` 級時落在哪個池 */
+  function markBush(level: number): void {
+    if (level >= 0) poolDirty[BUSH_BY_LEVEL[level]!] = true
   }
   /**
    * 建築的池（`BUILDING_POOLS`）。**每一格都可能有建築**，所以加減格一定要標它們。
@@ -258,8 +264,7 @@ export function createVegetation(
     slotUsed[slot] = 0
     freeSlots.push(slot)
     markLevel(slotLod[slot]!)
-    poolDirty.bushNear = true
-    poolDirty.bushPoint = true
+    markBush(slotBush[slot]!)
     markBuildings()
   }
 
@@ -311,7 +316,7 @@ export function createVegetation(
     // 【級數與灌木旗標歸零】新的一格由 `relevel` 定級，而它是「有變才標」——
     // 沿用上一位住戶的值會讓「其實變了」被當成沒變
     slotLod[slot] = -1
-    slotBush[slot] = 0
+    slotBush[slot] = -1
     bySlot.set(keyOf(i, j), slot)
     // 【樹與灌木交給 relevel 標】它一定會看到 -1 → 新級數的變化。
     // 這裡只要補上它不管的建築
@@ -445,16 +450,23 @@ export function createVegetation(
       const dz = cz - centerZ
       const d = Math.sqrt(dx * dx + dz * dz)
       const lod = lodFor(d, slotLod[s]!, slotOuter[s]!)
-      const bush = d <= BUSH_RANGE + (slotBush[s] === 1 ? LOD_HYSTERESIS : 0) ? 1 : 0
-      if (lod !== slotLod[s]) {
+      const bush = bushLevelFor(d, slotBush[s]!)
+      const was = slotLod[s]!
+      if (lod !== was) {
         dirty = true
-        markLevel(slotLod[s]!)
+        markLevel(was)
         markLevel(lod)
+        // 【出入外圈連灌木與建築一起標】兩者的級數不看外圈，但出了外圈整格都不畫
+        // （`poolOf`）—— 只標樹的池的話，它們留在原來的池裡直到下一次碰巧重寫
+        if (lod === LOD_NONE || was === LOD_NONE) {
+          markBush(bush)
+          markBuildings()
+        }
       }
       if (bush !== slotBush[s]) {
         dirty = true
-        poolDirty.bushNear = true
-        poolDirty.bushPoint = true
+        markBush(slotBush[s]!)
+        markBush(bush)
       }
       slotLod[s] = lod
       slotBush[s] = bush

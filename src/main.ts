@@ -2345,6 +2345,14 @@ if (initialRecoveryFailure !== null) {
   blockForRecoveryWorker(initialRecoveryFailure)
 } else {
   await preloadStartupAssets(loading)
+  // 【開場那一份地形重建一次】它在模組載入時就建了，那時植被近距離的模型還沒載，
+  // 近處的樹是程序幾何的退路；而選單短片只在地形種類換了才重建，第一段同種的話
+  // 會一直留著退路。主迴圈還沒開始，時段由短片的第一段套上
+  ctx.scene.remove(terrain.object)
+  terrain.dispose()
+  terrain = createTerrain(terrainKind, terrainGfx())
+  aiTerrain = terrain
+  ctx.scene.add(terrain.object)
   // 【不擋開場】選單先出來，音效在背景下載；進戰鬥時 `loadBattle` 才等它
   void audio.load()
   requestAnimationFrame(frame)

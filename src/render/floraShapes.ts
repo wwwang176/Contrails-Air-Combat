@@ -1,12 +1,17 @@
 import { BufferAttribute, BufferGeometry, Color } from 'three'
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { FIELD_COLORS, FLORA_COLORS, type Season } from './season'
 import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R, TREE_HEIGHT } from '../specs/flora'
+import { floraModel, floraModelGeometry, type FloraLevel, type FloraSpecies } from './floraModels'
 
 /**
- * 植被與建築的幾何。**每一個都是一堆三角形，不共用頂點。**
+ * 植被與建築的幾何。**池幾何一律有索引、共用頂點** —— 程序幾何在這裡併（`shared`），
+ * 近距離兩級的模型在 `floraModelGeometry` 併。
  *
- * 【為什麼不共用頂點】材質是 `flatShading`，而不共用頂點時
- * `computeVertexNormals` 直接給出面法線 —— low-poly 的面因此是硬的。
+ * 【為什麼共用頂點】一個池同時畫幾千到幾萬份，頂點運算乘上實例數：900 m 外的
+ * 闊葉八面體不共用是 24 個頂點、共用是 6 個，雷伊泰同時有約五萬份。外觀不變 ——
+ * 材質開了 `flatShading`，面法線在片段著色器由螢幕導數算，`normal` 屬性不參與光照。
+ * 併的是位置與顏色都相同的頂點：樹幹與樹冠、牆與屋頂不同色，不會被併在一起。
  *
  * 【為什麼底面在 y = 0】實例的 `y` 直接放地面高度。底面不在 0 的話整批浮空
  * 或陷地，而那在空中一眼看得出來。`flora-shapes.test.ts` 逐項守著。
@@ -21,10 +26,14 @@ import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R, TREE_HEIGHT } from '../specs/flora
  * 0.5～1.0 之間抖，所以場上是 15～30 m 的樹與 4～8 m 的灌木。
  */
 
+/**
+ * 植被與建築的池。樹與灌木由近到遠：`High`（高模）、`Near`（中模）、`Mid`、`Point`。
+ * 闊葉與針葉的 `Mid` 是只有樹冠的八面體與錐；灌木的 `Mid` 是八面體。
+ */
 export type PoolName =
-  | 'broadNear' | 'broadMid' | 'broadPoint'
-  | 'coneNear' | 'coneMid' | 'conePoint'
-  | 'bushNear' | 'bushPoint'
+  | 'broadHigh' | 'broadNear' | 'broadMid' | 'broadPoint'
+  | 'coneHigh' | 'coneNear' | 'coneMid' | 'conePoint'
+  | 'bushHigh' | 'bushNear' | 'bushMid' | 'bushPoint'
   | 'house' | 'barn' | 'church' | 'houseSlate' | 'barnTar'
 
 /**
@@ -270,35 +279,62 @@ function building(s: Soup, wall: number, roof: number): void {
   gable(s, roof, BUILDING_WIDTH + 1, BUILDING_DEPTH + 1, BUILDING_WALL, BUILDING_WALL + BUILDING_ROOF)
 }
 
-function finish(s: Soup): BufferGeometry {
+/** 只有 position／color 的非索引幾何，三角形的次序就是擺進去的次序 */
+function soup(fn: (s: Soup) => void): BufferGeometry {
+  const s: Soup = { pos: [], col: [] }
+  fn(s)
   const geo = new BufferGeometry()
   geo.setAttribute('position', new BufferAttribute(new Float32Array(s.pos), 3))
   geo.setAttribute('color', new BufferAttribute(new Float32Array(s.col), 3))
+  return geo
+}
+
+/** 非索引，法線是面法線 */
+function build(fn: (s: Soup) => void): BufferGeometry {
+  const geo = soup(fn)
   geo.computeVertexNormals()
   geo.computeBoundingSphere()
   return geo
 }
 
-function build(fn: (s: Soup) => void): BufferGeometry {
-  const s: Soup = { pos: [], col: [] }
-  fn(s)
-  return finish(s)
+/**
+ * 池幾何：有索引，位置與顏色都相同的頂點併成一個，三角形的次序與繞向不變。
+ * **法線要在併完之後算** —— 先算的話面法線各不相同，一個頂點都併不掉
+ */
+function shared(fn: (s: Soup) => void): BufferGeometry {
+  const geo = mergeVertices(soup(fn))
+  geo.computeVertexNormals()
+  geo.computeBoundingSphere()
+  return geo
 }
 
 /**
  * 村裡那一種建築的形狀，牆與屋頂換成指定的顏色。縮放 1 時的尺寸是
- * `BUILDING_*`，底面中心在原點、面寬沿 x。非索引，只有 position／color／normal
+ * `BUILDING_*`，底面中心在原點、面寬沿 x。**非索引**（`buildDepot` 收的零件要
+ * 非索引），只有 position／color／normal
  */
 export function buildingGeometry(wall: number, roof: number): BufferGeometry {
   return build((s) => { building(s, wall, roof) })
 }
 
-/** 有幾何的那八個池。遠處那三個走 `gl.POINTS`，沒有幾何 */
+/** 有幾何的池。遠處那三個走 `gl.POINTS`，沒有幾何 */
 export type MeshPool = Exclude<PoolName, PointPool>
 
 /**
- * 八個幾何。名字與 `render/vegetation.ts` 的池一一對應 —— 一個
- * `InstancedMesh` 只綁得住一個 geometry，所以八個形狀就是八個池。
+ * 近距離兩級的模型：GLB 已載入就用它（`floraModels.ts`），否則退回程序幾何 ——
+ * 樹幹＋八面體、樹幹＋錐、灌木八面體。退路的外框與模型相同（樹高、樹冠半徑），
+ * 只是面少。
+ */
+function nearShape(
+  species: FloraSpecies, level: FloraLevel, crownHex: number, fallback: (s: Soup) => void,
+): BufferGeometry {
+  const m = floraModel(species, level)
+  return m === null ? shared(fallback) : floraModelGeometry(m, TRUNK, crownHex)
+}
+
+/**
+ * 有網格的池各一個幾何。名字與 `render/vegetation.ts` 的池一一對應 —— 一個
+ * `InstancedMesh` 只綁得住一個 geometry，所以一個形狀就是一個池。
  *
  * 【遠處那三個池不在這裡】它們是 `Points`，一株一個頂點、大小由
  * `POINT_SIZE` 給 —— 沒有幾何可以綁。
@@ -306,34 +342,39 @@ export type MeshPool = Exclude<PoolName, PointPool>
 export function createFloraGeometries(season: Season = 'summer'): Record<MeshPool, BufferGeometry> {
   const c = FLORA_COLORS[season]
   const bc = buildingColors(season)
+  // 程序幾何：圓柱樹幹 12 ＋ 八面體樹冠 8 = 20；圓柱樹幹 12 ＋ 七邊錐 7 = 19；灌木八面體 8
+  const broadProc = (s: Soup): void => {
+    cylinder(s, TRUNK, 6, 1, 0, BROAD_CROWN_Y0)
+    octa(s, c.broadLeaf, BROAD_CROWN_R, BROAD_CROWN_RY, BROAD_CROWN_CY)
+  }
+  const coneProc = (s: Soup): void => {
+    cylinder(s, TRUNK, 6, 0.9, 0, CONE_CROWN_Y0)
+    cone(s, c.conifer, 7, CONE_CROWN_R, CONE_CROWN_Y0, TREE_HEIGHT)
+  }
+  const bushProc = (s: Soup): void => { octa(s, c.bushLeaf, BUSH_R, BUSH_RY, BUSH_CY) }
   return {
-    // 闊葉近：圓柱樹幹 12 ＋ 八面體樹冠 8 = 20
-    broadNear: build((s) => {
-      cylinder(s, TRUNK, 6, 1, 0, BROAD_CROWN_Y0)
-      octa(s, c.broadLeaf, BROAD_CROWN_R, BROAD_CROWN_RY, BROAD_CROWN_CY)
-    }),
-    // 【中級掉的只有樹幹，樹冠一動都不動】樹冠仍然在 BROAD_CROWN_Y0 到
-    // TREE_HEIGHT 之間、寬度也一樣 —— 把它拉到地面（`octa(…, H/2, H/2)`）
-    // 的話，過門檻的瞬間樹冠會往下掉一截又變胖，那比少一根樹幹明顯得多。
-    // 900 m 外樹幹不足 1 px，那才是這一級唯一該省的東西。
-    broadMid: build((s) => { octa(s, c.broadLeaf, BROAD_CROWN_R, BROAD_CROWN_RY, BROAD_CROWN_CY) }),
-    // 針葉近：圓柱樹幹 12 ＋ 七邊錐 7 = 19
-    coneNear: build((s) => {
-      cylinder(s, TRUNK, 6, 0.9, 0, CONE_CROWN_Y0)
-      cone(s, c.conifer, 7, CONE_CROWN_R, CONE_CROWN_Y0, TREE_HEIGHT)
-    }),
+    broadHigh: nearShape('broad', 'high', c.broadLeaf, broadProc),
+    broadNear: nearShape('broad', 'mid', c.broadLeaf, broadProc),
+    // 【這一級只有樹冠，位置與寬度跟著程序幾何的樹冠】樹冠在 BROAD_CROWN_Y0 到
+    // TREE_HEIGHT 之間 —— 把它拉到地面（`octa(…, H/2, H/2)`）的話，過門檻的瞬間
+    // 樹冠會往下掉一截又變胖。900 m 外樹幹不足 1 px，那才是這一級該省的東西。
+    broadMid: shared((s) => { octa(s, c.broadLeaf, BROAD_CROWN_R, BROAD_CROWN_RY, BROAD_CROWN_CY) }),
+    coneHigh: nearShape('cone', 'high', c.conifer, coneProc),
+    coneNear: nearShape('cone', 'mid', c.conifer, coneProc),
     // 針葉中：六邊錐，底仍然在 CONE_CROWN_Y0，不落地 —— 與闊葉同一個理由
-    coneMid: build((s) => { cone(s, c.conifer, 6, CONE_CROWN_R, CONE_CROWN_Y0, TREE_HEIGHT) }),
-    bushNear: build((s) => { octa(s, c.bushLeaf, BUSH_R, BUSH_RY, BUSH_CY) }),
+    coneMid: shared((s) => { cone(s, c.conifer, 6, CONE_CROWN_R, CONE_CROWN_Y0, TREE_HEIGHT) }),
+    bushHigh: nearShape('bush', 'high', c.bushLeaf, bushProc),
+    bushNear: nearShape('bush', 'mid', c.bushLeaf, bushProc),
+    bushMid: shared(bushProc),
     // 【建築只有一種形狀】房子、穀倉、倉庫都是它：面寬、樓高、進深由實例各軸
     // 縮放（`pushFlora` 的 `wide`、`tall`），四個池差的只有牆與屋頂的顏色 ——
     // 逐實例色整棟一起乘，換料只能靠另一份頂點色
-    house: build((s) => { building(s, bc.house.wall, bc.house.roof) }),
-    houseSlate: build((s) => { building(s, bc.houseSlate.wall, bc.houseSlate.roof) }),
-    barn: build((s) => { building(s, bc.barn.wall, bc.barn.roof) }),
-    barnTar: build((s) => { building(s, bc.barnTar.wall, bc.barnTar.roof) }),
+    house: shared((s) => { building(s, bc.house.wall, bc.house.roof) }),
+    houseSlate: shared((s) => { building(s, bc.houseSlate.wall, bc.houseSlate.roof) }),
+    barn: shared((s) => { building(s, bc.barn.wall, bc.barn.roof) }),
+    barnTar: shared((s) => { building(s, bc.barnTar.wall, bc.barnTar.roof) }),
     // 教堂：本堂 12 ＋ 本堂屋頂 6 ＋ 塔 12 ＋ 尖頂 4 = 34。屋頂是石板瓦
-    church: build((s) => {
+    church: shared((s) => {
       box(s, CHURCH_WALL, 9, 18, 0, 6)
       gable(s, SLATE, 10, 19, 6, 9)
       box(s, CHURCH_WALL, 5, 5, 0, 14)

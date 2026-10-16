@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LoadingScreen } from '../../src/ui/loading'
 import { preloadStartupAssets } from '../../src/app/startupAssets'
 
-const loaders = vi.hoisted(() => ({ aircraft: vi.fn(), ships: vi.fn(), ground: vi.fn(), balloon: vi.fn() }))
+const loaders = vi.hoisted(() => ({
+  aircraft: vi.fn(), ships: vi.fn(), ground: vi.fn(), balloon: vi.fn(), flora: vi.fn(),
+}))
 vi.mock('../../src/render/geometry/buildAircraft', () => ({
   AIRCRAFT_MODEL_COUNT: 2, preloadAircraftModels: loaders.aircraft,
 }))
@@ -12,6 +14,9 @@ vi.mock('../../src/render/geometry/ground', () => ({
 }))
 vi.mock('../../src/render/balloons', () => ({
   BALLOON_MODEL_COUNT: 1, preloadBalloonModel: loaders.balloon,
+}))
+vi.mock('../../src/render/floraModels', () => ({
+  FLORA_MODEL_COUNT: 2, preloadFloraModels: loaders.flora,
 }))
 
 beforeEach(() => Object.values(loaders).forEach((loader) => loader.mockReset()))
@@ -37,23 +42,27 @@ function fixture() {
   loaders.balloon.mockImplementation(async (done: () => void) => {
     calls.push('balloon'); done()
   })
+  loaders.flora.mockImplementation(async (_fetch: undefined, done: () => void) => {
+    calls.push('flora'); done(); done()
+  })
   return { calls, loading }
 }
 
 describe('啟動模型預載', () => {
-  it('依序載入所有模型，進度包含氣球與四種艦船，完成後才收畫面', async () => {
+  it('依序載入所有模型，進度包含氣球、四種艦船與植被，完成後才收畫面', async () => {
     const { calls, loading } = fixture()
     await preloadStartupAssets(loading)
     expect(calls).toEqual([
       'hold', 'loading.aircraft', 'aircraft', 'loading.ships', 'ships',
-      'loading.ground', 'ground', 'balloon', 'finish',
+      'loading.ground', 'ground', 'balloon', 'flora', 'finish',
     ])
     expect(loaders.ships).toHaveBeenCalledWith(['essex', 'wichita', 'fletcher', 'lst'], expect.any(Function))
     expect(loaders.ground).toHaveBeenCalledWith(undefined, expect.any(Function))
+    expect(loaders.flora).toHaveBeenCalledWith(undefined, expect.any(Function))
     expect(loading.step).toHaveBeenNthCalledWith(1, 'loading.aircraft', 0)
-    expect(loading.step).toHaveBeenNthCalledWith(2, 'loading.ships', 2 / 8)
-    expect(loading.step).toHaveBeenNthCalledWith(3, 'loading.ground', 6 / 8)
-    expect(loading.set).toHaveBeenCalledTimes(8)
+    expect(loading.step).toHaveBeenNthCalledWith(2, 'loading.ships', 2 / 10)
+    expect(loading.step).toHaveBeenNthCalledWith(3, 'loading.ground', 6 / 10)
+    expect(loading.set).toHaveBeenCalledTimes(10)
     expect(loading.set).toHaveBeenLastCalledWith('loading.ground', 1)
     expect(loading.finish).toHaveBeenCalledWith('loading.done')
   })
