@@ -4,7 +4,7 @@ import { buildLeyteBeach } from '../../src/render/leyteBeach'
 import { preloadGroundModels } from '../../src/render/geometry/ground'
 import { Color, type BufferGeometry, type Mesh } from 'three'
 import {
-  createLeyte, FIELD_HALF, LEYTE_MASSIFS, LEYTE_ROAD, LEYTE_ROADS, PLAIN_HEIGHT, ROAD_TREE_CLEAR, SAND_TOP,
+  createLeyte, FIELD_HALF, LEYTE_JUNCTIONS, LEYTE_MASSIFS, LEYTE_ROAD, LEYTE_ROADS, PLAIN_HEIGHT, ROAD_TREE_CLEAR, SAND_TOP,
   distanceToRoad, farUpland, roadTreeClear,
 } from '../../src/world/leyte'
 import {
@@ -204,6 +204,14 @@ describe('公路只有一份座標', () => {
     const mid = LEYTE_ROAD[Math.floor(LEYTE_ROAD.length / 2)]!
     const top = LEYTE_MASSIFS.flatMap((m) => m.lobes).reduce((a, b) => (b.peak > a.peak ? b : a))
     expect(maxAccept(mid.x, mid.z)).toBeLessThan(maxAccept(top.cx, top.cz) * 0.3)
+  })
+
+  it('路口據點的車與木箱堆上，植被接受率為 0', () => {
+    for (const j of LEYTE_JUNCTIONS) {
+      for (const p of [...j.trucks, ...j.flak, ...j.dumps]) {
+        expect(leyteAccept(field, p.x, p.z, field.sample(p.x, p.z)), j.id).toBe(0)
+      }
+    }
   })
 
   it('實際長出來的樹沒有一棵落在清空帶內，而且是闊葉樹或灌木', () => {

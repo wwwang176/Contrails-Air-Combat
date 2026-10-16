@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   BEACHHEAD, EVACUATE_Z, FRONT_LINE, LEYTE_FLAK_SITES, LEYTE_LSTS, LEYTE_MASSIFS, LEYTE_PEAK_MAX, LEYTE_ROAD,
   LEYTE_ROADS, LST_RAMP_REACH, PLAIN_HEIGHT, PLAIN_TOP, SAND_TOP, FIELD_HALF,
-  LEYTE_BALLOONS, LEYTE_BEACH, ROAD_WIDTH, isInBeachClearing,
+  LEYTE_BALLOONS, LEYTE_BEACH, LEYTE_JUNCTIONS, ROAD_WIDTH, isInBeachClearing, isInJunctionClearing,
   baseHeight, carveFactor, coastZ, createLeyte, distanceToRoad, farHeight, isInRoadClearing, isNearRoad,
   roadTreeClear,
 } from '../../src/world/leyte'
@@ -13,12 +13,13 @@ import { DEFAULT_SAFETY } from '../../src/ai/safety'
 import { terrainCeiling } from '../../src/ai/terrainSense'
 import { MISSIONS } from '../../src/battle/missions'
 import { SHIP_CLASSES } from '../../src/world/ships'
+import { BROAD_CROWN_R } from '../../src/specs/flora'
 
 /**
  * # 雷伊泰的海岸線地形（日 M2）
  *
  * 守的是佈局的幾何：陸海的方位、公路全程在平地上而且夠彎、丘陵不壓路、
- * 撤離點在陸上。數值本身是起始值，由試飛裁定 —— 這裡不釘它們。
+ * 路口據點不壓路。數值本身是起始值，由試飛裁定 —— 這裡不釘它們。
  */
 
 const { field, hills } = createLeyte()
@@ -337,7 +338,7 @@ describe('場外的遠景陸地', () => {
   })
 })
 
-describe('撤離點', () => {
+describe('進場側保留的平地（EVACUATE_Z）', () => {
   it('在陸上、場地之內', () => {
     expect(baseHeight(0, EVACUATE_Z)).toBeGreaterThanOrEqual(PLAIN_HEIGHT - 1e-6)
     for (const lo of LEYTE_MASSIFS.flatMap((m) => m.lobes)) {
@@ -483,5 +484,104 @@ describe('卸貨區旁的卡車（日 M2 的目標）', () => {
       expect(ground.some((g) => g.unit === 'usTruck' && g.team === 'red' && g.x === v.x && g.z === v.z
         && g.heading === v.heading && g.motion === undefined)).toBe(true)
     }
+  })
+})
+
+describe('路口的補給據點（日 M2）', () => {
+  /** 車子的腳印：中心加一圈 8 點，半徑 4.5 m（車長一半再寬一點） */
+  const ring = (x: number, z: number, r: number): { x: number; z: number }[] => [
+    { x, z },
+    ...Array.from({ length: 8 }, (_, k) => ({ x: x + r * Math.cos(k * Math.PI / 4), z: z + r * Math.sin(k * Math.PI / 4) })),
+  ]
+  /** 木箱堆的腳印：四角、四邊中點與中心 */
+  const rect = (d: (typeof LEYTE_JUNCTIONS)[number]['dumps'][number]): { x: number; z: number }[] => {
+    const c = Math.cos(d.heading)
+    const s = Math.sin(d.heading)
+    const out: { x: number; z: number }[] = []
+    for (const u of [-1, 0, 1]) {
+      for (const v of [-1, 0, 1]) {
+        const lat = (u * d.width) / 2
+        const dep = (v * d.depth) / 2
+        out.push({ x: d.x + lat * c - dep * s, z: d.z - lat * s - dep * c })
+      }
+    }
+    return out
+  }
+
+  it('三處：B、C、F，路口是兩條路共用的點', () => {
+    expect(LEYTE_JUNCTIONS.map((j) => j.id)).toEqual(['B', 'C', 'F'])
+    for (const j of LEYTE_JUNCTIONS) {
+      const through = LEYTE_ROADS.filter((r) => r.points.some((p) => Math.hypot(p.x - j.x, p.z - j.z) < 1))
+      expect(through.length, j.id).toBe(2)
+    }
+  })
+
+  it('B、C 在車隊那一條路上，F 不在', () => {
+    const on = (id: string): boolean => {
+      const j = LEYTE_JUNCTIONS.find((x) => x.id === id)!
+      return distanceToRoad(j.x, j.z) < 1
+    }
+    expect([on('B'), on('C'), on('F')]).toEqual([true, true, false])
+  })
+
+  it('每一處都有卡車、M16 與木箱堆，卡車合計 8 輛', () => {
+    for (const j of LEYTE_JUNCTIONS) {
+      expect(j.trucks.length, j.id).toBeGreaterThan(0)
+      expect(j.flak.length, j.id).toBe(2)
+      expect(j.dumps.length, j.id).toBeGreaterThan(0)
+      for (const v of j.trucks) expect(v.unit).toBe('usTruck')
+      for (const v of j.flak) expect(v.unit).toBe('usFlakTrack')
+    }
+    expect(LEYTE_JUNCTIONS.reduce((n, j) => n + j.trucks.length, 0)).toBe(8)
+  })
+
+  /** 車隊開過 B、C：停著的車壓在清空帶上就會被車隊穿過去，樹也會長在路上 */
+  it('車子與木箱堆都不壓任何一條路的清空帶', () => {
+    for (const j of LEYTE_JUNCTIONS) {
+      for (const v of [...j.trucks, ...j.flak]) {
+        for (const p of ring(v.x, v.z, 4.5)) expect(isInRoadClearing(p.x, p.z), `${j.id} ${v.unit}`).toBe(false)
+      }
+      for (const d of j.dumps) {
+        for (const p of rect(d)) expect(isInRoadClearing(p.x, p.z), `${j.id} 木箱堆`).toBe(false)
+      }
+    }
+  })
+
+  it('離路口不遠、彼此不重疊：車距至少 7 m，木箱堆不壓車', () => {
+    for (const j of LEYTE_JUNCTIONS) {
+      const cars = [...j.trucks, ...j.flak]
+      for (const v of cars) expect(Math.hypot(v.x - j.x, v.z - j.z), j.id).toBeLessThan(120)
+      for (const d of j.dumps) expect(Math.hypot(d.x - j.x, d.z - j.z), j.id).toBeLessThan(150)
+      for (let i = 0; i < cars.length; i++) {
+        for (const o of cars.slice(i + 1)) expect(Math.hypot(o.x - cars[i]!.x, o.z - cars[i]!.z), j.id).toBeGreaterThan(7)
+      }
+      for (const d of j.dumps) {
+        const r = Math.hypot(d.width, d.depth) / 2
+        for (const v of cars) expect(Math.hypot(v.x - d.x, v.z - d.z), `${j.id} 木箱堆`).toBeGreaterThan(r + 4.5)
+      }
+    }
+  })
+
+  it('在陸上、戰場之內', () => {
+    const a = MISSIONS.japan.find((c) => c.id === 'japan-m2')!.battle!.arena
+    for (const j of LEYTE_JUNCTIONS) {
+      expect(j.z, j.id).toBeGreaterThan(coastZ(j.x) + 500)
+      expect(Math.hypot(j.x - a.x, j.z - a.z), j.id).toBeLessThan(a.radius)
+    }
+  })
+
+  /** 清的是樹幹：車外再一個最大樹冠半徑內都不能有樹，樹冠才不會蓋到車頂 */
+  it('車子與木箱堆上不長樹，車外一個樹冠半徑內也沒有', () => {
+    for (const j of LEYTE_JUNCTIONS) {
+      for (const v of [...j.trucks, ...j.flak]) {
+        for (const p of ring(v.x, v.z, 4.5 + BROAD_CROWN_R)) {
+          expect(isInJunctionClearing(p.x, p.z), `${j.id} ${v.unit}`).toBe(true)
+        }
+      }
+      for (const d of j.dumps) {
+        for (const p of rect(d)) expect(isInJunctionClearing(p.x, p.z), `${j.id} 木箱堆`).toBe(true)
+      }
+    }
+    expect(isInJunctionClearing(0, 6000)).toBe(false)
   })
 })

@@ -19,6 +19,7 @@ export {
   LEYTE_LSTS, LST_RAMP_REACH, LEYTE_BALLOONS, LST_BALLOON_DECK, LEYTE_BEACH,
   isInBeachClearing, type LeyteLst, type LeyteBalloon, type BeachDump, type BeachVehicle,
 } from './leyteBeach'
+export { LEYTE_JUNCTIONS, isInJunctionClearing, type LeyteJunction } from './leyteJunctions'
 
 /**
  * # 雷伊泰的海岸線地形（日 M2）
@@ -164,7 +165,7 @@ const LOBE_MIN = 150
 const MASSIF_MIN_LOBES = 3
 /** 瓣心離岸線至少這麼遠，m。瓣緣可以伸進海裡成為岬角 */
 const LOBE_INLAND = 600
-/** 瓣的膨脹圓離公路中線、撤離點、砲位至少這麼遠，m */
+/** 瓣的膨脹圓離公路中線、`EVACUATE_Z` 那塊平地、砲位至少這麼遠，m */
 const ROAD_CLEAR = 400
 const EVAC_CLEAR = 300
 const FLAK_CLEAR = 200
@@ -172,7 +173,7 @@ const FLAK_CLEAR = 200
 /**
  * 一瓣在 (x, z) 最大能放多大的標稱半徑，m；0 = 不放。
  *
- * 膨脹圓（`r × WOBBLE_MAX`）要落在山脈的圓盤與場地之內，並讓開公路、撤離點與
+ * 膨脹圓（`r × WOBBLE_MAX`）要落在山脈的圓盤與場地之內，並讓開公路、`EVACUATE_Z` 與
  * 砲位。**放不下就縮**，不是整瓣丟掉 —— 主稜靠近公路的那一頭因此漸漸收窄，
  * 不會斷成一截一截。
  */
@@ -327,7 +328,7 @@ function buildMassif(m: LeyteMassifLayout): IslandDesc | null {
 }
 
 /**
- * 補空地的緩丘，圓盤本身要能放：中心在陸上、讓開公路／撤離點／砲位、與已經
+ * 補空地的緩丘，圓盤本身要能放：中心在陸上、讓開公路／`EVACUATE_Z`／砲位、與已經
  * 放好的山脈隔開。
  *
  * 【比的是對方實際的 `outerRadius`，不是它的 `reach`】建好的山脈圓盤只會比
@@ -381,7 +382,7 @@ function buildMassifs(): IslandDesc[] {
  *
  * 約束（`leyte.test.ts` 守著）：圓盤兩兩至少隔 `HILL_GAP`（AI 一次只處理一個
  * 圓盤）、每一瓣都在自己的圓盤與場地內、瓣的膨脹圓離公路至少 `ROAD_CLEAR`、
- * 不蓋住撤離點與砲位。靠海的山脈可以伸到海裡，是岬角。
+ * 不蓋住 `EVACUATE_Z` 那塊平地與砲位。靠海的山脈可以伸到海裡，是岬角。
  */
 export const LEYTE_MASSIFS: readonly IslandDesc[] = buildMassifs()
 

@@ -30,11 +30,11 @@ const playable = ALL.filter((m): m is ReadyMissionCard => m.battle !== null)
 function evacCard(distance = 20000, radius = 1000, seconds = 176): ReadyMissionCard {
   const kill = readyCard(KILL_CARD).battle
   return {
-    id: 'test-evac', titleKey: 'mission.japan-m2.withdraw', type: 'withdraw',
-    summaryKey: 'mission.japan-m2.withdraw',
+    id: 'test-evac', titleKey: 'mission.type.withdraw', type: 'withdraw',
+    summaryKey: 'mission.type.withdraw',
     placeKey: 'mission.japan-m2.place', period: { year: 1944, month: 11 },
     battle: {
-      objectiveKey: 'mission.japan-m2.withdraw',
+      objectiveKey: 'mission.type.withdraw',
       blueSpec: kill.blueSpec, redSpec: kill.redSpec, convoySpec: null,
       blueCount: 4, redCount: 8, convoyCount: 0, convoyPriority: 1,
       targetDistance: distance, targetRadius: radius, seconds,

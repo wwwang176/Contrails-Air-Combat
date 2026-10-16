@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { MISSIONS, CAMPAIGNS, convoyGround, missionConfigFrom } from '../../src/battle/missions'
-import { BEACHHEAD, EVACUATE_Z, LEYTE_ROAD } from '../../src/world/leyte'
+import { LEYTE_JUNCTIONS, LEYTE_ROAD } from '../../src/world/leyte'
 import { FIELD_CENTER, HOLD_ROWS, RUNWAY } from '../../src/world/asch'
 import { ALL_SPECS, MAX_SIDE } from '../../src/battle/skirmish'
 import { createBattle, stepBattle } from '../../src/battle/setup'
@@ -551,32 +551,26 @@ describe('日 M2 雷伊泰前線', () => {
     expect(b.vehicleConvoy?.route).toBe(LEYTE_ROAD)
   })
 
-  it('撤離點在我方身後的 EVACUATE_Z、高度等於任務高度', () => {
-    const cfg = missionConfigFrom(card)
-    const w = cfg.beats?.find((x) => x.kind === 'withdraw')
-    expect(w?.kind).toBe('withdraw')
-    if (w?.kind !== 'withdraw') return
-    expect(w.point.z).toBe(EVACUATE_Z)
-    expect(w.point.y).toBe(b.altitude)
+  it('沒有撤離：卡片不帶返航，建出來的節拍裡也沒有', () => {
+    expect(b.withdraw).toBeUndefined()
+    expect((missionConfigFrom(card).beats ?? []).some((x) => x.kind === 'withdraw')).toBe(false)
   })
 
-  it('撤離時每一組都在撤退路上（+Z）堵截，比任務高度高，而且左右錯開', () => {
-    const cfg = missionConfigFrom(card)
-    const atWithdraw = (b.waves ?? [])
-      .map((w, i) => ({ w, beat: (cfg.beats ?? []).filter((x) => x.kind === 'reinforce')[i]! }))
-      .filter(({ w }) => w.when.kind === 'destroyed' && w.when.atLeast === b.interdict!.count)
-    expect(atWithdraw.length).toBeGreaterThanOrEqual(2)
-    const across: number[] = []
-    for (const { beat } of atWithdraw) {
-      if (beat.kind !== 'reinforce') continue
-      expect(beat.flight.entry.along, 'along 為正 = 撤退的方向').toBeGreaterThan(0)
-      // 堵在撤離點之前；生在它後面的話玩家已經撤出去了
-      expect(beat.flight.entry.along * cfg.entryRange, '在撤離點之前').toBeLessThan(EVACUATE_Z)
-      expect(beat.flight.entry.climb, '比任務高度高').toBeGreaterThan(0)
-      across.push(beat.flight.entry.across)
+  it('炸毀 20 輛卡車過關', () => {
+    expect(b.interdict?.count).toBe(20)
+  })
+
+  it('三個路口據點：每一處有停著的卡車與 M16', () => {
+    const ground = b.ground ?? []
+    for (const j of LEYTE_JUNCTIONS) {
+      expect(j.trucks.length, j.id).toBeGreaterThan(0)
+      expect(j.flak.length, j.id).toBeGreaterThan(0)
+      for (const v of [...j.trucks, ...j.flak]) {
+        expect(ground.some((g) => g.unit === v.unit && g.team === 'red' && g.x === v.x && g.z === v.z
+          && g.heading === v.heading && g.motion === undefined), `${j.id} ${v.unit}`).toBe(true)
+      }
     }
-    expect(Math.min(...across)).toBeLessThan(0)
-    expect(Math.max(...across)).toBeGreaterThan(0)
+    expect(LEYTE_JUNCTIONS.map((j) => j.id)).toEqual(['B', 'C', 'F'])
   })
 
   it('開場就有 F6F 在天上', () => {
@@ -629,12 +623,16 @@ describe('有 interdict 的卡一定打得贏', () => {
     const b = card.battle
     const rule = b.interdict!
 
-    it(`${card.id}：有「摧毀 ≥ count」觸發的返航`, () => {
-      const w = b.withdraw!
-      expect(w.when.kind).toBe('destroyed')
-      if (w.when.kind !== 'destroyed') return
-      expect(w.when.atLeast).toBe(rule.count)
-      expect(w.when.unit).toBe(rule.unit)
+    /** 走真正的 `stepBattle`：摧毀數由 `setup.ts` 數，停著的與車隊的卡車一起算 */
+    it(`${card.id}：炸到 count 輛就判勝，差一輛還在打`, () => {
+      const battle = createBattle({ update() {} }, missionConfigFrom(card), 1)
+      const trucks = battle.world.groundTargets.filter((t) => t.unit.id === rule.unit && t.team === 'red')
+      for (const t of trucks.slice(0, rule.count - 1)) t.alive = false
+      stepBattle(battle, 1 / 240)
+      expect(battle.mission.outcome).toBe('fighting')
+      trucks[rule.count - 1]!.alive = false
+      stepBattle(battle, 1 / 240)
+      expect(battle.mission.outcome).toBe('victory')
     })
 
     /** 總數連停著不動的那幾輛一起算（日 M2 灘頭的卡車停放場）：它們一樣算進摧毀數 */
@@ -661,29 +659,20 @@ describe('有 interdict 的卡一定打得贏', () => {
     })
   }
 
-  it('同一步炸夠又有卡車抵達：撤離先生效、不判敗（stepBeats 排在勝負判定之前）', () => {
+  it('同一步炸夠又有卡車抵達：判勝', () => {
     const card = cards[0]!
     const { waves: _w, ...rest } = card.battle
     const one: ReadyMissionCard = {
       ...card,
-      battle: {
-        ...rest,
-        interdict: { count: 1, leak: 1, unit: 'usTruck' },
-        withdraw: { ...card.battle.withdraw!, when: { kind: 'destroyed', atLeast: 1, unit: 'usTruck' } },
-      },
+      battle: { ...rest, interdict: { count: 1, leak: 1, unit: 'usTruck' } },
     }
     const battle = createBattle({ update() {} }, missionConfigFrom(one), 1)
     const trucks = battle.world.groundTargets.filter((t) => t.unit.id === 'usTruck')
     trucks[0]!.alive = false
     trucks[1]!.alive = false
     trucks[1]!.arrived = true
-    // 玩家開場的位置離撤離點不遠，先移到灘頭上空 —— 這裡驗的是判定的先後，不是撤離成功
-    battle.player.aircraft.state.position.set(BEACHHEAD.x, 1500, BEACHHEAD.z)
     stepBattle(battle, 1 / 240)
-    // 【兩個都要看】返航會重設 `mission`；判敗若先發生，定案的是 `outcome` 那一份
-    expect(battle.outcome).toBe('fighting')
-    expect(battle.mission.outcome).toBe('fighting')
-    expect(battle.rules.kind).toBe('evacuate')
+    expect(battle.mission.outcome).toBe('victory')
   })
 })
 

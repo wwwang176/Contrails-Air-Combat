@@ -209,7 +209,7 @@ const SIDE_ROADS: readonly {
       return { x, z: coastZ(x) + 700 }
     }),
   },
-  // 2 北路：前線往北穿過山縫，經過撤離點附近
+  // 2 北路：前線往北穿過山縫，經過 `EVACUATE_Z` 那塊平地附近
   {
     halfWidth: 8,
     meander: [{ amp: 70, len: 1100, phase: 2.0 }, { amp: 10, len: 420, phase: 1.4 }],

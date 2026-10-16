@@ -123,10 +123,21 @@ describe('briefingOf —— 其他', () => {
     expect(fact(briefingOf(readyCard('japan-m2')), 'place')).toBe(t('mission.japan-m2.place'))
   })
 
-  it('日 M2 的目標寫出兩段：先炸卡車、再撤離', () => {
+  it('日 M2 的目標只有一段：炸卡車', () => {
     const b = briefingOf(readyCard('japan-m2'))
     if (!b.ready) throw new Error('日 M2 應該打得起來')
-    expect(b.objective).toBe(`${t('mission.japan-m2.objective')} → ${t('mission.japan-m2.withdraw')}`)
+    expect(b.objective).toBe(t('mission.japan-m2.objective'))
+  })
+
+  it('卡片帶返航時，目標寫出兩段', () => {
+    const b = briefingOf(cardWith('japan-m2', {
+      withdraw: {
+        when: { kind: 'clock', at: 60 }, messageKey: 'mission.type.withdraw',
+        distance: -2500, radius: 600, seconds: Infinity,
+      },
+    }))
+    if (!b.ready) throw new Error('日 M2 應該打得起來')
+    expect(b.objective).toBe(`${t('mission.japan-m2.objective')} → ${t('mission.type.withdraw')}`)
   })
 
   it('換成英文，簡報跟著換', () => {

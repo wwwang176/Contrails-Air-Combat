@@ -613,9 +613,9 @@ export interface MissionBattle {
    */
   readonly vehicleConvoy?: MissionVehicleConvoy
   /**
-   * 截斷車隊：炸毀 `count` 輛 `unit`，抵達 `leak` 輛就輸。**有這一格就是截斷關**，
-   * 勝負規則變成 `{ kind: 'interdict' }`。它必須配 `vehicleConvoy`，而且要有
-   * 「摧毀 ≥ count」觸發的 `withdraw` —— `campaigns.test.ts` 守著。
+   * 截斷車隊：炸毀 `count` 輛 `unit` 就贏，抵達 `leak` 輛就輸。**有這一格就是截斷關**，
+   * 勝負規則變成 `{ kind: 'interdict' }`。它必須配 `vehicleConvoy`；`count + leak` 要
+   * 大於那一種車的總數，兩條才不會同時可能 —— `campaigns.test.ts` 守著。
    */
   readonly interdict?: { readonly count: number; readonly leak: number; readonly unit: GroundUnitId }
   /**
@@ -991,7 +991,7 @@ export interface MissionWithdraw {
   readonly messageKey: MessageKey
   /**
    * 撤離點在我方機首方向多遠，m。與 `targetDistance` 同一套。**負值 = 在我方
-   * 開局位置的後方**（撤離點在來時的方向，日 M2）
+   * 開局位置的後方**（撤離點在來時的方向）
    */
   readonly distance: number
   readonly radius: number

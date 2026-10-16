@@ -134,20 +134,16 @@ export type MissionRules =
   }
   | {
     /**
-     * 截斷沿公路開往前線的車隊。**這條規則只判敗、不判勝。**
+     * 截斷沿公路開往前線的車隊。
      *
      * ```
+     *   勝  炸毀的 `unit` 累計到 `count` 輛（停著的與車隊的一起算）
      *   負  抵達前線的 `unit` 累計到 `leak` 輛
      *   負  藍隊全滅
      * ```
      *
-     * 勝利來自撤離：卡片上「摧毀 ≥ count」的返航節拍把規則換成 `evacuate`。
-     * `stepBeats` 排在 `stepMission` 之前（`setup.ts` 的 `stepBattle`），所以同一步
-     * 炸到第 count 輛又剛好有卡車抵達時，規則已經換成撤離，不判敗。
-     *
-     * 【為什麼摧毀數到了不判勝】那一刻這一關才進入下半場（敵機堵在退路上、
-     * 飛回撤離點）。有 interdict 的卡一定要有那個返航節拍，否則贏不了 ——
-     * `campaigns.test.ts` 守著。
+     * 【勝排在負之前】同一步炸到第 count 輛又剛好有卡車抵達、或玩家與最後一架
+     * 友機同時墜毀時判勝：目標在那一步已經達成。
      */
     kind: 'interdict'
     /** 要炸毀幾輛。目標列的分母 */
@@ -651,12 +647,16 @@ export function stepMission(
   // ── 截斷 ──────────────────────────────────────────────
   //
   // 計量與炸毀同一個形狀，另外把抵達數交給目標列（`arrived`，分母是 `leak`）。
-  // 沒有勝利分支：見 `MissionRules` 的 `interdict`
+  // 勝負的先後見 `MissionRules` 的 `interdict`
   if (rules.kind === 'interdict') {
     out.metric = Math.max(0, rules.count - inp.targetsDestroyed)
     out.metricTotal = rules.count
     out.remaining = -1
     out.arrived = inp.targetsArrived
+    if (inp.targetsDestroyed >= rules.count) {
+      out.outcome = 'victory'
+      return
+    }
     if (inp.targetsArrived >= rules.leak || inp.aliveBlue === 0) out.outcome = 'defeat'
     return
   }

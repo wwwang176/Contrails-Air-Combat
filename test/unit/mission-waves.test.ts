@@ -35,7 +35,7 @@ class Idle implements Controller {
 
 /** 預警與返航的文字用哪一句都可以 —— 驗的是鍵有沒有原樣帶過去 */
 const WARN: MessageKey = 'mission.allies-m1.wave.more'
-const BACK: MessageKey = 'mission.japan-m2.withdraw'
+const BACK: MessageKey = 'mission.type.withdraw'
 
 /** 一張只為了測翻譯而捏的卡。**不改動 `MISSIONS`** */
 function card(patch: Partial<MissionBattle>): ReadyMissionCard {

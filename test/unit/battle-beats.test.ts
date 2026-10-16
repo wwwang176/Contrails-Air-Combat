@@ -27,7 +27,7 @@ const DT = 1 / 240
 /** 訊息用哪幾句都可以 —— 驗的是節拍存了哪一個鍵，不是文字 */
 const WARN_A: MessageKey = 'mission.allies-m1.wave.more'
 const WARN_B: MessageKey = 'mission.allies-m1.wave.join'
-const BACK: MessageKey = 'mission.japan-m2.withdraw'
+const BACK: MessageKey = 'mission.type.withdraw'
 
 class Idle implements Controller {
   update(_self: Aircraft, _dt: number, out: Command): void {
