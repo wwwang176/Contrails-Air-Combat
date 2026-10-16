@@ -37,14 +37,33 @@ describe('夏季色盤的凍結基準', () => {
     expect(hash(rows.join(','))).toBe('b453a2d4')
   })
 
+  /**
+   * 【凍結的是原本那十個池】GLB 在這支測試裡沒有載入，近距離兩級是程序幾何的
+   * 退路，所以這十個池的頂點色逐位元等於凍結時的那一份。新加的池（高模、灌木的
+   * 八面體級）用同一份樹冠色，由下一條對照。
+   */
   it('樹與房子的頂點色相同', () => {
     const g = createFloraGeometries()
     const rows: string[] = []
-    for (const k of Object.keys(g).sort()) {
-      const col = g[k as keyof typeof g].getAttribute('color').array as Float32Array
+    const frozen = [
+      'barn', 'barnTar', 'broadMid', 'broadNear', 'bushNear',
+      'church', 'coneMid', 'coneNear', 'house', 'houseSlate',
+    ] as const
+    for (const k of frozen) {
+      const col = g[k].getAttribute('color').array as Float32Array
       rows.push(k + ':' + Array.from(col, (v) => String(v)).join(','))
     }
     disposeFloraGeometries(g)
     expect(hash(rows.join('\n'))).toBe('95f97cca')
+  })
+
+  it('新加的池與它同樹種的池頂點色相同', () => {
+    const g = createFloraGeometries()
+    const colours = (k: keyof typeof g): number[] => Array.from(g[k].getAttribute('color').array as Float32Array)
+    expect(colours('broadHigh')).toEqual(colours('broadNear'))
+    expect(colours('coneHigh')).toEqual(colours('coneNear'))
+    expect(colours('bushHigh')).toEqual(colours('bushNear'))
+    expect(colours('bushMid')).toEqual(colours('bushNear'))
+    disposeFloraGeometries(g)
   })
 })

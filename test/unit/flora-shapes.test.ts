@@ -1,25 +1,44 @@
-import { describe, it, expect } from 'vitest'
-import { Box3, Color, Vector3, type BufferGeometry } from 'three'
+import { describe, it, expect, beforeAll } from 'vitest'
+import { readFileSync } from 'node:fs'
+import {
+  Box3, BufferAttribute, BufferGeometry, Color, Group, Matrix3, Mesh as ThreeMesh, Vector3,
+  type Mesh, type Object3D,
+} from 'three'
 import {
   BUILDING_DEPTH, BUILDING_ROOF, BUILDING_WALL, BUILDING_WIDTH,
   createFloraGeometries, disposeFloraGeometries, pointColorOf, POINT_POOLS, POINT_SIZE,
   POINT_Y, type MeshPool, type PointPool,
 } from '../../src/render/floraShapes'
-import { TREE_HEIGHT } from '../../src/specs/flora'
+import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R, TREE_HEIGHT } from '../../src/specs/flora'
 import { HEDGE_BUSH_SPACING } from '../../src/render/flora'
+import { bakeFloraScene, FLORA_MODEL_URLS, preloadFloraModels } from '../../src/render/floraModels'
+import { createGltfLoader } from '../../src/render/geometry/gltfLoader'
+import { FLORA_COLORS, SEASONS } from '../../src/render/season'
 
+async function readPublic(url: string): Promise<ArrayBuffer> {
+  const buf = readFileSync(`public${url}`)
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
+}
+
+/**
+ * 【模組頂層建，GLB 還沒載入】這一份是退路的程序幾何。下面「近距離模型」那一組
+ * 在 `beforeAll` 裡預載之後另建一份。
+ */
 const geo = createFloraGeometries()
 const names = Object.keys(geo) as MeshPool[]
 
-/** 四個喬木幾何 —— 兩個樹種各兩級。遠處那一級是點，沒有幾何 */
-const TREES = ['broadNear', 'broadMid', 'coneNear', 'coneMid'] as const
+/** 六個喬木幾何 —— 兩個樹種各三級。遠處那一級是點，沒有幾何 */
+const TREES = ['broadHigh', 'broadNear', 'broadMid', 'coneHigh', 'coneNear', 'coneMid'] as const
+
+/** 用 GLB 的那六個池 */
+const MODEL_POOLS = ['broadHigh', 'broadNear', 'coneHigh', 'coneNear', 'bushHigh', 'bushNear'] as const
 
 /**
  * 每一個點池取代的是哪一級。**點的大小、高度、顏色都拿它當參照** ——
  * 過門檻時被遮住的地、樹冠的高度、顏色三件事都必須連續。
  */
 const REPLACES: Record<PointPool, MeshPool> = {
-  broadPoint: 'broadMid', conePoint: 'coneMid', bushPoint: 'bushNear',
+  broadPoint: 'broadMid', conePoint: 'coneMid', bushPoint: 'bushMid',
 }
 
 /**
@@ -107,24 +126,24 @@ describe('植被與建築的幾何', () => {
    * `OctahedronGeometry(detail = 1)` 是 32 個三角形而不是 8 —— 那種
    * 四倍的誤差要在幾何定稿的當下就抓到，不是在幀時間掉下來之後。
    */
-  it('每個幾何的三角形數', () => {
+  it('每個幾何的三角形數（GLB 未載入：近距離兩級退回程序幾何）', () => {
     const want: Record<MeshPool, number> = {
-      broadNear: 20, broadMid: 8,
-      coneNear: 19, coneMid: 6,
-      bushNear: 8,
+      broadHigh: 20, broadNear: 20, broadMid: 8,
+      coneHigh: 19, coneNear: 19, coneMid: 6,
+      bushHigh: 8, bushNear: 8, bushMid: 8,
       house: 18, barn: 18, church: 34, houseSlate: 18, barnTar: 18,
     }
     const got: Record<string, number> = {}
     for (const n of names) got[n] = tris(geo[n])
     console.log(JSON.stringify(got))
-    for (const n of names) expect(tris(geo[n])).toBe(want[n])
+    for (const n of names) expect([n, tris(geo[n])]).toEqual([n, want[n]])
   })
 
   /** 【遠處那三個池沒有幾何】它們是 `gl.POINTS`，一株一個頂點 */
-  it('十個幾何，名字與有網格的那十個池一一對應', () => {
+  it('十四個幾何，名字與有網格的那十四個池一一對應', () => {
     expect(names.slice().sort()).toEqual([
-      'barn', 'barnTar', 'broadMid', 'broadNear', 'bushNear',
-      'church', 'coneMid', 'coneNear', 'house', 'houseSlate',
+      'barn', 'barnTar', 'broadHigh', 'broadMid', 'broadNear', 'bushHigh', 'bushMid', 'bushNear',
+      'church', 'coneHigh', 'coneMid', 'coneNear', 'house', 'houseSlate',
     ])
     expect(POINT_POOLS.every((n) => !names.includes(n as MeshPool))).toBe(true)
   })
@@ -152,8 +171,8 @@ describe('植被與建築的幾何', () => {
    */
   it('換級不換樹冠位置：三級的樹冠包圍盒逐項相同', () => {
     for (const sp of [
-      ['broadNear', 'broadMid'],
-      ['coneNear', 'coneMid'],
+      ['broadHigh', 'broadNear', 'broadMid'],
+      ['coneHigh', 'coneNear', 'coneMid'],
     ] as const) {
       const want = crownSpan(geo[sp[0]])
       for (const n of sp) {
@@ -183,10 +202,10 @@ describe('植被與建築的幾何', () => {
       const b = bounds(geo[n])
       return (b.max.x - b.min.x) / b.max.y
     }
-    for (const n of ['broadNear', 'broadMid'] as const) {
+    for (const n of ['broadHigh', 'broadNear', 'broadMid'] as const) {
       expect([n, ratio(n) > 0.6]).toEqual([n, true])
     }
-    for (const n of ['coneNear', 'coneMid'] as const) {
+    for (const n of ['coneHigh', 'coneNear', 'coneMid'] as const) {
       expect([n, ratio(n) < 0.6]).toEqual([n, true])
     }
   })
@@ -198,7 +217,11 @@ describe('植被與建築的幾何', () => {
    */
   it('換級不換樹種：三級同色，兩樹種不同色', () => {
     expect(crownColour(geo.broadMid)).toBe(crownColour(geo.broadNear))
+    expect(crownColour(geo.broadHigh)).toBe(crownColour(geo.broadNear))
     expect(crownColour(geo.coneMid)).toBe(crownColour(geo.coneNear))
+    expect(crownColour(geo.coneHigh)).toBe(crownColour(geo.coneNear))
+    expect(crownColour(geo.bushHigh)).toBe(crownColour(geo.bushMid))
+    expect(crownColour(geo.bushNear)).toBe(crownColour(geo.bushMid))
     expect(crownColour(geo.broadMid)).not.toBe(crownColour(geo.coneMid))
   })
 
@@ -207,10 +230,12 @@ describe('植被與建築的幾何', () => {
    * 本體 —— 喬木只是每隔十幾公尺插上去的一根。
    */
   it('灌木比喬木矮一截，但比它的間距寬', () => {
-    const b = bounds(geo.bushNear)
-    expect(b.max.y).toBeLessThan(TREE_HEIGHT / 3)
-    expect(b.max.y).toBeGreaterThan(2)
-    expect(b.max.x - b.min.x).toBeGreaterThan(HEDGE_BUSH_SPACING)
+    for (const n of ['bushHigh', 'bushNear', 'bushMid'] as const) {
+      const b = bounds(geo[n])
+      expect(b.max.y).toBeLessThan(TREE_HEIGHT / 3)
+      expect(b.max.y).toBeGreaterThan(2)
+      expect(b.max.x - b.min.x).toBeGreaterThan(HEDGE_BUSH_SPACING)
+    }
   })
 
   it('教堂的尖塔比任何一棟房子都高', () => {
@@ -236,8 +261,8 @@ describe('植被與建築的幾何', () => {
   })
 
   /** 【樹幹與樹冠必須是兩個顏色】材質沒開 vertexColors 的話這一條仍然綠 */
-  it('近級的兩種喬木都有樹幹色與樹冠色', () => {
-    for (const n of ['broadNear', 'coneNear'] as const) {
+  it('近距離兩級的喬木都有樹幹色與樹冠色', () => {
+    for (const n of ['broadHigh', 'broadNear', 'coneHigh', 'coneNear'] as const) {
       expect(colours(geo[n]).size).toBe(2)
     }
     // 中級沒有樹幹，只有一個顏色
@@ -291,8 +316,8 @@ describe('植被與建築的幾何', () => {
     expect(ratio).toBeLessThan(1.85)
   })
 
-  it('近級喬木最低的那些頂點是樹幹色', () => {
-    for (const n of ['broadNear', 'coneNear'] as const) {
+  it('近距離兩級喬木最低的那些頂點是樹幹色', () => {
+    for (const n of ['broadHigh', 'broadNear', 'coneHigh', 'coneNear'] as const) {
       const g = geo[n]
       const p = g.getAttribute('position')
       const c = g.getAttribute('color')
@@ -331,8 +356,8 @@ describe('植被與建築的幾何', () => {
    * 擦邊過的。挑在樹冠裡面就有餘裕。
    */
   const STAR_Y: Record<string, number> = {
-    broadNear: 20, broadMid: 20, coneNear: 12, coneMid: 12,
-    bushNear: 4, house: 2.5, barn: 3, church: 3, houseSlate: 2.5, barnTar: 3,
+    broadHigh: 20, broadNear: 20, broadMid: 20, coneHigh: 12, coneNear: 12, coneMid: 12,
+    bushHigh: 4, bushNear: 4, bushMid: 4, house: 2.5, barn: 3, church: 3, houseSlate: 2.5, barnTar: 3,
   }
 
   it('每一個面的法線都朝外', () => {
@@ -422,6 +447,166 @@ describe('植被與建築的幾何', () => {
       const c = new Color(pointColorOf(name as PointPool, 'summer'))
       const got = [c.r, c.g, c.b].map((v) => v.toFixed(4)).join(',')
       expect([name, got]).toEqual([name, want])
+    }
+  })
+})
+
+describe('近距離模型（GLB 已載入）', () => {
+  let m: Record<MeshPool, BufferGeometry>
+  beforeAll(async () => {
+    await preloadFloraModels(readPublic)
+    m = createFloraGeometries()
+  })
+
+  /**
+   * 【這一條證明池真的用了 GLB】退路的程序幾何外框一樣、法線一樣朝外，
+   * 其餘每一條換成程序幾何都會綠 —— 只有面數分得出來。
+   */
+  it('六個池的三角形數就是模型的面數；其餘池不變', () => {
+    const want: Record<(typeof MODEL_POOLS)[number], number> = {
+      broadHigh: 340, broadNear: 136, coneHigh: 68, coneNear: 50, bushHigh: 192, bushNear: 58,
+    }
+    for (const n of MODEL_POOLS) expect([n, tris(m[n])]).toEqual([n, want[n]])
+    for (const n of names) {
+      if ((MODEL_POOLS as readonly string[]).includes(n)) continue
+      expect([n, tris(m[n])]).toEqual([n, tris(geo[n])])
+    }
+  })
+
+  /**
+   * 【外框對齊遠一級】樹頂、樹冠半徑與程序幾何相同，過 900 m 與 1,200 m 的門檻
+   * 時樹不會長高縮矮、樹冠不會變胖。點池的邊長也拿同一組常數算。
+   */
+  it('樹頂與樹冠半徑等於外框常數，底面在 y = 0', () => {
+    const want: Record<(typeof MODEL_POOLS)[number], [number, number]> = {
+      broadHigh: [TREE_HEIGHT, BROAD_CROWN_R], broadNear: [TREE_HEIGHT, BROAD_CROWN_R],
+      coneHigh: [TREE_HEIGHT, CONE_CROWN_R], coneNear: [TREE_HEIGHT, CONE_CROWN_R],
+      bushHigh: [bounds(geo.bushMid).max.y, BUSH_R], bushNear: [bounds(geo.bushMid).max.y, BUSH_R],
+    }
+    for (const n of MODEL_POOLS) {
+      const b = bounds(m[n])
+      expect([n, b.max.y]).toEqual([n, expect.closeTo(want[n][0], 4)])
+      expect([n, b.min.y]).toEqual([n, expect.closeTo(0, 6)])
+      expect([n, crownSpan(m[n]).r]).toEqual([n, expect.closeTo(want[n][1], 3)])
+    }
+  })
+
+  /** 【高模換中模只換面數】枝與葉團同位置同大小，樹冠的上下緣差不到半公尺 */
+  it('高模與中模的樹冠同一個位置', () => {
+    for (const [hi, mid] of [['broadHigh', 'broadNear'], ['coneHigh', 'coneNear'], ['bushHigh', 'bushNear']] as const) {
+      const a = crownSpan(m[hi])
+      const b = crownSpan(m[mid])
+      expect([hi, Math.abs(a.y0 - b.y0) < 0.5, Math.abs(a.y1 - b.y1) < 0.5]).toEqual([hi, true, true])
+    }
+  })
+
+  it('喬木兩色、最低處是樹幹色；灌木一色；樹冠色跟著季節換', () => {
+    /** 貼地那幾個頂點的顏色 */
+    const lowColours = (g: BufferGeometry): Set<string> => {
+      const p = g.getAttribute('position')
+      const c = g.getAttribute('color')
+      const out = new Set<string>()
+      for (let i = 0; i < p.count; i++) {
+        if (p.getY(i) > 0.01) continue
+        out.add([c.getX(i), c.getY(i), c.getZ(i)].map((v) => v.toFixed(4)).join(','))
+      }
+      return out
+    }
+    // 程序幾何的樹幹色就是 `TRUNK`
+    const trunk = [...lowColours(geo.broadNear)]
+    for (const n of ['broadHigh', 'broadNear', 'coneHigh', 'coneNear'] as const) {
+      expect([n, colours(m[n]).size]).toEqual([n, 2])
+      expect([n, [...lowColours(m[n])]]).toEqual([n, trunk])
+    }
+    for (const n of ['bushHigh', 'bushNear'] as const) expect([n, colours(m[n]).size]).toEqual([n, 1])
+    const hex = (x: number): string => {
+      const c = new Color(x)
+      return [c.r, c.g, c.b].map((v) => v.toFixed(4)).join(',')
+    }
+    for (const s of SEASONS) {
+      const g = createFloraGeometries(s)
+      const want: Record<(typeof MODEL_POOLS)[number], number> = {
+        broadHigh: FLORA_COLORS[s].broadLeaf, broadNear: FLORA_COLORS[s].broadLeaf,
+        coneHigh: FLORA_COLORS[s].conifer, coneNear: FLORA_COLORS[s].conifer,
+        bushHigh: FLORA_COLORS[s].bushLeaf, bushNear: FLORA_COLORS[s].bushLeaf,
+      }
+      for (const n of MODEL_POOLS) {
+        // 樹冠只有一個色，而且就是這一季的；喬木的樹幹色不跟著季節換
+        const set = colours(g[n])
+        expect([s, n, set.has(hex(want[n]))]).toEqual([s, n, true])
+        const other = [...set].filter((c) => c !== hex(want[n]))
+        expect([s, n, other]).toEqual([s, n, n.startsWith('bush') ? [] : trunk])
+      }
+      disposeFloraGeometries(g)
+    }
+  })
+
+  /** 【兩個節點共用一份沒有索引的幾何】各自的變換只套在各自的複本上 */
+  it('共用幾何的節點各自套自己的變換', () => {
+    const shared = new BufferGeometry()
+    shared.setAttribute('position', new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3))
+    const scene = new Group()
+    for (const [x, part] of [[10, 'trunk'], [20, 'crown']] as const) {
+      const mesh = new ThreeMesh(shared)
+      mesh.position.x = x
+      mesh.userData['part'] = part
+      scene.add(mesh)
+    }
+    const baked = bakeFloraScene(scene, 'test')
+    expect(baked.crownFrom).toBe(3)
+    expect([baked.position[0], baked.position[9]]).toEqual([10, 20])
+    expect(Array.from(shared.getAttribute('position').array)).toEqual([0, 0, 0, 1, 0, 0, 0, 1, 0])
+  })
+
+  it('非索引、有法線與包圍球', () => {
+    for (const n of MODEL_POOLS) {
+      expect(m[n].getIndex()).toBeNull()
+      expect(m[n].getAttribute('normal')).toBeDefined()
+      expect(m[n].boundingSphere).not.toBeNull()
+    }
+  })
+
+  /**
+   * 【池幾何的每一面朝外】枝與葉團不是對某一點的星形，上面那條「由軸上一點看
+   * 每一面」的判準不適用。改拿 GLB 自帶的頂點法線當答案：照解析的次序（樹幹在前、
+   * 樹冠在後）排好，逐面與**池幾何**算出來的面法線比 —— 解析、變換、次序、繞序
+   * 任一處錯，都有面會反過來。
+   */
+  it('池幾何的每一面與 GLB 自帶的法線同向', async () => {
+    const pool: Record<string, Record<'high' | 'mid', MeshPool>> = {
+      broad: { high: 'broadHigh', mid: 'broadNear' },
+      cone: { high: 'coneHigh', mid: 'coneNear' },
+      bush: { high: 'bushHigh', mid: 'bushNear' },
+    }
+    const nv = new Vector3()
+    const nf = new Vector3()
+    for (const sp of Object.keys(FLORA_MODEL_URLS) as (keyof typeof FLORA_MODEL_URLS)[]) {
+      for (const lv of ['high', 'mid'] as const) {
+        const url = FLORA_MODEL_URLS[sp][lv]
+        const scene = await new Promise<Object3D>((res, rej) => {
+          createGltfLoader().parse(readFileSync(`public${url}`).buffer as ArrayBuffer, '', (g) => res(g.scene), rej)
+        })
+        scene.updateMatrixWorld(true)
+        const byPart: Record<'trunk' | 'crown', Vector3[]> = { trunk: [], crown: [] }
+        scene.traverse((o) => {
+          const mesh = o as Mesh
+          if (!mesh.isMesh) return
+          const nor = mesh.geometry.toNonIndexed().getAttribute('normal')
+          const nm = new Matrix3().getNormalMatrix(mesh.matrixWorld)
+          const part = mesh.userData['part'] as 'trunk' | 'crown'
+          for (let i = 0; i < nor.count; i++) byPart[part].push(new Vector3().fromBufferAttribute(nor, i).applyMatrix3(nm))
+        })
+        const want = [...byPart.trunk, ...byPart.crown]
+        const got = m[pool[sp]![lv]].getAttribute('normal')
+        expect([url, got.count]).toEqual([url, want.length])
+        const flipped: number[] = []
+        for (let f = 0; f < got.count / 3; f++) {
+          nf.fromBufferAttribute(got, f * 3)
+          nv.copy(want[f * 3]!)
+          if (nf.dot(nv) <= 0) flipped.push(f)
+        }
+        expect([url, flipped]).toEqual([url, []])
+      }
     }
   })
 })

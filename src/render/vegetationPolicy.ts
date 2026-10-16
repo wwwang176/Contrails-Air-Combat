@@ -16,7 +16,15 @@ export const FLORA_RADIUS = 6000
 export const POINT_NEAR = 3000
 
 /**
- * 樹幹畫到多遠，m。**唯一的換級門檻。**
+ * 高模畫到多遠，m。之內是 `broadHigh`／`coneHigh`，之外到 `LOD_NEAR` 是中模。
+ *
+ * 換級以 250 m 的格心為準，所以實際是一格一格在約 120～480 m 之間換。高模與
+ * 中模的枝、葉團、層的位置與大小相同，只差分段數。
+ */
+export const LOD_HIGH = 300
+
+/**
+ * 樹幹畫到多遠，m。之內是近距離的模型（高模與中模），之外只有樹冠。
  *
  * 樹幹直徑在縮放 1.0 時是 2 m，最小的那一株（縮放 0.5）是 1 m。960 px 高、
  * 60° 垂直視角下，1 m 在 d 公尺外約占 917 / d 個像素 —— 900 m 對最小的那一株
@@ -31,7 +39,15 @@ export const LOD_NEAR = 900
 export const LOD_HYSTERESIS = 40
 
 /**
- * 灌木畫到多遠，m。
+ * 灌木的中模畫到多遠，m。之外到 `BUSH_RANGE` 是八面體。
+ *
+ * 灌木是數量最多的植被（樹籬連成一條），中模一叢的面數是八面體的七倍；
+ * 畫滿 `BUSH_RANGE` 的話這一池的三角形比所有喬木加起來還多。
+ */
+export const BUSH_NEAR = 600
+
+/**
+ * 灌木（八面體）畫到多遠，m。之外是點。
  *
  * 【放遠過】500 m 時，再遠的樹籬只剩 12 m 一棵的喬木 —— 巡航高度看下去
  * 整片地的樹籬因此是稀疏的點列。灌木是 8 個三角形，比喬木便宜，放遠是
@@ -198,7 +214,14 @@ export const RUN_SPLIT_MIN = 2000
 /** 槽位號合進排序鍵的倍率：鍵 = 希爾伯特位置 × 這個數 + 槽位。快取不得超過它 */
 export const SLOT_SPAN = 16384
 
-export const LOD_STEP = [LOD_NEAR, POINT_NEAR, FLORA_RADIUS] as const
+/**
+ * 樹的各級外緣，m。級數 0 高模、1 中模、2 只有樹冠、3 點、4 不畫。最後一格是
+ * 外圈半徑的位置 —— 實際用的是逐格抖過的 `outer`。
+ */
+export const LOD_STEP = [LOD_HIGH, LOD_NEAR, POINT_NEAR, FLORA_RADIUS] as const
+
+/** 樹的級數上限：出了外圈，什麼都不畫 */
+export const LOD_NONE = LOD_STEP.length
 
 /**
  * 這個距離該用哪一級。`prev` 是目前的級數，`-1` 表示沒有前一級。
@@ -208,15 +231,35 @@ export const LOD_STEP = [LOD_NEAR, POINT_NEAR, FLORA_RADIUS] as const
  */
 export function lodFor(dist: number, prev: number, outer: number = FLORA_RADIUS): number {
   // 【門檻直接內聯，不建閉包】`relevel` 每幀每格呼叫一次，閉包每次都是一次配置
+  const last = LOD_NONE - 1
   if (prev < 0) {
     let lod = 0
-    while (lod < 3 && dist > (lod === 2 ? outer : LOD_STEP[lod]!)) lod++
+    while (lod < LOD_NONE && dist > (lod === last ? outer : LOD_STEP[lod]!)) lod++
     return lod
   }
   let lod = prev
-  while (lod < 3 && dist > (lod === 2 ? outer : LOD_STEP[lod]!) + LOD_HYSTERESIS) lod++
-  while (lod > 0 && dist < (lod === 3 ? outer : LOD_STEP[lod - 1]!) - LOD_HYSTERESIS) lod--
+  while (lod < LOD_NONE && dist > (lod === last ? outer : LOD_STEP[lod]!) + LOD_HYSTERESIS) lod++
+  while (lod > 0 && dist < (lod === LOD_NONE ? outer : LOD_STEP[lod - 1]!) - LOD_HYSTERESIS) lod--
   return lod
+}
+
+/** 灌木的各級外緣，m。級數 0 高模、1 中模、2 八面體、3 點 */
+export const BUSH_STEP = [LOD_HIGH, BUSH_NEAR, BUSH_RANGE] as const
+
+/** 灌木的級數上限（點）。出了外圈由樹的級數決定不畫 */
+export const BUSH_POINT = BUSH_STEP.length
+
+/** 灌木在這個距離該用哪一級。遲滯與 `lodFor` 相同；`prev` 為 −1 表示沒有前一級 */
+export function bushLevelFor(dist: number, prev: number): number {
+  if (prev < 0) {
+    let lv = 0
+    while (lv < BUSH_POINT && dist > BUSH_STEP[lv]!) lv++
+    return lv
+  }
+  let lv = prev
+  while (lv < BUSH_POINT && dist > BUSH_STEP[lv]! + LOD_HYSTERESIS) lv++
+  while (lv > 0 && dist < BUSH_STEP[lv - 1]! - LOD_HYSTERESIS) lv--
+  return lv
 }
 
 /**
@@ -245,7 +288,7 @@ export function outerFor(i: number, j: number, radius: number = FLORA_RADIUS): n
  * 傳一個大得離譜的 `capacity` 進去，量到的才是真的需求。
  *
  * 【兩組散佈器都掃】田一路到底（洛伊納）與田圍著村（程序生成的內陸地圖，空地
- * 上成團的樹林）各掃一次取大的。樹的那六池的峰值出自田圍著村，灌木與建築出自
+ * 上成團的樹林）各掃一次取大的。樹的池的峰值多半出自田圍著村，灌木與建築出自
  * 田一路到底。
  *
  * 【建築的峰值出自田圍著村】那幾張圖的村是洛伊納那一套生成器蓋的（三合院農莊、
@@ -258,14 +301,20 @@ export function outerFor(i: number, j: number, radius: number = FLORA_RADIUS): n
  * 測試裡不另外寫死一份數字。
  */
 export const CAPACITY: Record<PoolName, number> = {
-  broadNear: 3500,     // 掃描最大 2,543
-  coneNear: 1500,      // 1,049
-  broadMid: 26700,     // 19,718
-  coneMid: 11800,      // 8,708
-  broadPoint: 60100,    // 44,459
-  conePoint: 21800,     // 16,136
-  bushNear: 11900,     // 8,750
-  bushPoint: 207500,    // 123,563   ← 全部實例的一半上下
+  // 高模那兩池照洛伊納的實測（村鎮的果樹最密，747、586）留 1.35 倍以上：池小，
+  // 多配的不到 200 KB，沒有逐圖掃過的地圖共用這一份
+  broadHigh: 1100,     // 掃描最大 379
+  broadNear: 3100,     // 2,266
+  coneHigh: 800,       // 200
+  coneNear: 1300,      // 914
+  broadMid: 26700,     // 19,725
+  coneMid: 11800,      // 8,705
+  broadPoint: 60100,    // 44,504
+  conePoint: 21800,     // 16,120
+  bushHigh: 800,       // 543
+  bushNear: 2400,      // 1,740
+  bushMid: 9100,       // 6,667
+  bushPoint: 207500,    // 123,916   ← 全部實例的一半上下
   house: 320,          // 229
   barn: 190,           // 138
   church: 20,          // 4
@@ -281,25 +330,29 @@ export const CAPACITY: Record<PoolName, number> = {
  * `conePoint` 峰值是 16,805，群島是 22,252。取聯集的話兩張圖都要付對方的帳。
  *
  * 【餘裕是兩倍不是 1.35 倍】配太小的話超出的部分由 `stats.overflow` 靜靜
- * 丟掉，症狀是飛過島心時近處的針葉林整片消失（近級配 1,300 而實際要
- * 4,694）。一格實例是 152 byte（兩份矩陣加兩份顏色），這一組總共 17.2 MB。
+ * 丟掉，症狀是飛過島心時近處的針葉林整片消失。一格實例是 152 byte（兩份矩陣
+ * 加兩份顏色）。註解裡的是 `vegetation.test.ts` 掃每一座島心的最大值。
  */
 export const ISLAND_CAPACITY: Record<PoolName, number> = {
-  broadNear: 16, broadMid: 16, broadPoint: 16,
-  coneNear: 9700,      // 掃描最大 4,694
-  coneMid: 17300,      // 8,619
-  conePoint: 44500,     // 22,252
-  bushNear: 10300,     // 5,149
-  bushPoint: 32100,     // 16,035
+  broadHigh: 16, broadNear: 16, broadMid: 16, broadPoint: 16,
+  coneHigh: 1800,      // 掃描最大 856
+  coneNear: 7700,      // 3,804
+  coneMid: 17300,      // 3,818
+  conePoint: 44500,     // 19,629
+  bushHigh: 1300,      // 628
+  bushNear: 2500,      // 1,234
+  bushMid: 6000,       // 2,960
+  bushPoint: 32100,     // 14,074
   house: 16, barn: 16, church: 16, houseSlate: 16, barnTar: 16,
 }
 
 /**
  * 雷伊泰的容量。**只有闊葉樹與灌木**，沒有針葉、沒有建築。
  *
- * 【闊葉比內陸大】山脈又大又多、山坡是林子。哨兵容量掃過場地網格、每一座山脈
- * 的圓心與高瓣的峰值：broadNear 5,384、broadMid 49,452、broadPoint 102,100、
- * bushNear 6,777、bushPoint 101,621。
+ * 【闊葉比內陸大】山脈又大又多、山坡是林子。峰值由 `test/tools/leyte-peak.probe.ts`
+ * 以哨兵容量掃過場地網格與每一座山脈的圓心、半徑一半與一倍處：broadHigh 670、
+ * broadNear 4,493、broadMid 50,002、broadPoint 100,927、bushHigh 487、bushNear 1,400、
+ * bushMid 4,860、bushPoint 101,606。
  *
  * 【餘裕取 1.5 倍上下，不是群島的兩倍】兩倍的話實例數與記憶體多三成而換不到
  * 東西。掃描已經包含每一座山脈的高處，峰值不會在別處高出五成。灌木的遠級照
@@ -307,10 +360,13 @@ export const ISLAND_CAPACITY: Record<PoolName, number> = {
  */
 export const LEYTE_CAPACITY: Record<PoolName, number> = {
   ...CAPACITY,
-  broadNear: 8100,
-  broadMid: 74200,
+  broadHigh: 1100,
+  broadNear: 6800,
+  broadMid: 75100,
   broadPoint: 153200,
-  bushNear: 10200,
+  bushHigh: 800,
+  bushNear: 2100,
+  bushMid: 7300,
   bushPoint: 152400,
 }
 
@@ -326,8 +382,8 @@ export const BUILDING_POOLS: readonly PoolName[] = ['house', 'barn', 'church', '
 export const TINT_RANGE = { plant: [0.86, 1.14], building: [0.74, 1.22] } as const
 
 export const POOL_NAMES: readonly PoolName[] = [
-  'broadNear', 'coneNear', 'broadMid', 'coneMid',
-  'broadPoint', 'conePoint', 'bushNear', 'bushPoint',
+  'broadHigh', 'coneHigh', 'broadNear', 'coneNear', 'broadMid', 'coneMid',
+  'broadPoint', 'conePoint', 'bushHigh', 'bushNear', 'bushMid', 'bushPoint',
   'house', 'barn', 'church', 'houseSlate', 'barnTar',
 ]
 
@@ -336,42 +392,74 @@ export const IS_POINT: Record<PoolName, boolean> =
   Object.fromEntries(POOL_NAMES.map((n) => [n, POINT_POOLS.includes(n)])) as Record<PoolName, boolean>
 
 /**
- * 「種類 × 級數 × 灌木旗標」→ 池在 `POOL_NAMES` 裡的索引，`-1` = 這一級不畫。
+ * 樹在第 `lod` 級（0 到 `LOD_NONE` − 1）的池。**要宣告在 `POOL_LUT` 之前** ——
+ * 建表在模組載入時就跑，晚宣告的話讀到的是還沒初始化的常數。
+ */
+export const BROAD_BY_LOD: readonly PoolName[] = ['broadHigh', 'broadNear', 'broadMid', 'broadPoint']
+export const CONE_BY_LOD: readonly PoolName[] = ['coneHigh', 'coneNear', 'coneMid', 'conePoint']
+/** 灌木在第 `level` 級（0 到 `BUSH_POINT`）的池 */
+export const BUSH_BY_LEVEL: readonly PoolName[] = ['bushHigh', 'bushNear', 'bushMid', 'bushPoint']
+
+/** `POOL_LUT` 一列有幾種灌木級數：`slotBush` 的 −1 到 `BUSH_POINT` */
+const LUT_BUSH = BUSH_POINT + 2
+
+/** `POOL_LUT` 一種 `kind` 佔幾格：`slotLod` 的 −1 到 `LOD_NONE`，乘上灌木那一維 */
+export const LUT_KIND_STRIDE = (LOD_NONE + 2) * LUT_BUSH
+
+/**
+ * 一格 tile 在 `POOL_LUT` 裡的列位移；加上 `kind × LUT_KIND_STRIDE` 就是索引。
+ * **建表與重建都走這一支**，索引公式只有一份 —— 兩邊各寫一份的話，多一級時
+ * 改了一邊，查到的是別的池，而且不報錯。
+ */
+export function lutRow(lod: number, bush: number): number {
+  return (lod + 1) * LUT_BUSH + bush + 1
+}
+
+/**
+ * 「種類 × 級數 × 灌木級數」→ 池在 `POOL_NAMES` 裡的索引，`-1` = 這一級不畫。
  *
  * **每一格都由 `poolOf` 算出**，兩者不可能分家。重建每一筆查一次表，不經過
  * 字串與物件屬性 —— 每筆好幾次以池名查屬性，是重建一片跑到 10 ms 以上的原因。
  *
- * 索引是 `kind × 10 + (lod + 1) × 2 + bush`：`kind` 是 Uint8Array 的值，
- * `lod` 涵蓋 `slotLod` 可能的 −1 到 3。
+ * `kind` 是 Uint8Array 的值；`lod` 涵蓋 `slotLod` 可能的 −1 到 `LOD_NONE`，
+ * `bush` 涵蓋 `slotBush` 可能的 −1 到 `BUSH_POINT`。
  */
 export const POOL_LUT: Int8Array = (() => {
-  const lut = new Int8Array(256 * 10)
+  const lut = new Int8Array(256 * LUT_KIND_STRIDE)
   for (let kind = 0; kind < 256; kind++) {
-    for (let lod = -1; lod <= 3; lod++) {
-      for (let bush = 0; bush < 2; bush++) {
-        const name = poolOf(kind, lod, bush === 1)
-        lut[kind * 10 + (lod + 1) * 2 + bush] = name === null ? -1 : POOL_NAMES.indexOf(name)
+    for (let lod = -1; lod <= LOD_NONE; lod++) {
+      for (let bush = -1; bush <= BUSH_POINT; bush++) {
+        const name = poolOf(kind, lod, bush)
+        lut[kind * LUT_KIND_STRIDE + lutRow(lod, bush)] = name === null ? -1 : POOL_NAMES.indexOf(name)
       }
     }
   }
   return lut
 })()
 
+/** 灌木在第 `level` 級的池；還沒定級是 null */
+function bushPoolAt(level: number): PoolName | null {
+  return level < 0 ? null : BUSH_BY_LEVEL[level]!
+}
+
 /**
  * 這一株該進哪一個池。`null` = 這一級不畫它。
  *
- * 【樹種不隨級數變】兩級各有自己的闊葉與針葉。把兩種樹在遠級併成同一個
+ * 【樹種不隨級數變】每一級各有自己的闊葉與針葉。把兩種樹在遠級併成同一個
  * 池的話，針葉樹過門檻時形狀與顏色一起換 —— 看起來像那棵樹換了種。
+ *
+ * 【灌木的級數獨立】`bush` 是 `bushLevelFor` 的結果；出了外圈（`lod` 為
+ * `LOD_NONE`）時灌木跟著不畫。
  */
-export function poolOf(kind: number, lod: number, bushNear: boolean): PoolName | null {
-  if (lod >= 3) return null
+export function poolOf(kind: number, lod: number, bush: number): PoolName | null {
+  if (lod >= LOD_NONE) return null
   switch (kind) {
     case FloraKind.BroadTree:
-      return lod === 0 ? 'broadNear' : lod === 1 ? 'broadMid' : 'broadPoint'
+      return lod < 0 ? null : BROAD_BY_LOD[lod]!
     case FloraKind.ConeTree:
-      return lod === 0 ? 'coneNear' : lod === 1 ? 'coneMid' : 'conePoint'
+      return lod < 0 ? null : CONE_BY_LOD[lod]!
     case FloraKind.Bush:
-      return bushNear ? 'bushNear' : 'bushPoint'
+      return bushPoolAt(bush)
     case FloraKind.House:
       return 'house'
     case FloraKind.Barn:

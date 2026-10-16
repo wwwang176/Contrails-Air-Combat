@@ -3,6 +3,7 @@ import { AIRCRAFT_MODEL_COUNT, preloadAircraftModels } from '../render/geometry/
 import { groundModelUrls, preloadGroundModels } from '../render/geometry/ground'
 import { preloadShipModels } from '../render/shipAssets'
 import { BALLOON_MODEL_COUNT, preloadBalloonModel } from '../render/balloons'
+import { FLORA_MODEL_COUNT, preloadFloraModels } from '../render/floraModels'
 import { fileFraction, type LoadingScreen } from '../ui/loading'
 
 /**
@@ -11,7 +12,7 @@ import { fileFraction, type LoadingScreen } from '../ui/loading'
  */
 export async function preloadStartupAssets(loading: Pick<LoadingScreen, 'set' | 'step' | 'hold' | 'finish'>): Promise<void> {
   const shipIds = ['essex', 'wichita', 'fletcher', 'lst'] as const
-  const fileTotal = AIRCRAFT_MODEL_COUNT + shipIds.length + groundModelUrls().length + BALLOON_MODEL_COUNT
+  const fileTotal = AIRCRAFT_MODEL_COUNT + shipIds.length + groundModelUrls().length + BALLOON_MODEL_COUNT + FLORA_MODEL_COUNT
   let filesDone = 0
   let fileLabel: MessageKey = 'loading.preparing'
   const fileLoaded = (): void => {
@@ -31,5 +32,7 @@ export async function preloadStartupAssets(loading: Pick<LoadingScreen, 'set' | 
   await loadGroup('loading.ground')
   await preloadGroundModels(undefined, fileLoaded)
   await preloadBalloonModel(fileLoaded)
+  // 植被近距離兩級的模型。沒載的話地形照樣建得起來，近處的樹退回程序幾何
+  await preloadFloraModels(undefined, fileLoaded)
   await loading.finish('loading.done')
 }

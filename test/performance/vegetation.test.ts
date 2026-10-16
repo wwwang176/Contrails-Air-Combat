@@ -6,6 +6,8 @@ import {
   lodFor, poolOf, BUSH_RANGE, POINT_NEAR, FLORA_RADIUS, CAPACITY, ISLAND_CAPACITY,
   ISLAND_MAX_PER_TILE, ISLAND_RADIUS, ISLAND_TILES_PER_FRAME, LOD_HYSTERESIS, LOD_NEAR,
   MAX_PER_TILE, REBUILD_EVERY, REBUILD_MOVE, TILES_PER_FRAME, TILE_SIZE,
+  LOD_HIGH, LOD_NONE, BUSH_NEAR, BUSH_STEP, BUSH_POINT, bushLevelFor,
+  POOL_LUT, POOL_NAMES, LUT_KIND_STRIDE, lutRow, outerFor,
 } from '../../src/render/vegetationPolicy'
 import { type PoolName } from '../../src/render/floraShapes'
 import { createFloraBuffer, pushFlora, FloraKind, type FloraSource } from '../../src/core/floraBuffer'
@@ -86,22 +88,53 @@ describe('lodFor', () => {
       prev = lod
     }
     expect(lodFor(0, -1)).toBe(0)
-    expect(lodFor(LOD_NEAR + 1, -1)).toBe(1)
-    expect(lodFor(POINT_NEAR + 1, -1)).toBe(2)
-    expect(lodFor(FLORA_RADIUS + 1, -1)).toBe(3)
+    expect(lodFor(LOD_HIGH + 1, -1)).toBe(1)
+    expect(lodFor(LOD_NEAR + 1, -1)).toBe(2)
+    expect(lodFor(POINT_NEAR + 1, -1)).toBe(3)
+    expect(lodFor(FLORA_RADIUS + 1, -1)).toBe(LOD_NONE)
+    expect(LOD_NONE).toBe(4)
   })
 
   /** 【遲滯】沒有它的話，鏡頭停在門檻上時整格 tile 每幀換級 */
   it('遲滯：在門檻上來回不會每次換級', () => {
-    expect(lodFor(LOD_NEAR + 10, 0)).toBe(0)
-    expect(lodFor(LOD_NEAR + 10, 1)).toBe(1)
-    expect(lodFor(LOD_NEAR + LOD_HYSTERESIS + 1, 0)).toBe(1)
-    expect(lodFor(LOD_NEAR - LOD_HYSTERESIS - 1, 1)).toBe(0)
+    for (const [edge, lo] of [[LOD_HIGH, 0], [LOD_NEAR, 1], [POINT_NEAR, 2]] as const) {
+      expect([edge, lodFor(edge + 10, lo)]).toEqual([edge, lo])
+      expect([edge, lodFor(edge + 10, lo + 1)]).toEqual([edge, lo + 1])
+      expect([edge, lodFor(edge + LOD_HYSTERESIS + 1, lo)]).toEqual([edge, lo + 1])
+      expect([edge, lodFor(edge - LOD_HYSTERESIS - 1, lo + 1)]).toEqual([edge, lo])
+    }
   })
 
   it('跨好幾級的跳躍一次到位', () => {
-    expect(lodFor(FLORA_RADIUS * 2, 0)).toBe(3)
-    expect(lodFor(10, 3)).toBe(0)
+    expect(lodFor(FLORA_RADIUS * 2, 0)).toBe(LOD_NONE)
+    expect(lodFor(10, LOD_NONE)).toBe(0)
+  })
+})
+
+describe('bushLevelFor', () => {
+  it('四級：高模、中模、八面體、點，門檻是 LOD_HIGH、BUSH_NEAR、BUSH_RANGE', () => {
+    expect(BUSH_STEP).toEqual([LOD_HIGH, BUSH_NEAR, BUSH_RANGE])
+    expect(bushLevelFor(0, -1)).toBe(0)
+    expect(bushLevelFor(LOD_HIGH + 1, -1)).toBe(1)
+    expect(bushLevelFor(BUSH_NEAR + 1, -1)).toBe(2)
+    expect(bushLevelFor(BUSH_RANGE + 1, -1)).toBe(BUSH_POINT)
+    expect(bushLevelFor(FLORA_RADIUS * 2, -1)).toBe(BUSH_POINT)
+    let prev = -1
+    for (let d = 0; d < 3000; d += 5) {
+      const lv = bushLevelFor(d, -1)
+      expect(lv).toBeGreaterThanOrEqual(prev)
+      prev = lv
+    }
+  })
+
+  it('遲滯與樹相同', () => {
+    for (const [edge, lo] of [[LOD_HIGH, 0], [BUSH_NEAR, 1], [BUSH_RANGE, 2]] as const) {
+      expect([edge, bushLevelFor(edge + 10, lo)]).toEqual([edge, lo])
+      expect([edge, bushLevelFor(edge + 10, lo + 1)]).toEqual([edge, lo + 1])
+      expect([edge, bushLevelFor(edge + LOD_HYSTERESIS + 1, lo)]).toEqual([edge, lo + 1])
+      expect([edge, bushLevelFor(edge - LOD_HYSTERESIS - 1, lo + 1)]).toEqual([edge, lo])
+    }
+    expect(bushLevelFor(10, BUSH_POINT)).toBe(0)
   })
 })
 
@@ -114,38 +147,66 @@ describe('poolOf', () => {
    * 這一條是「換級不換樹種」在引擎這一側的守門員；幾何那一側由
    * flora-shapes.test.ts 的同名兩條守。
    */
-  it('換級不換樹種，六個映射逐一對得上', () => {
-    expect(poolOf(FloraKind.BroadTree, 0, false)).toBe('broadNear')
-    expect(poolOf(FloraKind.BroadTree, 1, false)).toBe('broadMid')
-    expect(poolOf(FloraKind.BroadTree, 2, false)).toBe('broadPoint')
-    expect(poolOf(FloraKind.ConeTree, 0, false)).toBe('coneNear')
-    expect(poolOf(FloraKind.ConeTree, 1, false)).toBe('coneMid')
-    expect(poolOf(FloraKind.ConeTree, 2, false)).toBe('conePoint')
+  it('換級不換樹種，八個映射逐一對得上', () => {
+    expect(poolOf(FloraKind.BroadTree, 0, 0)).toBe('broadHigh')
+    expect(poolOf(FloraKind.BroadTree, 1, 0)).toBe('broadNear')
+    expect(poolOf(FloraKind.BroadTree, 2, 0)).toBe('broadMid')
+    expect(poolOf(FloraKind.BroadTree, 3, 0)).toBe('broadPoint')
+    expect(poolOf(FloraKind.ConeTree, 0, 0)).toBe('coneHigh')
+    expect(poolOf(FloraKind.ConeTree, 1, 0)).toBe('coneNear')
+    expect(poolOf(FloraKind.ConeTree, 2, 0)).toBe('coneMid')
+    expect(poolOf(FloraKind.ConeTree, 3, 0)).toBe('conePoint')
   })
 
   it('圈外那一級什麼都不畫', () => {
-    for (const k of [FloraKind.BroadTree, FloraKind.ConeTree, FloraKind.Bush]) {
-      expect(poolOf(k, 3, true)).toBeNull()
+    for (const k of [FloraKind.BroadTree, FloraKind.ConeTree, FloraKind.Bush, FloraKind.House]) {
+      for (let bush = -1; bush <= BUSH_POINT; bush++) {
+        expect([k, bush, poolOf(k, LOD_NONE, bush)]).toEqual([k, bush, null])
+      }
     }
   })
 
-  /** 【灌木的旗標現在選的是「哪一級」，不是「畫不畫」】圈內每一格都有灌木 */
-  it('灌木由旗標選級，建築三種各自成池', () => {
-    expect(poolOf(FloraKind.Bush, 0, true)).toBe('bushNear')
-    expect(poolOf(FloraKind.Bush, 0, false)).toBe('bushPoint')
-    expect(poolOf(FloraKind.Bush, 2, false)).toBe('bushPoint')
-    expect(poolOf(FloraKind.House, 1, false)).toBe('house')
-    expect(poolOf(FloraKind.Barn, 1, false)).toBe('barn')
-    expect(poolOf(FloraKind.Church, 1, false)).toBe('church')
-    expect(poolOf(FloraKind.SlateHouse, 1, false)).toBe('houseSlate')
-    expect(poolOf(FloraKind.TarBarn, 1, false)).toBe('barnTar')
+  /** 【灌木的級數與樹的級數無關】圈內每一格都有灌木，由距離選四級之一 */
+  it('灌木由自己的級數選池，建築三種各自成池', () => {
+    for (const lod of [0, 1, 2, 3]) {
+      expect(poolOf(FloraKind.Bush, lod, 0)).toBe('bushHigh')
+      expect(poolOf(FloraKind.Bush, lod, 1)).toBe('bushNear')
+      expect(poolOf(FloraKind.Bush, lod, 2)).toBe('bushMid')
+      expect(poolOf(FloraKind.Bush, lod, 3)).toBe('bushPoint')
+    }
+    expect(poolOf(FloraKind.House, 1, 0)).toBe('house')
+    expect(poolOf(FloraKind.Barn, 1, 0)).toBe('barn')
+    expect(poolOf(FloraKind.Church, 1, 0)).toBe('church')
+    expect(poolOf(FloraKind.SlateHouse, 1, 0)).toBe('houseSlate')
+    expect(poolOf(FloraKind.TarBarn, 1, 0)).toBe('barnTar')
+  })
+
+  /**
+   * 【查表與 `poolOf` 逐格一致，而且每一格各佔一個位置】索引公式算錯（兩個
+   * 級數組合落到同一格、或越界到下一種 kind）不會報錯，只會查到別的池。
+   */
+  it('POOL_LUT 的每一格都等於 poolOf，索引不重疊', () => {
+    const seen = new Set<number>()
+    for (let kind = 0; kind < 256; kind++) {
+      for (let lod = -1; lod <= LOD_NONE; lod++) {
+        for (let bush = -1; bush <= BUSH_POINT; bush++) {
+          const at = kind * LUT_KIND_STRIDE + lutRow(lod, bush)
+          expect(seen.has(at)).toBe(false)
+          seen.add(at)
+          const name = poolOf(kind, lod, bush)
+          const want = name === null ? -1 : POOL_NAMES.indexOf(name)
+          if (POOL_LUT[at] !== want) expect([kind, lod, bush, POOL_LUT[at]]).toEqual([kind, lod, bush, want])
+        }
+      }
+    }
+    expect(Math.max(...seen)).toBeLessThan(POOL_LUT.length)
   })
 })
 
 /** 池的名字，與 `object.children` 同序。標髒那一條用它報名字 */
 const POOLS: readonly PoolName[] = [
-  'broadNear', 'coneNear', 'broadMid', 'coneMid',
-  'broadPoint', 'conePoint', 'bushNear', 'bushPoint',
+  'broadHigh', 'coneHigh', 'broadNear', 'coneNear', 'broadMid', 'coneMid',
+  'broadPoint', 'conePoint', 'bushHigh', 'bushNear', 'bushMid', 'bushPoint',
   'house', 'barn', 'church', 'houseSlate', 'barnTar',
 ]
 
@@ -181,7 +242,7 @@ const FARM_SOURCE_SETS: readonly (readonly [string, FloraSource[]])[] = [
 const PEAK_SET: Record<string, string> = {}
 
 describe('植被引擎', () => {
-  it('十一個池，十一個 draw call；遠處那三個是點', () => {
+  it('十七個池，一池一個物件；遠處那三個是點', () => {
     const v = createVegetation([EMPTY], FLAT)
     expect(v.object.children.length).toBe(POOLS.length)
     const kinds = meshes(v).map((m, i) => [POOLS[i], m instanceof Points])
@@ -310,33 +371,62 @@ describe('植被引擎', () => {
     v.settle()
     const far = { ...v.counts }
     console.log(JSON.stringify({ near, far }))
+    expect(near.broadHigh).toBeGreaterThan(0)
     expect(near.broadNear).toBeGreaterThan(0)
+    expect(near.bushHigh).toBeGreaterThan(0)
     expect(near.bushNear).toBeGreaterThan(0)
+    expect(near.bushMid).toBeGreaterThan(0)
     expect(near.broadPoint).toBeGreaterThan(near.broadNear)
-    // 每一格都生六筆，所以三級的總數守恆
+    // 每一格都生八筆，所以四級的總數守恆
     const sum = (c: Record<PoolName, number>): number =>
-      c.broadNear + c.coneNear + c.broadMid + c.coneMid + c.broadPoint + c.conePoint
+      c.broadHigh + c.coneHigh + c.broadNear + c.coneNear + c.broadMid + c.coneMid
+      + c.broadPoint + c.conePoint
     expect(sum(far)).toBeGreaterThan(sum(near) * 0.95)
     expect(sum(far)).toBeLessThan(sum(near) * 1.05)
     v.dispose()
   })
 
   /**
-   * 【`BUSH_RANGE` 現在是「近級」的門檻，不是視距】圈內每一格都有灌木，
-   * 只是 1.2 km 之外換成點。
+   * 【`BUSH_RANGE` 是八面體那一級的外緣，不是視距】圈內每一格都有灌木：
+   * 300 m 內高模、600 m 內中模、1.2 km 內八面體，再外面是點。
    */
-  it('灌木在 BUSH_RANGE 之內是八面體，之外是點', () => {
+  it('灌木四級各落在自己的距離帶，畫得到的格一叢不漏', () => {
     const v = createVegetation([EVERY_KIND], FLAT)
     v.settle()
-    const near = (Math.PI * BUSH_RANGE * BUSH_RANGE) / (TILE_SIZE * TILE_SIZE)
-    expect(v.counts.bushNear).toBeGreaterThan(near * 0.6)
-    expect(v.counts.bushNear).toBeLessThan(near * 1.6)
-    // 【畫得到的格一叢都不能漏】每格一叢，所以兩級加起來就是 lod < 3 的格數。
+    const disk = (r: number): number => (Math.PI * r * r) / (TILE_SIZE * TILE_SIZE)
+    const c = v.counts
+    // 一格 250 m，300 m 內只有十來格 —— 寬鬆的上下界只擋「整級是空的」與「整級跑錯帶」
+    expect(c.bushHigh).toBeGreaterThan(disk(LOD_HIGH) * 0.4)
+    expect(c.bushHigh).toBeLessThan(disk(LOD_HIGH) * 2.5)
+    expect(c.bushHigh + c.bushNear).toBeGreaterThan(disk(BUSH_NEAR) * 0.6)
+    expect(c.bushHigh + c.bushNear).toBeLessThan(disk(BUSH_NEAR) * 1.6)
+    expect(c.bushHigh + c.bushNear + c.bushMid).toBeGreaterThan(disk(BUSH_RANGE) * 0.6)
+    expect(c.bushHigh + c.bushNear + c.bushMid).toBeLessThan(disk(BUSH_RANGE) * 1.6)
+    // 【畫得到的格一叢都不能漏】每格一叢，所以四級加起來就是沒出外圈的格數。
     // 分母不是 `stats.tiles`：外圈是抖開的，`outer` 到 `FLORA_RADIUS` 之間的
     // 格子仍然在快取裡但整格不畫 —— 見 `OUTER_JITTER`
-    const drawn = v.debugTiles().filter((t) => t.lod < 3).length
-    expect(v.counts.bushNear + v.counts.bushPoint).toBe(drawn)
+    const drawn = v.debugTiles().filter((t) => t.lod < LOD_NONE).length
+    expect(c.bushHigh + c.bushNear + c.bushMid + c.bushPoint).toBe(drawn)
     expect(drawn).toBeLessThan(v.stats.tiles)
+    v.dispose()
+  })
+
+  /**
+   * 【灌木跟著鏡頭換級】只看開場那一次的話，「級數變了沒標髒」抓不到 ——
+   * 開場每一池本來就都是髒的。
+   */
+  it('鏡頭移動之後灌木四級的總數守恆，畫得到的格仍然一叢不漏', () => {
+    const v = createVegetation([EVERY_KIND], FLAT)
+    v.settle()
+    const before = { ...v.counts }
+    v.update(700, 0)
+    v.settle()
+    const after = { ...v.counts }
+    const total = (c: Record<PoolName, number>): number => c.bushHigh + c.bushNear + c.bushMid + c.bushPoint
+    expect(total(after)).toBeGreaterThan(total(before) * 0.9)
+    expect(total(after)).toBeLessThan(total(before) * 1.1)
+    const drawn = v.debugTiles().filter((t) => t.lod < LOD_NONE).length
+    expect(total(after)).toBe(drawn)
     v.dispose()
   })
 
@@ -346,21 +436,62 @@ describe('植被引擎', () => {
    */
   it('建築不分級，而樹會；出了圈兩者都不畫', () => {
     const v = createVegetation([ONE], FLAT)
-    for (const [dist, house, broad] of [
-      [100, 1, 1], [800, 1, 1], [1500, 1, 0], [7000, 0, 0],
+    // 【四級各換一次】100 m 高模、600 m 中模、1,500 m 樹冠、4,000 m 點、7,000 m 出圈
+    for (const [dist, house, pool] of [
+      [100, 1, 'broadHigh'], [600, 1, 'broadNear'], [1500, 1, 'broadMid'],
+      [4000, 1, 'broadPoint'], [7000, 0, null],
     ] as const) {
       v.update(dist, 0)
       v.settle()
       expect([dist, v.counts.house]).toEqual([dist, house])
-      expect([dist, v.counts.broadNear]).toEqual([dist, broad])
+      const got = (['broadHigh', 'broadNear', 'broadMid', 'broadPoint'] as const)
+        .filter((n) => v.counts[n] > 0)
+      expect([dist, got]).toEqual([dist, pool === null ? [] : [pool]])
+      expect([dist, v.counts[pool ?? 'broadHigh']]).toEqual([dist, pool === null ? 0 : 1])
     }
-    // 【三級各換一次】1,500 m 是樹冠，4,000 m 是點
-    v.update(1500, 0)
-    v.settle()
-    expect([v.counts.broadMid, v.counts.broadPoint]).toEqual([1, 0])
-    v.update(4000, 0)
-    v.settle()
-    expect([v.counts.broadMid, v.counts.broadPoint]).toEqual([0, 1])
+    v.dispose()
+  })
+
+  /**
+   * 【只有一格跨外圈】灌木與建築的級數不看外圈，但出了外圈整格都不畫。級數沒變、
+   * 只是那一格出圈或回圈時，它們的池也要重寫 —— 否則留在原地或回來了卻不畫。
+   *
+   * 【一公尺一公尺地走、每一步都 settle】一次跨好幾十公尺的話，別的格也在同一步
+   * 跨過外圈、把同一批池標髒，缺陷就被蓋掉了。
+   */
+  it('一格出入外圈時，那一格的灌木與建築跟著消失、出現', () => {
+    const i = 22
+    const j = 0
+    const cx = (i + 0.5) * TILE_SIZE
+    const cz = (j + 0.5) * TILE_SIZE
+    const outer = outerFor(i, j)
+    const one: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
+      if (x0 > cx || x1 <= cx || z0 > cz || z1 <= cz) return
+      pushFlora(out, cx, heightAt(cx, cz), cz, 0, 1, 0.5, FloraKind.Bush)
+      pushFlora(out, cx + 3, heightAt(cx, cz), cz, 0, 1, 0.5, FloraKind.House)
+    }
+    const v = createVegetation([one], FLAT)
+    let lod = -1
+    const seen: string[] = []
+    // 【步點錯開門檻 0.37 m】引擎存的外圈半徑是 Float32，正好踩在門檻上的那一步
+    // 兩邊的捨入不同，判出來的級數會差一級
+    for (let d = outer - LOD_HYSTERESIS - 20.37; d <= outer + LOD_HYSTERESIS + 20; d += 1) {
+      v.update(cx - d, cz)
+      v.settle()
+      lod = lodFor(d, lod, outer)
+      const want = lod < LOD_NONE ? 1 : 0
+      const got = [v.counts.bushPoint, v.counts.house]
+      if (got[0] !== want || got[1] !== want) seen.push(`${d}: ${got.join(',')} ≠ ${want}`)
+    }
+    for (let d = outer + LOD_HYSTERESIS + 20.37; d >= outer - LOD_HYSTERESIS - 20; d -= 1) {
+      v.update(cx - d, cz)
+      v.settle()
+      lod = lodFor(d, lod, outer)
+      const want = lod < LOD_NONE ? 1 : 0
+      const got = [v.counts.bushPoint, v.counts.house]
+      if (got[0] !== want || got[1] !== want) seen.push(`${d}: ${got.join(',')} ≠ ${want}`)
+    }
+    expect(seen).toEqual([])
     v.dispose()
   })
 
@@ -402,7 +533,7 @@ describe('植被引擎', () => {
     let first = -1
     for (let k = 0; k < 40; k++) {
       v.update(0, 0)
-      if (first < 0 && v.counts.bushNear > 0) first = k + 1
+      if (first < 0 && v.counts.bushHigh > 0) first = k + 1
     }
     console.log(JSON.stringify({ 第幾幀開始有東西: first, 那時的格數: v.stats.tiles }))
     expect(first).toBeGreaterThan(0)
@@ -432,12 +563,12 @@ describe('植被引擎', () => {
   it('只靠 update（不 settle）也會把級數的變化畫出來', () => {
     const v = createVegetation([ONE], FLAT)
     v.settle()
-    expect([v.counts.broadNear, v.counts.broadMid]).toEqual([1, 0])
+    expect([v.counts.broadHigh, v.counts.broadNear, v.counts.broadMid]).toEqual([1, 0, 0])
     // 【級數看的是格心不是那棵樹】樹在 (5, 5)，它那一格的格心在 (125, 125)。
     // 鏡頭放 1,200 時格心距離 1,082 m，過了 LOD_NEAR + 遲滯。
     // 每幀四格，補完新的一圈再重建要一百幀有餘
     for (let k = 0; k < 400; k++) v.update(1200, 0)
-    expect([v.counts.broadNear, v.counts.broadMid]).toEqual([0, 1])
+    expect([v.counts.broadHigh, v.counts.broadNear, v.counts.broadMid]).toEqual([0, 0, 1])
     v.dispose()
   })
 
@@ -650,7 +781,7 @@ describe('植被引擎', () => {
       const cx = t.i * TILE_SIZE + TILE_SIZE / 2
       const cz = t.j * TILE_SIZE + TILE_SIZE / 2
       const d = Math.hypot(cx, cz)
-      if (t.lod < 3) drawnMax = Math.max(drawnMax, d)
+      if (t.lod < LOD_NONE) drawnMax = Math.max(drawnMax, d)
       else blankMin = Math.min(blankMin, d)
     }
     console.log(JSON.stringify({
