@@ -14,6 +14,7 @@ import { HEDGE_BUSH_SPACING } from '../../src/render/flora'
 import { bakeFloraScene, FLORA_MODEL_URLS, preloadFloraModels } from '../../src/render/floraModels'
 import { createGltfLoader } from '../../src/render/geometry/gltfLoader'
 import { FLORA_COLORS, SEASONS } from '../../src/render/season'
+import { createVegetation } from '../../src/render/vegetation'
 
 async function readPublic(url: string): Promise<ArrayBuffer> {
   const buf = readFileSync(`public${url}`)
@@ -68,8 +69,10 @@ function hullArea(pts: readonly [number, number][]): number {
   return Math.abs(a) / 2
 }
 
+/** 三角形數。模型那幾池有索引，程序幾何沒有 */
 function tris(g: BufferGeometry): number {
-  return g.getAttribute('position').count / 3
+  const idx = g.getIndex()
+  return (idx !== null ? idx.count : g.getAttribute('position').count) / 3
 }
 
 function bounds(g: BufferGeometry): Box3 {
@@ -558,12 +561,31 @@ describe('近距離模型（GLB 已載入）', () => {
     expect(Array.from(shared.getAttribute('position').array)).toEqual([0, 0, 0, 1, 0, 0, 0, 1, 0])
   })
 
-  it('非索引、有法線與包圍球', () => {
+  /**
+   * 【共用頂點】頂點運算是這幾池的主要成本。一個頂點平均被三個以上的三角形共用
+   * 才算真的併到了 —— 葉團的球面約五到六個，枝幹的管子約三個。
+   */
+  it('有索引、頂點真的共用，有法線與包圍球', () => {
     for (const n of MODEL_POOLS) {
-      expect(m[n].getIndex()).toBeNull()
+      expect(m[n].getIndex()).not.toBeNull()
+      const verts = m[n].getAttribute('position').count
+      expect([n, tris(m[n]) * 3 / verts > 3]).toEqual([n, true])
       expect(m[n].getAttribute('normal')).toBeDefined()
       expect(m[n].boundingSphere).not.toBeNull()
     }
+  })
+
+  /** 【材質一定要是 flatShading】共用頂點之後面還是硬的，靠的是它 */
+  it('植被的網格材質開了 flatShading', () => {
+    const v = createVegetation([], () => 0)
+    const mats = new Set<unknown>()
+    v.object.traverse((o) => {
+      const mesh = o as Mesh
+      if (mesh.isMesh) mats.add(mesh.material)
+    })
+    expect(mats.size).toBeGreaterThan(0)
+    for (const mat of mats) expect((mat as { flatShading: boolean }).flatShading).toBe(true)
+    v.dispose()
   })
 
   /**
@@ -597,11 +619,20 @@ describe('近距離模型（GLB 已載入）', () => {
           for (let i = 0; i < nor.count; i++) byPart[part].push(new Vector3().fromBufferAttribute(nor, i).applyMatrix3(nm))
         })
         const want = [...byPart.trunk, ...byPart.crown]
-        const got = m[pool[sp]![lv]].getAttribute('normal')
-        expect([url, got.count]).toEqual([url, want.length])
+        const g = m[pool[sp]![lv]]
+        const pos = g.getAttribute('position')
+        const idx = g.getIndex()!
+        expect([url, idx.count]).toEqual([url, want.length])
+        const a = new Vector3()
+        const b = new Vector3()
+        const c = new Vector3()
         const flipped: number[] = []
-        for (let f = 0; f < got.count / 3; f++) {
-          nf.fromBufferAttribute(got, f * 3)
+        for (let f = 0; f < idx.count / 3; f++) {
+          a.fromBufferAttribute(pos, idx.getX(f * 3))
+          b.fromBufferAttribute(pos, idx.getX(f * 3 + 1))
+          c.fromBufferAttribute(pos, idx.getX(f * 3 + 2))
+          // three 的面法線 (C − B) × (A − B)；flatShading 在螢幕空間算的是同一個方向
+          nf.crossVectors(c.sub(b), a.sub(b))
           nv.copy(want[f * 3]!)
           if (nf.dot(nv) <= 0) flipped.push(f)
         }

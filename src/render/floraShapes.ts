@@ -4,10 +4,12 @@ import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R, TREE_HEIGHT } from '../specs/flora
 import { floraModel, floraModelGeometry, type FloraLevel, type FloraSpecies } from './floraModels'
 
 /**
- * 植被與建築的幾何。**每一個都是一堆三角形，不共用頂點。**
+ * 植被與建築的幾何。**程序幾何是一堆三角形，不共用頂點**；近距離兩級的模型
+ * （`floraModels.ts`）共用頂點，見 `floraModelGeometry`。
  *
- * 【為什麼不共用頂點】材質是 `flatShading`，而不共用頂點時
- * `computeVertexNormals` 直接給出面法線 —— low-poly 的面因此是硬的。
+ * 【程序幾何為什麼不共用頂點】`computeVertexNormals` 因此直接給出面法線。材質開了
+ * `flatShading`，光照用的面法線由片段著色器自己算，所以兩種寫法畫出來一樣；
+ * 程序幾何一株只有 6～34 面，共用與否沒有成本差別。
  *
  * 【為什麼底面在 y = 0】實例的 `y` 直接放地面高度。底面不在 0 的話整批浮空
  * 或陷地，而那在空中一眼看得出來。`flora-shapes.test.ts` 逐項守著。
