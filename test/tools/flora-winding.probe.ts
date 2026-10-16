@@ -28,7 +28,8 @@ for (const name of Object.keys(geo) as MeshPool[]) {
   const g = geo[name]
   g.computeBoundingBox()
   const centre = g.boundingBox!.getCenter(new Vector3())
-  const pos = g.getAttribute('position')
+  // 池幾何有索引，展開成逐三角形三個頂點再算
+  const pos = g.toNonIndexed().getAttribute('position')
   let out = 0
   let inward = 0
   let flat = 0
@@ -63,7 +64,7 @@ const cr = new Vector3()
 console.log('  有號體積（朝外為正）\n')
 console.log('   幾何          體積 m³')
 for (const name of Object.keys(g2) as MeshPool[]) {
-  const pos = g2[name].getAttribute('position')
+  const pos = g2[name].toNonIndexed().getAttribute('position')
   let vol = 0
   for (let f = 0; f < pos.count / 3; f++) {
     va.fromBufferAttribute(pos, f * 3)

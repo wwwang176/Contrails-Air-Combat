@@ -41,6 +41,9 @@ describe('夏季色盤的凍結基準', () => {
    * 【凍結的是原本那十個池】GLB 在這支測試裡沒有載入，近距離兩級是程序幾何的
    * 退路，所以這十個池的頂點色逐位元等於凍結時的那一份。新加的池（高模、灌木的
    * 八面體級）用同一份樹冠色，由下一條對照。
+   *
+   * 【比的是逐三角形展開的頂點色】池幾何共用頂點、有索引；展開回每個三角形三個
+   * 頂點，才是凍結時的那種排列
    */
   it('樹與房子的頂點色相同', () => {
     const g = createFloraGeometries()
@@ -50,7 +53,9 @@ describe('夏季色盤的凍結基準', () => {
       'church', 'coneMid', 'coneNear', 'house', 'houseSlate',
     ] as const
     for (const k of frozen) {
-      const col = g[k].getAttribute('color').array as Float32Array
+      const flat = g[k].toNonIndexed()
+      const col = flat.getAttribute('color').array as Float32Array
+      flat.dispose()
       rows.push(k + ':' + Array.from(col, (v) => String(v)).join(','))
     }
     disposeFloraGeometries(g)

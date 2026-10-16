@@ -5,9 +5,9 @@ import {
   type Mesh, type Object3D,
 } from 'three'
 import {
-  BUILDING_DEPTH, BUILDING_ROOF, BUILDING_WALL, BUILDING_WIDTH,
+  BUILDING_DEPTH, BUILDING_ROOF, BUILDING_WALL, BUILDING_WIDTH, buildingGeometry,
   createFloraGeometries, disposeFloraGeometries, pointColorOf, POINT_POOLS, POINT_SIZE,
-  POINT_Y, type MeshPool, type PointPool,
+  POINT_Y, ROOF, WALL, type MeshPool, type PointPool,
 } from '../../src/render/floraShapes'
 import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R, TREE_HEIGHT } from '../../src/specs/flora'
 import { HEDGE_BUSH_SPACING } from '../../src/render/flora'
@@ -69,7 +69,7 @@ function hullArea(pts: readonly [number, number][]): number {
   return Math.abs(a) / 2
 }
 
-/** 三角形數。模型那幾池有索引，程序幾何沒有 */
+/** 三角形數。池幾何有索引，`buildingGeometry` 沒有 */
 function tris(g: BufferGeometry): number {
   const idx = g.getIndex()
   return (idx !== null ? idx.count : g.getAttribute('position').count) / 3
@@ -295,8 +295,8 @@ describe('植被與建築的幾何', () => {
       for (let i = 0; i < ca.count; i++) {
         if (ca.getX(i) !== cb.getX(i) || ca.getY(i) !== cb.getY(i) || ca.getZ(i) !== cb.getZ(i)) differ++
       }
-      // 人字屋頂是 6 個三角形 = 18 個頂點；牆的頂點一個都不能不同
-      expect([a, differ]).toEqual([a, 18])
+      // 人字屋頂共用之後是 6 個頂點（屋簷四角、屋脊兩端）；牆的頂點一個都不能不同
+      expect([a, differ]).toEqual([a, 6])
     }
   })
 
@@ -374,12 +374,13 @@ describe('植被與建築的幾何', () => {
     const p = new Vector3()
     for (const name of names) {
       const pos = geo[name].getAttribute('position')
+      const idx = geo[name].getIndex()!
       p.set(0, STAR_Y[name]!, 0)
       const inward: number[] = []
-      for (let f = 0; f < pos.count / 3; f++) {
-        a.fromBufferAttribute(pos, f * 3)
-        b.fromBufferAttribute(pos, f * 3 + 1)
-        c.fromBufferAttribute(pos, f * 3 + 2)
+      for (let f = 0; f < idx.count / 3; f++) {
+        a.fromBufferAttribute(pos, idx.getX(f * 3))
+        b.fromBufferAttribute(pos, idx.getX(f * 3 + 1))
+        c.fromBufferAttribute(pos, idx.getX(f * 3 + 2))
         // three 的 computeVertexNormals 用 (C − B) × (A − B)
         n.crossVectors(cb.subVectors(c, b), ab.subVectors(a, b))
         mid.addVectors(a, b).add(c).multiplyScalar(1 / 3).sub(p)
@@ -389,11 +390,31 @@ describe('植被與建築的幾何', () => {
     }
   })
 
-  it('沒有共用頂點 —— 面法線才是硬的', () => {
-    for (const n of names) {
-      expect(geo[n].getIndex()).toBeNull()
-      expect(geo[n].getAttribute('position').count % 3).toBe(0)
+  /**
+   * 【共用頂點，逐池精確比對】一個池同時畫幾千到幾萬份，頂點數是逐實例的頂點運算。
+   * 八面體 6、六邊錐 7（底 6 ＋ 尖 1）、房子 14（牆 8 ＋ 屋頂 6）、教堂 27
+   * （本堂 8 ＋ 屋頂 6 ＋ 塔 8 ＋ 四邊尖頂 5）；近距離的退路是 6 或 7 邊樹幹的上下
+   * 兩圈 12 加樹冠。不共用的話每個都是三角形數的三倍
+   */
+  it('有索引、頂點共用：逐池的頂點數', () => {
+    const want: Record<MeshPool, number> = {
+      broadHigh: 18, broadNear: 18, broadMid: 6,
+      coneHigh: 20, coneNear: 20, coneMid: 7,
+      bushHigh: 6, bushNear: 6, bushMid: 6,
+      house: 14, barn: 14, church: 27, houseSlate: 14, barnTar: 14,
     }
+    for (const n of names) {
+      expect([n, geo[n].getIndex() !== null]).toEqual([n, true])
+      expect([n, geo[n].getAttribute('position').count]).toEqual([n, want[n]])
+    }
+  })
+
+  /** 【建築的樣板不共用頂點】`buildDepot` 收的零件要非索引 */
+  it('buildingGeometry 沒有索引', () => {
+    const g = buildingGeometry(WALL, ROOF)
+    expect(g.getIndex()).toBeNull()
+    expect(g.getAttribute('position').count).toBe(18 * 3)
+    g.dispose()
   })
 
   it('disposeFloraGeometries 把每一個都釋放掉', () => {
