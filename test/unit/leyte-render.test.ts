@@ -4,7 +4,8 @@ import { buildLeyteBeach } from '../../src/render/leyteBeach'
 import { preloadGroundModels } from '../../src/render/geometry/ground'
 import { Color, type BufferGeometry, type Mesh } from 'three'
 import {
-  createLeyte, FIELD_HALF, LEYTE_JUNCTIONS, LEYTE_MASSIFS, LEYTE_ROAD, LEYTE_ROADS, PLAIN_HEIGHT, ROAD_TREE_CLEAR, SAND_TOP,
+  createLeyte, FIELD_HALF, LEYTE_JUNCTIONS, LEYTE_MASSIFS, LEYTE_ROAD, LEYTE_ROADS, PLAIN_HEIGHT, ROAD_TREE_CLEAR,
+  ROAD_WIDEN_MAX, SAND_TOP,
   distanceToRoad, farUpland, roadTreeClear,
 } from '../../src/world/leyte'
 import {
@@ -204,6 +205,33 @@ describe('公路只有一份座標', () => {
     const mid = LEYTE_ROAD[Math.floor(LEYTE_ROAD.length / 2)]!
     const top = LEYTE_MASSIFS.flatMap((m) => m.lobes).reduce((a, b) => (b.peak > a.peak ? b : a))
     expect(maxAccept(mid.x, mid.z)).toBeLessThan(maxAccept(top.cx, top.cz) * 0.3)
+  })
+
+  /** 路口據點靠它擺在路肩上：畫出來的路比它寬的話，停著的車會壓在路面上 */
+  it('ROAD_WIDEN_MAX 蓋得住畫出來的路寬', () => {
+    let hi = 0
+    for (let x = -12000; x <= 12000; x += 37) {
+      for (let z = -4000; z <= 8000; z += 41) hi = Math.max(hi, roadHalfWidthAt(x, z, 1))
+    }
+    expect(hi).toBeLessThanOrEqual(ROAD_WIDEN_MAX)
+    expect(hi).toBeGreaterThan(ROAD_WIDEN_MAX - 0.05)
+  })
+
+  it('路口據點的車與木箱堆都不壓畫出來的路面', () => {
+    for (const j of LEYTE_JUNCTIONS) {
+      for (const v of [...j.trucks, ...j.flak]) {
+        const fx = -Math.sin(v.heading)
+        const fz = -Math.cos(v.heading)
+        for (const u of [-1, 1]) {
+          for (const w of [-1, 1]) {
+            const x = v.x + fx * 3.5 * u + fz * 1.1 * w
+            const z = v.z + fz * 3.5 * u - fx * 1.1 * w
+            expect(roadCoverageAt(x, z), `${j.id} ${v.unit}`).toBe(0)
+          }
+        }
+      }
+      for (const d of j.dumps) expect(roadCoverageAt(d.x, d.z), `${j.id} 木箱堆`).toBe(0)
+    }
   })
 
   it('路口據點的車與木箱堆上，植被接受率為 0', () => {

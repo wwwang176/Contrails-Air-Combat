@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   BEACHHEAD, EVACUATE_Z, FRONT_LINE, LEYTE_FLAK_SITES, LEYTE_LSTS, LEYTE_MASSIFS, LEYTE_PEAK_MAX, LEYTE_ROAD,
   LEYTE_ROADS, LST_RAMP_REACH, PLAIN_HEIGHT, PLAIN_TOP, SAND_TOP, FIELD_HALF,
-  LEYTE_BALLOONS, LEYTE_BEACH, LEYTE_JUNCTIONS, ROAD_WIDTH, isInBeachClearing, isInJunctionClearing,
+  LEYTE_BALLOONS, LEYTE_BEACH, LEYTE_JUNCTIONS, ROAD_WIDEN_MAX, ROAD_WIDTH, isInBeachClearing, isInJunctionClearing,
   baseHeight, carveFactor, coastZ, createLeyte, distanceToRoad, farHeight, isInRoadClearing, isNearRoad,
   roadTreeClear,
 } from '../../src/world/leyte'
@@ -535,14 +535,57 @@ describe('路口的補給據點（日 M2）', () => {
     expect(LEYTE_JUNCTIONS.reduce((n, j) => n + j.trucks.length, 0)).toBe(8)
   })
 
-  /** 車隊開過 B、C：停著的車壓在清空帶上就會被車隊穿過去，樹也會長在路上 */
-  it('車子與木箱堆都不壓任何一條路的清空帶', () => {
+  /** 車的腳印：四角與中心（長 7.2、寬 2.4，比卡車與 M16 的命中盒大一點） */
+  const car = (v: { x: number; z: number; heading: number }): { x: number; z: number }[] => {
+    const fx = -Math.sin(v.heading)
+    const fz = -Math.cos(v.heading)
+    const out = [{ x: v.x, z: v.z }]
+    for (const u of [-1, 1]) for (const w of [-1, 1]) out.push({ x: v.x + fx * 3.6 * u + fz * 1.2 * w, z: v.z + fz * 3.6 * u - fx * 1.2 * w })
+    return out
+  }
+  /** 這一點離每一條路的路面最寬處還有多遠，m；負的就是壓在路面上 */
+  const gapToRoads = (p: { x: number; z: number }): number => {
+    let gap = Infinity
+    for (const road of LEYTE_ROADS) {
+      const pts = road.points
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1]!
+        const b = pts[i]!
+        const abx = b.x - a.x
+        const abz = b.z - a.z
+        const t = Math.max(0, Math.min(1, ((p.x - a.x) * abx + (p.z - a.z) * abz) / (abx * abx + abz * abz)))
+        gap = Math.min(gap, Math.hypot(p.x - (a.x + abx * t), p.z - (a.z + abz * t)) - road.halfWidth * ROAD_WIDEN_MAX)
+      }
+    }
+    return gap
+  }
+  /** 這一點在木箱堆的長方形裡嗎 */
+  const inDump = (d: (typeof LEYTE_JUNCTIONS)[number]['dumps'][number], p: { x: number; z: number }): boolean => {
+    const dx = p.x - d.x
+    const dz = p.z - d.z
+    const c = Math.cos(d.heading)
+    const s = Math.sin(d.heading)
+    return Math.abs(dx * c - dz * s) < d.width / 2 && Math.abs(dx * s + dz * c) < d.depth / 2
+  }
+
+  /** 車隊開過 B、C：停著的車壓在路面上就會被車隊穿過去 */
+  it('車子與木箱堆都不壓任何一條路的路面（路寬取起伏的上限）', () => {
     for (const j of LEYTE_JUNCTIONS) {
       for (const v of [...j.trucks, ...j.flak]) {
-        for (const p of ring(v.x, v.z, 4.5)) expect(isInRoadClearing(p.x, p.z), `${j.id} ${v.unit}`).toBe(false)
+        for (const p of car(v)) expect(gapToRoads(p), `${j.id} ${v.unit}`).toBeGreaterThan(0)
       }
       for (const d of j.dumps) {
-        for (const p of rect(d)) expect(isInRoadClearing(p.x, p.z), `${j.id} 木箱堆`).toBe(false)
+        for (const p of rect(d)) expect(gapToRoads(p), `${j.id} 木箱堆`).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('卡車停在路肩上：車子中心離路面最寬處不到 4 m，木箱堆緊貼在卡車後面', () => {
+    for (const j of LEYTE_JUNCTIONS) {
+      for (const v of j.trucks) expect(gapToRoads(v), j.id).toBeLessThan(4)
+      for (const d of j.dumps) {
+        const near = Math.min(...j.trucks.map((v) => Math.hypot(v.x - d.x, v.z - d.z)))
+        expect(near, `${j.id} 木箱堆`).toBeLessThan(15)
       }
     }
   })
@@ -550,14 +593,15 @@ describe('路口的補給據點（日 M2）', () => {
   it('離路口不遠、彼此不重疊：車距至少 7 m，木箱堆不壓車', () => {
     for (const j of LEYTE_JUNCTIONS) {
       const cars = [...j.trucks, ...j.flak]
-      for (const v of cars) expect(Math.hypot(v.x - j.x, v.z - j.z), j.id).toBeLessThan(120)
-      for (const d of j.dumps) expect(Math.hypot(d.x - j.x, d.z - j.z), j.id).toBeLessThan(150)
+      for (const v of cars) expect(Math.hypot(v.x - j.x, v.z - j.z), j.id).toBeLessThan(80)
+      for (const d of j.dumps) expect(Math.hypot(d.x - j.x, d.z - j.z), j.id).toBeLessThan(90)
       for (let i = 0; i < cars.length; i++) {
         for (const o of cars.slice(i + 1)) expect(Math.hypot(o.x - cars[i]!.x, o.z - cars[i]!.z), j.id).toBeGreaterThan(7)
       }
       for (const d of j.dumps) {
-        const r = Math.hypot(d.width, d.depth) / 2
-        for (const v of cars) expect(Math.hypot(v.x - d.x, v.z - d.z), `${j.id} 木箱堆`).toBeGreaterThan(r + 4.5)
+        for (const v of cars) {
+          for (const p of car(v)) expect(inDump(d, p), `${j.id} 木箱堆壓到 ${v.unit}`).toBe(false)
+        }
       }
     }
   })

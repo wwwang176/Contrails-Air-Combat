@@ -11,7 +11,7 @@ export {
   coastZ, baseHeight, farUpland, farHeight,
 } from './leyteCoast'
 export {
-  LEYTE_ROAD, ROAD_WIDTH, ROAD_TREE_CLEAR, isNearRoad, BEACHHEAD, FRONT_LINE,
+  LEYTE_ROAD, ROAD_WIDTH, ROAD_WIDEN_MAX, ROAD_TREE_CLEAR, isNearRoad, BEACHHEAD, FRONT_LINE,
   distanceToRoad, LEYTE_ROADS, roadTreeClear, isInRoadClearing, type LeyteRoad,
 } from './leyteRoads'
 export { EVACUATE_Z, LEYTE_FLAK_SITES } from './leyteSites'
