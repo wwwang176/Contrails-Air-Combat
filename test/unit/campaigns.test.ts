@@ -574,7 +574,7 @@ describe('日 M2 雷伊泰前線', () => {
     for (const w of b.waves!) expect(w.spec.id).toBe('f6f5')
   })
 
-  it('三個路口據點：每一處有停著的卡車與 M16', () => {
+  it('三處路邊據點：每一處有停著的卡車與 M16', () => {
     const ground = b.ground ?? []
     for (const j of LEYTE_JUNCTIONS) {
       expect(j.trucks.length, j.id).toBeGreaterThan(0)
@@ -584,7 +584,7 @@ describe('日 M2 雷伊泰前線', () => {
           && g.heading === v.heading && g.motion === undefined), `${j.id} ${v.unit}`).toBe(true)
       }
     }
-    expect(LEYTE_JUNCTIONS.map((j) => j.id)).toEqual(['B', 'C', 'F'])
+    expect(LEYTE_JUNCTIONS.map((j) => j.id)).toEqual(['AB', 'B', 'C'])
   })
 
   it('開場就有 F6F 在天上', () => {

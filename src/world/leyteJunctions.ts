@@ -3,29 +3,29 @@ import type { CrateField, ParkedVehicle } from './depot'
 import { LEYTE_ROADS, ROAD_WIDEN_MAX, type LeyteRoad } from './leyteRoads'
 
 /**
- * # 路口的補給據點（日 M2）
+ * # 路邊的補給據點（日 M2）
  *
- * 三個路口各一處：路邊停著等通行的卡車（任務目標，與車隊、灘頭的卡車一起算
- * 摧毀數）、守路口的 M16 防空車、卡車後面的木箱堆（純佈景，`render/depot.ts`）。
+ * 車隊那一條路上三處：路邊停著等通行的卡車（任務目標，與車隊、灘頭的卡車一起算
+ * 摧毀數）、守著的 M16 防空車、卡車後面的木箱堆（純佈景，`render/depot.ts`）。
  *
  * ```
- *   B  主路 × 東路    車隊路線中段
- *   C  主路 × 西路    離前線約 1 km
- *   F  西路 × 土路    主路以西，要離開車隊路線才打得到
+ *   AB  灘頭出口（主路 × 海岸公路）與 B 之間的主路中段
+ *   B   主路 × 東路
+ *   C   主路 × 西路，離前線約 1 km
  * ```
  *
- * 【擺法】路口往外的每一條路臂量一個方位，路臂之間最寬的那個扇區是停車場：
- * 卡車沿著扇區一側的路臂在路肩上排成一列、車頭朝路口，車側貼著路面最寬處的
- * 外緣；木箱堆緊貼在卡車後面。其次的兩個扇區各放一輛 M16。每一樣的腳印都不壓
- * 任何一條路的路面（取路寬起伏的上限 `ROAD_WIDEN_MAX`）—— 車隊開過 B、C 時
- * 不會穿過停著的車。
+ * 【擺法】據點往外的每一條路臂量一個方位，路臂之間最寬的那個扇區是停車場：
+ * 卡車沿著扇區一側的路臂在路肩上排成一列、車頭朝據點，車側貼著路面最寬處的
+ * 外緣；木箱堆緊貼在卡車後面。M16 先放其餘扇區的中分線上，再放卡車列對面的
+ * 路肩、卡車列的尾端。每一樣的腳印都不壓任何一條路的路面（取路寬起伏的上限
+ * `ROAD_WIDEN_MAX`）—— 車隊開過時不會穿過停著的車。
  *
- * 【不進 `LEYTE_FLAK_SITES`】那張表會讓山脈讓位（`world/leyte.ts` 的
- * `fitLobe`），加進去整片高度場就變了。
+ * 【M16 不進 `LEYTE_FLAK_SITES`】那張表是灘頭與前線的固定砲位；據點的 M16 跟著
+ * 這裡的擺法走，換位置時一起換。
  */
 export interface LeyteJunction {
-  readonly id: 'B' | 'C' | 'F'
-  /** 路口的世界座標：兩條路共用的折線點 */
+  readonly id: 'AB' | 'B' | 'C'
+  /** 據點中心：路上的一個折線點（路口就是兩條路共用的那一點） */
   readonly x: number
   readonly z: number
   readonly trucks: readonly ParkedVehicle[]
@@ -33,21 +33,43 @@ export interface LeyteJunction {
   readonly dumps: readonly CrateField[]
 }
 
+/** 主路（車隊那一條）上第 `i` 個折線點 */
+const mainAt = (i: number): Pt => LEYTE_ROADS[0]!.points[i]!
+
+/** 主路上離 `road` 那條路最近的折線點是第幾個 */
+function mainIndexNear(road: LeyteRoad): number {
+  const pts = LEYTE_ROADS[0]!.points
+  let best = 0
+  let bd = Infinity
+  pts.forEach((p, i) => {
+    for (const q of road.points) {
+      const d = Math.hypot(p.x - q.x, p.z - q.z)
+      if (d < bd) { bd = d; best = i }
+    }
+  })
+  return best
+}
+
 /**
- * 三個路口：`road` 與 `at` 指出路口是哪一條路的哪一端（`LEYTE_ROADS` 的編號，
- * 見 `leyteRoads.ts` 的 `SIDE_ROADS`）。**卡車數是起始值**：三處合計 8 輛，
- * 加上車隊 9、灘頭 9 共 26 輛 —— 門檻 20 加放行 7 要大於總數
- * （`campaigns.test.ts`）。
+ * 三處據點的位置（`LEYTE_ROADS` 的編號見 `leyteRoads.ts` 的 `SIDE_ROADS`：1 海岸
+ * 公路、3 東路、4 西路）。**卡車數是起始值**：三處合計 8 輛，加上車隊 9、灘頭 9
+ * 共 26 輛 —— 門檻 20 加放行 7 要大於總數（`campaigns.test.ts`）。
  */
-const SITES: readonly { readonly id: LeyteJunction['id']; readonly road: number; readonly at: 'first' | 'last'; readonly trucks: number }[] = [
-  { id: 'B', road: 3, at: 'first', trucks: 3 },
-  { id: 'C', road: 4, at: 'first', trucks: 2 },
-  { id: 'F', road: 9, at: 'last', trucks: 3 },
+const SITES: readonly { readonly id: LeyteJunction['id']; readonly at: () => Pt; readonly trucks: number }[] = [
+  {
+    id: 'AB', trucks: 3,
+    // 主路從灘頭出口到 B 那一段，取中間那個折線點（折線點大約每 100 m 一個）
+    at: () => mainAt(Math.round((mainIndexNear(LEYTE_ROADS[1]!) + mainIndexNear(LEYTE_ROADS[3]!)) / 2)),
+  },
+  { id: 'B', trucks: 3, at: () => LEYTE_ROADS[3]!.points[0]! },
+  { id: 'C', trucks: 2, at: () => LEYTE_ROADS[4]!.points[0]! },
 ]
 /** 每一處的 M16 輛數 */
-const FLAK_PER_SITE = 2
-/** M16 離路口最遠多少，m：扇區窄到這裡還離不開路面就不用它，改停在卡車列的尾端 */
+const FLAK_PER_SITE = 4
+/** 扇區中分線上的 M16 離據點最遠多少，m：扇區窄到這裡還離不開路面就不用它 */
 const FLAK_REACH = 45
+/** M16 與其他車至少隔多遠（中心到中心），m */
+const FLAK_SPACING = 10
 
 /** 路臂的方位在路口外這麼遠量，m */
 const ARM_REACH = 80
@@ -179,8 +201,7 @@ function headingToward(bearing: number): number {
 }
 
 function buildJunction(site: (typeof SITES)[number]): LeyteJunction {
-  const pts = LEYTE_ROADS[site.road]!.points
-  const j = site.at === 'first' ? pts[0]! : pts[pts.length - 1]!
+  const j = site.at()
   const [yard, ...rest] = sectors(armsAt(j.x, j.z))
   const arm = yard!.arm
   // 停車場那一側：路臂的法線裡指向扇區中分線的那一個
@@ -225,30 +246,38 @@ function buildJunction(site: (typeof SITES)[number]): LeyteJunction {
     }
   })
 
-  // M16：其次的扇區各一輛，沿中分線推到不壓路面；推到 `FLAK_REACH` 還壓著的扇區不用，
-  // 那一輛改停在卡車列的尾端
+  // M16：依序試 (1) 其餘扇區的中分線，沿線推到不壓路面，推到 `FLAK_REACH` 還壓著的
+  // 扇區不用；(2) 卡車列對面的路肩，正對頭尾兩輛；(3) 卡車列的尾端往外。跟已經停好的
+  // 車隔不到 `FLAK_SPACING` 的位置跳過
   const flak: ParkedVehicle[] = []
+  const free = (p: Pt): boolean =>
+    [...trucks, ...flak].every((v) => Math.hypot(v.x - p.x, v.z - p.z) >= FLAK_SPACING)
+  const tryPlace = (p: Pt, heading: number): boolean => {
+    if (flak.length === FLAK_PER_SITE || !free(p)) return false
+    if (!offRoad(footprint(p.x, p.z, heading, VEHICLE_HALF_LEN, VEHICLE_HALF_W))) return false
+    flak.push({ unit: 'usFlakTrack', ...p, heading })
+    return true
+  }
   for (const sec of rest) {
-    if (flak.length === FLAK_PER_SITE) break
-    const heading = headingToward(sec.mid)
     for (let d = TRUCK_FIRST / 2; d <= FLAK_REACH; d += PUSH_STEP) {
-      const p = along(j.x, j.z, sec.mid, d, 0)
-      if (!offRoad(footprint(p.x, p.z, heading, VEHICLE_HALF_LEN, VEHICLE_HALF_W))) continue
-      flak.push({ unit: 'usFlakTrack', ...p, heading })
-      break
+      if (tryPlace(along(j.x, j.z, sec.mid, d, 0), headingToward(sec.mid))) break
+    }
+  }
+  for (const s0 of [truckAt[0]!, truckAt[truckAt.length - 1]!]) {
+    for (let s = s0; s < s0 + TRUCK_SPACING; s += PUSH_STEP) {
+      const r = roadside(s, -truckOff)
+      if (tryPlace(r.p, r.heading)) break
     }
   }
   for (let s = truckAt[truckAt.length - 1]! + TRUCK_SPACING; flak.length < FLAK_PER_SITE; s += PUSH_STEP) {
     const r = roadside(s, truckOff)
-    if (!offRoad(footprint(r.p.x, r.p.z, r.heading, VEHICLE_HALF_LEN, VEHICLE_HALF_W))) continue
-    flak.push({ unit: 'usFlakTrack', ...r.p, heading: r.heading })
-    s += TRUCK_SPACING - PUSH_STEP
+    if (tryPlace(r.p, r.heading)) s += TRUCK_SPACING - PUSH_STEP
   }
 
   return { id: site.id, x: j.x, z: j.z, trucks, flak, dumps }
 }
 
-/** 三個路口據點。載入期建一次 */
+/** 三處路邊據點。載入期建一次 */
 export const LEYTE_JUNCTIONS: readonly LeyteJunction[] = /* @__PURE__ */ SITES.map(buildJunction)
 
 /**
@@ -268,7 +297,7 @@ const JUNCTION_BOXES = /* @__PURE__ */ LEYTE_JUNCTIONS.map((j) => {
 })
 
 /**
- * 這一點落在路口據點（木箱堆、停著的車）的清空帶裡嗎。**植被每個候選點都問**
+ * 這一點落在路邊據點（木箱堆、停著的車）的清空帶裡嗎。**植被每個候選點都問**
  * —— 不擋的話樹會長在木箱堆與車子上。
  */
 export function isInJunctionClearing(x: number, z: number): boolean {

@@ -159,7 +159,7 @@ export const JAPAN: readonly MissionCard[] = [
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       entry: 'headOn',
       terrain: 'leyte',
-      // 灘頭、三個路口據點與開場位置（z = +5 km）
+      // 灘頭、三處路邊據點與開場位置（z = +5 km）
       arena: { x: 2000, z: 2000, radius: 11000 },
       // 【開場導覽】先在車隊第一輛卡車的前方路邊貼地拍，卡車由 30 m 外迎面開到 12 m
       // （它前面 30 m 是半履帶車，鏡頭在兩車之間）；再從內陸高處沿灘頭橫移，LST
@@ -214,7 +214,7 @@ export const JAPAN: readonly MissionCard[] = [
         ...LEYTE_BEACH.depot.map((v): GroundEntry => ({
           unit: v.unit, team: 'red', x: v.x, z: v.z, heading: v.heading,
         })),
-        // 【路口據點】停著等通行的卡車算進摧毀數；每一處兩輛 M16 守著。木箱堆是佈景
+        // 【路邊據點】停著等通行的卡車算進摧毀數；每一處四輛 M16 守著。木箱堆是佈景
         ...LEYTE_JUNCTIONS.flatMap((j) => [...j.trucks, ...j.flak]).map((v): GroundEntry => ({
           unit: v.unit, team: 'red', x: v.x, z: v.z, heading: v.heading,
         })),

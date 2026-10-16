@@ -291,6 +291,15 @@ describe('固定防空砲位', () => {
       expect(distanceToRoad(s.x, s.z), `${s.x},${s.z}`).toBeGreaterThanOrEqual(40)
     }
   })
+
+  it('灘頭六座 90 mm、四輛 M16，前線兩輛 M16', () => {
+    const beach = LEYTE_FLAK_SITES.filter((s) => Math.hypot(s.x - BEACHHEAD.x, s.z - BEACHHEAD.z) < 1500)
+    const front = LEYTE_FLAK_SITES.filter((s) => Math.hypot(s.x - FRONT_LINE.x, s.z - FRONT_LINE.z) < 500)
+    expect(beach.length + front.length).toBe(LEYTE_FLAK_SITES.length)
+    expect(beach.filter((s) => s.unit === 'usFlakHeavy')).toHaveLength(6)
+    expect(beach.filter((s) => s.unit === 'usFlakTrack')).toHaveLength(4)
+    expect(front.filter((s) => s.unit === 'usFlakTrack')).toHaveLength(2)
+  })
 })
 
 describe('場外的遠景陸地', () => {
@@ -487,7 +496,7 @@ describe('卸貨區旁的卡車（日 M2 的目標）', () => {
   })
 })
 
-describe('路口的補給據點（日 M2）', () => {
+describe('路邊的補給據點（日 M2）', () => {
   /** 車子的腳印：中心加一圈 8 點，半徑 4.5 m（車長一半再寬一點） */
   const ring = (x: number, z: number, r: number): { x: number; z: number }[] => [
     { x, z },
@@ -508,26 +517,47 @@ describe('路口的補給據點（日 M2）', () => {
     return out
   }
 
-  it('三處：B、C、F，路口是兩條路共用的點', () => {
-    expect(LEYTE_JUNCTIONS.map((j) => j.id)).toEqual(['B', 'C', 'F'])
-    for (const j of LEYTE_JUNCTIONS) {
-      const through = LEYTE_ROADS.filter((r) => r.points.some((p) => Math.hypot(p.x - j.x, p.z - j.z) < 1))
-      expect(through.length, j.id).toBe(2)
-    }
+  it('三處都在車隊那一條路上：AB 在路段中間，B、C 是路口', () => {
+    expect(LEYTE_JUNCTIONS.map((j) => j.id)).toEqual(['AB', 'B', 'C'])
+    const through = (j: (typeof LEYTE_JUNCTIONS)[number]): number =>
+      LEYTE_ROADS.filter((r) => r.points.some((p) => Math.hypot(p.x - j.x, p.z - j.z) < 1)).length
+    for (const j of LEYTE_JUNCTIONS) expect(distanceToRoad(j.x, j.z), j.id).toBeLessThan(1)
+    expect(LEYTE_JUNCTIONS.map(through)).toEqual([1, 2, 2])
   })
 
-  it('B、C 在車隊那一條路上，F 不在', () => {
-    const on = (id: string): boolean => {
-      const j = LEYTE_JUNCTIONS.find((x) => x.id === id)!
-      return distanceToRoad(j.x, j.z) < 1
+  /** 灘頭出口是主路與海岸公路交會處 */
+  it('AB 在灘頭出口與 B 中間：沿主路離兩頭差不到 150 m', () => {
+    const pts = LEYTE_ROAD
+    const arc = (x: number, z: number): number => {
+      let s = 0
+      let best = Infinity
+      let at = 0
+      for (let i = 0; i < pts.length; i++) {
+        if (i > 0) s += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.z - pts[i - 1]!.z)
+        const d = Math.hypot(pts[i]!.x - x, pts[i]!.z - z)
+        if (d < best) { best = d; at = s }
+      }
+      return at
     }
-    expect([on('B'), on('C'), on('F')]).toEqual([true, true, false])
+    const coastal = LEYTE_ROADS[1]!.points
+    let exit = 0
+    let bd = Infinity
+    for (const p of pts) {
+      for (const q of coastal) {
+        const d = Math.hypot(p.x - q.x, p.z - q.z)
+        if (d < bd) { bd = d; exit = arc(p.x, p.z) }
+      }
+    }
+    const [ab, b] = LEYTE_JUNCTIONS
+    const sAb = arc(ab!.x, ab!.z)
+    const sB = arc(b!.x, b!.z)
+    expect(Math.abs((sAb - exit) - (sB - sAb))).toBeLessThan(150)
   })
 
-  it('每一處都有卡車、M16 與木箱堆，卡車合計 8 輛', () => {
+  it('每一處都有卡車、4 輛 M16 與木箱堆，卡車合計 8 輛', () => {
     for (const j of LEYTE_JUNCTIONS) {
       expect(j.trucks.length, j.id).toBeGreaterThan(0)
-      expect(j.flak.length, j.id).toBe(2)
+      expect(j.flak.length, j.id).toBe(4)
       expect(j.dumps.length, j.id).toBeGreaterThan(0)
       for (const v of j.trucks) expect(v.unit).toBe('usTruck')
       for (const v of j.flak) expect(v.unit).toBe('usFlakTrack')
