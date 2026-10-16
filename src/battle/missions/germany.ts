@@ -114,8 +114,9 @@ export const GERMANY: readonly MissionCard[] = [
       targetDistance: 16850, targetRadius: 1000, seconds: Infinity,
       entry: 'headOn',
       terrain: 'autumnFarmland',
-      // 戰場中心隨航線往南移，讓進場點與終點圈都留在戰場範圍內。
-      arena: { x: 750, z: 5900, radius: 12000 },
+      // 戰場中心隨航線往南移，讓進場點與終點圈都留在戰場範圍內；最遠的增援
+      // P-51 離圓心約 11.9 km，半徑留 1 km 以上，玩家追擊剛進場的護航機不會出界。
+      arena: { x: 750, z: 5900, radius: 13000 },
       // 秋冬陰天的層積雲
       clouds: { yMin: 800, yMax: 1500, amount: 'many' },
       timeOfDay: 'noon',

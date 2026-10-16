@@ -169,10 +169,11 @@ describe('missionConfigFrom', () => {
     // 【看規則不看 type】攻擊隊的卡也可以是「護航」，但那幾架不是被護送者，
     // 偏置不作用在它們身上 —— 寫了大於 1 的值只是一個沒有人讀的數字
     for (const m of playable) {
-      // 【判準是規則不是 type】德 M1 的 type 是攔截，規則卻是 hunt —— 沒有
-      // 被護送者可以加權。用 type 推導的話那一張會被要求有偏置
+      // 【我方攔截的編隊不加權】德 M1 的規則也是 convoy，但那隊轟炸機是敵方的，
+      // 由 `interceptConvoy: 'mine'` 讓我方以它為首要目標；`convoyPriority` 維持 1
       const cfg = missionConfigFrom(m)
-      expect(cfg.tuning.convoyPriority > 1, `${m.id}／${m.type}`).toBe(cfg.rules.kind === 'convoy')
+      const escorted = cfg.rules.kind === 'convoy' && cfg.tuning.interceptConvoy !== 'blue'
+      expect(cfg.tuning.convoyPriority > 1, `${m.id}／${m.type}`).toBe(escorted)
     }
   })
 

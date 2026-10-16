@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Color } from 'three'
+import { BatchedMesh, Color } from 'three'
 import {
   GERMAN_AT_GUNS, GERMAN_DUG_PANZERS, SOVIET_INFANTRY, SOVIET_MORTARS, MINEFIELDS, OBSTACLES, SOVIET_ROUTE_A, SOVIET_ROUTE_B, SOVIET_FLAK,
   GERMAN_INFANTRY, GERMAN_MORTARS, GERMAN_TRUCKS, STALLED_SOVIET_TANKS, GERMAN_RESERVE_EAST, GERMAN_RESERVE_WEST, toLocal, TRENCHES,
@@ -372,8 +372,10 @@ describe('勒熱夫的地形掛上障礙物', () => {
   it('地形多了一組佈景（第五個孩子），切成好幾塊，釋放不拋錯', () => {
     const t = createTerrain('rzhev')
     expect(t.object.children.length).toBeGreaterThanOrEqual(5)
-    const scenery = t.object.children[4]!
-    expect(scenery.children.length).toBeGreaterThanOrEqual(2)
+    // 佈景是一個 BatchedMesh，每一塊是其中一個實例
+    const batch = t.object.children[4]!.children[0]
+    expect(batch).toBeInstanceOf(BatchedMesh)
+    expect((batch as BatchedMesh).instanceCount).toBeGreaterThanOrEqual(2)
     t.dispose()
   })
 })
