@@ -563,16 +563,12 @@ describe('日 M2 雷伊泰前線', () => {
     expect(b.interdict?.count).toBe(20)
   })
 
-  /** 門檻改成 20 之後，敵機仍照炸到第 12 輛的那一刻進場，位置也不變 */
-  it('F6F 六波的觸發、預警、位置與高度', () => {
-    const at12 = { kind: 'destroyed', atLeast: 12, unit: 'usTruck' }
+  it('F6F 四波的觸發、預警、位置與高度', () => {
     expect(b.waves).toMatchObject([
       { when: { kind: 'destroyed', atLeast: 1, unit: 'usTruck', byLatest: 90 }, warnLead: 6, count: 2, starboard: Math.PI, altitude: 2500 },
       { when: { kind: 'clock', at: 150 }, warnLead: 6, count: 2, altitude: 2000 },
       { when: { kind: 'clock', at: 240 }, warnLead: 6, count: 2, starboard: Math.PI, altitude: 2500 },
-      { when: at12, warnLead: 0, count: 2, starboard: Math.PI + 0.4, along: 0.04, altitude: 3000 },
-      { when: at12, warnLead: 10, count: 2, starboard: Math.PI, along: 0.11, altitude: 3000 },
-      { when: at12, warnLead: 20, count: 2, starboard: Math.PI - 0.4, along: 0.18, altitude: 3000 },
+      { when: { kind: 'destroyed', atLeast: 12, unit: 'usTruck' }, warnLead: 0, count: 2, starboard: Math.PI + 0.4, along: 0.04, altitude: 3000 },
     ])
     for (const w of b.waves!) expect(w.spec.id).toBe('f6f5')
   })
