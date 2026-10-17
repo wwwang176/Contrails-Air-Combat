@@ -245,14 +245,11 @@ export const JAPAN: readonly MissionCard[] = [
        *   第二、三波  150 秒、240 秒，照時鐘來、不看炸了幾輛 —— 炸得快也不會讓
        *           敵機一口氣湧上來。一波從灘頭外的海上、一波從內陸
        *
-       * 【炸到第 12 輛時再來三組】從 +Z 那一側（Ki-84 來的方向）、比任務高度高
-       * 1,500 m 進場，由 `warnLead` 錯開、左右錯開：
-       *   0 秒   左前方（`starboard` π + 0.4），z ≈ +400
-       *   10 秒  正前方，z ≈ +1,100
-       *   20 秒  右前方（`starboard` π − 0.4），z ≈ +1,800
-       * 低空的 F6F 比疾風慢，從背後追不上，要靠高度從上方切進來。
+       * 【炸到第 12 輛時再來一組】從 +Z 那一側（Ki-84 來的方向）的左前方
+       * （`starboard` π + 0.4）、z ≈ +400、比任務高度高 1,500 m 進場。低空的 F6F
+       * 比疾風慢，從背後追不上，要靠高度從上方切進來。
        *
-       * 紅隊席位：巡邏 2 + 2 × 6 = 14。**架數、時間、高度、位置都是起始值。**
+       * 紅隊席位：巡邏 2 + 2 × 4 = 10。**架數、時間、高度、位置都是起始值。**
        */
       waves: [
         {
@@ -278,18 +275,6 @@ export const JAPAN: readonly MissionCard[] = [
           warnKey: 'mission.japan-m2.wave.carrier',
           warnLead: 0,
           side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI + 0.4, along: 0.04, altitude: 3000,
-        },
-        {
-          when: { kind: 'destroyed', atLeast: 12, unit: 'usTruck' },
-          warnKey: 'mission.japan-m2.wave.carrier',
-          warnLead: 10,
-          side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI, along: 0.11, altitude: 3000,
-        },
-        {
-          when: { kind: 'destroyed', atLeast: 12, unit: 'usTruck' },
-          warnKey: 'mission.japan-m2.wave.carrier',
-          warnLead: 20,
-          side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI - 0.4, along: 0.18, altitude: 3000,
         },
       ],
       withdraw: {
