@@ -217,7 +217,7 @@ describe('shipAttackCommand', () => {
  * 攻擊機永遠先咬到最外圈的驅逐艦 —— 而那不是任何一支雷擊隊會做的事：
  * 倫內爾島打的是重巡、沖繩打的是航母。
  */
-describe('pickShipTarget：價值優先，同價值才比距離', () => {
+describe('pickShipTarget：任務優先，未指定時按距離選船', () => {
   function shipOf(
     index: number, cls: 'essex' | 'wichita' | 'fletcher', x: number, z: number,
   ): Ship {
@@ -228,38 +228,37 @@ describe('pickShipTarget：價值優先，同價值才比距離', () => {
     return s
   }
 
-  const pick = (pos: Vector3, ships: Ship[]) => {
+  const pick = (pos: Vector3, ships: Ship[], priority: 'essex' | 'wichita' | null = null) => {
     const aim = createShipAim()
-    const ok = pickShipTarget(pos, 'blue', ships, aim)
+    const ok = pickShipTarget(pos, 'blue', ships, aim, null, priority)
     return { ok, ...aim }
   }
 
-  /** 【近的驅逐艦讓給遠的航母】這一條就是負責人要的行為 */
-  it('航母比較遠也仍然優先於驅逐艦', () => {
+  it('任務指定航母時，即使比較遠也優先於驅逐艦', () => {
     const ships = [
       shipOf(0, 'fletcher', 0, -1000),   // 近
       shipOf(1, 'essex', 0, 0),          // 遠
     ]
-    expect(pick(new Vector3(0, 150, -2500), ships).ship).toBe(1)
+    expect(pick(new Vector3(0, 150, -2500), ships, 'essex').ship).toBe(1)
   })
 
-  it('巡洋艦優先於驅逐艦', () => {
+  it('未指定時選較近的驅逐艦，不因巡洋艦血量較高改選', () => {
     const ships = [
       shipOf(0, 'fletcher', 0, -1000),
       shipOf(1, 'wichita', 0, 0),
     ]
-    expect(pick(new Vector3(0, 150, -2500), ships).ship).toBe(1)
+    expect(pick(new Vector3(0, 150, -2500), ships).ship).toBe(0)
   })
 
-  it('航母優先於巡洋艦', () => {
+  it('未指定時選較近的巡洋艦，不因航母血量較高改選', () => {
     const ships = [
       shipOf(0, 'wichita', 0, -1000),
       shipOf(1, 'essex', 0, 0),
     ]
-    expect(pick(new Vector3(0, 150, -2500), ships).ship).toBe(1)
+    expect(pick(new Vector3(0, 150, -2500), ships).ship).toBe(0)
   })
 
-  /** 【同價值才比距離】兩艘同級時仍然取近的 */
+  /** 尚未鎖定時，同順位取近的。 */
   it('兩艘同級時取近的', () => {
     const ships = [
       shipOf(0, 'fletcher', 0, 0),
@@ -275,20 +274,34 @@ describe('pickShipTarget：價值優先，同價值才比距離', () => {
       shipOf(0, 'fletcher', 0, 0),
       shipOf(1, 'essex', 0, far),
     ]
-    expect(pick(new Vector3(0, 150, 0), ships).ship).toBe(0)
+    expect(pick(new Vector3(0, 150, 0), ships, 'essex').ship).toBe(0)
   })
 
-  /** 【沉了的不算】航母沉了就換次高價值的 */
+  /** 沉了的不算，改打最近的有效敵艦。 */
   it('航母沉了改打巡洋艦', () => {
     const ships = [
       shipOf(0, 'wichita', 0, -1000),
       shipOf(1, 'essex', 0, 0),
     ]
     ships[1]!.alive = false
-    expect(pick(new Vector3(0, 150, -2500), ships).ship).toBe(0)
+    expect(pick(new Vector3(0, 150, -2500), ships, 'essex').ship).toBe(0)
   })
 
-  /** 【選中之後在那一艘上取最近的砲位】價值決定哪一艘，距離決定哪一門 */
+  it('保留有效鎖定；指定目標出現時切換；沉沒後才重新挑選', () => {
+    const ships = [shipOf(0, 'fletcher', 0, -1000), shipOf(1, 'essex', 0, 0)]
+    const aim = createShipAim()
+    pickShipTarget(new Vector3(0, 150, -2500), 'blue', ships, aim)
+    expect(aim.ship).toBe(0)
+    pickShipTarget(new Vector3(0, 150, 500), 'blue', ships, aim)
+    expect(aim.ship).toBe(0)
+    pickShipTarget(new Vector3(0, 150, 500), 'blue', ships, aim, null, 'essex')
+    expect(aim.ship).toBe(1)
+    ships[1]!.alive = false
+    pickShipTarget(new Vector3(0, 150, 500), 'blue', ships, aim, null, 'essex')
+    expect(aim.ship).toBe(0)
+  })
+
+  /** 選中船艦後，距離決定瞄準哪一門砲。 */
   it('選中的那一艘上取離自己最近的砲位', () => {
     const ships = [shipOf(0, 'essex', 0, 0)]
     const p = new Vector3(0, 150, -2000)

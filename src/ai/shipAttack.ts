@@ -12,7 +12,7 @@ import { DEFAULT_FIRE, type FireAim } from './fire'
 import { losBlocked, type LandField } from '../world/occlusion'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Command } from '../control/Controller'
-import type { Ship } from '../world/ships'
+import type { Ship, ShipClassId } from '../world/ships'
 import type { GroundTarget } from '../world/groundTargets'
 import type { Team } from '../world/team'
 import type { GroundUnitId } from '../specs/ground'
@@ -119,7 +119,7 @@ export type GroundStrafePhase = 'approach' | 'egress'
 export interface GroundStrafeState {
   phase: GroundStrafePhase
   armed: boolean
-  target: GroundTarget | null
+  target: GroundTarget | Ship | null
   readonly egressHeading: Vector3
   /** 本決策拍算出的回頭門檻，m；Infinity = 當下還做不出可持續迴轉。 */
   reattackRange: number
@@ -164,28 +164,15 @@ const P0 = /* @__PURE__ */ new Vector3()
 /**
  * 挑一個對艦目標：敵隊、還浮著、在接戰半徑內。
  *
- * **先比艦艇價值，價值相同才比距離。** 選中之後在**那一艘**上取離自己最近
- * 的砲位；砲位全打光就改瞄船體（魚雷的目標，也是攻擊航路的起點）。
- *
- * 【為什麼價值優先，而不是一律取最近的】一支艦隊的護衛幕本來就擋在主力
- * 前面 —— 只比距離的話，攻擊機永遠先咬到最外圈的驅逐艦，而那不是任何一支
- * 雷擊隊會做的事。倫內爾島打的是重巡、沖繩打的是航母。
- *
- * 【價值就是艦級的血量】Essex 60,000 ／ Wichita 40,000 ／ Fletcher 20,000
- * —— 那本來就是「這艘船有多重要」的量。**不另開一個 `value` 欄位**：多一格
- * 就多一個會與血量不同步的地方。
- *
- * 【用艦級的血量，不是剩餘血量】半沉的航母仍然是第一順位。改用剩餘血量的話
- * 攻擊機會在打到一半時掉頭去找完好的驅逐艦。
- *
- * 【為什麼不像空戰那樣評分】船不會轉向、不會逃，彼此也沒有「誰比較威脅我」
- * 的差別。價值加距離兩層就夠，多一套評分只是多一組要調的旋鈕。
+ * 先看任務指定的艦級，同順位保留有效的既有目標，尚未鎖定才挑最近的。
+ * 選中之後取最近砲位；砲位打光改瞄船體。血量只決定耐打程度，不參與選船。
  *
  * 熱路徑（決策拍，10 Hz）：不配置。
  */
 export function pickShipTarget(
   selfPos: Vector3, selfTeam: Team, ships: readonly Ship[], out: ShipAim,
   selfVel: Vector3 | null = null,
+  priorityClass: ShipClassId | null = null,
 ): boolean {
   const heldShip = out.ship
   const heldPoint = out.point
@@ -193,14 +180,13 @@ export function pickShipTarget(
   out.gun = -1
   out.point = -1
   const rangeSq = SHIP_ATTACK_RANGE * SHIP_ATTACK_RANGE
-  let bestValue = -1
+  let bestPriority = -1
   let bestSq = Infinity
   for (let i = 0; i < ships.length; i++) {
     const s = ships[i]!
     if (!s.alive || s.team === selfTeam) continue
-    const value = s.cls.hp
-    // 已經鎖定一艘更值錢的就不必再算這一艘的砲位
-    if (value < bestValue) continue
+    const priority = s.cls.id === priorityClass ? 1 : 0
+    if (priority < bestPriority) continue
     // 粗篩：船心離得比「接戰半徑 ＋ 一個艦體半長」還遠就一定不在範圍內
     const coarse = SHIP_ATTACK_RANGE + HULL_SLACK
     if (selfPos.distanceToSquared(s.position) > coarse * coarse) continue
@@ -218,9 +204,12 @@ export function pickShipTarget(
     if (gun < 0) nearSq = selfPos.distanceToSquared(shipAimAt(s, -1, P0, point))
 
     if (nearSq > rangeSq) continue
-    // 同價值時才比距離
-    if (value === bestValue && nearSq >= bestSq) continue
-    bestValue = value
+    // 同順位不因距離交錯而換船；原目標失效時自然不會進入候選。
+    if (priority === bestPriority) {
+      if (out.ship === heldShip) continue
+      if (i !== heldShip && nearSq >= bestSq) continue
+    }
+    bestPriority = priority
     bestSq = nearSq
     out.ship = i
     out.gun = gun
@@ -359,8 +348,20 @@ export function shipAttackCommand(
   strafeCommand(self, aim, tv.x, tv.y, tv.z, out, fireAim)
 }
 
+/** 掛彈戰鬥機對艦沿用掃射航次，保留飛越後的離場承諾。 */
+export function fighterShipAttackCommand(
+  state: GroundStrafeState, self: Aircraft, ship: Ship, gunIndex: number,
+  replan: boolean, out: Command, point = -1, fireAim?: FireAim,
+  land: LandField | null = null,
+): void {
+  const aim = shipAimAt(ship, gunIndex, S.v[0]!, point)
+  const tv = S.v[3]!.set(0, 0, -1).applyQuaternion(ship.orientation).multiplyScalar(ship.speed)
+  groundStrafeCommand(state, ship, self, aim, tv.x, tv.y, tv.z, replan, out,
+    fireAim, land, FIGHTER_BOMB_EGRESS_SCALE)
+}
+
 /**
- * 掃射一個地面目標。與 `shipAttackCommand` 同一支掃射核心。
+ * 掃射一個地面目標。掛彈戰鬥機的對艦攻擊也共用此航次核心。
  *
  * 【瞄命中盒的半高】瞄地面高度的話彈道打在停放機腳下的土裡。
  *
@@ -375,16 +376,20 @@ export function shipAttackCommand(
 export function groundAttackCommand(
   state: GroundStrafeState, self: Aircraft, target: GroundTarget, replan: boolean, out: Command,
   fireAim?: FireAim, land: LandField | null = null,
+  reattackScale = 1,
 ): void {
   const p = target.position
   const aim = S.v[0]!.set(p.x, (p.y + target.impactY) / 2, p.z)
   if (target.speed === 0) {
-    groundStrafeCommand(state, target, self, aim, 0, 0, 0, replan, out, fireAim, land)
+    groundStrafeCommand(state, target, self, aim, 0, 0, 0, replan, out, fireAim, land, reattackScale)
     return
   }
   const tv = S.v[3]!.set(0, 0, -1).applyQuaternion(target.orientation).multiplyScalar(target.speed)
-  groundStrafeCommand(state, target, self, aim, tv.x, tv.y, tv.z, replan, out, fireAim, land)
+  groundStrafeCommand(state, target, self, aim, tv.x, tv.y, tv.z, replan, out, fireAim, land, reattackScale)
 }
+
+/** 掛炸彈的戰鬥機採較短航次；實際距離仍不得小於持續迴轉的直徑。 */
+export const FIGHTER_BOMB_EGRESS_SCALE = 0.5
 
 /**
  * 這架機在目前高度與速度下，完成下一次對地進場至少要拉開的水平距離。
@@ -393,17 +398,18 @@ export function groundAttackCommand(
  * 再加一個 180° 持續迴轉的直徑。回傳 Infinity 不是錯誤，而是此速度下連
  * 1 g 都無法維持或沒有可持續轉彎解，必須先沿離場方向消耗速度。
  */
-export function groundStrafeReattackRange(self: Aircraft): number {
+export function groundStrafeReattackRange(self: Aircraft, scale = 1): number {
   const tas = self.state.velocity.length()
   const omega = sustainedTurnRate(self.spec, self.state.position.y, tas)
   if (!(omega > 0)) return Infinity
   const weaponPreparation = (
     self.spec.battery.sight.muzzleVelocity + tas
   ) * PROJECTILE_LIFETIME
-  return weaponPreparation + 2 * tas / omega
+  const turnDiameter = 2 * tas / omega
+  return Math.max((weaponPreparation + turnDiameter) * scale, turnDiameter)
 }
 
-function enterGroundEgress(state: GroundStrafeState, self: Aircraft): void {
+function enterGroundEgress(state: GroundStrafeState, self: Aircraft, reattackScale: number): void {
   state.phase = 'egress'
   state.armed = false
   state.interceptTime = NO_INTERCEPT
@@ -415,7 +421,7 @@ function enterGroundEgress(state: GroundStrafeState, self: Aircraft): void {
   }
   if (heading.lengthSq() < MIN_ERROR) heading.set(0, 0, -1)
   else heading.normalize()
-  state.reattackRange = groundStrafeReattackRange(self)
+  state.reattackRange = groundStrafeReattackRange(self, reattackScale)
 }
 
 function commandGroundEgress(state: GroundStrafeState, out: Command): void {
@@ -429,12 +435,11 @@ function commandGroundEgress(state: GroundStrafeState, out: Command): void {
 }
 
 /**
- * 地面物件專用的掃射航次。船仍走原本的近距離拉起，避免把對艦既有行為與
- * 掛彈瞄準一起改掉。
+ * 地面掃射與掛彈戰鬥機攻艦共用的航次；未掛炸彈的攻艦保留原本近距離拉起。
  */
 function groundStrafeCommand(
   state: GroundStrafeState,
-  target: GroundTarget,
+  target: GroundTarget | Ship,
   self: Aircraft,
   aim: Vector3,
   tvx: number,
@@ -444,6 +449,7 @@ function groundStrafeCommand(
   out: Command,
   fireAim: FireAim | undefined,
   land: LandField | null,
+  reattackScale: number,
 ): void {
   const los = S.v[1]!.copy(aim).sub(self.state.position)
   const horizontalRange = Math.hypot(los.x, los.z)
@@ -463,16 +469,16 @@ function groundStrafeCommand(
       // （被空戰打斷後回來、換到另一台）時，水平轉永遠把它轉不進前方 —— 它在
       // 轉彎圈裡面 —— 最後只剩近垂直俯衝。先離場，拉開到門檻再回頭
       const range = los.length()
-      if (range > MIN_ERROR && horizontalRange < groundStrafeReattackRange(self)
+      if (range > MIN_ERROR && horizontalRange < groundStrafeReattackRange(self, reattackScale)
         && nose.dot(los) < range * Math.cos(DEFAULT_STEER.turnFrontCone)) {
-        enterGroundEgress(state, self)
+        enterGroundEgress(state, self, reattackScale)
       }
     }
   }
 
   if (state.phase === 'egress') {
     if (replan || !(state.reattackRange > 0)) {
-      state.reattackRange = groundStrafeReattackRange(self)
+      state.reattackRange = groundStrafeReattackRange(self, reattackScale)
     }
     if (horizontalRange < state.reattackRange) {
       commandGroundEgress(state, out)
@@ -485,7 +491,7 @@ function groundStrafeCommand(
 
   const range = los.length()
   if (range < SHIP_BREAK_RANGE || range < MIN_ERROR) {
-    enterGroundEgress(state, self)
+    enterGroundEgress(state, self, reattackScale)
     commandGroundEgress(state, out)
     return
   }
@@ -505,7 +511,7 @@ function groundStrafeCommand(
   // 曾進入射程後閉合速度翻成負值，就是實際飛過最近點。即使 Worker 為了
   // 地形提早把航線抬開、沒有鑽進 100 m，也要在此鎖住離場，不能下一格回瞄。
   if (wasArmed && closing <= 0) {
-    enterGroundEgress(state, self)
+    enterGroundEgress(state, self, reattackScale)
     commandGroundEgress(state, out)
     return
   }

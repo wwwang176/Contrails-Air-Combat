@@ -56,7 +56,8 @@ import {
   createDiveBombState, type DivePhase,
 } from './diveBomb'
 import type { BombBay } from '../weapons/bomb'
-import type { Ship } from '../world/ships'
+import type { Ship, ShipClassId } from '../world/ships'
+import type { OrdnanceKind } from '../weapons/stores'
 import type { GroundTarget } from '../world/groundTargets'
 import type { GroundUnitId } from '../specs/ground'
 import { ACE, type DifficultyProfile } from './profile'
@@ -170,6 +171,10 @@ export class AiController implements Controller {
    * 德 M3 的限定由任務卡接進來。
    */
   priorityGroundUnit: GroundUnitId | null = null
+  /** 任務／小隊指定的優先艦級；null 表示依距離選船。 */
+  priorityShipClass: ShipClassId | null = null
+  /** 與掛載同步；空艙補彈期間仍保留武器種類。 */
+  ordnanceKind: OrdnanceKind = 'bomb'
 
   /**
    * 戰鬥機只打飛機、不去掃射地面（俯衝轟炸機照常）；沒有空中目標時守在友軍轟炸機旁。
@@ -582,7 +587,7 @@ export class AiController implements Controller {
     // 【投彈每步先歸零】`raw` 是長存物件，別的航路不寫這一格。不清的話
     // 一次釋放之後它會殘留 true，整艙會在下一次進入任何航路時倒光。
     raw.bombing = false
-    // 【正飛的提示同理】只有掛彈的對艦攻擊寫它；殘留的話空戰也會被綁成只准推頭
+    // 【正飛的提示同理】投彈準備會寫它；殘留的話空戰也會被綁成只准推頭
     raw.upright = false
     // 【強制翻轉後拉同理】只有俯衝投彈的翻轉相位寫它
     raw.pull = false
@@ -739,7 +744,6 @@ export class AiController implements Controller {
     if (!intercepting && this.bombBay !== null && this.bombBay.capacity > 0
       && this.priorityGroundUnit === null && !this.evacuating
       && attackShip(this.surface, this, self, decide, dt, raw, this.aim, this.burstOpen)) {
-      resetGroundStrafe(this.surface.groundStrafe)
       // 與地面路徑同一個理由：空層鎖不沿用到對艦航路之後
       this.resetAirTactics()
       this.emit(self, dt, out)

@@ -6,6 +6,7 @@ import type { BombBay } from '../weapons/bomb'
 import type { Loadout } from '../weapons/stores'
 import type { TurretState } from './turrets'
 import type { Team } from './team'
+import type { ShipClassId } from './ships'
 
 /** 世界裡的一架飛機：機體 + 控制器 + 武器狀態 + 戰損狀態。 */
 export interface Combatant {
@@ -66,6 +67,8 @@ export interface Combatant {
    */
   hitRadius: number
   team: Team
+  /** 出生小隊的任務設定，讓重生／接手後新建的控制器仍可讀取。 */
+  priorityShipClass?: ShipClassId | null
   /**
    * 還在戰場上。false = 已退場（被打爆或撞地）。
    *

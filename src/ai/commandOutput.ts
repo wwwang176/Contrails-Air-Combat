@@ -156,7 +156,7 @@ export function emitAiCommand(
   }
   ctx.safetyAction = applySafety(self, floor, out, undefined, sense, rolloutNeeded)
   const hardGround = ctx.safetyAction === 'ground'
-  // 解除閘門只屬於對地掃射。空戰、對艦與轟炸航路若繼承這個狀態，會在
+  // 解除閘門屬於對地掃射與掛彈戰鬥機攻艦。空戰與轟炸航路若繼承這個狀態，會在
   // 沒有地面射擊解的情況下被水平捕獲，污染既有任務的飛行軌跡。
   if (!surface.groundStrafeActive && state.groundCapture.active) {
     state.groundCapture.active = false

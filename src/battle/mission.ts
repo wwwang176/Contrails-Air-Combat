@@ -1,5 +1,6 @@
 import { Vector3 } from 'three'
 import type { Team } from '../world/team'
+import type { ShipClassId } from '../world/ships'
 import type { AircraftSpec } from '../specs/types'
 import type { GroundUnitId } from '../specs/ground'
 
@@ -229,6 +230,8 @@ export interface MissionTuning {
    * 正在哪一關。
    */
   readonly priorityGroundUnit?: GroundUnitId
+  /** 各陣營的優先艦級；省略時依距離選船，不讀血量。 */
+  readonly shipPriority?: Readonly<Partial<Record<Team, ShipClassId>>>
   /**
    * 轟炸機（`role === 'bomber'`）在敵方目標挑選裡值幾倍。**省略 = 1。**
    *

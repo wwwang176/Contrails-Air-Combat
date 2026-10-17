@@ -449,6 +449,21 @@ export const BOMB_AIM_RANGE = 1000
  */
 export const GROUND_BOMB_AIM_RANGE = 2000
 
+/** 投彈瞄準帶外預留 5% 的改平距離，其餘進場不限制翻轉。 */
+const BOMB_UPRIGHT_RANGE_SCALE = 1.05
+
+/** 與投彈瞄準使用同一個目標點及斜距；只判斷距離，掛載與離場由呼叫端處理。 */
+export function withinBombUprightRange(
+  self: Aircraft, target: StrikeTarget, range = BOMB_AIM_RANGE,
+  aimPoint: Vector3 | null = null,
+): boolean {
+  const at = aimPoint === null
+    ? AIM_OFFSET.copy(target.position)
+    : AIM_OFFSET.copy(aimPoint).applyQuaternion(target.orientation).add(target.position)
+  const limit = range * BOMB_UPRIGHT_RANGE_SCALE
+  return self.state.position.distanceToSquared(at) <= limit * limit
+}
+
 /**
  * 落彈點瞄準的狀態。**由 `AiController` 持有**，與 `StrikeState` 同一個性質。
  */

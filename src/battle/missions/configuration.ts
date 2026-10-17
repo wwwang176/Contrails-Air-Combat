@@ -268,6 +268,10 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
         : { priorityGroundUnit: b.priorityGroundUnit }),
       ...(b.bomberPriority === undefined ? {} : { bomberPriority: b.bomberPriority }),
       ...(b.airOnly === undefined ? {} : { airOnly: b.airOnly }),
+      ...(b.shipPriority === undefined ? {} : { shipPriority: {
+        ...(b.shipPriority.mine === undefined ? {} : { blue: b.shipPriority.mine }),
+        ...(b.shipPriority.theirs === undefined ? {} : { red: b.shipPriority.theirs }),
+      } }),
     },
     ...(beats === undefined ? {} : { beats }),
     ...(b.convoyCruiseTas === undefined ? {} : { convoyCruiseTas: b.convoyCruiseTas }),

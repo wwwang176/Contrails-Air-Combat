@@ -1,20 +1,22 @@
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Command } from '../control/Controller'
-import type { Ship } from '../world/ships'
+import type { Ship, ShipClassId } from '../world/ships'
 import type { GroundTarget } from '../world/groundTargets'
 import type { StrikeTarget } from '../world/strikeTarget'
 import type { Team } from '../world/team'
 import type { GroundUnitId } from '../specs/ground'
 import { BOMB_BLAST_RADIUS, type BombBay } from '../weapons/bomb'
+import type { OrdnanceKind } from '../weapons/stores'
 import type { TargetBoard } from './target'
 import type { TerrainSource } from './terrainSense'
 import type { FireAim } from './fire'
 import {
   createGroundStrafeState, groundAttackCommand, pickGroundTarget, pickShipTarget,
   resetGroundStrafe, shipAttackCommand, SHIP_ATTACK_RANGE,
+  fighterShipAttackCommand, FIGHTER_BOMB_EGRESS_SCALE,
 } from './shipAttack'
 import type { createShipAim } from './shipAttack'
-import { GROUND_BOMB_AIM_RANGE, resetBombAim, setBombBallistics, stepBombAim } from './bombRun'
+import { BOMB_AIM_RANGE, GROUND_BOMB_AIM_RANGE, resetBombAim, setBombBallistics, stepBombAim, withinBombUprightRange } from './bombRun'
 import type { createBombAim } from './bombRun'
 import { resetStrike, stepStrike, type StrikeProfile } from './strikeRun'
 import type { createStrikeState } from './strikeRun'
@@ -29,9 +31,11 @@ export interface SurfaceAttackContext {
   readonly ships: readonly Ship[]
   readonly groundTargets: readonly GroundTarget[]
   readonly airOnly: boolean
+  readonly priorityShipClass: ShipClassId | null
   readonly terrain: TerrainSource | null
   readonly stationReference: Aircraft | null
   readonly bombBay: BombBay | null
+  readonly ordnanceKind: OrdnanceKind
   readonly bombDrag: number
   readonly strikeProfile: StrikeProfile
   readonly strikeRef: StrikeRef
@@ -59,6 +63,12 @@ export function createSurfaceAttackState(): SurfaceAttackState {
     groundStrafeActive: false,
     groundStrafe: createGroundStrafeState(),
   }
+}
+
+/** 依掛載容量而非剩餘彈數判斷，投完與補彈時仍完成同一趟離場。 */
+function usesFighterBombRun(ctx: SurfaceAttackContext, self: Aircraft): boolean {
+  return self.spec.role === 'fighter' && self.spec.diveBomber !== true
+    && ctx.ordnanceKind === 'bomb' && (ctx.bombBay?.capacity ?? 0) > 0
 }
 
 /** 換場時一併放掉對地、對艦與投彈的鎖定；一般重選目標不能呼叫。 */
@@ -156,7 +166,8 @@ export function strafeGround(
     resetGroundStrafe(s.groundStrafe)
     return false
   }
-  groundAttackCommand(s.groundStrafe, self, t, decide, out, aim, ctx.terrain?.land ?? null)
+  groundAttackCommand(s.groundStrafe, self, t, decide, out, aim, ctx.terrain?.land ?? null,
+    usesFighterBombRun(ctx, self) ? FIGHTER_BOMB_EGRESS_SCALE : 1)
   // 【掃射也吃點放】瞄得準就咬住，瞄得爛只點兩下 —— 與打飛機同一條規則
   out.firing = out.firing && burstOpen
   bombGround(s, ctx, self, t, decide, out)
@@ -232,8 +243,8 @@ function bombGround(
     return
   }
   setBombBallistics(ctx.bombDrag, DT_SOLVE)
-  // 【掛著彈的整段都保持正飛】理由同對船：倒飛進瞄準帶就投不出去
-  out.upright = true
+  // 接近投彈瞄準帶才要求正飛，遠處轉向保留翻轉後拉的能力。
+  out.upright = withinBombUprightRange(self, t, GROUND_BOMB_AIM_RANGE)
   // 【落點在殺傷半徑兩倍之內就放】車身的窗太窄，見 `stepBombAim` 的 nearEnough。
   // 兩倍比殺傷半徑寬：會有落空的，但不會整趟一枚都不放
   stepBombAim(ctx.bombAim, self, t, true, decide, null, GROUND_BOMB_AIM_RANGE, BOMB_BLAST_RADIUS * 2)
@@ -259,6 +270,8 @@ export function attackShip(
   s: SurfaceAttackState, ctx: SurfaceAttackContext, self: Aircraft, decide: boolean, dt: number,
   out: Command, aim: FireAim, burstOpen: boolean,
 ): boolean {
+  const fighterBombRun = usesFighterBombRun(ctx, self)
+  if (!fighterBombRun) resetGroundStrafe(s.groundStrafe)
   // 【不看自己有沒有武器】索敵只回答「那裡有什麼值得去的東西」，
   // 開不開得了火是開火層的事。一式陸攻沒有固定槍，但它低空掠過去時
   // 側方與機腹的銃手會打砲位。
@@ -282,8 +295,9 @@ export function attackShip(
     && diveBombGround(s, ctx, self, decide, out)) {
     return true
   }
-  if (decide) {
-    pickShipTarget(self.state.position, me.team, ctx.ships, ctx.shipAim, self.state.velocity)
+  const heldShip = ctx.shipAim.ship >= 0 ? ctx.ships[ctx.shipAim.ship] : undefined
+  if (decide || (heldShip !== undefined && !heldShip.alive)) {
+    pickShipTarget(self.state.position, me.team, ctx.ships, ctx.shipAim, self.state.velocity, ctx.priorityShipClass)
   }
   const bay = ctx.bombBay
   const loaded = bay !== null && (bay.load > 0 || bay.queue > 0)
@@ -318,18 +332,30 @@ export function attackShip(
   if (ctx.shipAim.gun >= 0 && !(ship.guns[ctx.shipAim.gun]?.alive ?? false)) {
     ctx.shipAim.gun = -1
   }
-  shipAttackCommand(self, ship, ctx.shipAim.gun, out, ctx.shipAim.point, aim)
+  if (fighterBombRun) {
+    fighterShipAttackCommand(s.groundStrafe, self, ship, ctx.shipAim.gun, decide,
+      out, ctx.shipAim.point, aim, ctx.terrain?.land ?? null)
+    s.groundStrafeActive = true
+    // 離場指令不能被後面的落彈點瞄準蓋回去。
+    if (s.groundStrafe.phase === 'egress') {
+      resetBombAim(ctx.bombAim)
+      out.bombing = false
+      return true
+    }
+  } else {
+    shipAttackCommand(self, ship, ctx.shipAim.gun, out, ctx.shipAim.point, aim)
+  }
   // 【掃射也吃點放】理由見 `strafeGround`
   out.firing = out.firing && burstOpen
-  // 【掛著彈的整段對艦攻擊都保持正飛】進場段就翻轉的話，進落彈瞄準帶時
-  // 已經倒飛，帶內來不及翻回來 —— 投放包絡擋掉，整條命一枚都不投
-  out.upright = loaded
+  // 與落彈瞄準量到同一個艦體瞄點；只有接近瞄準帶時才限制坡度。
+  const bombPoint = ship.cls.aimPoints[ctx.shipAim.point] ?? null
+  out.upright = loaded && withinBombUprightRange(self, ship, BOMB_AIM_RANGE, bombPoint)
   // 【掛彈的戰鬥機：近了就把瞄準點換成落彈解】投完（或還沒進到那個距離）
   // 就什麼都不做，瞄準點留給機槍。**排在掃射之後** —— 它要覆寫的正是
   // 掃射寫好的那一格
   if (loaded) {
     stepBombAim(
-      ctx.bombAim, self, ship, loaded, decide, ship.cls.aimPoints[ctx.shipAim.point] ?? null,
+      ctx.bombAim, self, ship, loaded, decide, bombPoint,
     )
     if (ctx.bombAim.active) out.aimWorld.copy(ctx.bombAim.aim)
     out.bombing = ctx.bombAim.release
@@ -340,11 +366,8 @@ export function attackShip(
 }
 
 /**
- * 轟炸機的打擊目標：船與建築裡價值最高的那一個。
- *
- * 【先船後建築，只有建築更值錢才換】沒有地面目標時與只掃船的版本逐位元
- * 相同（`strike-replay-baseline.test.ts`）—— `pickShipTarget` 照舊跑，
- * 建築那一圈是零長度。
+ * 轟炸機先攻擊任務指定艦級；沒有指定目標時，船與地面候選以距離比較。
+ * 地面候選仍沿用既有選擇規則；船艦血量不再參與跨類型比較。
  *
  * 【每一步都要複查】上一個決策拍之後它可能已經沉了或炸毀了。死了就放掉，
  * 下一個決策拍重選。
@@ -359,25 +382,23 @@ function pickStrike(
     const g = pickGroundTarget(self.state.position, team, ctx.groundTargets, SHIP_ATTACK_RANGE)
     const ship = ctx.shipAim.ship >= 0 ? ctx.ships[ctx.shipAim.ship] : undefined
     const ground = g >= 0 ? ctx.groundTargets[g] : undefined
-    const shipValue = ship === undefined ? -1 : ship.value
-    const groundValue = ground === undefined ? -1 : ground.value
-    // 【同價值比距離，與各自清單內的規則相同】船的距離量到船心 —— 砲位
-    // 那一層的距離只有船自己那一支在比，跨清單只需要一個粗略的量
+    const preferredShip = ship !== undefined && ship.cls.id === ctx.priorityShipClass
+    // 跨類型只比較位置；任務指定的船優先。
     const p = self.state.position
-    const takeGround = ground !== undefined && (
-      groundValue > shipValue
-      || (groundValue === shipValue && ship !== undefined
-        && p.distanceToSquared(ground.position) < p.distanceToSquared(ship.position))
-    )
+    const takeGround = ground !== undefined && !preferredShip && (ship === undefined
+      || p.distanceToSquared(ground.position) < p.distanceToSquared(ship.position))
     // 【一趟只打一個目標】同價值的候選隨距離輪流變成最近的那個，照單全收的
     // 話進場到一半瞄點跳走，飛機帶著坡度鎖航向、整趟放不出來。所以只在
     // 這幾種時候換：手上沒有或死了、脫離結束回頭進場（`StrikeState.repick`）、
-    // 進場段而候選**更值錢**（開場時廠區還在索敵半徑外，先選到的是高砲陣地）
+    // 進場段出現指定的船，或更高價值的地面目標（保留原本工廠攻擊規則）
     const held = ref.index < 0 ? undefined
       : ref.kind === 'ship' ? ctx.ships[ref.index] : ctx.groundTargets[ref.index]
-    const candidateValue = takeGround ? groundValue : shipValue
-    if (held === undefined || !held.alive || ctx.strike.repick
-      || (ctx.strike.phase === 'approach' && candidateValue > held.value)) {
+    const heldInRange = held !== undefined
+      && p.distanceToSquared(held.position) <= SHIP_ATTACK_RANGE * SHIP_ATTACK_RANGE
+    const upgrade = preferredShip && (ref.kind !== 'ship' || ctx.ships[ref.index]?.cls.id !== ctx.priorityShipClass)
+      || (takeGround && ref.kind === 'ground' && held !== undefined && ground!.value > held.value)
+    if (held === undefined || !held.alive || !heldInRange || ctx.strike.repick
+      || (ctx.strike.phase === 'approach' && upgrade)) {
       ctx.strike.repick = false
       if (takeGround) {
         ref.kind = 'ground'

@@ -1,4 +1,5 @@
 import type { BattleConfig } from './battleConfig'
+import { shipPriorityFor } from './shipPriority'
 import type { Battle } from './battleState'
 import { DEFAULT_BATTLE } from './battleDefaults'
 import { createConvoy } from './convoy'
@@ -236,6 +237,7 @@ export function createBattle(
     ai.selfIndex = c.index
     ai.profile = cfg.aiProfile
     ai.priorityGroundUnit = c.team === 'blue' ? cfg.tuning.priorityGroundUnit ?? null : null
+    ai.priorityShipClass = shipPriorityFor(cfg.tuning, c)
     ai.airOnly = c.team === 'blue' && cfg.tuning.airOnly === true
     // 【相位依索引攤平】40 架的包絡查詢因此不會擠在同一個物理步
     ai.setDecisionPhase(c.index / world.combatants.length)

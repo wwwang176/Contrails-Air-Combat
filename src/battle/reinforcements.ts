@@ -1,4 +1,5 @@
 import type { Battle } from './battleState'
+import { shipPriorityFor } from './shipPriority'
 import { Vector3 } from 'three'
 import type { Aircraft } from '../aircraft/Aircraft'
 import { AiController } from '../ai/AiController'
@@ -110,6 +111,7 @@ export function reinforce(b: ReinforcementBattle, plan: FlightPlan): readonly nu
       ? b.cfg.tuning.priorityGroundUnit ?? null
       : null
     ai.airOnly = c.team === 'blue' && b.cfg.tuning.airOnly === true
+    ai.priorityShipClass = shipPriorityFor(b.cfg.tuning, c)
     // 【相位照最終容量攤平，不照當下架數】用當下架數的話同一波的值會全部
     // 擠在 1 附近，決策尖峰聚在一起 —— 這個 API 存在的理由就是攤開它們
     ai.setDecisionPhase(c.index / b.board.assignments.length)

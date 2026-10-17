@@ -430,6 +430,8 @@ export interface MissionBattle {
    * 直接瞄準時會先自衛。這是任務目標提示，不改掃射或防墜模型。
    */
   readonly priorityGroundUnit?: GroundUnitId
+  /** 我方／敵方攻艦時優先選的艦級；小隊可再覆寫。 */
+  readonly shipPriority?: Readonly<Partial<Record<'mine' | 'theirs', ShipClassId>>>
   /**
    * 開場導覽的鏡位，依序播。**省略 = 這一關不播導覽。** 見 `app/missionIntro.ts`
    */

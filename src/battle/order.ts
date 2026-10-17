@@ -3,6 +3,7 @@ import { STATION_OFFSETS } from '../ai/station'
 import type { EntryPlan, SideEntry } from './entry'
 import type { AircraftSpec } from '../specs/types'
 import type { Team } from '../world/team'
+import type { ShipClassId } from '../world/ships'
 import type { TakeoffLine } from '../control/takeoffRoll'
 import type { GroundUnitId } from '../specs/ground'
 
@@ -18,6 +19,8 @@ import type { GroundUnitId } from '../specs/ground'
  */
 export interface FlightPlan {
   readonly team: Team
+  /** 覆寫陣營的優先艦級；null 表示這支小隊依距離選船。 */
+  readonly priorityShipClass?: ShipClassId | null
   /**
    * 這一小隊的每一架，`[0]` 是長機。**1 … `SCHWARM_SIZE` 架。**
    *

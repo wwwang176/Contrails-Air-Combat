@@ -225,6 +225,7 @@ export function spawnMember(
   )
   // 【一律不重生】一方全滅要能被偵測到，重生會讓那件事永遠不發生
   c.respawnOnDestroy = false
+  if (unit.priorityShipClass !== undefined) c.priorityShipClass = unit.priorityShipClass
   return c
 }
 

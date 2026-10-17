@@ -26,6 +26,23 @@ function setup() {
 }
 
 describe('戰場 AI 接線', () => {
+  it('艦級優先權依陣營與小隊覆寫，重建控制器與代飛也會同步', () => {
+    const s = setup()
+    const tuning = { shipPriority: { blue: 'essex', red: 'wichita' } } as const
+    s.wingman.priorityShipClass = 'fletcher'
+    s.player.priorityShipClass = null
+    wireBattleAi(s.world, tuning, s.player, s.playerAi, s.terrain)
+    expect(s.blue.priorityShipClass).toBe('fletcher')
+    expect(s.red.priorityShipClass).toBe('wichita')
+    expect(s.playerAi.priorityShipClass).toBeNull()
+    const replacement = new AiController()
+    s.wingman.controller = replacement
+    wireBattleAi(s.world, tuning, s.wingman, s.playerAi, s.terrain)
+    expect(replacement.priorityShipClass).toBe('fletcher')
+    expect(s.playerAi.priorityShipClass).toBe('fletcher')
+    wireBattleAi(s.world, {}, s.player, s.playerAi, s.terrain)
+    expect(s.red.priorityShipClass).toBeNull()
+  })
   it('任務限制只套友軍，玩家手動控制器不變，離席代飛仍取得玩家掛載', () => {
     const s = setup()
     s.wire()

@@ -187,9 +187,10 @@ describe('掃射的點放接線', () => {
   /** 【夾角要回報】沒有它工作週期永遠停在最差那一端，掃射就變成零星點放 */
   it('兩條路徑都把瞄準夾角回報給工作週期', () => {
     expect(src).toContain(
-      'groundAttackCommand(s.groundStrafe, self, t, decide, out, aim, ctx.terrain?.land ?? null)',
+      'groundAttackCommand(s.groundStrafe, self, t, decide, out, aim, ctx.terrain?.land ?? null,',
     )
     expect(src).toContain('shipAttackCommand(self, ship, ctx.shipAim.gun, out, ctx.shipAim.point, aim)')
+    expect(src).toMatch(/fighterShipAttackCommand\(s\.groundStrafe, self, ship, ctx\.shipAim\.gun, decide,\s*out, ctx\.shipAim\.point, aim,/)
     const strafe = new TextDecoder().decode(readFileSync('src/ai/shipAttack.ts'))
     expect(strafe.match(/fireWithinCone\(nose\.dot\(lead\), fireAim\)/g) ?? []).toHaveLength(2)
   })
