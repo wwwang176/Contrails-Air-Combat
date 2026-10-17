@@ -686,6 +686,7 @@ vec3 horizonColourAt(vec2 qH, vec2 dHx, vec2 dHy, float eH, vec2 qB, vec2 dBx, v
       float sTree = clamp(share.x, 0.0, 1.0);
       float sRoof = clamp(share.y, 0.0, 1.0 - sTree);
       c *= 1.0 + (kTree - 1.0) * sTree + (kRoof - 1.0) * sRoof;
+      groundTreeShare = sTree + sRoof;
     }
     diffuseColor.rgb = c;
   }`)
@@ -753,7 +754,8 @@ ${VIEW_SHADE_GLSL}`)
   if (max(abs(w.x - uFarCentre.x), abs(w.y - uFarCentre.y)) < 0.5 * uFarSpan) discard;
 }`)
           .replace('#include <color_fragment>', `#include <color_fragment>
-diffuseColor.rgb *= mix(vec3(1.0), viewShade(${ViewShadeRow.Ground.toFixed(1)}, normalize(cameraPosition - vBeyondWorld)), vBeyondTree);`)
+diffuseColor.rgb *= mix(vec3(1.0), viewShade(${ViewShadeRow.Ground.toFixed(1)}, normalize(cameraPosition - vBeyondWorld)), vBeyondTree);
+groundTreeShare = vBeyondTree;`)
       }
       m.customProgramCacheKey = () => `beyond-far:${id}`
       // 上面整個換掉了貼片原本的掛鉤，地面不算鏡面那一層要重掛

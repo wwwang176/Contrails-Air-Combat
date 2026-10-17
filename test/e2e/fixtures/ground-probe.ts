@@ -7,7 +7,7 @@ import { GROUND_ROUGH, GROUND_SPECULAR, matteGround } from '../../../src/render/
  *
  * 一片水平的大地面（地面同一個顏色、同一個粗糙度），正午的三盞燈，由 `azimuthDeg`
  * 方位、`pitchDeg` 俯角看過去，回報畫面中央一塊的平均線性亮度。`matte` 為假時用沒改過的
- * 標準材質 —— 對照組。
+ * 標準材質 —— 對照組。`tree` 是整片地的樹冠份量（`groundTreeShare`）。
  */
 
 const SIZE = 256
@@ -15,7 +15,7 @@ const lin = (c: number): number => { const v = c / 255; return v <= 0.04045 ? v 
 let renderer: WebGLRenderer | null = null
 
 export function groundShot(
-  azimuthDeg: number, pitchDeg: number, matte: boolean, rough: number, specular: number,
+  azimuthDeg: number, pitchDeg: number, matte: boolean, rough: number, specular: number, tree = 0,
 ): number {
   if (renderer === null) {
     const canvas = document.createElement('canvas')
@@ -29,7 +29,15 @@ export function groundShot(
   scene.background = new Color(0x000000)
   for (const l of createLights().all) scene.add(l)
   const material = new MeshStandardMaterial({ color: 0x55703f, flatShading: true, roughness: 0.95 })
-  if (matte) matteGround(material)
+  if (matte) {
+    // 地面著色器在算出樹冠份量的地方寫 groundTreeShare；這裡整片寫成 `tree`
+    material.onBeforeCompile = (s) => {
+      s.fragmentShader = s.fragmentShader.replace('#include <color_fragment>',
+        `#include <color_fragment>\ngroundTreeShare = ${tree.toFixed(3)};`)
+    }
+    material.customProgramCacheKey = () => `ground-probe:${tree}`
+    matteGround(material)
+  }
   GROUND_ROUGH.value = rough
   GROUND_SPECULAR.value = specular
   const geo = new PlaneGeometry(200000, 200000).rotateX(-Math.PI / 2)

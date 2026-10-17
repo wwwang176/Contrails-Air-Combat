@@ -138,6 +138,8 @@ describe('視角係數在哪裡查', () => {
     expect(ring.vert).not.toContain('viewShade(')
     expect(ring.frag).toContain('vec3 kTree = viewShade(')
     expect(clip.material.customProgramCacheKey()).not.toBe(clip.horizonMaterial.customProgramCacheKey())
+    // 【樹冠與屋頂那一份不反光】寫給 matteGround（見 `matteGround.ts`）
+    for (const s of [ground, ring]) expect(s.frag).toContain('groundTreeShare = sTree + sRoof;')
     clip.dispose()
   })
 })

@@ -21,6 +21,9 @@ describe('地面的光照（matteGround）', () => {
     expect(frag).toContain(`#include <lights_fragment_end>${MATTE_GROUND_GLSL}`)
     expect(uniforms['uGroundSpecular']).toBe(GROUND_SPECULAR)
     expect(uniforms['uGroundRough']).toBe(GROUND_ROUGH)
+    // 樹冠份量預設 0：沒寫它的地面整片照常反光
+    expect(frag).toContain('float groundTreeShare = 0.0;')
+    expect(MATTE_GROUND_GLSL).toContain('uGroundSpecular * (1.0 - clamp(groundTreeShare, 0.0, 1.0))')
   })
 
   /** 【先跑材質自己的掛鉤】地面的田色、樹冠圖都在那裡注入；蓋掉的話地面只剩頂點色 */

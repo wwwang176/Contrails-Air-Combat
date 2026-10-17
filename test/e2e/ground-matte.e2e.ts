@@ -8,11 +8,11 @@
  *
  * 一片水平的地面、正午的燈，由迎光、背光兩個方向低角度看：
  *
- * - σ = 0、鏡面 1 時與沒改過的標準材質相同（掛上去不會動到別的東西）
- * - 預設值下背光比迎光亮（Oren-Nayar）—— 標準材質恰好相反（迎光有鏡面）
- * - 鏡面確實被壓低：迎光時比標準材質暗
+ * - σ = 0、鏡面 1、沒有樹冠時與沒改過的標準材質相同（掛上去不會動到別的東西）
+ * - Oren-Nayar：鏡面關掉單看漫射，背光比迎光亮（Lambert 兩者相同）
+ * - 樹冠那一份不反光：整片都是樹冠時，與鏡面倍率 0 相同；比沒有樹冠時暗
  *
- * 【變異驗證】拿掉 Oren-Nayar 那一段，或鏡面不乘倍率，必紅。
+ * 【變異驗證】拿掉 Oren-Nayar 那一段，或鏡面不乘 (1 − groundTreeShare)，必紅。
  */
 import { chromium } from 'playwright'
 
@@ -21,6 +21,7 @@ const URL = 'http://localhost:5190/'
 const INTO = 139
 const AWAY = -41
 const PITCH = -12
+const ROUGH = 0.2
 
 async function main(): Promise<void> {
   const browser = await chromium.launch({ headless: false })
@@ -36,10 +37,10 @@ async function main(): Promise<void> {
     await page.goto(URL)
     await page.addScriptTag({ type: 'module', url: '/test/e2e/fixtures/ground-probe.ts' })
     await page.waitForFunction(() => '__groundShot' in window)
-    const shot = (az: number, matte: boolean, rough: number, spec: number): Promise<number> =>
-      page.evaluate((q: readonly [number, number, boolean, number, number]) =>
+    const shot = (az: number, matte: boolean, rough: number, spec: number, tree = 0): Promise<number> =>
+      page.evaluate((q: readonly [number, number, boolean, number, number, number]) =>
         (window as unknown as Record<string, (...a: unknown[]) => number>)['__groundShot']!(...q),
-      [az, PITCH, matte, rough, spec] as const)
+      [az, PITCH, matte, rough, spec, tree] as const)
 
     for (const az of [INTO, AWAY]) {
       const plain = await shot(az, false, 0, 1)
@@ -47,12 +48,15 @@ async function main(): Promise<void> {
       ok(`σ = 0、鏡面 1 與標準材質相同（方位 ${az}°）`, Math.abs(same - plain) <= plain * 0.01,
         `${same.toFixed(4)} 對 ${plain.toFixed(4)}`)
     }
-    const into = await shot(INTO, true, 0.4, 0.1)
-    const away = await shot(AWAY, true, 0.4, 0.1)
-    ok('預設值：背光比迎光亮', away > into * 1.05, `背光 ${away.toFixed(4)}，迎光 ${into.toFixed(4)}`)
-    const plainInto = await shot(INTO, false, 0, 1)
-    ok('預設值：迎光比標準材質暗（鏡面壓低）', into < plainInto * 0.9,
-      `${into.toFixed(4)} 對 ${plainInto.toFixed(4)}`)
+    const into = await shot(INTO, true, ROUGH, 0)
+    const away = await shot(AWAY, true, ROUGH, 0)
+    ok('Oren-Nayar：只看漫射，背光比迎光亮', away > into * 1.02, `背光 ${away.toFixed(4)}，迎光 ${into.toFixed(4)}`)
+    const treeAll = await shot(INTO, true, ROUGH, 1, 1)
+    const noSpec = await shot(INTO, true, ROUGH, 0, 0)
+    const field = await shot(INTO, true, ROUGH, 1, 0)
+    ok('整片樹冠：鏡面拿掉（與鏡面 0 相同）', Math.abs(treeAll - noSpec) <= noSpec * 0.01,
+      `${treeAll.toFixed(4)} 對 ${noSpec.toFixed(4)}`)
+    ok('沒有樹冠的地照舊反光（比樹冠亮）', field > treeAll * 1.05, `${field.toFixed(4)} 對 ${treeAll.toFixed(4)}`)
     console.log(`\n  console 錯誤 ${errors.length} 則`)
     if (errors.length > 0) allPass = false
   } finally {

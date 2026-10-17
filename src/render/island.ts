@@ -120,7 +120,8 @@ vIslandWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;`)
       .replace('#include <common>', '#include <common>\nvarying float vCanopyShare;\nvarying vec3 vIslandWorld;' + VIEW_SHADE_GLSL)
       .replace('#include <color_fragment>', `#include <color_fragment>
 diffuseColor.rgb += vCanopyShare * vec3(${CANOPY.r.toFixed(4)}, ${CANOPY.g.toFixed(4)}, ${CANOPY.b.toFixed(4)})
-  * (viewShade(${ViewShadeRow.Ground.toFixed(1)}, normalize(cameraPosition - vIslandWorld)) - 1.0);`)
+  * (viewShade(${ViewShadeRow.Ground.toFixed(1)}, normalize(cameraPosition - vIslandWorld)) - 1.0);
+groundTreeShare = vCanopyShare;`)
   }
   m.customProgramCacheKey = () => 'island-ground-view'
   matteGround(m)

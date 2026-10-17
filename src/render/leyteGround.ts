@@ -318,6 +318,7 @@ function canopyGlsl(map: CanopyMap): string {
     }
     vec3 toCam = normalize(cameraPosition - vec3(vRoadXZ.x, vRoadY, vRoadXZ.y));
     diffuseColor.rgb += canopyShare * ${canopy} * (viewShade(${ViewShadeRow.Ground.toFixed(1)}, toCam) - 1.0);
+    groundTreeShare = canopyShare;
   }`
 }
 
