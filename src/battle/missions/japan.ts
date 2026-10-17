@@ -157,9 +157,10 @@ export const JAPAN: readonly MissionCard[] = [
       blueStacked: true,
       convoyCount: 0, convoyPriority: 1,
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
-      entry: 'headOn',
+      // 【從東南方橫切公路】見 `battle/entry.ts` 的 `LEYTE_SOUTHEAST`
+      entry: 'leyteSoutheast',
       terrain: 'leyte',
-      // 灘頭、三處路邊據點與開場位置（z = +5 km）
+      // 灘頭、三處路邊據點、開場位置（東南方 5,400, +3,000）與撤離點可能落到的地方
       arena: { x: 2000, z: 2000, radius: 11000 },
       // 【開場導覽】先在車隊第一輛卡車的前方路邊貼地拍，卡車由 30 m 外迎面開到 12 m
       // （它前面 30 m 是半履帶車，鏡頭在兩車之間）；再從內陸高處沿灘頭橫移，LST
@@ -241,11 +242,11 @@ export const JAPAN: readonly MissionCard[] = [
        * 【每波兩架、一波一波來】一次來四架的話玩家還在找車就被咬住。
        *
        *   第一波  開始攻擊之後進場（遲遲不動手的話 90 秒也會來）。`starboard: π`
-       *           把紅方的進場轉到 +Z 那一側（Ki-84 來的方向）
+       *           把紅方的進場轉到 +Z 那一側（南方，前線的後方）
        *   第二、三波  150 秒、240 秒，照時鐘來、不看炸了幾輛 —— 炸得快也不會讓
        *           敵機一口氣湧上來。一波從灘頭外的海上、一波從內陸
        *
-       * 【炸到第 12 輛時再來一組】從 +Z 那一側（Ki-84 來的方向）的左前方
+       * 【炸到第 12 輛時再來一組】從 +Z 那一側（南方）的左前方
        * （`starboard` π + 0.4）、z ≈ +400、比任務高度高 1,500 m 進場。低空的 F6F
        * 比疾風慢，從背後追不上，要靠高度從上方切進來。
        *
@@ -280,7 +281,7 @@ export const JAPAN: readonly MissionCard[] = [
       withdraw: {
         when: { kind: 'destroyed', atLeast: 20, unit: 'usTruck' },
         messageKey: 'mission.japan-m2.withdraw',
-        // 【從炸完的地方往 Ki-84 來的方向飛 3 km】卡車散在灘頭到西路一路，第 20 輛在哪裡
+        // 【從炸完的地方往 +Z（南方）飛 3 km】卡車散在灘頭到西路一路，第 20 輛在哪裡
         // 炸掉說不準；從玩家當下的位置量，撤離的路程每一場都一樣長
         distance: -3000,
         from: 'player',
