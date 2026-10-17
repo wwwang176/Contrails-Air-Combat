@@ -10,6 +10,7 @@ import {
   REBUILD_EVERY, REBUILD_MOVE, REBUILD_IDLE, LOD_NONE, BROAD_BY_LOD, CONE_BY_LOD, BUSH_BY_LEVEL,
 } from './vegetationPolicy'
 import type { Season } from './season'
+import { createViewShade, type ViewShade } from './viewShade'
 
 /**
  * 植被的引擎：**跟著鏡頭的 tile 快取 ＋ 分級的 InstancedMesh 池。**
@@ -125,6 +126,11 @@ export interface VegetationOptions {
   rebuildBudget?: number
   /** 樹冠色的季節。省略 = 夏季。每一份植被自己建幾何與池，兩個季節互不污染 */
   season?: Season
+  /**
+   * 點池的視角係數（`viewShade.ts`）。**與地面共用同一份**，換時段由地形一起換。
+   * 省略 = 自己建一份正午的
+   */
+  viewShade?: ViewShade
 }
 
 export function createVegetation(
@@ -145,8 +151,14 @@ export function createVegetation(
   const tilesPerFrame = opts.tilesPerFrame ?? TILES_PER_FRAME
   const rebuildBudget = opts.rebuildBudget ?? REBUILD_BUDGET
   const season = opts.season ?? 'summer'
-  const pools = createVegetationPools(cap, season, tileCache)
-  const { group, counts, cull, setPointLight, dispose } = pools
+  // 【沒給就自己建一份正午的】量測台與工具頁沒有地形來換時段；燈也是正午
+  const ownShade = opts.viewShade === undefined ? createViewShade(season, { broad: 1, cone: 0, bush: 0 }) : null
+  const pools = createVegetationPools(cap, season, tileCache, opts.viewShade ?? ownShade!)
+  const { group, counts, cull, setPointLight } = pools
+  const dispose = (): void => {
+    pools.dispose()
+    ownShade?.dispose()
+  }
 
   // ── tile 快取 ────────────────────────────────────────
   /**

@@ -20,6 +20,7 @@ import {
   createFloraBuffer, FLORA_STRIDE, FloraKind, type FloraBuffer,
 } from '../../src/core/floraBuffer'
 import { createTerrain } from '../../src/render/terrain'
+import { createViewShade } from '../../src/render/viewShade'
 import { createOcean } from '../../src/render/ocean'
 
 /**
@@ -32,6 +33,7 @@ import { createOcean } from '../../src/render/ocean'
 const { field } = createLeyte()
 /** 網格的測試不看林子：一張空的樹冠圖 */
 const NO_CANOPY: CanopyMap = { data: new Uint8Array(4), size: 2, half: FIELD_HALF, texel: FIELD_HALF }
+const SHADE = createViewShade('summer', { broad: 1, cone: 0, bush: 0 })
 
 function maxAccept(cx: number, cz: number): number {
   let m = 0
@@ -43,7 +45,7 @@ function maxAccept(cx: number, cz: number): number {
 
 describe('leyte 的地面網格', () => {
   it('每一個頂點的高度就是高度場的值（畫面與撞地同一個數字）', () => {
-    const g = createLeyteGround(field, NO_CANOPY)
+    const g = createLeyteGround(field, NO_CANOPY, () => 0, SHADE)
     let checked = 0
     g.object.traverse((o) => {
       const geo = (o as Mesh).geometry as BufferGeometry | undefined
@@ -60,7 +62,7 @@ describe('leyte 的地面網格', () => {
   })
 
   it('陸地比海面先畫 —— 被陸地蓋住的海由深度測試擋掉，不算碎光', () => {
-    const g = createLeyteGround(field, NO_CANOPY)
+    const g = createLeyteGround(field, NO_CANOPY, () => 0, SHADE)
     const ocean = createOcean(null)
     let meshes = 0
     g.object.traverse((o) => {
@@ -75,7 +77,7 @@ describe('leyte 的地面網格', () => {
   })
 
   it('場外有遠景陸地：陸地一路延伸到場地之外', () => {
-    const g = createLeyteGround(field, NO_CANOPY)
+    const g = createLeyteGround(field, NO_CANOPY, () => 0, SHADE)
     let outside = 0
     g.object.traverse((o) => {
       const geo = (o as Mesh).geometry as BufferGeometry | undefined

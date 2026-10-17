@@ -11,6 +11,7 @@ import {
 } from './floraShapes'
 import { POOL_NAMES, IS_POINT, RUN_CAP, RUN_SPLIT_MIN } from './vegetationPolicy'
 import type { Season } from './season'
+import { VIEW_SHADE_GLSL, ViewShadeRow, type ViewShade } from './viewShade'
 
 /**
  * 遠處那三個池的材質。**`gl.POINTS`。**
@@ -40,21 +41,25 @@ import type { Season } from './season'
  *
  * 【點吃不到光照】`PointsMaterial` 是 basic 的。開局後光照固定，所以亮度
  * 由 `POINT_LIGHT` 烘進逐株的顏色 —— 見那個常數。
+ *
+ * 【隨視角變亮暗】它取代的中級樹冠迎光暗、背光亮；點乘上那一類樹的視角係數
+ * （`viewShade.ts`），由鏡頭到這一點的方向查表。一個樹種一個材質 —— 查的是表的
+ * 哪一列（`uViewRow`），三個材質共用同一支程式
  */
-function createPointMaterial(): PointsMaterial {
+function createPointMaterial(row: ViewShadeRow, shade: ViewShade): PointsMaterial {
   const m = new PointsMaterial({ vertexColors: true, sizeAttenuation: true, size: 1 })
   m.onBeforeCompile = (shader) => {
-    shader.vertexShader = 'attribute float aSize;\n' + shader.vertexShader
+    Object.assign(shader.uniforms, shade.uniforms, { uViewRow: { value: row } })
+    shader.vertexShader = 'attribute float aSize;\nuniform float uViewRow;\n' + VIEW_SHADE_GLSL + shader.vertexShader
       .replace('gl_PointSize = size;', 'gl_PointSize = aSize * projectionMatrix[1][1] * size;')
-      // 往下看亮一點（`POINT_TOPDOWN_GAIN`）：俯角由鏡頭到這一點的方向算
       .replace('#include <color_vertex>', `#include <color_vertex>
 {
   vec3 toCam = normalize(cameraPosition - (modelMatrix * vec4(position, 1.0)).xyz);
-  vColor.rgb *= 1.0 + ${(POINT_TOPDOWN_GAIN - 1).toFixed(3)} * smoothstep(0.0, ${POINT_TOPDOWN_RAMP.toFixed(3)}, toCam.y);
+  vColor.rgb *= ${POINT_TOPDOWN_GAIN.toFixed(3)} * viewShade(uViewRow, toCam);
 }`)
   }
-  // 【換了著色器就要換 key】three 用它決定程式能不能重用
-  m.customProgramCacheKey = () => 'flora-point'
+  // 【換了著色器就要換 key】three 用它決定程式能不能重用。列是 uniform，三個樹種同一個 key
+  m.customProgramCacheKey = () => 'flora-point-view'
   return m
 }
 
@@ -77,18 +82,13 @@ function createPointMaterial(): PointsMaterial {
 export const POINT_LIGHT = new Color(0.36, 0.36, 0.36)
 
 /**
- * 往下看時點要再亮多少：平視乘 1，sin(俯角) 到 `POINT_TOPDOWN_RAMP` 之間平滑升到
- * 這個數，再往下都是它。
+ * 正上方往下看時點要乘多少，其他角度再乘視角係數（`viewShade.ts`，正上方 = 1）。
  *
- * 【為什麼要跟著角度】`POINT_LIGHT` 是平視校的（樹冠多半露側面、偏暗）；往下看露出
- * 被太陽照亮的樹冠頂，同一片林子亮得多，而點是平的色塊，哪個角度看都一樣。實測
- * 1.5 km 與 3 km 高度看 3.5～5.5 km 的林子（sin 俯角 0.26～0.65），點都要乘約 1.45
- * 才與樹冠、遠處的烘圖接得上；不跟著角度的話，那一圈比兩側暗一截
+ * 【為什麼要它】`POINT_LIGHT` 是平視校的（樹冠多半露側面、偏暗）；往下看露出
+ * 被太陽照亮的樹冠頂，同一片林子亮得多。實測 1.5 km 與 3 km 高度看 3.5～5.5 km 的
+ * 林子（sin 俯角 0.26～0.65），點都要乘約 1.45 才與樹冠、遠處的烘圖接得上
  */
 export const POINT_TOPDOWN_GAIN = 1.45
-
-/** 俯角的正弦到這裡就用滿 `POINT_TOPDOWN_GAIN`（約 11.5°） */
-export const POINT_TOPDOWN_RAMP = 0.2
 
 /**
  * 實例池的一段：一顆 `InstancedMesh`，實例矩陣與顏色是指向池緩衝某個位移的
@@ -160,12 +160,26 @@ function aimRun(
   }
 }
 
-export function createVegetationPools(cap: Record<PoolName, number>, season: Season, tileCache: number) {
+/** 點池查視角係數表的哪一列 */
+const POINT_ROW: Record<PointPool, ViewShadeRow> = {
+  broadPoint: ViewShadeRow.Broad,
+  conePoint: ViewShadeRow.Cone,
+  bushPoint: ViewShadeRow.Bush,
+}
+
+export function createVegetationPools(
+  cap: Record<PoolName, number>, season: Season, tileCache: number, shade: ViewShade,
+) {
   const geometries = createFloraGeometries(season)
   const material = new MeshStandardMaterial({
     vertexColors: true, flatShading: true, roughness: 0.9,
   })
-  const pointMaterial = createPointMaterial()
+  const pointMaterials = {
+    broadPoint: createPointMaterial(POINT_ROW.broadPoint, shade),
+    conePoint: createPointMaterial(POINT_ROW.conePoint, shade),
+    bushPoint: createPointMaterial(POINT_ROW.bushPoint, shade),
+  } satisfies Record<PointPool, PointsMaterial>
+  const pointList = Object.values(pointMaterials)
   const group = new Group()
   /**
    * 十一個池。**遠處那三個是 `Points`，其餘八個是 `InstancedMesh`。**
@@ -226,7 +240,7 @@ export function createVegetationPools(cap: Record<PoolName, number>, season: Sea
         // 【包圍球自己給無限大】內容每次重建都換，three 算出來的球會過期；
         // 而 three 的剔除本來就關掉了 —— 見檔頭
         geo.boundingSphere = new Sphere(new Vector3(), Infinity)
-        const pts = new Points(geo, pointMaterial)
+        const pts = new Points(geo, pointMaterials[name as PointPool])
         pts.frustumCulled = false
         if (r > 0) {
           pts.visible = false
@@ -379,13 +393,13 @@ export function createVegetationPools(cap: Record<PoolName, number>, season: Sea
 
   function setPointLight(scale: number, tint = 0xffffff): void {
     // 色盤以 sRGB 指定，先轉成線性光照色；切回未染色時段也要清除舊色。
-    pointMaterial.color.setHex(tint).multiplyScalar(scale)
+    for (const m of pointList) m.color.setHex(tint).multiplyScalar(scale)
   }
 
   function dispose(): void {
     disposeFloraGeometries(geometries)
     material.dispose()
-    pointMaterial.dispose()
+    for (const m of pointList) m.dispose()
     for (const name of POOL_NAMES) {
       for (const run of meshRuns[name] ?? []) {
         run.mesh.dispose()

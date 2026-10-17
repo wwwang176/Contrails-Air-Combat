@@ -20,6 +20,7 @@ export interface GraphicsDiagnosticsSource {
   readonly terrain: () => {
     readonly object: Object3D
     readonly fieldClip: Pick<NonNullable<Terrain['fieldClip']>, 'stats' | 'setInnerRadius' | 'benchFarBake'> | null
+    readonly viewShade?: Terrain['viewShade']
   }
   /** 戰鬥與特效的分組由組裝端提供，探針不依賴各系統的生命週期。 */
   readonly groups: Readonly<Record<string, TargetPicker>>
@@ -109,6 +110,14 @@ export function createGraphicsDiagnostics(source: GraphicsDiagnosticsSource) {
 
     __fieldBake(trees = true) {
       return source.terrain().fieldClip?.benchFarBake(trees) ?? null
+    },
+
+    /** 烘進地面的林子、屋頂與遠處的點隨視角變亮暗（`viewShade.ts`）。同頁 A/B 用 */
+    __viewShade(on?: boolean): boolean | null {
+      const s = source.terrain().viewShade
+      if (s === undefined) return null
+      if (on !== undefined) s.uniforms.uViewShadeOn.value = on ? 1 : 0
+      return s.uniforms.uViewShadeOn.value > 0.5
     },
 
     /**

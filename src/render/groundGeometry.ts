@@ -18,11 +18,14 @@ export const DRAW_FLOOR = -5.5
  * 範圍不到一格時回 null。
  *
  * @param shadeAt 地色。群島用 `shade`；雷伊泰有自己的沙灘分界（`leyteGround.ts`）
+ * @param canopyAt 給了的話多一條 `canopyShare` 屬性：地色裡林相佔幾成（0～1），
+ *   著色器拿它把那一份樹冠色乘上視角係數（`viewShade.ts`）
  */
 export function buildGroundRect(
   field: HeightFieldData, c0: number, c1: number, r0: number, r1: number,
   coverAt: (x: number, z: number) => number,
   shadeAt: (h: number, cover: number, out: Color) => Color,
+  canopyAt?: (h: number, cover: number) => number,
 ): BufferGeometry | null {
   const { size, cell, data } = field
   const half = (size - 1) / 2
@@ -32,6 +35,7 @@ export function buildGroundRect(
 
   const positions = new Float32Array(nx * nz * 3)
   const colors = new Float32Array(nx * nz * 3)
+  const shares = canopyAt === undefined ? null : new Float32Array(nx * nz)
   const scratch = new Color()
 
   for (let j = 0; j < nz; j++) {
@@ -45,10 +49,12 @@ export function buildGroundRect(
       positions[v] = x
       positions[v + 1] = h
       positions[v + 2] = z
-      const c = shadeAt(h, coverAt(x, z), scratch)
+      const cover = coverAt(x, z)
+      const c = shadeAt(h, cover, scratch)
       colors[v] = c.r
       colors[v + 1] = c.g
       colors[v + 2] = c.b
+      if (shares !== null) shares[j * nx + i] = canopyAt!(h, cover)
     }
   }
 
@@ -83,6 +89,7 @@ export function buildGroundRect(
   const geo = new BufferGeometry()
   geo.setAttribute('position', new BufferAttribute(positions, 3))
   geo.setAttribute('color', new BufferAttribute(colors, 3))
+  if (shares !== null) geo.setAttribute('canopyShare', new BufferAttribute(shares, 1))
   geo.setIndex(new BufferAttribute(indices.subarray(0, k), 1))
   geo.computeVertexNormals()
   geo.computeBoundingSphere()

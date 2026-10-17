@@ -71,9 +71,10 @@ export function cardShot(
   // 燈的話，校出來的係數在遊戲裡就是錯的
   for (const l of createLights().all) scene.add(l)
 
-  // 【半徑寫死成 20 km】預設是 6 km，而外圈還會逐格往內抖 —— 量測用的距離
-  // 不該撞到那條邊界，否則量到的是「這一格剛好被抖掉了」
-  const flora = createVegetation([ONE_TREE], () => 0, { radius: 20000 })
+  // 【半徑寫死成 12 km】預設是 6 km，而外圈還會逐格往內抖 —— 量測用的距離（最遠
+  // 8 km）不該撞到那條邊界，否則量到的是「這一格剛好被抖掉了」。再大的話快取格數
+  // 超過排序鍵的上限（16,384），建植被時直接丟錯
+  const flora = createVegetation([ONE_TREE], () => 0, { radius: 12000 })
   scene.add(flora.object)
 
   const a = (azimuthDeg * Math.PI) / 180
