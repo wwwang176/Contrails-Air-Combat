@@ -66,7 +66,7 @@ export function createSurfaceAttackState(): SurfaceAttackState {
 }
 
 /** 依掛載容量而非剩餘彈數判斷，投完與補彈時仍完成同一趟離場。 */
-function usesFighterBombRun(ctx: SurfaceAttackContext, self: Aircraft): boolean {
+export function usesFighterBombRun(ctx: Pick<SurfaceAttackContext, 'ordnanceKind' | 'bombBay'>, self: Aircraft): boolean {
   return self.spec.role === 'fighter' && self.spec.diveBomber !== true
     && ctx.ordnanceKind === 'bomb' && (ctx.bombBay?.capacity ?? 0) > 0
 }

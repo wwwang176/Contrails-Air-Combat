@@ -1,5 +1,5 @@
 import { createCommandOutputState, emitAiCommand, resetCommandOutputTerrain } from './commandOutput'
-import { attackShip, createSurfaceAttackState, resetSurfaceAttack, strafeGround, type StrikeRef } from './surfaceAttack'
+import { attackShip, createSurfaceAttackState, resetSurfaceAttack, strafeGround, usesFighterBombRun, type StrikeRef } from './surfaceAttack'
 import { Vector3 } from 'three'
 import {
   alarmFactor, alarmRamp, considerThreatFrom, createSituation, evaluateEnergy,
@@ -46,9 +46,9 @@ import {
   type WingmanConfig,
 } from './wingman'
 import { rallyCommand } from './rally'
-import { createShipAim, resetGroundStrafe } from './shipAttack'
+import { createShipAim, pickShipTarget, resetGroundStrafe } from './shipAttack'
 import {
-  BOMB_PROFILE, createBombAim,
+  BOMB_PROFILE, createBombAim, resetBombAim,
 } from './bombRun'
 import type { StrikeProfile } from './strikeRun'
 import { createStrikeState } from './strikeRun'
@@ -582,6 +582,8 @@ export class AiController implements Controller {
     const period = 1 / AI_DECISION_HZ
     const reference = this.stationReference
     const raw = this.raw
+    // 掛炸彈戰鬥機攻艦可被直接威脅打斷；魚雷機、轟炸機與俯衝轟炸機維持原流程。
+    const fighterShipSelfDefence = usesFighterBombRun(this, self) && this.ships.length > 0
     this.surface.groundAttackActive = false
     this.surface.groundStrafeActive = false
     // 【投彈每步先歸零】`raw` 是長存物件，別的航路不寫這一格。不清的話
@@ -700,15 +702,20 @@ export class AiController implements Controller {
         this.targetIndex = this.order !== null ? this.order.focusIndex : -1
       }
 
-      // 【地面任務時直接威脅優先】已經取得射擊解、正在打我的那一架蓋過自由選的
-      // 目標 —— 下面的地面分支被它擋下來之後，空戰接的就是這一架
-      if (!intercepting && this.priorityGroundUnit !== null && !this.evacuating) {
+      // 地面任務與掛炸彈戰鬥機攻艦都允許直接威脅插隊；空戰應接手來襲者，而非原本自由選的目標。
+      if (!intercepting && (this.priorityGroundUnit !== null || fighterShipSelfDefence) && !this.evacuating) {
         const threat = this.threatSource
         const threatIndex = threat !== null && threatFactor(threat, self) > 0
           ? this.board?.candidates.findIndex((candidate) => candidate.aircraft === threat) ?? -1
           : -1
         const preferred = threatIndex >= 0 ? this.board?.candidates[threatIndex] : undefined
-        if (preferred !== undefined && preferred.alive) {
+        const me = this.board?.candidates[this.selfIndex]
+        // 只有原本能攻擊的敵艦才啟用攻艦自衛；共用選船規則，不因友船、沉船或超距船改寫空戰命令。
+        const canInterrupt = this.priorityGroundUnit !== null
+          || (threatIndex >= 0 && me !== undefined && pickShipTarget(
+            self.state.position, me.team, this.ships, this.shipAim, self.state.velocity, this.priorityShipClass,
+          ))
+        if (preferred !== undefined && preferred.alive && canInterrupt) {
           this.target = preferred.aircraft
           this.targetIndex = threatIndex
           if (this.board !== null && this.selfIndex >= 0) {
@@ -721,6 +728,8 @@ export class AiController implements Controller {
     // 攔截期間不接受一般集火／集合改派；撤離與巡航在上面已排除。
     const intercepting = this.convoyIntercept.phase !== 'none'
     const order = intercepting ? null : this.order
+    const directThreat = this.threatSource !== null
+      && threatFactor(this.threatSource, self) > 0
 
     // ── 轟炸機的對艦排在空中接戰與站位之前 ────────────────────
     //
@@ -743,6 +752,7 @@ export class AiController implements Controller {
     // 地面目標打光之後，下面「沒有目標」那一支的對艦仍然接得住
     if (!intercepting && this.bombBay !== null && this.bombBay.capacity > 0
       && this.priorityGroundUnit === null && !this.evacuating
+      && !(fighterShipSelfDefence && directThreat)
       && attackShip(this.surface, this, self, decide, dt, raw, this.aim, this.burstOpen)) {
       // 與地面路徑同一個理由：空層鎖不沿用到對艦航路之後
       this.resetAirTactics()
@@ -756,8 +766,6 @@ export class AiController implements Controller {
     // 逐字走原路徑。敵機已經取得直接射擊解時，`threatFactor > 0` 與僚機的
     // LEVEL_SELF_DEFENCE 使用同一定義，先讓自衛插隊，不能為任務目標白白送命。
     const priorityGround = this.evacuating || intercepting ? null : this.priorityGroundUnit
-    const directThreat = this.threatSource !== null
-      && threatFactor(this.threatSource, self) > 0
     if (priorityGround !== null && !directThreat
       && strafeGround(this.surface, this, self, decide, raw, this.aim, this.burstOpen, priorityGround)) {
       // 地面航次不沿用上一個空中目標的跟蹤／空層狀態；但 `target` 與指派板仍
@@ -800,7 +808,8 @@ export class AiController implements Controller {
         )
       } else if (this.airOnly && !this.evacuating && this.escortStation(self, decide, raw)) {
         // 【護航的長機守在友軍轟炸機旁】`raw` 已經寫滿。沒有友軍轟炸機時落到下面的平飛
-      } else if (!this.evacuating && attackShip(this.surface, this, self, decide, dt, raw, this.aim, this.burstOpen)) {
+      } else if (!this.evacuating && !(fighterShipSelfDefence && directThreat)
+        && attackShip(this.surface, this, self, decide, dt, raw, this.aim, this.burstOpen)) {
         // 【對艦掃射排在站位之後、集合點之前】
         //
         // 站位在前：僚機沒有空中目標時該回編隊，不是各自跑去打船 ——
@@ -854,6 +863,8 @@ export class AiController implements Controller {
 
     // 空戰（包含直接威脅插隊）中止對地航次；之後重新取得地面目標會從進場開始。
     resetGroundStrafe(this.surface.groundStrafe)
+    // 投彈解也一併清掉，避免威脅解除的非決策拍沿用中斷前的落點與投放指令。
+    resetBombAim(this.bombAim)
 
     // ── 240 Hz：便宜的運動學 ──────────────────────────────
     // 【意圖是 10 Hz，但它引用的幾何不能是 10 Hz 的舊值】高速近距離時
