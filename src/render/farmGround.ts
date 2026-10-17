@@ -12,6 +12,7 @@ import type { Season } from './season'
 import type { HeightFieldData } from '../world/heightfield'
 import { SCAR_ATLAS } from './battleScars'
 import { createTerrainBatch } from './terrainBatch'
+import { matteGround } from './matteGround'
 
 /**
  * 把農地的高度場切成 low-poly 的地面。
@@ -126,6 +127,7 @@ diffuseColor.rgb = fieldColorAt(vFarmWorld.xz);`)
   material.customProgramCacheKey = () => 'farm-fields:' + season
     + (site === undefined ? '' : ':site') + (site?.scars === undefined ? '' : ':scars')
     + (candidates === undefined ? '' : ':cand') + (open ? ':open' : '')
+  matteGround(material)
 }
 
 /** `open`：田只圍著村，其餘是空地（`fields.ts` 的 `FIELD_REACH`） */

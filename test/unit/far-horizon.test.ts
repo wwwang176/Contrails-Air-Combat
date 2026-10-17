@@ -80,9 +80,10 @@ describe('遠景環', () => {
 
   it('與細節地形用同一支田的著色器', () => {
     const mat = h.mesh.material as unknown as {
-      onBeforeCompile: (s: { vertexShader: string; fragmentShader: string }) => void
+      onBeforeCompile: (s: { uniforms: object; vertexShader: string; fragmentShader: string }) => void
     }
     const shader = {
+      uniforms: {},
       vertexShader: '#include <common>\n#include <begin_vertex>',
       fragmentShader: '#include <common>\n#include <color_fragment>',
     }

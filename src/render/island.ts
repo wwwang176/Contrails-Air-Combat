@@ -7,6 +7,7 @@ import type { IslandDesc } from '../world/archipelago'
 import { buildGroundRect } from './groundGeometry'
 import { createTerrainBatch } from './terrainBatch'
 import { VIEW_SHADE_GLSL, ViewShadeRow, type ViewShade } from './viewShade'
+import { matteGround } from './matteGround'
 export { buildGroundRect, DRAW_FLOOR } from './groundGeometry'
 
 /**
@@ -122,6 +123,7 @@ diffuseColor.rgb += vCanopyShare * vec3(${CANOPY.r.toFixed(4)}, ${CANOPY.g.toFix
   * (viewShade(${ViewShadeRow.Ground.toFixed(1)}, normalize(cameraPosition - vIslandWorld)) - 1.0);`)
   }
   m.customProgramCacheKey = () => 'island-ground-view'
+  matteGround(m)
   return m
 }
 

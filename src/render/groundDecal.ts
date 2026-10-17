@@ -2,6 +2,7 @@ import {
   BufferAttribute, BufferGeometry, Color, Mesh, MeshStandardMaterial,
 } from 'three'
 import type { HeightSampler } from '../world/river'
+import { matteGround } from './matteGround'
 
 /**
  * # 鋪在地表上的一塊：村鎮的地面、露天礦
@@ -43,11 +44,14 @@ export function terrainGrid(field: { readonly size: number; readonly cell: numbe
 /** 高出地面多少，m。整片平移，不影響共平面 */
 export const DECAL_LIFT = 0.12
 
+/** 【不算鏡面】貼片是地面的一部分，與底下的地同一套（`matteGround.ts`） */
 function material(transparent: boolean): MeshStandardMaterial {
-  return new MeshStandardMaterial({
+  const m = new MeshStandardMaterial({
     vertexColors: true, roughness: 0.95, transparent,
     polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2,
   })
+  matteGround(m)
+  return m
 }
 
 /** 一塊要鋪的範圍：外接盒、哪些細格要鋪、每個頂點的顏色 */

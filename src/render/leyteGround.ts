@@ -8,6 +8,7 @@ import { FIELD_HALF, LEYTE_ROADS, ROAD_WIDTH, SAND_TOP, farHeight } from '../wor
 import { buildGroundRect, DRAW_FLOOR } from './groundGeometry'
 import { createTerrainBatch } from './terrainBatch'
 import { VIEW_SHADE_GLSL, ViewShadeRow, type ViewShade } from './viewShade'
+import { matteGround } from './matteGround'
 
 /**
  * # 雷伊泰的地面
@@ -349,6 +350,7 @@ function createGroundMaterial(
   // 【快取鍵】注入的程式要有自己的鍵，否則 three 會拿別的 MeshStandardMaterial
   // 編好的程式來用 —— 症狀是路不見了，或別的東西上面畫出一條路
   m.customProgramCacheKey = () => 'leyte-ground-road-canopy-view'
+  matteGround(m)
   return m
 }
 

@@ -10,6 +10,7 @@ import { SCAR_ATLAS } from './battleScars'
 import type { Season } from './season'
 import { bakedShadeScale } from './buildingBake'
 import { VIEW_SHADE_GLSL, ViewShadeRow, type ViewShade } from './viewShade'
+import { matteGround } from './matteGround'
 
 /**
  * # 田色 clipmap
@@ -692,6 +693,7 @@ vec3 horizonColourAt(vec2 qH, vec2 dHx, vec2 dHy, float eH, vec2 qB, vec2 dBx, v
     material.customProgramCacheKey = () =>
       `field-clipmap:${opts.season}:${opts.site === undefined ? '' : 'site'}:${cand === undefined ? '' : 'cand'}`
       + `:${opts.open === true ? 'open' : ''}:${horizon === null ? '' : 'horizon'}:${id}:${perPixel ? 'pixel' : 'vertex'}`
+    matteGround(material)
     return material
   }
   const id = instances++
@@ -754,6 +756,8 @@ ${VIEW_SHADE_GLSL}`)
 diffuseColor.rgb *= mix(vec3(1.0), viewShade(${ViewShadeRow.Ground.toFixed(1)}, normalize(cameraPosition - vBeyondWorld)), vBeyondTree);`)
       }
       m.customProgramCacheKey = () => `beyond-far:${id}`
+      // 上面整個換掉了貼片原本的掛鉤，地面不算鏡面那一層要重掛
+      matteGround(m)
       m.needsUpdate = true
     },
     update(camX, camZ) {

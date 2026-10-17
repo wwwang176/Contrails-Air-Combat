@@ -4,6 +4,7 @@ import { PROP_DISC_RENDER_ORDER } from '../render/geometry/assembly'
 import { SKY_RENDER_ORDER } from '../render/sky'
 import { CULL } from '../render/cullRuns'
 import { OCEAN_CULL } from '../render/oceanGeometry'
+import { GROUND_SPECULAR } from '../render/matteGround'
 import type { Terrain } from '../render/terrain'
 
 type TargetPicker = () => readonly Object3D[]
@@ -110,6 +111,12 @@ export function createGraphicsDiagnostics(source: GraphicsDiagnosticsSource) {
 
     __fieldBake(trees = true) {
       return source.terrain().fieldClip?.benchFarBake(trees) ?? null
+    },
+
+    /** 地面的鏡面反射倍率（`matteGround.ts`），0 = 不算、1 = 標準材質原本的。同頁 A/B 用 */
+    __groundSpecular(v?: number): number {
+      if (v !== undefined) GROUND_SPECULAR.value = v
+      return GROUND_SPECULAR.value
     },
 
     /**
