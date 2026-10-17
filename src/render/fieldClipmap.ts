@@ -207,8 +207,13 @@ export interface FieldClipmapStats {
 }
 
 export interface FieldClipmap {
-  /** 掛到地面與遠景環的材質 */
+  /** 掛到地面的材質 */
   readonly material: MeshStandardMaterial
+  /**
+   * 掛到遠景環的材質：與 `material` 同一支著色器，視角係數逐像素查（遠景環一格將近
+   * 100 km，頂點內插不準）
+   */
+  readonly horizonMaterial: MeshStandardMaterial
   readonly stats: FieldClipmapStats
   /**
    * 烘進貼圖的平面，畫在田色上面，依加入的次序。`position` 的 xz 是世界座標
@@ -592,95 +597,110 @@ vec3 horizonColourAt(vec2 qH, vec2 dHx, vec2 dHy, float eH, vec2 qB, vec2 dBx, v
       t = mix(t, hc, tF);
       ts = mix(ts, hs, tF);
     }`
-  const material = new MeshStandardMaterial({ flatShading: true, roughness: ROUGHNESS })
-  material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
-    Object.assign(shader.uniforms, U, candUniforms(), opts.viewShade.uniforms)
-    // 【視角係數逐頂點查】地面的三角形一格 80 m，份量只出現在近窗外（2 km 以遠），那裡
-    // 一個三角形裡視線方向幾乎不變；逐像素查兩次表是整段裡最貴的一步
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>
-varying vec3 vFarmWorld;
-varying vec3 vViewKTree;
-varying vec3 vViewKRoof;
-${VIEW_SHADE_GLSL}`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>
-vFarmWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
-{
-  vec3 toCam = normalize(cameraPosition - vFarmWorld);
-  vViewKTree = viewShade(${ViewShadeRow.Ground.toFixed(1)}, toCam);
-  vViewKRoof = viewShade(${ViewShadeRow.House.toFixed(1)}, toCam);
-}`)
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>
-varying vec3 vFarmWorld;
-varying vec3 vViewKTree;
-varying vec3 vViewKRoof;
-uniform sampler2D uNear; uniform vec2 uNearCentre; uniform float uNearSpan;
-uniform sampler2D uFar; uniform sampler2D uFarS; uniform vec2 uFarCentre; uniform float uFarSpan;
-uniform vec2 uCam; uniform float uInner; uniform float uInnerBand; uniform float uEdgeBlend;
-uniform float uBypass;
-${horizonDecl}
-${scaleGlsl}
-${glsl}
-${horizonColour}`)
-      .replace('#include <color_fragment>', `
-{
-  vec2 w = vFarmWorld.xz;
-  // 【導數在分支外算】fract 在 0↔1 交界會讓導數爆掉、mip 掉到最小那一級而畫出
-  // 一條線，所以用 textureGrad 配 world/span 的導數；導數指令不能放進分支
-  vec2 qN = w / uNearSpan;
-  vec2 qF = w / uFarSpan;
-  vec2 dNx = dFdx(qN); vec2 dNy = dFdy(qN);
-  vec2 dFx = dFdx(qF); vec2 dFy = dFdy(qF);${horizonGrad}
-  float eN = max(abs(w.x - uNearCentre.x), abs(w.y - uNearCentre.y)) / (0.5 * uNearSpan);
-  float eF = max(abs(w.x - uFarCentre.x), abs(w.y - uFarCentre.y)) / (0.5 * uFarSpan);
-  float tIn = uInner <= 0.0 ? 1.0 : smoothstep(uInner - uInnerBand, uInner, distance(w, uCam));
-  bool proc = uBypass > 0.5 || tIn < 1.0${farOutProc};
-  bool tex = uBypass < 0.5 && tIn > 0.0${farOutTex};
-  vec3 c = vec3(0.0);
-  // 樹冠、屋頂的亮度份量（乘過 VIEW_BAKE_SCALE，與第二張貼圖同一個單位）。每一步與 c 同樣混
-  vec2 vs = vec2(0.0);
-  // 算式：旁路、內圈；沒有最外層時還有遠窗外。近窗外畫遠處的樣子，與遠圖烘的相同
-  fieldFar = eN >= 1.0 ? 1.0 : 0.0;
-  if (proc) {
-    c = fieldColorAt(w);
-    vs = vec2(fieldTree * VIEW_BAKE_SCALE.x, 0.0);
-  }
-  // 【內圈疊回烘進貼圖的平面】算式裡沒有街、鎮地面、礦坑；貼圖的透明度記著它們。
-  // 近圖外（內圈可以伸出近窗）讀遠圖。
-  // 【不是 mix(c, rgb, a)】過濾過的 rgb 本來就是田色與疊圖照覆蓋率混好的，再乘一次
-  // 覆蓋率，疊圖的邊會淡掉；有兩成五以上就整個用貼圖的顏色
-  if (proc && uBypass < 0.5 && eF < 1.0) {
-    vec4 o = eN < 1.0 ? textureGrad(uNear, fract(qN), dNx, dNy) : textureGrad(uFar, fract(qF), dFx, dFy);
-    vec2 os = eN < 1.0 ? vec2(0.0) : textureGrad(uFarS, fract(qF), dFx, dFy).rg;
-    float k = clamp(o.a * 4.0, 0.0, 1.0);
-    c = mix(c, o.rgb, k);
-    vs = mix(vs, os, k);
-  }
-  if (tex) {${texBlock}
-    c = proc ? mix(c, t, tIn) : t;
-    vs = proc ? mix(vs, ts, tIn) : ts;
-  }
-  // 【樹冠與屋頂隨視角變亮暗】份量除以這一格的亮度就是那一份佔的比例，那一份乘上
-  // 視角係數。比例是亮度的，變化照整格的色相分配（見檔頭）
-  // 【不分支】份量為 0 的像素算出來乘 1。Iris Xe 上包一層 if 反而多花 0.2 ms
-  //（農地 700 m 平視，地面佔滿畫面）
+  /**
+   * 地面與遠景環的材質。兩者同一支著色器，差在視角係數在哪裡查：
+   *
+   * - 地面（`perPixel = false`）**逐頂點**：三角形一格 80 m，份量只出現在近窗外（2 km
+   *   以遠），那裡一個三角形裡視線方向幾乎不變；逐像素查兩次表是整段裡最貴的一步
+   * - 遠景環（`perPixel = true`）**逐像素**：一格將近 100 km，頂點內插的係數在交界與地面
+   *   差兩成以上。它只畫在 15 km 外，像素不多
+   */
+  const groundMaterial = (perPixel: boolean): MeshStandardMaterial => {
+    const material = new MeshStandardMaterial({ flatShading: true, roughness: ROUGHNESS })
+    const kVaryings = perPixel ? '' : '\nvarying vec3 vViewKTree;\nvarying vec3 vViewKRoof;'
+    material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
+      Object.assign(shader.uniforms, U, candUniforms(), opts.viewShade.uniforms)
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>
+  varying vec3 vFarmWorld;${kVaryings}
+  ${perPixel ? '' : VIEW_SHADE_GLSL}`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+  vFarmWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;${perPixel ? '' : `
   {
-    vec2 share = vs / VIEW_BAKE_SCALE / max(dot(c, VIEW_BAKE_LUM), 1.0e-5);
-    float sTree = clamp(share.x, 0.0, 1.0);
-    float sRoof = clamp(share.y, 0.0, 1.0 - sTree);
-    c *= 1.0 + (vViewKTree - 1.0) * sTree + (vViewKRoof - 1.0) * sRoof;
-  }
-  diffuseColor.rgb = c;
-}`)
+    vec3 toCam = normalize(cameraPosition - vFarmWorld);
+    vViewKTree = viewShade(${ViewShadeRow.Ground.toFixed(1)}, toCam);
+    vViewKRoof = viewShade(${ViewShadeRow.House.toFixed(1)}, toCam);
+  }`}`)
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>
+  varying vec3 vFarmWorld;${kVaryings}
+  ${perPixel ? VIEW_SHADE_GLSL : ''}
+  uniform sampler2D uNear; uniform vec2 uNearCentre; uniform float uNearSpan;
+  uniform sampler2D uFar; uniform sampler2D uFarS; uniform vec2 uFarCentre; uniform float uFarSpan;
+  uniform vec2 uCam; uniform float uInner; uniform float uInnerBand; uniform float uEdgeBlend;
+  uniform float uBypass;
+  ${horizonDecl}
+  ${scaleGlsl}
+  ${glsl}
+  ${horizonColour}`)
+        .replace('#include <color_fragment>', `
+  {
+    vec2 w = vFarmWorld.xz;
+    // 【導數在分支外算】fract 在 0↔1 交界會讓導數爆掉、mip 掉到最小那一級而畫出
+    // 一條線，所以用 textureGrad 配 world/span 的導數；導數指令不能放進分支
+    vec2 qN = w / uNearSpan;
+    vec2 qF = w / uFarSpan;
+    vec2 dNx = dFdx(qN); vec2 dNy = dFdy(qN);
+    vec2 dFx = dFdx(qF); vec2 dFy = dFdy(qF);${horizonGrad}
+    float eN = max(abs(w.x - uNearCentre.x), abs(w.y - uNearCentre.y)) / (0.5 * uNearSpan);
+    float eF = max(abs(w.x - uFarCentre.x), abs(w.y - uFarCentre.y)) / (0.5 * uFarSpan);
+    float tIn = uInner <= 0.0 ? 1.0 : smoothstep(uInner - uInnerBand, uInner, distance(w, uCam));
+    bool proc = uBypass > 0.5 || tIn < 1.0${farOutProc};
+    bool tex = uBypass < 0.5 && tIn > 0.0${farOutTex};
+    vec3 c = vec3(0.0);
+    // 樹冠、屋頂的亮度份量（乘過 VIEW_BAKE_SCALE，與第二張貼圖同一個單位）。每一步與 c 同樣混
+    vec2 vs = vec2(0.0);
+    // 算式：旁路、內圈；沒有最外層時還有遠窗外。近窗外畫遠處的樣子，與遠圖烘的相同
+    fieldFar = eN >= 1.0 ? 1.0 : 0.0;
+    if (proc) {
+      c = fieldColorAt(w);
+      vs = vec2(fieldTree * VIEW_BAKE_SCALE.x, 0.0);
+    }
+    // 【內圈疊回烘進貼圖的平面】算式裡沒有街、鎮地面、礦坑；貼圖的透明度記著它們。
+    // 近圖外（內圈可以伸出近窗）讀遠圖。
+    // 【不是 mix(c, rgb, a)】過濾過的 rgb 本來就是田色與疊圖照覆蓋率混好的，再乘一次
+    // 覆蓋率，疊圖的邊會淡掉；有兩成五以上就整個用貼圖的顏色
+    if (proc && uBypass < 0.5 && eF < 1.0) {
+      vec4 o = eN < 1.0 ? textureGrad(uNear, fract(qN), dNx, dNy) : textureGrad(uFar, fract(qF), dFx, dFy);
+      vec2 os = eN < 1.0 ? vec2(0.0) : textureGrad(uFarS, fract(qF), dFx, dFy).rg;
+      float k = clamp(o.a * 4.0, 0.0, 1.0);
+      c = mix(c, o.rgb, k);
+      vs = mix(vs, os, k);
+    }
+    if (tex) {${texBlock}
+      c = proc ? mix(c, t, tIn) : t;
+      vs = proc ? mix(vs, ts, tIn) : ts;
+    }
+    // 【樹冠與屋頂隨視角變亮暗】份量除以這一格的亮度就是那一份佔的比例，那一份乘上
+    // 視角係數。比例是亮度的，變化照整格的色相分配（見檔頭）
+    // 【不分支】份量為 0 的像素算出來乘 1。Iris Xe 上包一層 if 反而多花 0.2 ms
+    //（農地 700 m 平視，地面佔滿畫面）
+    {${perPixel ? `
+      vec3 toCam = normalize(cameraPosition - vFarmWorld);
+      vec3 kTree = viewShade(${ViewShadeRow.Ground.toFixed(1)}, toCam);
+      vec3 kRoof = viewShade(${ViewShadeRow.House.toFixed(1)}, toCam);` : `
+      vec3 kTree = vViewKTree;
+      vec3 kRoof = vViewKRoof;`}
+      vec2 share = vs / VIEW_BAKE_SCALE / max(dot(c, VIEW_BAKE_LUM), 1.0e-5);
+      float sTree = clamp(share.x, 0.0, 1.0);
+      float sRoof = clamp(share.y, 0.0, 1.0 - sTree);
+      c *= 1.0 + (kTree - 1.0) * sTree + (kRoof - 1.0) * sRoof;
+    }
+    diffuseColor.rgb = c;
+  }`)
+    }
+    material.customProgramCacheKey = () =>
+      `field-clipmap:${opts.season}:${opts.site === undefined ? '' : 'site'}:${cand === undefined ? '' : 'cand'}`
+      + `:${opts.open === true ? 'open' : ''}:${horizon === null ? '' : 'horizon'}:${id}:${perPixel ? 'pixel' : 'vertex'}`
+    return material
   }
   const id = instances++
-  material.customProgramCacheKey = () =>
-    `field-clipmap:${opts.season}:${opts.site === undefined ? '' : 'site'}:${cand === undefined ? '' : 'cand'}`
-    + `:${opts.open === true ? 'open' : ''}:${horizon === null ? '' : 'horizon'}:${id}`
+  const material = groundMaterial(false)
+  const horizonMaterial = groundMaterial(true)
 
   return {
     material,
+    horizonMaterial,
     stats,
     addOverlay(geometry, toNear, textured = false) {
       const mesh = new Mesh(geometry, textured ? texturedOverlayMat : overlayMat)
@@ -798,6 +818,7 @@ diffuseColor.rgb *= mix(vec3(1.0), viewShade(${ViewShadeRow.Ground.toFixed(1)}, 
       texturedOverlayMat.dispose()
       quadGeo.dispose()
       material.dispose()
+      horizonMaterial.dispose()
     },
   }
 }

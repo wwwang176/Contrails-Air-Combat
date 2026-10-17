@@ -1,4 +1,4 @@
-import type { Mesh } from 'three'
+import { Color, type Mesh } from 'three'
 import { FloraKind, pushFlora, type FloraSource } from '../core/floraBuffer'
 import { hash2 } from '../core/hash'
 import { valueNoise } from './fields'
@@ -43,6 +43,13 @@ const GRID = 20
  * 洛伊納是晚秋
  */
 export const FOREST_GROUND = canopyColor(FLORA_COLORS.lateAutumn.broadLeaf).getHex()
+
+/** 色碼換成線性之後的亮度：貼片的頂點色由 `Color.setHex` 換成線性（`groundDecal.ts`） */
+function linearLum(hex: number): number {
+  const c = new Color(hex)
+  return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+}
+const FOREST_LUM = linearLum(FOREST_GROUND)
 /**
  * 地面的草甸色只鋪河漫灘（與小河的草甸）寬度靠河的這個比例；外面除了林地是
  * 田色。鋪滿的話從空中看是一條很寬的色帶
@@ -247,11 +254,14 @@ export function createFloodplain(lines: readonly WaterLine[]): Floodplain {
             const f = cover(x, z)
             return 1 - (1 - edgeFade(hitRel / GROUND_SHARE)) * (1 - f)
           },
-          // 顏色裡林地佔的那一份（與 colorAt 的混色比例相同）
+          // 顏色的亮度有幾成來自林地：混色比例 × 林地色的亮度 ÷ 混好的顏色的亮度（都是
+          // 線性）。草甸比林地亮，直接給混色比例的話林地那一份會多算一半
           treeAt: (x: number, z: number) => {
             const f = cover(x, z)
             const a = 1 - (1 - edgeFade(hitRel / GROUND_SHARE)) * (1 - f)
-            return a > 0 ? f / a : 0
+            if (a <= 0 || f <= 0) return 0
+            const mixed = linearLum(mixHex(meadow, FOREST_GROUND, f / a))
+            return mixed > 0 ? Math.min(1, ((f / a) * FOREST_LUM) / mixed) : 0
           },
         })),
         {

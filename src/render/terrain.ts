@@ -303,7 +303,7 @@ function createInlandTerrain(
     innerRadius: gfx.fieldInner, viewShade,
   })
   if (clipmap !== null) {
-    horizon.mesh.material = clipmap.material
+    horizon.mesh.material = clipmap.horizonMaterial
     ground.setMaterial(clipmap.material)
   }
   const groundHaze = { value: 0 }

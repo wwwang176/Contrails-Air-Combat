@@ -180,3 +180,32 @@ describe('地面網格', () => {
     mesh.geometry.dispose()
   })
 })
+
+describe('林地的樹冠佔比（viewShade）', () => {
+  /**
+   * 【佔的是亮度，不是混色比例】烘圖把頂點的 `viewShade.x` 乘上整個顏色的亮度當成樹冠份量。
+   * 草甸比林地亮，給混色比例的話混色那一圈的樹冠份量多算一半：迎光時草甸跟著變暗
+   */
+  it('每個頂點：佔比 × 顏色亮度 = 混色比例 × 林地色亮度', () => {
+    const mesh = fp.buildGround((): number => 0, 5000)
+    const col = mesh.geometry.getAttribute('color') as BufferAttribute
+    const share = mesh.geometry.getAttribute('viewShade') as BufferAttribute
+    const lin = (hex: number): Color => new Color(hex)
+    const lum = (c: Color): number => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+    const forest = lin(FOREST_GROUND)
+    const meadowS = new Color(MEADOW).convertLinearToSRGB()
+    const forestS = new Color(FOREST_GROUND).convertLinearToSRGB()
+    let mixed = 0
+    for (let i = 0; i < col.count; i++) {
+      const c = new Color(col.getX(i), col.getY(i), col.getZ(i))
+      // 由 sRGB 的綠色通道反推混色比例（mixHex 在色碼上混）
+      const s = c.clone().convertLinearToSRGB()
+      const t = (s.g - meadowS.g) / (forestS.g - meadowS.g)
+      if (t < 0.05 || t > 0.95) continue
+      mixed++
+      expect(share.getX(i) * lum(c)).toBeCloseTo(t * lum(forest), 2)
+    }
+    expect(mixed).toBeGreaterThan(50)
+    mesh.geometry.dispose()
+  })
+})

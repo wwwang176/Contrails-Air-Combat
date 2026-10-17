@@ -112,3 +112,32 @@ describe('田色 clipmap 的遠處', () => {
     expect(frag).not.toContain('horizonColourAt')
   })
 })
+
+describe('視角係數在哪裡查', () => {
+  /**
+   * 【遠景環逐像素】遠景環一格將近 100 km，頂點內插的係數在與地面的交界差兩成以上 ——
+   * 林子在交界跳一階。地面一格 80 m，逐頂點就夠，省下逐像素查表的成本
+   */
+  it('地面在頂點著色器查、遠景環在片段著色器查', () => {
+    const clip = createFieldClipmap(RENDERER, {
+      season: 'summer', near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR, horizon: FIELD_CLIP_HORIZON, viewShade: SHADE,
+    })
+    const run = (m: typeof clip.material): { vert: string, frag: string } => {
+      const shader = {
+        uniforms: {} as Record<string, { value: unknown }>,
+        vertexShader: ShaderLib.standard.vertexShader,
+        fragmentShader: ShaderLib.standard.fragmentShader,
+      }
+      m.onBeforeCompile(shader as never, undefined as never)
+      return { vert: shader.vertexShader, frag: shader.fragmentShader }
+    }
+    const ground = run(clip.material)
+    const ring = run(clip.horizonMaterial)
+    expect(ground.vert).toContain('vViewKTree = viewShade(')
+    expect(ground.frag).not.toContain('viewShade(')
+    expect(ring.vert).not.toContain('viewShade(')
+    expect(ring.frag).toContain('vec3 kTree = viewShade(')
+    expect(clip.material.customProgramCacheKey()).not.toBe(clip.horizonMaterial.customProgramCacheKey())
+    clip.dispose()
+  })
+})
