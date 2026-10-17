@@ -4,16 +4,18 @@ import { createFieldClipmap, outerFades, RECENTRE_FRACTION } from '../../src/ren
 import {
   FIELD_CLIP_BACKDROP, FIELD_CLIP_FAR, FIELD_CLIP_HORIZON, FIELD_CLIP_NEAR,
 } from '../../src/render/terrain'
+import { createViewShade } from '../../src/render/viewShade'
 
 /** 建構時只問非等向的上限；烘圖要到 `update` 才碰 GL */
 const RENDERER = { capabilities: { getMaxAnisotropy: () => 1 } } as unknown as WebGLRenderer
+const SHADE = createViewShade('summer', { broad: 1, cone: 0, bush: 0 })
 
 /** 地面材質的片段著色器與 uniform（跑一次它的 onBeforeCompile） */
 function compiled(horizon: boolean, backdrop = false): {
   frag: string, uniforms: Record<string, { value: unknown }>
 } {
   const clip = createFieldClipmap(RENDERER, {
-    season: 'summer', near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR,
+    season: 'summer', near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR, viewShade: SHADE,
     ...(horizon ? { horizon: FIELD_CLIP_HORIZON } : {}),
     ...(backdrop ? { backdrop: FIELD_CLIP_BACKDROP } : {}),
   })
@@ -36,7 +38,7 @@ describe('田色 clipmap 的遠處', () => {
     const { frag, uniforms } = compiled(true)
     expect(frag).toContain('bool proc = uBypass > 0.5 || tIn < 1.0;')
     expect(frag).toContain('bool tex = uBypass < 0.5 && tIn > 0.0;')
-    expect(frag).toContain('horizonColourAt(qH, dHx, dHy, eH)')
+    expect(frag).toContain('horizonColourAt(qH, dHx, dHy, eH, hs)')
     // 平均色讀最小一級 mipmap：2048² 是第 11 級
     expect(frag).toContain('textureLod(uHor, vec2(0.5), uHorTop)')
     expect(uniforms['uHorTop']!.value).toBe(Math.log2(FIELD_CLIP_HORIZON.size))
@@ -63,7 +65,7 @@ describe('田色 clipmap 的遠處', () => {
       render: () => {},
     } as unknown as WebGLRenderer
     const clip = createFieldClipmap(renderer, {
-      season: 'summer', near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR, horizon: FIELD_CLIP_HORIZON,
+      season: 'summer', near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR, horizon: FIELD_CLIP_HORIZON, viewShade: SHADE,
     })
     clip.update(0, 0)
     expect(clip.stats.recentres).toBe(3)
@@ -96,10 +98,10 @@ describe('田色 clipmap 的遠處', () => {
   /** 【有遠景層】最外層外讀遠景層，平均色改取遠景層的，兩個交界以鏡頭為圓心 */
   it('有遠景層：最外層外讀遠景層，平均色取它的', () => {
     const { frag, uniforms } = compiled(true, true)
-    expect(frag).toContain('if (eH >= 1.0) return backdropColourAt(qB, dBx, dBy, rCam);')
+    expect(frag).toContain('if (eH >= 1.0) return backdropColourAt(qB, dBx, dBy, rCam, hs);')
     expect(frag).toContain('textureLod(uBack, vec2(0.5), uBackTop)')
     expect(frag).toContain('smoothstep(uHorFade.x, uHorFade.y, rCam) * (1.0 - keep)')
-    expect(frag).toContain('horizonColourAt(qH, dHx, dHy, eH, qB, dBx, dBy, rCam)')
+    expect(frag).toContain('horizonColourAt(qH, dHx, dHy, eH, qB, dBx, dBy, rCam, hs)')
     expect(uniforms['uBackTop']!.value).toBe(Math.log2(FIELD_CLIP_BACKDROP.size))
   })
 

@@ -175,12 +175,14 @@ function linesGlsl(name: string, lines: readonly ScarLine[], cells: readonly [nu
       vec2 q = vec2(across / w + 0.5, fract((${name}_META[i].x + along) / w));
       vec4 t = scarTexel(int(${name}_META[i].z), q, w, px);
       col = mix(col, t.rgb, t.a);
+      fieldTree *= 1.0 - t.a;
     }
   }`
 }
 
 /**
- * 接在 `fieldColorAt` 的道路之後（`siteGlsl`）。用的變數：`world`、`px`、`col`。
+ * 接在 `fieldColorAt` 的道路之後（`siteGlsl`）。用的變數：`world`、`px`、`col`、`fieldTree`
+ * （每蓋一層就照它的不透明度把樹冠份量衰減掉，見 `fieldShaders.ts`）。
  * 輔助函式 `scarTexel` 由 `SCARS_FN` 提供，要放在 `fieldColorAt` 之前。
  */
 export function scarsGlsl(s: BattleScars): string {
@@ -199,6 +201,7 @@ export function scarsGlsl(s: BattleScars): string {
       vec2 q = vec2(cos(ang) * d.x - sin(ang) * d.y, sin(ang) * d.x + cos(ang) * d.y) / (2.0 * r) + 0.5;
       vec4 t = scarTexel(8 + int(h >> 30u), q, 2.0 * r, px);
       col = mix(col, t.rgb, t.a);
+      fieldTree *= 1.0 - t.a;
     }
   }`
   const mines = s.minefields.length === 0 ? '' : `  // 雷區：在燒田之上、履帶痕之下。有向矩形裡成列的坑（沿長邊排，相鄰兩列錯開半個坑距）與邊緣
@@ -225,9 +228,12 @@ export function scarsGlsl(s: BattleScars): string {
       float dd = length(g * vec2(${f(MINE_ROW)}, ${f(MINE_PITCH)}));
       float dotA = (1.0 - smoothstep(${f(MINE_DOT_R * 0.7)}, ${f(MINE_DOT_R * 1.2)}, dd)) * dotFade;
       col = mix(col, vec3(0.16, 0.14, 0.11), 0.7 * dotA);
+      fieldTree *= 1.0 - 0.7 * dotA;
       float along = eu < ev ? v : u;
       float dash = mix(0.5, step(0.5, fract(along / ${f(MINE_DASH)})), 1.0 - smoothstep(${f(MINE_DASH_FADE[0])}, ${f(MINE_DASH_FADE[1])}, px));
-      col = mix(col, vec3(0.2, 0.17, 0.12), 0.75 * dash * bandCoverage(e, ${f(MINE_EDGE_HALF)}, px));
+      float wire = 0.75 * dash * bandCoverage(e, ${f(MINE_EDGE_HALF)}, px);
+      col = mix(col, vec3(0.2, 0.17, 0.12), wire);
+      fieldTree *= 1.0 - wire;
     }
   }
 `
@@ -278,6 +284,7 @@ ${density}
         vec2 q = vec2(cos(ang) * d.x - sin(ang) * d.y, sin(ang) * d.x + cos(ang) * d.y) / (2.0 * r) + 0.5;
         vec4 t = scarTexel(int(k >> 29u), q, 2.0 * r, px);
         col = mix(col, t.rgb, t.a);
+        fieldTree *= 1.0 - t.a;
       }
     }
   }

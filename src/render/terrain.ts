@@ -20,6 +20,8 @@ import {
   OUTER_JITTER, outerFor, POINT_NEAR, TILE_SIZE,
 } from './vegetationPolicy'
 import { createVegetation } from './vegetation'
+import { createViewShade } from './viewShade'
+import { CONIFER_SHARE } from './fields'
 import {
   farmHedgeFlora, farmWoodFlora, openHedgeFloraFor, openWoodFloraFor, steppeBeltFloraFor,
 } from './flora'
@@ -290,12 +292,15 @@ function createInlandTerrain(
   const open = dressing === undefined && !steppe
   const horizon = createFarHorizon(season, open)
   const ground = createFarmGround(farm.field, season, site, open)
+  // 【林子與屋頂隨視角變亮暗】烘進地面的與植被的點共用一份係數，換時段一起換。
+  // 地面林子的樹種比例照樹林田的針葉佔比
+  const viewShade = createViewShade(season, { broad: 1 - CONIFER_SHARE, cone: CONIFER_SHARE, bush: 0 })
   // 【田色烘成貼圖】地面 25 塊與遠景環一起換材質 —— 兩者本來共用同一支算式，
   // 只換地面的話 15 km 外那一圈會與地面接不上。沒有 GPU 就留著算式的材質
   const clipmap = gfx === undefined ? null : createFieldClipmap(gfx.renderer, {
     season, candidates: ground.candidates, ...(site === undefined ? {} : { site }), open,
     near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR, horizon: FIELD_CLIP_HORIZON, backdrop: FIELD_CLIP_BACKDROP,
-    innerRadius: gfx.fieldInner,
+    innerRadius: gfx.fieldInner, viewShade,
   })
   if (clipmap !== null) {
     horizon.mesh.material = clipmap.material
@@ -412,7 +417,7 @@ function createInlandTerrain(
   /** 上一次 `update` 的中心：植被量距離的那一點 */
   const centre = { x: 0, z: 0 }
   const vegetation = createVegetation(fields, (x, z) => solid.sample(x, z), {
-    season,
+    season, viewShade,
     ...(dressing !== undefined ? { capacity: dressing.capacity } : steppe ? { capacity: STEPPE_CAPACITY } : {}),
   })
   if (season === 'winterSteppe') {
@@ -461,7 +466,9 @@ function createInlandTerrain(
     setPalette(p) {
       vegetation.setPointLight(p.foliage, p.foliageTint)
       groundHaze.value = p.groundHaze ?? 0
+      viewShade.setPalette(p)
     },
+    viewShade,
     islands: farm.hills,
     land: { field: solid, ceiling: HILL_PEAK_MAX, landAbove: -Infinity },
     fieldClip: clipmap,
@@ -492,6 +499,7 @@ function createInlandTerrain(
       ground.dispose()
       vegetation.dispose()
       clipmap?.dispose()
+      viewShade.dispose()
       roofs?.dispose()
       for (const g of villageGeometry) g.dispose()
       if (river !== null) disposeRiverMeshes(river)

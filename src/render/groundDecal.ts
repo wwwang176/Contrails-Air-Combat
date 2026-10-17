@@ -64,6 +64,12 @@ export interface DecalRegion {
    * 落在不透明度 0 的地方就看不見
    */
   readonly alphaAt?: (x: number, z: number) => number
+  /**
+   * 這一點的顏色有幾成是樹冠，0～1。沒給就是 0。烘進田色貼圖時記成樹冠的亮度份量、
+   * 直接畫時乘上視角係數（`viewShade.ts`）—— 植被圈外烘在地上的林子要跟著立體的樹
+   * 迎光變暗、背光變亮
+   */
+  readonly treeAt?: (x: number, z: number) => number
 }
 
 /**
@@ -77,6 +83,7 @@ export function buildDecals(
   const grid = g.size
   const pos: number[] = []
   const col: number[] = []
+  const share: number[] = []
   const idx: number[] = []
   const c = new Color()
   // 【有淡出才帶透明度】頂點色是四個分量時 `MeshStandardMaterial` 會乘上它
@@ -108,6 +115,7 @@ export function buildDecals(
       c.setHex(r.colorAt(x, z))
       col.push(c.r, c.g, c.b)
       if (alpha) col.push(r.alphaAt === undefined ? 1 : r.alphaAt(x, z))
+      share.push(r.treeAt === undefined ? 0 : r.treeAt(x, z), 0)
       vid[k] = pos.length / 3 - 1
       return vid[k]!
     }
@@ -127,6 +135,9 @@ export function buildDecals(
   const geo = new BufferGeometry()
   geo.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3))
   geo.setAttribute('color', new BufferAttribute(new Float32Array(col), alpha ? 4 : 3))
+  // 【一律帶這一條】直接畫的粗網格（`fieldClipmap.ts` 的 `beyondFar`）在材質裡讀它；
+  // 沒有的話那條屬性讀到的是上一個程式留下的值
+  geo.setAttribute('viewShade', new BufferAttribute(new Float32Array(share), 2))
   geo.setIndex(idx)
   geo.computeVertexNormals()
   geo.computeBoundingSphere()

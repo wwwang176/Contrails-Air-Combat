@@ -112,12 +112,15 @@ export function createGraphicsDiagnostics(source: GraphicsDiagnosticsSource) {
       return source.terrain().fieldClip?.benchFarBake(trees) ?? null
     },
 
-    /** 烘進地面的林子、屋頂與遠處的點隨視角變亮暗（`viewShade.ts`）。同頁 A/B 用 */
-    __viewShade(on?: boolean): boolean | null {
+    /**
+     * 烘進地面的林子、屋頂與遠處的點隨視角變亮暗（`viewShade.ts`）。同頁 A/B 用。
+     * 給數字是強度倍數（1 = 正常）：放大了看哪些地方有吃到係數
+     */
+    __viewShade(on?: boolean | number): number | null {
       const s = source.terrain().viewShade
       if (s === undefined) return null
-      if (on !== undefined) s.uniforms.uViewShadeOn.value = on ? 1 : 0
-      return s.uniforms.uViewShadeOn.value > 0.5
+      if (on !== undefined) s.uniforms.uViewShadeOn.value = typeof on === 'number' ? on : on ? 1 : 0
+      return s.uniforms.uViewShadeOn.value
     },
 
     /**

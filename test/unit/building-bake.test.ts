@@ -7,7 +7,8 @@ import {
 import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from '../../src/specs/flora'
 import { CANOPY_SHADE, FLORA_COLORS } from '../../src/render/season'
 import { TINT_RANGE } from '../../src/render/vegetationPolicy'
-import { floraSplats, ROOF_GROW, WALL_SHARE } from '../../src/render/buildingBake'
+import { bakedShadeScale, floraSplats, ROOF_GROW, WALL_SHARE } from '../../src/render/buildingBake'
+import { SEASONS } from '../../src/render/season'
 
 /** 把固定的幾筆吐進視窗；只吐中心在視窗裡的。一筆是 x, z, rot, scale, tint, kind, wide, tall */
 function fixed(items: readonly (readonly number[])[]): FloraSource {
@@ -137,5 +138,53 @@ describe('屋頂與樹冠的色塊', () => {
     ], -1000, -1000, 1000, 1000)
     expect(g.getAttribute('position').count).toBe(8)
     g.dispose()
+  })
+})
+
+describe('烘圖記樹冠與屋頂的亮度份量', () => {
+  /**
+   * 【樹冠 (1, 0)、屋頂 (0, 1)】地面照這兩個分量決定那一份乘哪一列視角係數
+   * （`viewShade.ts`）；對調的話屋頂跟著樹冠變暗、樹冠跟著房子變亮
+   */
+  it('色塊的 viewShade：樹冠是 (1, 0)，屋頂是 (0, 1)', () => {
+    const g = floraSplats([fixed([
+      [0, 0, 0, 1, 0.5, FloraKind.BroadTree, 1, 1],
+      [50, 0, 0, 1, 0.5, FloraKind.House, 1, 1],
+    ])], -1000, -1000, 1000, 1000)
+    const s = g.getAttribute('viewShade')
+    expect(s.itemSize).toBe(2)
+    const kinds = [0, 1].map((q) => [s.getX(q * 4), s.getY(q * 4)])
+    expect(kinds).toContainEqual([1, 0])
+    expect(kinds).toContainEqual([0, 1])
+    for (let q = 0; q < 2; q++) {
+      for (let k = 1; k < 4; k++) expect([s.getX(q * 4 + k), s.getY(q * 4 + k)]).toEqual([s.getX(q * 4), s.getY(q * 4)])
+    }
+    g.dispose()
+  })
+
+  /**
+   * 【比例尺不能讓最亮的那一種溢出 8 位元】冬季覆雪的樹冠與屋頂亮度是夏季的十幾倍；
+   * 溢出的話份量被截斷，冬季的林子只吃到一半的係數
+   */
+  it('每個季節最亮的樹冠與屋頂色塊乘上比例尺都在 1 以內，而且夏季比冬季放大得多', () => {
+    const lum = (c: Color): number => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+    for (const season of SEASONS) {
+      const scale = bakedShadeScale(season)
+      const g = floraSplats([fixed([
+        [0, 0, 0, 1, 1, FloraKind.BroadTree, 1, 1], [30, 0, 0, 1, 1, FloraKind.ConeTree, 1, 1],
+        [60, 0, 0, 1, 1, FloraKind.Bush, 1, 1], [90, 0, 0, 1, 1, FloraKind.House, 1, 1],
+        [120, 0, 0, 1, 1, FloraKind.Barn, 1, 1], [150, 0, 0, 1, 1, FloraKind.Church, 1, 1],
+        [180, 0, 0, 1, 1, FloraKind.SlateHouse, 1, 1], [210, 0, 0, 1, 1, FloraKind.TarBarn, 1, 1],
+      ])], -1000, -1000, 1000, 1000, season)
+      const col = g.getAttribute('color')
+      const s = g.getAttribute('viewShade')
+      for (let q = 0; q < s.count / 4; q++) {
+        const l = lum(new Color(col.getX(q * 4), col.getY(q * 4), col.getZ(q * 4)))
+        const k = s.getX(q * 4) > 0.5 ? scale.tree : scale.roof
+        expect(l * k).toBeLessThanOrEqual(0.95 + 1e-6)
+      }
+      g.dispose()
+    }
+    expect(bakedShadeScale('summer').tree).toBeGreaterThan(bakedShadeScale('winterSteppe').tree * 3)
   })
 })

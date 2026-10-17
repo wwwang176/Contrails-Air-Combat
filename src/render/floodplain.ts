@@ -247,6 +247,12 @@ export function createFloodplain(lines: readonly WaterLine[]): Floodplain {
             const f = cover(x, z)
             return 1 - (1 - edgeFade(hitRel / GROUND_SHARE)) * (1 - f)
           },
+          // 顏色裡林地佔的那一份（與 colorAt 的混色比例相同）
+          treeAt: (x: number, z: number) => {
+            const f = cover(x, z)
+            const a = 1 - (1 - edgeFade(hitRel / GROUND_SHARE)) * (1 - f)
+            return a > 0 ? f / a : 0
+          },
         })),
         {
           own: bankOnly, reach: bankHalf, inside: (x: number, z: number) => bankIndex.distance(x, z) < bankHalf,
@@ -256,6 +262,7 @@ export function createFloodplain(lines: readonly WaterLine[]): Floodplain {
       ]
       for (const layer of layers) {
         const { reach, inside: within, colorAt, alphaAt } = layer
+        const treeAt = 'treeAt' in layer ? layer.treeAt : undefined
         for (const l of layer.own) {
           let start = 0
           while (start + 1 < l.points.length) {
@@ -283,6 +290,7 @@ export function createFloodplain(lines: readonly WaterLine[]): Floodplain {
               },
               colorAt,
               alphaAt,
+              ...(treeAt === undefined ? {} : { treeAt }),
             })
           }
         }
