@@ -1,6 +1,6 @@
 /**
  * 高度場在 (0, EVACUATE_Z) 周圍留一塊不長山的平地（`world/leyte.ts` 的
- * `EVAC_CLEAR`）。日 M2 的 Ki-84 從這一側進場；離前線約兩公里、離灘頭約七公里。
+ * `EVAC_CLEAR`）。離前線約兩公里、離灘頭約七公里。
  * **改它會改到整片山脈的擺位。**
  */
 export const EVACUATE_Z = 2500

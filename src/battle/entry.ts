@@ -200,6 +200,25 @@ export const ASCH_EAST: EntryPlan = {
 }
 
 /**
+ * 雷伊泰從東南方橫切公路：藍隊在 (5,400, +3,000)，機首朝西北。紅隊同 `HEAD_ON`。
+ *
+ * 【為什麼要垂直於公路】公路從東北的灘頭斜向西南的前線（`world/leyteRoads.ts`）。
+ * 順著路飛的話，一趟掃射就能沿著車隊一路打下去；橫切過來，每一趟只經過路上一小段。
+ * 機首方向的延長線在 AB 與 B 之間穿過公路，離開場位置約 5.7 km；與灘頭到前線的
+ * 連線夾角約 87°。
+ *
+ * 【係數是照預設尺標算的】`along` 0.3 × 10,000 = 3,000、`across` 3.6 × 1,500 = 5,400。
+ *
+ * 【小隊的錯開沿世界座標軸】`lane` 沿 X、`depth` 沿 Z（`flightSpawn.ts` 的 `unitFrame`），
+ * 機首朝西北時兩個小隊是斜著錯開的梯隊，不是正前正後。
+ */
+export const LEYTE_SOUTHEAST: EntryPlan = {
+  id: 'leyteSoutheast',
+  blue: { ...NEUTRAL, along: 0.3, across: 3.6, heading: Math.PI / 4 },
+  red: HEAD_ON.red,
+}
+
+/**
  * 全部的擺法。**每一張任務卡指定一個鍵。**
  *
  * 加一種擺法：這裡多一個字面值，卡片改一個字串。`createBattle` 不用動。
@@ -211,6 +230,7 @@ export const ENTRY_PLANS = {
   carrierGuard: CARRIER_GUARD,
   strikeFromNorth: STRIKE_FROM_NORTH,
   aschEast: ASCH_EAST,
+  leyteSoutheast: LEYTE_SOUTHEAST,
 } as const
 
 export type EntryPlanId = keyof typeof ENTRY_PLANS

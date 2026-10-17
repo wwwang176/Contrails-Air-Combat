@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { Vector3 } from 'three'
 import { MISSIONS, CAMPAIGNS, convoyGround, missionConfigFrom } from '../../src/battle/missions'
 import { LEYTE_JUNCTIONS, LEYTE_ROAD } from '../../src/world/leyte'
 import { FIELD_CENTER, HOLD_ROWS, RUNWAY } from '../../src/world/asch'
@@ -561,6 +562,31 @@ describe('日 M2 雷伊泰前線', () => {
 
   it('炸毀 20 輛卡車過關', () => {
     expect(b.interdict?.count).toBe(20)
+  })
+
+  it('玩家從東南方開場、機首朝西北', () => {
+    const battle = createBattle({ update() {} }, missionConfigFrom(card), 1)
+    const s = battle.player.aircraft.state
+    const fwd = new Vector3(0, 0, -1).applyQuaternion(s.orientation)
+    // 東南 = +X、+Z；西北 = −X、−Z
+    expect(s.position.x).toBeGreaterThan(4000)
+    expect(s.position.z).toBeGreaterThan(1500)
+    expect(fwd.x).toBeCloseTo(-Math.SQRT1_2, 6)
+    expect(fwd.z).toBeCloseTo(-Math.SQRT1_2, 6)
+    // 四機小隊離玩家最近的那一架：左前 45°、水平 300 m，開場比玩家高 450 m
+    const right = new Vector3(1, 0, 0).applyQuaternion(s.orientation)
+    const mine = battle.flights.flights[battle.flights.flightOf[battle.player.index]!]!.roster
+    const near = battle.world.combatants
+      .filter((c) => c.team === 'blue' && !mine.includes(c.index))
+      .map((c) => {
+        const d = c.aircraft.state.position.clone().sub(s.position)
+        return { f: d.dot(fwd), r: d.dot(right), y: d.y }
+      })
+      .sort((a, b) => Math.hypot(a.f, a.r) - Math.hypot(b.f, b.r))[0]!
+    expect(Math.hypot(near.f, near.r)).toBeCloseTo(300, -1)
+    expect(near.f).toBeGreaterThan(0)
+    expect(near.r).toBeCloseTo(-near.f, -1)
+    expect(near.y).toBeCloseTo(450, 0)
   })
 
   it('F6F 四波的觸發、預警、位置與高度', () => {
