@@ -573,6 +573,20 @@ describe('日 M2 雷伊泰前線', () => {
     expect(s.position.z).toBeGreaterThan(1500)
     expect(fwd.x).toBeCloseTo(-Math.SQRT1_2, 6)
     expect(fwd.z).toBeCloseTo(-Math.SQRT1_2, 6)
+    // 四機小隊離玩家最近的那一架：左前 45°、水平 300 m，開場比玩家高 450 m
+    const right = new Vector3(1, 0, 0).applyQuaternion(s.orientation)
+    const mine = battle.flights.flights[battle.flights.flightOf[battle.player.index]!]!.roster
+    const near = battle.world.combatants
+      .filter((c) => c.team === 'blue' && !mine.includes(c.index))
+      .map((c) => {
+        const d = c.aircraft.state.position.clone().sub(s.position)
+        return { f: d.dot(fwd), r: d.dot(right), y: d.y }
+      })
+      .sort((a, b) => Math.hypot(a.f, a.r) - Math.hypot(b.f, b.r))[0]!
+    expect(Math.hypot(near.f, near.r)).toBeCloseTo(300, -1)
+    expect(near.f).toBeGreaterThan(0)
+    expect(near.r).toBeCloseTo(-near.f, -1)
+    expect(near.y).toBeCloseTo(450, 0)
   })
 
   it('F6F 四波的觸發、預警、位置與高度', () => {

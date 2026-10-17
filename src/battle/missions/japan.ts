@@ -155,6 +155,14 @@ export const JAPAN: readonly MissionCard[] = [
       blueCount: 6, redCount: 2,
       // 【前後排列】四機與雙機兩個小隊前後拉開（`order.ts` 的 `stackedEntry`）
       blueStacked: true,
+      // 【四機小隊在玩家左前方斜 300 m】機首朝西北時 `stackedEntry` 的兩隊正好一前一後，
+      // 四機擋在玩家正前方約 650 m。玩家這一隊往機首方向挪約 600 m，四機最右那一架
+      // 落在玩家左前 45°、水平 300 m
+      //
+      // 【玩家這一隊低 450 m，約 750 m 開場】僚機一開場就俯衝去炸車，開場導覽（約 13 秒）
+      // 結束、玩家接手時已經降到 730～770 m。玩家照開場高度平飛，同高開場的話接手時
+      // 會高出隊友四、五百公尺
+      playerFlightOffset: { x: 4, y: -600, z: -599 },
       convoyCount: 0, convoyPriority: 1,
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       // 【從東南方橫切公路】見 `battle/entry.ts` 的 `LEYTE_SOUTHEAST`
