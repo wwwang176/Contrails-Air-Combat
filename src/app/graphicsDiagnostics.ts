@@ -4,7 +4,7 @@ import { PROP_DISC_RENDER_ORDER } from '../render/geometry/assembly'
 import { SKY_RENDER_ORDER } from '../render/sky'
 import { CULL } from '../render/cullRuns'
 import { OCEAN_CULL } from '../render/oceanGeometry'
-import { GROUND_SPECULAR } from '../render/matteGround'
+import { GROUND_ROUGH, GROUND_SPECULAR } from '../render/matteGround'
 import type { Terrain } from '../render/terrain'
 
 type TargetPicker = () => readonly Object3D[]
@@ -117,6 +117,12 @@ export function createGraphicsDiagnostics(source: GraphicsDiagnosticsSource) {
     __groundSpecular(v?: number): number {
       if (v !== undefined) GROUND_SPECULAR.value = v
       return GROUND_SPECULAR.value
+    },
+
+    /** 地面 Oren-Nayar 的粗糙度 σ（`matteGround.ts`），0 = Lambert。同頁 A/B 用 */
+    __groundRough(v?: number): number {
+      if (v !== undefined) GROUND_ROUGH.value = v
+      return GROUND_ROUGH.value
     },
 
     /**
