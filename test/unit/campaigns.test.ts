@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { MISSIONS, CAMPAIGNS, convoyGround, missionConfigFrom } from '../../src/battle/missions'
-import { BEACHHEAD, EVACUATE_Z, LEYTE_ROAD } from '../../src/world/leyte'
+import { LEYTE_JUNCTIONS, LEYTE_ROAD } from '../../src/world/leyte'
 import { FIELD_CENTER, HOLD_ROWS, RUNWAY } from '../../src/world/asch'
 import { ALL_SPECS, MAX_SIDE } from '../../src/battle/skirmish'
 import { createBattle, stepBattle } from '../../src/battle/setup'
@@ -551,32 +551,43 @@ describe('日 M2 雷伊泰前線', () => {
     expect(b.vehicleConvoy?.route).toBe(LEYTE_ROAD)
   })
 
-  it('撤離點在我方身後的 EVACUATE_Z、高度等於任務高度', () => {
-    const cfg = missionConfigFrom(card)
-    const w = cfg.beats?.find((x) => x.kind === 'withdraw')
+  it('撤離點從玩家當下的位置往 +Z（Ki-84 來的方向）3 km、高度等於任務高度', () => {
+    const w = missionConfigFrom(card).beats?.find((x) => x.kind === 'withdraw')
     expect(w?.kind).toBe('withdraw')
     if (w?.kind !== 'withdraw') return
-    expect(w.point.z).toBe(EVACUATE_Z)
-    expect(w.point.y).toBe(b.altitude)
+    expect(w.fromPlayer).toBe(true)
+    expect([w.point.x, w.point.y, w.point.z]).toEqual([0, b.altitude, 3000])
   })
 
-  it('撤離時每一組都在撤退路上（+Z）堵截，比任務高度高，而且左右錯開', () => {
-    const cfg = missionConfigFrom(card)
-    const atWithdraw = (b.waves ?? [])
-      .map((w, i) => ({ w, beat: (cfg.beats ?? []).filter((x) => x.kind === 'reinforce')[i]! }))
-      .filter(({ w }) => w.when.kind === 'destroyed' && w.when.atLeast === b.interdict!.count)
-    expect(atWithdraw.length).toBeGreaterThanOrEqual(2)
-    const across: number[] = []
-    for (const { beat } of atWithdraw) {
-      if (beat.kind !== 'reinforce') continue
-      expect(beat.flight.entry.along, 'along 為正 = 撤退的方向').toBeGreaterThan(0)
-      // 堵在撤離點之前；生在它後面的話玩家已經撤出去了
-      expect(beat.flight.entry.along * cfg.entryRange, '在撤離點之前').toBeLessThan(EVACUATE_Z)
-      expect(beat.flight.entry.climb, '比任務高度高').toBeGreaterThan(0)
-      across.push(beat.flight.entry.across)
+  it('炸毀 20 輛卡車過關', () => {
+    expect(b.interdict?.count).toBe(20)
+  })
+
+  /** 門檻改成 20 之後，敵機仍照炸到第 12 輛的那一刻進場，位置也不變 */
+  it('F6F 六波的觸發、預警、位置與高度', () => {
+    const at12 = { kind: 'destroyed', atLeast: 12, unit: 'usTruck' }
+    expect(b.waves).toMatchObject([
+      { when: { kind: 'destroyed', atLeast: 1, unit: 'usTruck', byLatest: 90 }, warnLead: 6, count: 2, starboard: Math.PI, altitude: 2500 },
+      { when: { kind: 'clock', at: 150 }, warnLead: 6, count: 2, altitude: 2000 },
+      { when: { kind: 'clock', at: 240 }, warnLead: 6, count: 2, starboard: Math.PI, altitude: 2500 },
+      { when: at12, warnLead: 0, count: 2, starboard: Math.PI + 0.4, along: 0.04, altitude: 3000 },
+      { when: at12, warnLead: 10, count: 2, starboard: Math.PI, along: 0.11, altitude: 3000 },
+      { when: at12, warnLead: 20, count: 2, starboard: Math.PI - 0.4, along: 0.18, altitude: 3000 },
+    ])
+    for (const w of b.waves!) expect(w.spec.id).toBe('f6f5')
+  })
+
+  it('三處路邊據點：每一處有停著的卡車與 M16', () => {
+    const ground = b.ground ?? []
+    for (const j of LEYTE_JUNCTIONS) {
+      expect(j.trucks.length, j.id).toBeGreaterThan(0)
+      expect(j.flak.length, j.id).toBeGreaterThan(0)
+      for (const v of [...j.trucks, ...j.flak]) {
+        expect(ground.some((g) => g.unit === v.unit && g.team === 'red' && g.x === v.x && g.z === v.z
+          && g.heading === v.heading && g.motion === undefined), `${j.id} ${v.unit}`).toBe(true)
+      }
     }
-    expect(Math.min(...across)).toBeLessThan(0)
-    expect(Math.max(...across)).toBeGreaterThan(0)
+    expect(LEYTE_JUNCTIONS.map((j) => j.id)).toEqual(['AB', 'B', 'C'])
   })
 
   it('開場就有 F6F 在天上', () => {
@@ -637,6 +648,26 @@ describe('有 interdict 的卡一定打得贏', () => {
       expect(w.when.unit).toBe(rule.unit)
     })
 
+    /**
+     * 走真正的 `stepBattle`：摧毀數由 `setup.ts` 數，停著的與車隊的卡車一起算。
+     * 差一輛還是截斷；炸到 count 輛換成撤離、不判勝；飛進撤離圈才判勝
+     */
+    it(`${card.id}：炸到 count 輛換成撤離，飛進撤離圈才判勝`, () => {
+      const battle = createBattle({ update() {} }, missionConfigFrom(card), 1)
+      const trucks = battle.world.groundTargets.filter((t) => t.unit.id === rule.unit && t.team === 'red')
+      for (const t of trucks.slice(0, rule.count - 1)) t.alive = false
+      stepBattle(battle, 1 / 240)
+      expect(battle.rules.kind).toBe('interdict')
+      trucks[rule.count - 1]!.alive = false
+      stepBattle(battle, 1 / 240)
+      expect(battle.rules.kind).toBe('evacuate')
+      expect(battle.mission.outcome).toBe('fighting')
+      if (battle.rules.kind !== 'evacuate') return
+      battle.player.aircraft.state.position.copy(battle.rules.point)
+      stepBattle(battle, 1 / 240)
+      expect(battle.mission.outcome).toBe('victory')
+    })
+
     /** 總數連停著不動的那幾輛一起算（日 M2 灘頭的卡車停放場）：它們一樣算進摧毀數 */
     it(`${card.id}：count 不超過那一種車的總數，count + leak 大於總數`, () => {
       const parked = (b.ground ?? []).filter((g) => g.unit === rule.unit && g.team === 'red').length
@@ -677,13 +708,28 @@ describe('有 interdict 的卡一定打得贏', () => {
     trucks[0]!.alive = false
     trucks[1]!.alive = false
     trucks[1]!.arrived = true
-    // 玩家開場的位置離撤離點不遠，先移到灘頭上空 —— 這裡驗的是判定的先後，不是撤離成功
-    battle.player.aircraft.state.position.set(BEACHHEAD.x, 1500, BEACHHEAD.z)
     stepBattle(battle, 1 / 240)
     // 【兩個都要看】返航會重設 `mission`；判敗若先發生，定案的是 `outcome` 那一份
     expect(battle.outcome).toBe('fighting')
     expect(battle.mission.outcome).toBe('fighting')
     expect(battle.rules.kind).toBe('evacuate')
+  })
+
+  /** 撤離點跟著玩家：在哪裡炸完，就從那裡往 +Z 量 3 km */
+  it('日 M2：撤離點是炸完那一刻玩家的位置往 +Z 3 km', () => {
+    const card = cards.find((c) => c.id === 'japan-m2')!
+    const rule = card.battle.interdict!
+    const battle = createBattle({ update() {} }, missionConfigFrom(card), 1)
+    const trucks = battle.world.groundTargets.filter((t) => t.unit.id === rule.unit && t.team === 'red')
+    for (const t of trucks.slice(0, rule.count)) t.alive = false
+    battle.player.aircraft.state.position.set(2500, 300, -3000)
+    stepBattle(battle, 1 / 240)
+    expect(battle.rules.kind).toBe('evacuate')
+    if (battle.rules.kind !== 'evacuate') return
+    const p = battle.rules.point
+    expect(Math.abs(p.x - 2500)).toBeLessThan(2)
+    expect(Math.abs(p.z - (-3000 + 3000))).toBeLessThan(2)
+    expect(p.y).toBe(card.battle.altitude)
   })
 })
 

@@ -145,9 +145,8 @@ export type MissionRules =
      * `stepBeats` 排在 `stepMission` 之前（`setup.ts` 的 `stepBattle`），所以同一步
      * 炸到第 count 輛又剛好有卡車抵達時，規則已經換成撤離，不判敗。
      *
-     * 【為什麼摧毀數到了不判勝】那一刻這一關才進入下半場（敵機堵在退路上、
-     * 飛回撤離點）。有 interdict 的卡一定要有那個返航節拍，否則贏不了 ——
-     * `campaigns.test.ts` 守著。
+     * 【為什麼摧毀數到了不判勝】那一刻這一關才進入下半場（飛到撤離點）。有
+     * interdict 的卡一定要有那個返航節拍，否則贏不了 —— `campaigns.test.ts` 守著。
      */
     kind: 'interdict'
     /** 要炸毀幾輛。目標列的分母 */

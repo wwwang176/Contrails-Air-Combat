@@ -4,7 +4,7 @@ import { F6F5 } from '../../specs/f6f5'
 import { KI84_BOMB_LOADOUT } from '../../weapons/stores'
 import { GROUND_FLAK_SPEC } from '../../world/shipGuns'
 import {
-  EVACUATE_Z, LEYTE_BALLOONS, LEYTE_BEACH, LEYTE_FLAK_SITES, LEYTE_LSTS, LEYTE_ROAD, LST_BALLOON_DECK,
+  LEYTE_BALLOONS, LEYTE_BEACH, LEYTE_FLAK_SITES, LEYTE_JUNCTIONS, LEYTE_LSTS, LEYTE_ROAD, LST_BALLOON_DECK,
 } from '../../world/leyte'
 import { KI84 } from '../../specs/ki84'
 import { A6M5 } from '../../specs/a6m5'
@@ -159,7 +159,7 @@ export const JAPAN: readonly MissionCard[] = [
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       entry: 'headOn',
       terrain: 'leyte',
-      // 灘頭到撤離點（0, +2.5 km）的走廊與開場位置（z = +5 km）
+      // 灘頭、三處路邊據點與開場位置（z = +5 km）
       arena: { x: 2000, z: 2000, radius: 11000 },
       // 【開場導覽】先在車隊第一輛卡車的前方路邊貼地拍，卡車由 30 m 外迎面開到 12 m
       // （它前面 30 m 是半履帶車，鏡頭在兩車之間）；再從內陸高處沿灘頭橫移，LST
@@ -214,6 +214,10 @@ export const JAPAN: readonly MissionCard[] = [
         ...LEYTE_BEACH.depot.map((v): GroundEntry => ({
           unit: v.unit, team: 'red', x: v.x, z: v.z, heading: v.heading,
         })),
+        // 【路邊據點】停著等通行的卡車算進摧毀數；每一處四輛 M16 守著。木箱堆是佈景
+        ...LEYTE_JUNCTIONS.flatMap((j) => [...j.trucks, ...j.flak]).map((v): GroundEntry => ({
+          unit: v.unit, team: 'red', x: v.x, z: v.z, heading: v.heading,
+        })),
       ],
       // 【灘頭搶灘的 LST】不會動的船：撞得到、打得沉、防空砲會開火。沒有
       // `vital`、沒有 `sinkCount` —— 不是任務目標，沉幾艘都不影響勝負
@@ -230,26 +234,23 @@ export const JAPAN: readonly MissionCard[] = [
       },
       // 【雷雨】雨、閃電與雷聲（`render/rain.ts`、`render/storm.ts`）。雷伊泰戰役正值雨季
       timeOfDay: 'storm',
-      // 【18 輛卡車（車隊 9、灘頭 9）：炸 12 輛、放走 7 輛就輸】12 + 7 > 18，兩條不會
-      // 同時可能。只有車隊那 9 輛開得到前線
-      interdict: { count: 12, leak: 7, unit: 'usTruck' },
+      // 【26 輛卡車（車隊 9、灘頭 9、路口 8）：炸 20 輛就撤離、放走 7 輛就輸】20 + 7 > 26，
+      // 兩條不會同時可能。只有車隊那 9 輛開得到前線
+      interdict: { count: 20, leak: 7, unit: 'usTruck' },
       /**
        * 【每波兩架、一波一波來】一次來四架的話玩家還在找車就被咬住。
        *
-       * 攻擊階段：
        *   第一波  開始攻擊之後進場（遲遲不動手的話 90 秒也會來）。`starboard: π`
        *           把紅方的進場轉到 +Z 那一側（Ki-84 來的方向）
        *   第二、三波  150 秒、240 秒，照時鐘來、不看炸了幾輛 —— 炸得快也不會讓
        *           敵機一口氣湧上來。一波從灘頭外的海上、一波從內陸
        *
-       * 【撤離時三組全在前方堵截】低空的 F6F 比疾風慢，從背後追永遠追不上；
-       * 攔截要靠高度與擋在歸途上。三組都在撤退路線前方、撤離點（z = +2,500）之前、
-       * 比任務高度高 1,500 m，由 `warnLead` 錯開、左右錯開：
+       * 【炸到第 12 輛時再來三組】從 +Z 那一側（Ki-84 來的方向）、比任務高度高
+       * 1,500 m 進場，由 `warnLead` 錯開、左右錯開：
        *   0 秒   左前方（`starboard` π + 0.4），z ≈ +400
        *   10 秒  正前方，z ≈ +1,100
-       *   20 秒  右前方（`starboard` π − 0.4），z ≈ +1,800，撤離點前
-       * 三組與返航同一步觸發。`stepBeats` 依陣列順序寫訊息、返航排在最後，
-       * 所以畫面上是「撤離戰區」，預警文字就寫同一句。
+       *   20 秒  右前方（`starboard` π − 0.4），z ≈ +1,800
+       * 低空的 F6F 比疾風慢，從背後追不上，要靠高度從上方切進來。
        *
        * 紅隊席位：巡邏 2 + 2 × 6 = 14。**架數、時間、高度、位置都是起始值。**
        */
@@ -274,28 +275,30 @@ export const JAPAN: readonly MissionCard[] = [
         },
         {
           when: { kind: 'destroyed', atLeast: 12, unit: 'usTruck' },
-          warnKey: 'mission.japan-m2.withdraw',
+          warnKey: 'mission.japan-m2.wave.carrier',
           warnLead: 0,
           side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI + 0.4, along: 0.04, altitude: 3000,
         },
         {
           when: { kind: 'destroyed', atLeast: 12, unit: 'usTruck' },
-          warnKey: 'mission.japan-m2.withdraw',
+          warnKey: 'mission.japan-m2.wave.carrier',
           warnLead: 10,
           side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI, along: 0.11, altitude: 3000,
         },
         {
           when: { kind: 'destroyed', atLeast: 12, unit: 'usTruck' },
-          warnKey: 'mission.japan-m2.withdraw',
+          warnKey: 'mission.japan-m2.wave.carrier',
           warnLead: 20,
           side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI - 0.4, along: 0.18, altitude: 3000,
         },
       ],
       withdraw: {
-        when: { kind: 'destroyed', atLeast: 12, unit: 'usTruck' },
+        when: { kind: 'destroyed', atLeast: 20, unit: 'usTruck' },
         messageKey: 'mission.japan-m2.withdraw',
-        // 【負值 = 在開局位置的後方】撤離點在 Ki-84 來的方向
-        distance: -EVACUATE_Z,
+        // 【從炸完的地方往 Ki-84 來的方向飛 3 km】卡車散在灘頭到西路一路，第 20 輛在哪裡
+        // 炸掉說不準；從玩家當下的位置量，撤離的路程每一場都一樣長
+        distance: -3000,
+        from: 'player',
         // 【圈小】要對準了才飛得進去，不是往那個方向飛就結束
         radius: 600,
         seconds: Infinity,

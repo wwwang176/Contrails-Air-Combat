@@ -2,7 +2,7 @@
 import { isLeyteGrass, type CanopyMap } from './leyteGround'
 import { BROAD_CROWN_R, BUSH_R } from '../specs/flora'
 import type { HeightFieldData } from '../world/heightfield'
-import { baseHeight, farUpland, isInBeachClearing, isInRoadClearing } from '../world/leyte'
+import { baseHeight, farUpland, isInBeachClearing, isInJunctionClearing, isInRoadClearing } from '../world/leyte'
 import {
   FLORA_STRIDE, FloraKind, createFloraBuffer, pushFlora, type FloraSource,
 } from '../core/floraBuffer'
@@ -37,7 +37,7 @@ const LEYTE_HILL_FULL = 40
  */
 export function leyteAccept(field: HeightFieldData, x: number, z: number, h: number): number {
   if (!isLeyteGrass(h)) return 0
-  if (isInRoadClearing(x, z) || isInBeachClearing(x, z)) return 0
+  if (isInRoadClearing(x, z) || isInBeachClearing(x, z) || isInJunctionClearing(x, z)) return 0
   const cell = field.cell
   const dx = (field.sample(x + cell, z) - field.sample(x - cell, z)) / (2 * cell)
   const dz = (field.sample(x, z + cell) - field.sample(x, z - cell)) / (2 * cell)

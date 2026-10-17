@@ -190,7 +190,7 @@ export const en: Record<MessageKey, string> = {
   'mission.japan-m1.recycle': 'Warning: enemy fighters up again',
 
   'mission.japan-m2.title': 'The Leyte Front',
-  'mission.japan-m2.summary': 'Fly the bomb-armed Frank against the American supply convoy before it reaches the front, then get out.',
+  'mission.japan-m2.summary': 'Fly the bomb-armed Frank against the American supply convoy and its roadside depots before the trucks reach the front, then get out.',
   'mission.japan-m2.place': 'Leyte, Philippines',
   'mission.japan-m2.objective': 'Destroy the supply trucks',
   'mission.japan-m2.banner': 'Bomb the supply convoy. Stop it reaching the front.',

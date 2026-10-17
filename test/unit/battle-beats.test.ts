@@ -27,7 +27,7 @@ const DT = 1 / 240
 /** 訊息用哪幾句都可以 —— 驗的是節拍存了哪一個鍵，不是文字 */
 const WARN_A: MessageKey = 'mission.allies-m1.wave.more'
 const WARN_B: MessageKey = 'mission.allies-m1.wave.join'
-const BACK: MessageKey = 'mission.japan-m2.withdraw'
+const BACK: MessageKey = 'mission.type.withdraw'
 
 class Idle implements Controller {
   update(_self: Aircraft, _dt: number, out: Command): void {
@@ -106,6 +106,7 @@ describe('節拍接進 stepBattle', () => {
       when: { kind: 'clock', at: 2 },
       messageKey: BACK,
       point: new Vector3(0, 4000, 9000),
+      fromPlayer: false,
       radius: 1000,
       seconds: 300,
     }])
@@ -128,6 +129,30 @@ describe('節拍接進 stepBattle', () => {
     expect(b.mission.secondsLeft).toBeLessThan(at - 2)
     // 計量換成到終點的距離，不再是敵機數
     expect(b.mission.metric).toBeGreaterThan(1000)
+  })
+
+  it('相對玩家的返航：撤離點 = 生效那一刻玩家的水平位置 + 位移，高度照節拍', () => {
+    const point = new Vector3(0, 1500, 3000)
+    const beats: readonly Beat[] = [{
+      kind: 'withdraw', when: { kind: 'clock', at: 1 }, messageKey: BACK,
+      point, fromPlayer: true, radius: 600, seconds: Infinity,
+    }]
+    const b = battle(beats)
+    // 每一步都把玩家擺回同一點：量的是生效那一刻的位置，不是開局位置。
+    // 一步之內飛得動的距離不到 1 m
+    const p = b.player.aircraft.state.position
+    while (b.rules.kind !== 'evacuate' && b.world.time < 2) {
+      p.set(1234, 300, -5678)
+      stepBattle(b, DT)
+    }
+    expect(b.rules.kind).toBe('evacuate')
+    if (b.rules.kind !== 'evacuate') return
+    const at = b.rules.point
+    expect(Math.abs(at.x - 1234)).toBeLessThan(2)
+    expect(at.y).toBe(1500)
+    expect(Math.abs(at.z - (-5678 + 3000))).toBeLessThan(2)
+    // 【節拍本身不動】同一份設定再開一場，撤離點不會從上一場的位置再位移一次
+    expect([point.x, point.y, point.z]).toEqual([0, 1500, 3000])
   })
 
   it('沒有節拍的場：狀態是空的，訊息永遠不出現', () => {
@@ -195,6 +220,7 @@ describe('節拍接進 stepBattle', () => {
       when: { kind: 'clock', at: 1 },
       messageKey: BACK,
       point: new Vector3(0, 4000, 9000),
+      fromPlayer: false,
       radius: 1000,
       seconds: 300,
     }])

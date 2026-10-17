@@ -100,6 +100,12 @@ export const LEYTE_ROAD: readonly { readonly x: number; readonly z: number }[] =
 /** 路面的標稱寬，m。實際寬度沿路起伏（`render/leyteGround.ts` 的 `roadHalfWidthAt`） */
 export const ROAD_WIDTH = 24
 /**
+ * 路寬起伏的上限：實際半寬最多是標稱的這麼多倍（`render/leyteGround.ts` 的
+ * `WIDTH_RIPPLE` 三道振幅加 1）。路邊擺東西要離中線這麼寬才保證不壓路面 ——
+ * `leyte-render.test.ts` 對著畫出來的路寬驗
+ */
+export const ROAD_WIDEN_MAX = 1.45
+/**
  * 公路中線兩側不長樹的半寬，m。**要大過路最寬處的半寬**（標稱 12 m 乘上起伏
  * 的上限 1.45 ≈ 17.4 m），不然樹會長在路面上。
  */
@@ -209,7 +215,7 @@ const SIDE_ROADS: readonly {
       return { x, z: coastZ(x) + 700 }
     }),
   },
-  // 2 北路：前線往北穿過山縫，經過撤離點附近
+  // 2 北路：前線往北穿過山縫，經過 `EVACUATE_Z` 那塊平地附近
   {
     halfWidth: 8,
     meander: [{ amp: 70, len: 1100, phase: 2.0 }, { amp: 10, len: 420, phase: 1.4 }],
