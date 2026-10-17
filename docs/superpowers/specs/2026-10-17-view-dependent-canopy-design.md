@@ -59,7 +59,7 @@ CPU 在 `setPalette` 時算一張 32（c）× 16（s）的表，一類一列：�
 | 群島地面（`island.ts`） | 頂點多一條覆蓋率屬性，林相那一份乘 K |
 | 農地內圈與遠景環（`farmGround.ts`、`farHorizon.ts`） | `fieldColorAt` 同時記「樹冠佔了多少亮度」，乘 K |
 | 田色 clipmap（`fieldClipmap.ts`） | 第二張 RG8 貼圖（MRT）存樹冠／屋頂的亮度份量，地面著色器讀它乘 K |
-| 疊圖（`buildingBake.ts` 的色塊、河漫灘林地） | 頂點多一條 `viewShade`（這一點的顏色有幾成是樹、幾成是屋頂），烘圖時寫進第二張；其他疊圖寫 0，照不透明度蓋掉底下的份量 |
+| 疊圖（`buildingBake.ts` 的色塊、河漫灘林地） | 頂點多一條 `viewShade`（這一點的顏色的亮度有幾成來自樹冠、幾成來自屋頂），烘圖時乘上顏色的亮度寫進第二張；其他疊圖寫 0，照不透明度蓋掉底下的份量。河漫灘的林地與草甸混色，給的是亮度佔比不是混色比例 |
 | 河漫灘的遠處粗網格（`leunaFeatures.ts` 的 `floodplainFar`） | 直接畫的網格，材質掛鉤（`beyondFar`）裡乘 K |
 
 **農地只在「遠處的樣子」裡算**（`fieldFar = 1`：遠圖、最外兩層、內圈在近窗外的那一段）。近圖
