@@ -7,7 +7,6 @@ import type { HeightFieldData } from '../world/heightfield'
 import { FIELD_HALF, LEYTE_ROADS, ROAD_WIDTH, SAND_TOP, farHeight } from '../world/leyte'
 import { buildGroundRect, DRAW_FLOOR } from './groundGeometry'
 import { createTerrainBatch } from './terrainBatch'
-import { VIEW_SHADE_GLSL, ViewShadeRow, type ViewShade } from './viewShade'
 import { matteGround } from './matteGround'
 
 /**
@@ -281,10 +280,6 @@ function glslVec3(c: Color): string {
  *
  * 【雜湊用整數】世界座標到幾萬公尺，`fract(sin(…))` 那種浮點雜湊在那個量級會
  * 失去精度、排出條紋。
- *
- * 【林子那一份隨視角變亮暗】兩支都記下樹冠佔了這一點的多少（`canopyShare`），最後把
- * 那一份樹冠色乘上視角係數（`viewShade.ts`）—— 立體的樹迎光暗、背光亮，烘的林子要
- * 跟著。草地與沙灘不變
  */
 function canopyGlsl(map: CanopyMap): string {
   const grass = glslVec3(GRASS)
@@ -292,18 +287,15 @@ function canopyGlsl(map: CanopyMap): string {
   const fill = Math.PI * FAR_TREE_R * FAR_TREE_R
   return `
   {
-    float canopyShare = 0.0;
     vec2 canopyUv = (vRoadXZ + ${map.half.toFixed(1)}) / ${(2 * map.half).toFixed(1)};
     if (canopyUv.x >= 0.0 && canopyUv.x <= 1.0 && canopyUv.y >= 0.0 && canopyUv.y <= 1.0) {
       float canopy = texture2D(uCanopy, canopyUv).r;
       diffuseColor.rgb = mix(diffuseColor.rgb, ${canopy}, canopy);
-      canopyShare = canopy;
     } else {
       vec3 dg = ${grass} - ${canopy};
       float cov = clamp(dot(${grass} - diffuseColor.rgb, dg) / dot(dg, dg), 0.0, 1.0);
       vec2 q = vRoadXZ / ${FAR_TREE_CELL.toFixed(1)};
       float fade = 1.0 - smoothstep(0.35, 0.9, length(fwidth(q)));
-      canopyShare = cov;
       if (cov > 0.0 && fade > 0.0) {
         ivec2 ic = ivec2(floor(q));
         uint h = uint(ic.x) * 0x8da6b343u ^ uint(ic.y) * 0xd8163841u;
@@ -313,22 +305,17 @@ function canopyGlsl(map: CanopyMap): string {
           * ${(1 - 2 * FAR_TREE_R).toFixed(3)};
         float tree = pick < cov / ${fill.toFixed(4)} && length(fract(q) - ctr) < ${FAR_TREE_R.toFixed(3)} ? 1.0 : 0.0;
         diffuseColor.rgb = mix(diffuseColor.rgb, mix(${grass}, ${canopy}, tree), fade);
-        canopyShare = mix(cov, tree, fade);
       }
     }
-    vec3 toCam = normalize(cameraPosition - vec3(vRoadXZ.x, vRoadY, vRoadXZ.y));
-    diffuseColor.rgb += canopyShare * ${canopy} * (viewShade(${ViewShadeRow.Ground.toFixed(1)}, toCam) - 1.0);
-    groundTreeShare = canopyShare;
   }`
 }
 
 function createGroundMaterial(
   road: { ids: DataTexture; segments: DataTexture }, map: RoadSegmentMap,
-  canopyUniform: { value: DataTexture }, canopy: CanopyMap, shade: ViewShade,
+  canopyUniform: { value: DataTexture }, canopy: CanopyMap,
 ): MeshStandardMaterial {
   const m = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: ROUGHNESS })
   m.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, shade.uniforms)
     shader.uniforms['uRoadIds'] = { value: road.ids }
     shader.uniforms['uRoadSegs'] = { value: road.segments }
     // 【同一個物件】`setCanopy` 換它的 value，編好的程式立刻讀到新的圖
@@ -343,14 +330,14 @@ function createGroundMaterial(
       .replace(
         '#include <common>',
         '#include <common>\nvarying vec2 vRoadXZ;\nvarying float vRoadY;\nuniform sampler2D uRoadIds;\n'
-          + 'uniform highp sampler2D uRoadSegs;\nuniform sampler2D uCanopy;' + VIEW_SHADE_GLSL,
+          + 'uniform highp sampler2D uRoadSegs;\nuniform sampler2D uCanopy;',
       )
       // 【樹冠先、路後】路的清空帶本來就沒有樹，路面蓋在最上面
       .replace('#include <color_fragment>', `#include <color_fragment>${canopyGlsl(canopy)}${roadGlsl(map)}`)
   }
   // 【快取鍵】注入的程式要有自己的鍵，否則 three 會拿別的 MeshStandardMaterial
   // 編好的程式來用 —— 症狀是路不見了，或別的東西上面畫出一條路
-  m.customProgramCacheKey = () => 'leyte-ground-road-canopy-view'
+  m.customProgramCacheKey = () => 'leyte-ground-road-canopy'
   matteGround(m)
   return m
 }
@@ -483,18 +470,16 @@ const NO_COVER = (): number => 0
  *   座標換算寫死它，之後 `setCanopy` 換上的圖也要一樣
  * @param farCoverAt 場外遠景陸地一點的期望樹冠覆蓋率（`render/flora.ts` 的
  *   `leyteFarCover`）。省略 = 沒有林子
- * @param shade 林子的視角係數，與植被的點共用（`viewShade.ts`）
  */
 export function createLeyteGround(
   field: HeightFieldData, canopy: CanopyMap,
-  farCoverAt: (x: number, z: number, h: number) => number,
-  shade: ViewShade,
+  farCoverAt: (x: number, z: number, h: number) => number = () => 0,
 ): { object: Object3D; setCanopy(map: CanopyMap): void; dispose(): void } {
   const group = new Group()
   const roadMap = bakeRoadSegments()
   const roadTex = roadSegmentTextures(roadMap)
   const canopyUniform = { value: canopyTexture(canopy) }
-  const material = createGroundMaterial(roadTex, roadMap, canopyUniform, canopy, shade)
+  const material = createGroundMaterial(roadTex, roadMap, canopyUniform, canopy)
   const geometries: BufferGeometry[] = []
   const last = field.size - 1
   for (let r0 = 0; r0 < last; r0 += LEYTE_TILE_CELLS) {

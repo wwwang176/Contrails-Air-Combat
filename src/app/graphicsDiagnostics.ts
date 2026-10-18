@@ -126,7 +126,7 @@ export function createGraphicsDiagnostics(source: GraphicsDiagnosticsSource) {
     },
 
     /**
-     * 烘進地面的林子、屋頂與遠處的點隨視角變亮暗（`viewShade.ts`）。同頁 A/B 用。
+     * 遠處的點隨視角變亮暗（`viewShade.ts`）。同頁 A/B 用。
      * 給數字是強度倍數（1 = 正常）：放大了看哪些地方有吃到係數
      */
     __viewShade(on?: boolean | number): number | null {

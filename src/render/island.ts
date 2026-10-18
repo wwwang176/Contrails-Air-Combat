@@ -6,7 +6,6 @@ import type { HeightFieldData } from '../world/heightfield'
 import type { IslandDesc } from '../world/archipelago'
 import { buildGroundRect } from './groundGeometry'
 import { createTerrainBatch } from './terrainBatch'
-import { VIEW_SHADE_GLSL, ViewShadeRow, type ViewShade } from './viewShade'
 import { matteGround } from './matteGround'
 export { buildGroundRect, DRAW_FLOOR } from './groundGeometry'
 
@@ -94,38 +93,7 @@ function buildIsland(
   const c1 = Math.min(last, Math.ceil((isl.cx + isl.outerRadius) / cell + half))
   const r0 = Math.max(0, Math.floor((isl.cz - isl.outerRadius) / cell + half))
   const r1 = Math.min(last, Math.ceil((isl.cz + isl.outerRadius) / cell + half))
-  return buildGroundRect(field, c0, c1, r0, r1, coverAt, shade, canopyShare)
-}
-
-/** 地色裡林相佔幾成，與 `shade` 同一條式子：沙灘是 0 */
-function canopyShare(h: number, cover: number): number {
-  return isGrass(h) ? Math.min(1, Math.max(0, cover)) : 0
-}
-
-/**
- * 地面材質。**林相那一份隨視角變亮暗**：頂點的 `canopyShare` 是地色裡 `CANOPY` 佔的
- * 份量，片段把那一份乘上視角係數（`viewShade.ts`）—— 島上的樹迎光暗、背光亮，圈外
- * 烘在地色裡的林子要跟著
- */
-function islandMaterial(shade: ViewShade): MeshStandardMaterial {
-  const m = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: ROUGHNESS })
-  m.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, shade.uniforms)
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float canopyShare;\nvarying float vCanopyShare;\nvarying vec3 vIslandWorld;')
-      .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
-vCanopyShare = canopyShare;
-vIslandWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;`)
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vCanopyShare;\nvarying vec3 vIslandWorld;' + VIEW_SHADE_GLSL)
-      .replace('#include <color_fragment>', `#include <color_fragment>
-diffuseColor.rgb += vCanopyShare * vec3(${CANOPY.r.toFixed(4)}, ${CANOPY.g.toFixed(4)}, ${CANOPY.b.toFixed(4)})
-  * (viewShade(${ViewShadeRow.Ground.toFixed(1)}, normalize(cameraPosition - vIslandWorld)) - 1.0);
-groundTreeShare = vCanopyShare;`)
-  }
-  m.customProgramCacheKey = () => 'island-ground-view'
-  matteGround(m)
-  return m
+  return buildGroundRect(field, c0, c1, r0, r1, coverAt, shade)
 }
 
 export function createIslands(
@@ -135,11 +103,13 @@ export function createIslands(
    * `flora.ts` 已經 import 這個檔案的 `isGrass`，反過來會成環。組裝的人是
    * `terrain.ts`。不傳就是不上林相色。
    */
-  coverAt: (x: number, z: number) => number,
-  shade: ViewShade,
+  coverAt: (x: number, z: number) => number = () => 0,
 ): { object: Object3D; dispose(): void } {
   const group = new Group()
-  const material = islandMaterial(shade)
+  const material = new MeshStandardMaterial({
+    vertexColors: true, flatShading: true, roughness: ROUGHNESS,
+  })
+  matteGround(material)
   const geometries: BufferGeometry[] = []
 
   for (const isl of islands) {

@@ -29,9 +29,10 @@ function toCamera(p: DayPalette, phi: number, s: number): Vector3 {
 
 describe('視角係數的查表', () => {
   const noon = DAY_PALETTES.noon
-  const table = buildViewShadeTable(shadeLightsOf(noon), 'summer', { broad: 1, cone: 0, bush: 0 })
+  const table = buildViewShadeTable(shadeLightsOf(noon), 'summer')
 
-  it('表的大小：一類一列、每列 COLS × ROWS 格 RGBA', () => {
+  it('表的大小：一個樹種一列（三列）、每列 COLS × ROWS 格 RGBA', () => {
+    expect(VIEW_SHADE_CLASSES).toBe(3)
     expect(table.length).toBe(VIEW_SHADE_CLASSES * VIEW_SHADE_ROWS * VIEW_SHADE_COLS * 4)
   })
 
@@ -46,7 +47,7 @@ describe('視角係數的查表', () => {
 
   it('正午低角度：迎著太陽比背著太陽暗', () => {
     const sunH = new Vector3(noon.sunDir[0], 0, noon.sunDir[2]).normalize()
-    for (const row of [ViewShadeRow.Broad, ViewShadeRow.Cone, ViewShadeRow.House, ViewShadeRow.Ground]) {
+    for (const row of [ViewShadeRow.Broad, ViewShadeRow.Cone]) {
       const into = viewShadeAt(table, row, toCamera(noon, 0, 0.17), sunH.x, sunH.z)
       const away = viewShadeAt(table, row, toCamera(noon, Math.PI, 0.17), sunH.x, sunH.z)
       expect(lum(into)).toBeLessThan(lum(away) * 0.7)
@@ -55,9 +56,9 @@ describe('視角係數的查表', () => {
 
   it('表只跟「相對太陽的方位」有關：太陽繞 Y 轉，表不變', () => {
     // 轉整數個轉向間隔（16 個）時逐格相同；任意角度只差在轉向取樣的離散化
-    const step = buildViewShadeTable(shadeLightsOf(turnSun(noon, (3 / 16) * Math.PI * 2)), 'summer', { broad: 1, cone: 0, bush: 0 })
+    const step = buildViewShadeTable(shadeLightsOf(turnSun(noon, (3 / 16) * Math.PI * 2)), 'summer')
     for (let i = 0; i < table.length; i++) expect(step[i]).toBeCloseTo(table[i]!, 5)
-    const any = buildViewShadeTable(shadeLightsOf(turnSun(noon, 1.1)), 'summer', { broad: 1, cone: 0, bush: 0 })
+    const any = buildViewShadeTable(shadeLightsOf(turnSun(noon, 1.1)), 'summer')
     for (let i = 0; i < table.length; i++) expect(Math.abs(any[i]! - table[i]!)).toBeLessThan(0.02 * table[i]!)
   })
 
@@ -74,20 +75,6 @@ describe('視角係數的查表', () => {
       expect(into[k]).toBeCloseTo(at(VIEW_SHADE_COLS - 1)[k]!, 5)
       expect(away[k]).toBeCloseTo(at(0)[k]!, 5)
     }
-  })
-
-  it('地面林子那一列是樹種照比例混的：全闊葉時與闊葉那一列相同', () => {
-    for (let j = 0; j < VIEW_SHADE_ROWS; j++) {
-      for (let i = 0; i < VIEW_SHADE_COLS; i++) {
-        const a = ((ViewShadeRow.Broad * VIEW_SHADE_ROWS + j) * VIEW_SHADE_COLS + i) * 4
-        const b = ((ViewShadeRow.Ground * VIEW_SHADE_ROWS + j) * VIEW_SHADE_COLS + i) * 4
-        for (let k = 0; k < 3; k++) expect(table[b + k]).toBeCloseTo(table[a + k]!, 6)
-      }
-    }
-    const coneOnly = buildViewShadeTable(shadeLightsOf(noon), 'summer', { broad: 0, cone: 1, bush: 0 })
-    const a = ((ViewShadeRow.Cone * VIEW_SHADE_ROWS + 2) * VIEW_SHADE_COLS + 30) * 4
-    const b = ((ViewShadeRow.Ground * VIEW_SHADE_ROWS + 2) * VIEW_SHADE_COLS + 30) * 4
-    expect(coneOnly[b]).toBeCloseTo(coneOnly[a]!, 6)
   })
 })
 

@@ -44,7 +44,7 @@ export function terrainGrid(field: { readonly size: number; readonly cell: numbe
 /** 高出地面多少，m。整片平移，不影響共平面 */
 export const DECAL_LIFT = 0.12
 
-/** 【不算鏡面】貼片是地面的一部分，與底下的地同一套（`matteGround.ts`） */
+/** 【地面的光照】貼片是地面的一部分，與底下的地同一套（`matteGround.ts`） */
 function material(transparent: boolean): MeshStandardMaterial {
   const m = new MeshStandardMaterial({
     vertexColors: true, roughness: 0.95, transparent,
@@ -68,13 +68,6 @@ export interface DecalRegion {
    * 落在不透明度 0 的地方就看不見
    */
   readonly alphaAt?: (x: number, z: number) => number
-  /**
-   * 這一點的顏色的**亮度**有幾成來自樹冠，0～1（不是混色比例：樹冠比草地暗，同樣
-   * 一半一半混，樹冠佔的亮度不到一半）。沒給就是 0。烘進田色貼圖時乘上顏色的亮度
-   * 記成樹冠份量、直接畫時那一份乘上視角係數（`viewShade.ts`）—— 植被圈外烘在地上的
-   * 林子要跟著立體的樹迎光變暗、背光變亮
-   */
-  readonly treeAt?: (x: number, z: number) => number
 }
 
 /**
@@ -88,7 +81,6 @@ export function buildDecals(
   const grid = g.size
   const pos: number[] = []
   const col: number[] = []
-  const share: number[] = []
   const idx: number[] = []
   const c = new Color()
   // 【有淡出才帶透明度】頂點色是四個分量時 `MeshStandardMaterial` 會乘上它
@@ -120,7 +112,6 @@ export function buildDecals(
       c.setHex(r.colorAt(x, z))
       col.push(c.r, c.g, c.b)
       if (alpha) col.push(r.alphaAt === undefined ? 1 : r.alphaAt(x, z))
-      share.push(r.treeAt === undefined ? 0 : r.treeAt(x, z), 0)
       vid[k] = pos.length / 3 - 1
       return vid[k]!
     }
@@ -140,9 +131,6 @@ export function buildDecals(
   const geo = new BufferGeometry()
   geo.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3))
   geo.setAttribute('color', new BufferAttribute(new Float32Array(col), alpha ? 4 : 3))
-  // 【一律帶這一條】直接畫的粗網格（`fieldClipmap.ts` 的 `beyondFar`）在材質裡讀它；
-  // 沒有的話那條屬性讀到的是上一個程式留下的值
-  geo.setAttribute('viewShade', new BufferAttribute(new Float32Array(share), 2))
   geo.setIndex(idx)
   geo.computeVertexNormals()
   geo.computeBoundingSphere()

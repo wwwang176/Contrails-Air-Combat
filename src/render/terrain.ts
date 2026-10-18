@@ -21,7 +21,6 @@ import {
 } from './vegetationPolicy'
 import { createVegetation } from './vegetation'
 import { createViewShade } from './viewShade'
-import { CONIFER_SHARE } from './fields'
 import {
   farmHedgeFlora, farmWoodFlora, openHedgeFloraFor, openWoodFloraFor, steppeBeltFloraFor,
 } from './flora'
@@ -292,18 +291,17 @@ function createInlandTerrain(
   const open = dressing === undefined && !steppe
   const horizon = createFarHorizon(season, open)
   const ground = createFarmGround(farm.field, season, site, open)
-  // 【林子與屋頂隨視角變亮暗】烘進地面的與植被的點共用一份係數，換時段一起換。
-  // 地面林子的樹種比例照樹林田的針葉佔比
-  const viewShade = createViewShade(season, { broad: 1 - CONIFER_SHARE, cone: CONIFER_SHARE, bush: 0 })
+  // 【點隨視角變亮暗】植被的點的視角係數，換時段跟著燈重算
+  const viewShade = createViewShade(season)
   // 【田色烘成貼圖】地面 25 塊與遠景環一起換材質 —— 兩者本來共用同一支算式，
   // 只換地面的話 15 km 外那一圈會與地面接不上。沒有 GPU 就留著算式的材質
   const clipmap = gfx === undefined ? null : createFieldClipmap(gfx.renderer, {
     season, candidates: ground.candidates, ...(site === undefined ? {} : { site }), open,
     near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR, horizon: FIELD_CLIP_HORIZON, backdrop: FIELD_CLIP_BACKDROP,
-    innerRadius: gfx.fieldInner, viewShade,
+    innerRadius: gfx.fieldInner,
   })
   if (clipmap !== null) {
-    horizon.mesh.material = clipmap.horizonMaterial
+    horizon.mesh.material = clipmap.material
     ground.setMaterial(clipmap.material)
   }
   const groundHaze = { value: 0 }

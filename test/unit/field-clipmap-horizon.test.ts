@@ -4,18 +4,16 @@ import { createFieldClipmap, outerFades, RECENTRE_FRACTION } from '../../src/ren
 import {
   FIELD_CLIP_BACKDROP, FIELD_CLIP_FAR, FIELD_CLIP_HORIZON, FIELD_CLIP_NEAR,
 } from '../../src/render/terrain'
-import { createViewShade } from '../../src/render/viewShade'
 
 /** 建構時只問非等向的上限；烘圖要到 `update` 才碰 GL */
 const RENDERER = { capabilities: { getMaxAnisotropy: () => 1 } } as unknown as WebGLRenderer
-const SHADE = createViewShade('summer', { broad: 1, cone: 0, bush: 0 })
 
 /** 地面材質的片段著色器與 uniform（跑一次它的 onBeforeCompile） */
 function compiled(horizon: boolean, backdrop = false): {
   frag: string, uniforms: Record<string, { value: unknown }>
 } {
   const clip = createFieldClipmap(RENDERER, {
-    season: 'summer', near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR, viewShade: SHADE,
+    season: 'summer', near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR,
     ...(horizon ? { horizon: FIELD_CLIP_HORIZON } : {}),
     ...(backdrop ? { backdrop: FIELD_CLIP_BACKDROP } : {}),
   })
@@ -38,7 +36,7 @@ describe('田色 clipmap 的遠處', () => {
     const { frag, uniforms } = compiled(true)
     expect(frag).toContain('bool proc = uBypass > 0.5 || tIn < 1.0;')
     expect(frag).toContain('bool tex = uBypass < 0.5 && tIn > 0.0;')
-    expect(frag).toContain('horizonColourAt(qH, dHx, dHy, eH, hs)')
+    expect(frag).toContain('horizonColourAt(qH, dHx, dHy, eH)')
     // 平均色讀最小一級 mipmap：2048² 是第 11 級
     expect(frag).toContain('textureLod(uHor, vec2(0.5), uHorTop)')
     expect(uniforms['uHorTop']!.value).toBe(Math.log2(FIELD_CLIP_HORIZON.size))
@@ -65,7 +63,7 @@ describe('田色 clipmap 的遠處', () => {
       render: () => {},
     } as unknown as WebGLRenderer
     const clip = createFieldClipmap(renderer, {
-      season: 'summer', near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR, horizon: FIELD_CLIP_HORIZON, viewShade: SHADE,
+      season: 'summer', near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR, horizon: FIELD_CLIP_HORIZON,
     })
     clip.update(0, 0)
     expect(clip.stats.recentres).toBe(3)
@@ -98,10 +96,10 @@ describe('田色 clipmap 的遠處', () => {
   /** 【有遠景層】最外層外讀遠景層，平均色改取遠景層的，兩個交界以鏡頭為圓心 */
   it('有遠景層：最外層外讀遠景層，平均色取它的', () => {
     const { frag, uniforms } = compiled(true, true)
-    expect(frag).toContain('if (eH >= 1.0) return backdropColourAt(qB, dBx, dBy, rCam, hs);')
+    expect(frag).toContain('if (eH >= 1.0) return backdropColourAt(qB, dBx, dBy, rCam);')
     expect(frag).toContain('textureLod(uBack, vec2(0.5), uBackTop)')
     expect(frag).toContain('smoothstep(uHorFade.x, uHorFade.y, rCam) * (1.0 - keep)')
-    expect(frag).toContain('horizonColourAt(qH, dHx, dHy, eH, qB, dBx, dBy, rCam, hs)')
+    expect(frag).toContain('horizonColourAt(qH, dHx, dHy, eH, qB, dBx, dBy, rCam)')
     expect(uniforms['uBackTop']!.value).toBe(Math.log2(FIELD_CLIP_BACKDROP.size))
   })
 
@@ -110,36 +108,5 @@ describe('田色 clipmap 的遠處', () => {
     expect(frag).toContain('bool proc = uBypass > 0.5 || tIn < 1.0 || eF >= 1.0;')
     expect(frag).toContain('bool tex = uBypass < 0.5 && tIn > 0.0 && eF < 1.0;')
     expect(frag).not.toContain('horizonColourAt')
-  })
-})
-
-describe('視角係數在哪裡查', () => {
-  /**
-   * 【遠景環逐像素】遠景環一格將近 100 km，頂點內插的係數在與地面的交界差兩成以上 ——
-   * 林子在交界跳一階。地面一格 80 m，逐頂點就夠，省下逐像素查表的成本
-   */
-  it('地面在頂點著色器查、遠景環在片段著色器查', () => {
-    const clip = createFieldClipmap(RENDERER, {
-      season: 'summer', near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR, horizon: FIELD_CLIP_HORIZON, viewShade: SHADE,
-    })
-    const run = (m: typeof clip.material): { vert: string, frag: string } => {
-      const shader = {
-        uniforms: {} as Record<string, { value: unknown }>,
-        vertexShader: ShaderLib.standard.vertexShader,
-        fragmentShader: ShaderLib.standard.fragmentShader,
-      }
-      m.onBeforeCompile(shader as never, undefined as never)
-      return { vert: shader.vertexShader, frag: shader.fragmentShader }
-    }
-    const ground = run(clip.material)
-    const ring = run(clip.horizonMaterial)
-    expect(ground.vert).toContain('vViewKTree = viewShade(')
-    expect(ground.frag).not.toContain('viewShade(')
-    expect(ring.vert).not.toContain('viewShade(')
-    expect(ring.frag).toContain('vec3 kTree = viewShade(')
-    expect(clip.material.customProgramCacheKey()).not.toBe(clip.horizonMaterial.customProgramCacheKey())
-    // 【樹冠與屋頂那一份不反光】寫給 matteGround（見 `matteGround.ts`）
-    for (const s of [ground, ring]) expect(s.frag).toContain('groundTreeShare = sTree + sRoof;')
-    clip.dispose()
   })
 })

@@ -26,12 +26,11 @@ import { createViewShade } from './viewShade'
 export function createLeyteTerrain(): Terrain {
   const { field, hills } = createLeyte()
   const ocean = createOcean(bakeShore(field))
-  // 【林子隨視角變亮暗】地面的樹冠圖與植被的點共用一份係數，換時段一起換。雷伊泰
-  // 的林子是闊葉樹與灌木，灌木也是八面體，算成闊葉
-  const shade = createViewShade('summer', { broad: 1, cone: 0, bush: 0 })
+  // 【點隨視角變亮暗】植被的點的視角係數，換時段跟著燈重算
+  const shade = createViewShade('summer')
   // 【樹冠圖先粗後細】精細的那一張要烘兩秒多，放在背景執行緒；烘好之前是粗的
   // 平均暗綠。場已經收掉的話不換
-  const ground = createLeyteGround(field, leyteCanopyCoarse(field), leyteFarCover, shade)
+  const ground = createLeyteGround(field, leyteCanopyCoarse(field), leyteFarCover)
   let disposed = false
   void requestLeyteCanopy()?.then((map) => {
     if (map !== null && !disposed) ground.setCanopy(map)
@@ -141,11 +140,11 @@ export function createArchipelagoTerrain(): Terrain {
   // 側都用不到它，讓生成器一律烘等於每個呼叫端都付一次 1024² 的距離傳播。
   const { field, islands } = createArchipelago()
   const ocean = createOcean(bakeShore(field))
-  // 【林子隨視角變亮暗】樹冠的面積比與 `island.ts` 的 `CANOPY` 相同：針葉 66%、灌木 34%
-  const shade = createViewShade('summer', { broad: 0, cone: 0.66, bush: 0.34 })
+  // 【點隨視角變亮暗】植被的點的視角係數，換時段跟著燈重算
+  const shade = createViewShade('summer')
   // 【地色先帶上林相】見 `island.ts` 的 `shade`：植被的圈外一棵樹都不畫，
   // 地色若不先按覆蓋率調暗，飛進圈時整座島會同時變暗變花
-  const meshes = createIslands(field, islands, islandCanopyCover(field, islands), shade)
+  const meshes = createIslands(field, islands, islandCanopyCover(field, islands))
   // 【植被 append 在索引 3】前三個是明文契約，見 `main.ts` 的 `__gfx`
   // 【容量與單格上限都是群島專用的】島上只有針葉樹，但密度比農地高一個
   // 量級 —— 見 `ISLAND_CAPACITY` 與 `ISLAND_MAX_PER_TILE`

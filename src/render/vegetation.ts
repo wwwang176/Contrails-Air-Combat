@@ -152,7 +152,7 @@ export function createVegetation(
   const rebuildBudget = opts.rebuildBudget ?? REBUILD_BUDGET
   const season = opts.season ?? 'summer'
   // 【沒給就自己建一份正午的】量測台與工具頁沒有地形來換時段；燈也是正午
-  const ownShade = opts.viewShade === undefined ? createViewShade(season, { broad: 1, cone: 0, bush: 0 }) : null
+  const ownShade = opts.viewShade === undefined ? createViewShade(season) : null
   const pools = createVegetationPools(cap, season, tileCache, opts.viewShade ?? ownShade!)
   const { group, counts, cull, setPointLight } = pools
   const dispose = (): void => {

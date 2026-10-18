@@ -6,7 +6,6 @@ import { createTerrain } from '../../src/render/terrain'
 import { FAR_SEA_Y } from '../../src/render/oceanGeometry'
 import { gerstnerHeight } from '../../src/core/oceanWaves'
 import { createIslands } from '../../src/render/island'
-import { createViewShade } from '../../src/render/viewShade'
 import { createArchipelago } from '../../src/world/archipelago'
 import { createFarmland, HILL_PEAK_MAX } from '../../src/world/farmland'
 import { LEUNA_HILLS, PLANT_CENTER } from '../../src/world/leuna'
@@ -133,7 +132,7 @@ describe('createTerrain（archipelago）', () => {
    */
   it('mesh 每個三角形的重心高度都等於 field.sample —— 看見什麼就撞到什麼', () => {
     const { field, islands } = createArchipelago()
-    const built = createIslands(field, islands, () => 0, createViewShade('summer', { broad: 0, cone: 1, bush: 0 }))
+    const built = createIslands(field, islands)
     let checked = 0
     let worst = 0
     built.object.traverse((o) => {

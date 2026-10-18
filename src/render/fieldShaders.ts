@@ -99,7 +99,7 @@ export function fieldGlsl(season: Season, candidates = false, open = false): str
   // 【草原田沒有「空地」】整片都是田（大田、牧草地、田埂），沒有田圍著村那一套
   if (!open || FIELD_COLORS[season].layout === 'steppe') return base
   // 【空地疊在條紋之後】空地沒有條紋、沒有樹籬；凹路照舊壓在上面
-  const at = base.indexOf('  float hedgeCover = ')
+  const at = base.indexOf('  col = mix(col, mix(HEDGE_COLOR')
   const decl = base.indexOf('vec3 fieldColorAt(')
   return base.slice(0, decl) + openDeclGlsl(season) + base.slice(decl, at) + OPEN_PARCEL_GLSL + base.slice(at)
 }
@@ -171,11 +171,9 @@ float openWoodCover(vec2 w) {
   return smoothstep(${c.woodGate[0].toFixed(3)}, ${c.woodGate[1].toFixed(3)}, openWoodNoise(w));
 }
 
-// cover 帶出林子的覆蓋率：樹冠份量要用它，再算一次是兩層雜訊
-vec3 openColorAt(vec2 w, out float cover) {
+vec3 openColorAt(vec2 w) {
   vec3 c = mix(OPEN_COLOR, OPEN_ALT_COLOR, fieldNoise(w, ${OPEN_TONE_CELL.toFixed(1)}, 0x1f7e));
-  cover = openWoodCover(w);
-  return mix(c, mix(WOOD_COLOR, BROAD_FAR_COLOR, fieldFar), cover);
+  return mix(c, mix(WOOD_COLOR, BROAD_FAR_COLOR, fieldFar), openWoodCover(w));
 }
 
 // 【空地的樹一棵一棵畫成點】與植被（flora.ts 的 woods／openTree）同一套：16 m 網格一格
@@ -225,7 +223,6 @@ vec3 openTreesOver(vec2 w, vec3 col, float px) {
       // 邊緣照像素足跡抗鋸齒
       float cov = clamp((r - d) / (2.0 * aa) + 0.5, 0.0, 1.0);
       col = mix(col, cone ? CONE_FAR_COLOR : BROAD_FAR_COLOR, cov);
-      fieldTree = mix(fieldTree, fieldFar * dot(cone ? CONE_FAR_COLOR : BROAD_FAR_COLOR, FIELD_LUM), cov);
     }
   }
   return col;
@@ -255,9 +252,7 @@ const OPEN_PARCEL_GLSL = `  vec2 pq = vec2((left + right) * 0.5, (bottom + top) 
   vec2 dq = pq - q;
   vec2 parcel = world + vec2(dq.x * cos(angle) - dq.y * sin(angle), dq.x * sin(angle) + dq.y * cos(angle));
   if (isOpenParcel(parcel, fh)) {
-    float openCover;
-    col = openColorAt(world, openCover);
-    fieldTree = fieldFar * openCover * dot(BROAD_FAR_COLOR, FIELD_LUM);
+    col = openColorAt(world);
     if (fieldTrees > 0.5) col = openTreesOver(world, col, px);
     isHedge = false;
   }
@@ -292,12 +287,6 @@ float fieldFar = 0.0;
 // 【樹一棵一棵畫成點】1 = 烘遠圖：植被圈外樹不畫，地上留的是每一棵樹的點。只在烘圖
 // 時開 —— 每個像素要重算周圍九格的候選樹，逐幀的算式付不起
 float fieldTrees = 0.0;
-// 【樹冠的亮度份量】fieldColorAt 回傳的顏色裡，樹冠佔了多少亮度（線性，與 col 同一個
-// 空間）。只在遠處的樣子裡記（乘 fieldFar）：近處的林地色、樹籬色是真的樹底下的地。
-// 每一處改 col 的地方都跟著更新：蓋上去的東西照覆蓋率把它衰減掉，樹冠色照覆蓋率加進來。
-// 地面著色器拿它把那一份乘上視角係數（viewShade.ts）
-float fieldTree = 0.0;
-const vec3 FIELD_LUM = vec3(0.2126, 0.7152, 0.0722);
 const vec3 TRACK_COLOR = ${rgb(c.track)};
 const vec3 PLOUGHED_COLOR = ${rgb(c.ploughed)};
 const vec3 WOOD_COLOR = ${rgb(c.wood)};
@@ -452,9 +441,6 @@ ${candidates ? '  }\n' : ''}  uint rh = fieldHash1(rid);
     // 【牧草地】沒耕的草：兩個草色逐塊漸變，不分遠近
     ? `wood ? mix(${rgb(c.open)}, ${rgb(c.openAlt)}, float((fh >> 12u) & 0xffu) / 255.0) : PLOUGHED_COLOR`
     : 'wood ? mix(WOOD_COLOR, woodCone ? CONE_FAR_COLOR : BROAD_FAR_COLOR, fieldFar) : PLOUGHED_COLOR'};
-  fieldTree = ${steppe
-    ? '0.0'
-    : 'wood ? fieldFar * dot(woodCone ? CONE_FAR_COLOR : BROAD_FAR_COLOR, FIELD_LUM) : 0.0'};
   if (!wood && !ploughed) {
     int t = clamp(tone + int((fh >> 8u) % 3u) - 1, 0, ${PALETTE_STEPS - 1});
     float k = 0.94 + (float((fh >> 16u) & 0xffu) / 255.0) * 0.12;
@@ -463,17 +449,13 @@ ${candidates ? '  }\n' : ''}  uint rh = fieldHash1(rid);
   // 【犁田加倍、樹林沒有】溝比行深；樹林是林冠不是作物。條紋沿田的長軸走，
   // 所以重複發生在 q.x 上
   float amp = wood ? 0.0 : (ploughed ? STRIPE_AMP * 2.0 : STRIPE_AMP);
-  // 條紋不動樹冠份量：樹林沒有條紋，作物田沒有樹冠
   col *= stripe(q, STRIPE_PERIOD, amp);
   // 【順序就是優先權】凹路壓過樹籬，樹籬壓過田 —— 與 fieldSurfaceColor 相同。
   // 兩條帶的半寬不一樣：凹路的判準是 trackGap < trackWidthAt，樹籬的是
   // best < HEDGE_WIDTH * 0.5
-  float hedgeCover = isHedge ? bandCoverage(best, HEDGE_WIDTH * 0.5 * mix(1.0, HEDGE_FAR_GROW, fieldFar), px) : 0.0;
-  col = mix(col, mix(HEDGE_COLOR, HEDGE_FAR_COLOR, fieldFar), hedgeCover);
-  fieldTree = mix(fieldTree, ${steppe ? '0.0' : 'fieldFar * dot(HEDGE_FAR_COLOR, FIELD_LUM)'}, hedgeCover);
-  float trackCover = bandCoverage(trackGap(world, s1, s2), trackWidthAt(world), px);
-  col = mix(col, TRACK_COLOR, trackCover);
-  fieldTree *= 1.0 - trackCover;
+  col = mix(col, mix(HEDGE_COLOR, HEDGE_FAR_COLOR, fieldFar),
+    isHedge ? bandCoverage(best, HEDGE_WIDTH * 0.5 * mix(1.0, HEDGE_FAR_GROW, fieldFar), px) : 0.0);
+  col = mix(col, TRACK_COLOR, bandCoverage(trackGap(world, s1, s2), trackWidthAt(world), px));
   return col;
 }
 `
@@ -525,9 +507,8 @@ ${rail.map((s) => `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, `
     float t = clamp(dot(world - a, ab) / max(dot(ab, ab), 1.0e-6), 0.0, 1.0);
     railD = min(railD, length(world - (a + ab * t)));
   }
-  float railCover = bandCoverage(railD, ${((site.railWidth ?? 24) / 2).toFixed(1)}, px);
-  col = mix(col, ${rgb(BALLAST)}, railCover);
-  fieldTree *= 1.0 - railCover;`
+  col = mix(col, ${rgb(BALLAST)},
+    bandCoverage(railD, ${((site.railWidth ?? 24) / 2).toFixed(1)}, px));`
   const list = segs.map((s) =>
     `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, ${s.bx.toFixed(1)}, ${s.bz.toFixed(1)})`).join(',\n')
   /**
@@ -595,7 +576,7 @@ ${rs.map((p) => `  ${rgb(p.hex)}`).join(',\n')}
   const patchGlsl = rectsGlsl('PATCHES', site.patches ?? [],
     'siteCol = $ * siteGrime * padDark;')
   const outpostGlsl = rectsGlsl('OUTPOSTS', site.outposts ?? [],
-    'col = $ * siteGrime; fieldTree = 0.0;')
+    'col = $ * siteGrime;')
   const rb = roadBounds(site)
   // 【沒有墊面就整段不產生】衛星設施與附加墊面都依附墊面
   const pad = site.pad
@@ -645,9 +626,7 @@ ${patchGlsl}
   //
   // 【這一像素的柔化只為了抗鋸齒】寬度就是像素在地面上的足跡 —— 拉寬就變回
   // 過渡帶了
-  float padKeep = clamp(padD / max(px, 0.25) * 0.5 + 0.5, 0.0, 1.0);
-  col = mix(siteCol, col, padKeep);
-  fieldTree *= padKeep;
+  col = mix(siteCol, col, clamp(padD / max(px, 0.25) * 0.5 + 0.5, 0.0, 1.0));
 ${outpostGlsl}
   }`
   })()
@@ -677,9 +656,7 @@ ${list}
     float t = clamp(dot(world - a, ab) / max(dot(ab, ab), 1.0e-6), 0.0, 1.0);
     roadD = min(roadD, length(world - (a + ab * t)));
   }
-  float roadCover = bandCoverage(roadD, ${(site.roadWidth / 2).toFixed(1)}, px);
-  col = mix(col, ${rgb(site.roadHex ?? ASPHALT)}, roadCover);
-  fieldTree *= 1.0 - roadCover;
+  col = mix(col, ${rgb(site.roadHex ?? ASPHALT)}, bandCoverage(roadD, ${(site.roadWidth / 2).toFixed(1)}, px));
   }${beltSection}${scarSection}`
 }
 
@@ -710,7 +687,6 @@ function beltsGlsl(b: SiteBelts): string {
     float beltCover = bandCoverage(best, ${n(b.halfWidth)}, px) * beltFade
       * (1.0 - bandCoverage(trackGap(world, s1, s2), trackWidthAt(world), px));
     col = mix(col, ${rgb(b.hex)}, beltCover);
-    fieldTree = mix(fieldTree, dot(${rgb(b.hex)}, FIELD_LUM), beltCover);
   }`
 }
 

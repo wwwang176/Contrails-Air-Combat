@@ -98,34 +98,6 @@ function splatsFor(season: Season): ReadonlyMap<FloraKind, Splat> {
   ])
 }
 
-/**
- * 烘圖存樹冠／屋頂亮度份量時乘的數（`fieldClipmap.ts` 的第二張貼圖，8 位元）：
- * `0.95 / 這個季節最亮的那一種 × 明度抖動上限`。
- *
- * 【逐季節、逐通道】冬季覆雪的樹冠亮度到 0.75、屋頂色塊到 0.85，夏季的樹冠只有
- * 0.03～0.05。共用一個固定的數，不是截斷冬季就是夏季只剩十幾階。
- *
- * 【上界涵蓋地面算式裡的林子】`fieldShaders.ts` 的遠處林色、樹籬色都是樹冠色乘一個
- * 小於 1 的數（`TREE_DOT_SHADE`、`HEDGE_FAR_SHADE`）；防風林帶與河漫灘的林地就是
- * 樹冠色。都不會比這裡的色塊亮
- */
-export function bakedShadeScale(season: Season): { tree: number; roof: number } {
-  const lum = (c: Color): number => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
-  let tree = 0
-  let roof = 0
-  for (const [kind, s] of splatsFor(season)) {
-    const l = lum(s.color) * s.tint[1]
-    if (isCrown(kind)) tree = Math.max(tree, l)
-    else roof = Math.max(roof, l)
-  }
-  return { tree: 0.95 / tree, roof: 0.95 / roof }
-}
-
-/** 樹冠的色塊（其餘是屋頂） */
-function isCrown(kind: FloraKind): boolean {
-  return kind === FloraKind.BroadTree || kind === FloraKind.ConeTree || kind === FloraKind.Bush
-}
-
 /** 第一次試的容量；不夠就加倍重跑 */
 const FIRST_CAPACITY = 65536
 /** 跑散佈器的塊的邊長，m */
@@ -133,8 +105,7 @@ const SPLAT_CHUNK = 2000
 
 /**
  * 跑一次散佈器，範圍內每一棟建築、每一株樹一個四邊形。`position` 的 y 是 0
- * （烘圖只讀 xz），`color` 是線性值，與頂點色相同。`viewShade` 是 (樹冠, 屋頂) 的
- * 佔比：樹冠色塊 (1, 0)、屋頂 (0, 1)，烘圖時記成亮度份量（`fieldClipmap.ts`）。
+ * （烘圖只讀 xz），`color` 是線性值，與頂點色相同。
  *
  * **建地形時跑一次**，會配置。
  */
@@ -162,7 +133,6 @@ export function floraSplats(
   for (let i = 0; i < buf.count; i++) if (splats.has(buf.kind[i]!)) n++
   const pos = new Float32Array(n * 12)
   const col = new Float32Array(n * 12)
-  const share = new Float32Array(n * 8)
   const idx = new Uint32Array(n * 6)
   let q = 0
   for (let i = 0; i < buf.count; i++) {
@@ -178,11 +148,8 @@ export function floraSplats(
     const hd = (r.d * scale) / 2
     const cs = Math.cos(rot)
     const sn = Math.sin(rot)
-    const crown = isCrown(buf.kind[i]!)
     // 四個角依序 (−,−) (+,−) (+,+) (−,+)：u 沿 x 軸、v 沿 z 軸
     for (let c = 0; c < 4; c++) {
-      share[(q * 4 + c) * 2] = crown ? 1 : 0
-      share[(q * 4 + c) * 2 + 1] = crown ? 0 : 1
       const u = c === 1 || c === 2 ? hw : -hw
       const v = c >= 2 ? hd : -hd
       const p = (q * 4 + c) * 3
@@ -200,7 +167,6 @@ export function floraSplats(
   const g = new BufferGeometry()
   g.setAttribute('position', new BufferAttribute(pos, 3))
   g.setAttribute('color', new BufferAttribute(col, 3))
-  g.setAttribute('viewShade', new BufferAttribute(share, 2))
   g.setIndex(new BufferAttribute(idx, 1))
   return g
 }

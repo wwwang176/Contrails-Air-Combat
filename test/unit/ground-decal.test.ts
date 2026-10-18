@@ -56,26 +56,3 @@ describe('buildDecals', () => {
     expect(worstOff(size, 'wrong')).toBeGreaterThan(0.5)
   })
 })
-
-describe('貼片的樹冠佔比', () => {
-  /**
-   * 【一律帶 viewShade】直接畫的粗網格在材質裡讀它（`fieldClipmap.ts` 的 `beyondFar`）；
-   * 沒有這條屬性的話讀到的是上一個程式留下的值，鎮的地面會跟著林子變暗
-   */
-  it('有 treeAt 的頂點是它的值、沒有的是 0，每個頂點都有', () => {
-    const flat = (): number => 0
-    const mesh = buildDecals(flat, [
-      { x0: 0, z0: 0, x1: 100, z1: 100, inside: () => true, colorAt: () => 0x808080, treeAt: (x) => (x < 50 ? 0.25 : 0.75) },
-      { x0: 500, z0: 0, x1: 600, z1: 100, inside: () => true, colorAt: () => 0x808080 },
-    ], 't')
-    const pos = mesh.geometry.getAttribute('position')
-    const s = mesh.geometry.getAttribute('viewShade')
-    expect(s.count).toBe(pos.count)
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i)
-      expect(s.getX(i)).toBe(x >= 500 ? 0 : x < 50 ? 0.25 : 0.75)
-      expect(s.getY(i)).toBe(0)
-    }
-    mesh.geometry.dispose()
-  })
-})

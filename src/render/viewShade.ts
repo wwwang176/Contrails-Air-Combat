@@ -7,14 +7,12 @@ import { DAY_PALETTES, type DayPalette } from './timeOfDay'
 import type { Season } from './season'
 
 /**
- * # 遠處的樹與屋頂隨視角變亮暗
+ * # 遠處的點隨視角變亮暗
  *
- * 植被圈外的林子與屋頂烘進地面、3～6 km 的樹是不吃光照的點 —— 兩者都是定死的
- * 顏色；3 km 內的立體模型卻看鏡頭在太陽哪一側：迎光看到背光面、背光看到受光面。
- * 不補的話迎著太陽飛過 3 km，林子突然暗一截；低太陽背光時立體房子是屋頂色塊的
- * 三四倍亮。
+ * 3～6 km 的樹是不吃光照的點，顏色定死；它取代的中級樹冠卻看鏡頭在太陽哪一側：
+ * 迎光看到背光面、背光看到受光面。不補的話迎著太陽飛過 3 km，林子突然暗一截。
  *
- * 這裡算**視角係數** `K(V) = R(V) / R(正上方)`，逐通道。`R(V)` 是一類物件從方向 `V`
+ * 這裡算**視角係數** `K(V) = R(V) / R(正上方)`，逐通道。`R(V)` 是一個樹種從方向 `V`
  * （物件指向鏡頭）看過去每單位投影面積的平均輻射，面取實際的中級幾何、轉向平均：
  *
  * ```
@@ -24,8 +22,7 @@ import type { Season } from './season'
  *
  * 與 three 的 Lambert 相同（1/π 約掉），鏡面項不算（材質粗糙度 0.9）。
  *
- * 【正上方 = 1】烘圖本來就是俯視的顏色：地色與點的亮度在俯視時不動，呼叫端把
- * 烘進去的那一份顏色乘上 K。
+ * 【正上方 = 1】點的亮度（`POINT_TOPDOWN_GAIN`）是俯視校的，俯視時不動，其他角度乘 K。
  *
  * 【查表】太陽開局後固定，K 只與兩個數有關：c = 水平視線與太陽水平方向的夾角
  * 餘弦（迎光 1、背光 −1）、s = 鏡頭的仰角正弦（物件指向鏡頭那條線的 y）。CPU 在
@@ -37,32 +34,16 @@ export const VIEW_SHADE_COLS = 32
 /** 表的 s 方向幾格：s 由 0（平視）到 1（正上方） */
 export const VIEW_SHADE_ROWS = 16
 
-/** 表的列。前四列各是一類物件，最後一列是這張地圖地面林子的樹種混合 */
+/** 表的列：一個樹種一列，點池各查自己那一列 */
 export const enum ViewShadeRow {
   Broad = 0,
   Cone = 1,
   Bush = 2,
-  House = 3,
-  Ground = 4,
 }
-export const VIEW_SHADE_CLASSES = 5
-
-/**
- * 農地烘圖存的「樹冠／屋頂亮度份量」乘這個數再存進 8 位元的貼圖。份量是線性的
- * 亮度，最亮的屋頂色塊約 0.27 —— 乘 3 還在 1 以內，暗綠的樹冠那一段約 3% 的精度。
- * **烘圖的著色器與地面的著色器共用它**，兩邊不同的話林子整片偏亮或偏暗
- */
-export const VIEW_SHADE_SCALE = 3
+export const VIEW_SHADE_CLASSES = 3
 
 /** 轉向平均取幾個方位。實例的轉向是亂數；八面體四重、錐六重對稱，16 個夠密 */
 const YAWS = 16
-
-/** 地面林子由哪些樹種組成，權重是可見樹冠面積的佔比，和不必為 1 */
-export interface ViewShadeMix {
-  readonly broad: number
-  readonly cone: number
-  readonly bush: number
-}
 
 /** 算係數的一個面：法線、面積、顏色（線性） */
 export interface ShadeFace {
@@ -112,8 +93,9 @@ function rayHits(o: Vector3, d: Vector3, a: Vector3, b: Vector3, c: Vector3): bo
 }
 
 /**
- * 一個幾何的面。**從面心沿法線射出去碰得到別的面就剔掉** —— 房子的箱體頂面藏在
- * 屋頂底下，算進去的話正上方那一格是牆色，整列被除得太亮。凸的形狀（樹冠）不受影響。
+ * 一個幾何的面。**從面心沿法線射出去碰得到別的面就剔掉** —— 藏在別的面底下的面
+ * 看不到（例如房子的箱體頂面藏在屋頂底下），算進去的話平均輻射是錯的。凸的形狀
+ * （樹冠）不受影響。
  *
  * 顏色取每個三角形第一個頂點的頂點色（池幾何的一面一色）。
  */
@@ -200,14 +182,9 @@ function cellToCamera(i: number, j: number, sx: number, sz: number, out: Vector3
  *
  * **建地形與換時段時跑**，會配置。
  */
-export function buildViewShadeTable(L: ShadeLights, season: Season, mix: ViewShadeMix): Float32Array {
+export function buildViewShadeTable(L: ShadeLights, season: Season): Float32Array {
   const geos = createFloraGeometries(season)
-  // 【房子當白的算】四種房子與教堂的牆／屋頂配色不同；帶顏色的話係數裡混進「紅瓦
-  // 換成米色牆」的比例，套到石板瓦上是錯的。屋頂色塊自己照 `WALL_SHARE` 混了牆色
-  const white = (f: ShadeFace): ShadeFace => ({ ...f, r: 1, g: 1, b: 1 })
-  const classes = [
-    shadeFaces(geos.broadMid), shadeFaces(geos.coneMid), shadeFaces(geos.bushMid), shadeFaces(geos.house).map(white),
-  ]
+  const classes = [shadeFaces(geos.broadMid), shadeFaces(geos.coneMid), shadeFaces(geos.bushMid)]
   disposeFloraGeometries(geos)
   const h = Math.hypot(L.sun.x, L.sun.z)
   // 太陽在正頂上時沒有水平方向，K 與 c 無關，隨便取一個
@@ -219,18 +196,12 @@ export function buildViewShadeTable(L: ShadeLights, season: Season, mix: ViewSha
     radianceOf(f, up, L, o)
     return o
   })
-  const weights = [mix.broad, mix.cone, mix.bush]
   const out = new Float32Array(VIEW_SHADE_CLASSES * VIEW_SHADE_ROWS * VIEW_SHADE_COLS * 4)
   const V = new Vector3()
   const rad = [0, 0, 0]
-  const sum = [0, 0, 0]
   for (let j = 0; j < VIEW_SHADE_ROWS; j++) {
     for (let i = 0; i < VIEW_SHADE_COLS; i++) {
       cellToCamera(i, j, sx, sz, V)
-      sum[0] = 0; sum[1] = 0; sum[2] = 0
-      let topSum0 = 0
-      let topSum1 = 0
-      let topSum2 = 0
       for (let row = 0; row < classes.length; row++) {
         radianceOf(classes[row]!, V, L, rad)
         const o = ((row * VIEW_SHADE_ROWS + j) * VIEW_SHADE_COLS + i) * 4
@@ -239,19 +210,7 @@ export function buildViewShadeTable(L: ShadeLights, season: Season, mix: ViewSha
         out[o + 1] = rad[1]! / t[1]!
         out[o + 2] = rad[2]! / t[2]!
         out[o + 3] = 1
-        const w = weights[row] ?? 0
-        sum[0]! += w * rad[0]!
-        sum[1]! += w * rad[1]!
-        sum[2]! += w * rad[2]!
-        topSum0 += w * t[0]!
-        topSum1 += w * t[1]!
-        topSum2 += w * t[2]!
       }
-      const o = ((ViewShadeRow.Ground * VIEW_SHADE_ROWS + j) * VIEW_SHADE_COLS + i) * 4
-      out[o] = topSum0 > 0 ? sum[0]! / topSum0 : 1
-      out[o + 1] = topSum1 > 0 ? sum[1]! / topSum1 : 1
-      out[o + 2] = topSum2 > 0 ? sum[2]! / topSum2 : 1
-      out[o + 3] = 1
     }
   }
   return out
@@ -319,12 +278,10 @@ export interface ViewShade {
 }
 
 /**
- * @param mix 地面林子的樹種比例（`ViewShadeRow.Ground` 那一列）
- *
  * 建的時候先用正午算一次 —— 沒有呼叫 `setPalette` 的場合（工具頁、量測台）與正午的
  * 燈對得上
  */
-export function createViewShade(season: Season, mix: ViewShadeMix): ViewShade {
+export function createViewShade(season: Season): ViewShade {
   const data = new Uint16Array(VIEW_SHADE_CLASSES * VIEW_SHADE_ROWS * VIEW_SHADE_COLS * 4)
   const tex = new DataTexture(data, VIEW_SHADE_COLS, VIEW_SHADE_CLASSES * VIEW_SHADE_ROWS, RGBAFormat, HalfFloatType)
   tex.magFilter = LinearFilter
@@ -335,7 +292,7 @@ export function createViewShade(season: Season, mix: ViewShadeMix): ViewShade {
   const sunH = new Vector2(1, 0)
   const fill = (p: DayPalette): void => {
     const L = shadeLightsOf(p)
-    const t = buildViewShadeTable(L, season, mix)
+    const t = buildViewShadeTable(L, season)
     for (let i = 0; i < t.length; i++) data[i] = DataUtils.toHalfFloat(t[i]!)
     tex.needsUpdate = true
     const h = Math.hypot(L.sun.x, L.sun.z)
