@@ -73,7 +73,9 @@ export class PlayerController implements Controller {
     // 【投彈與 AI 同一格】`World.releaseBombs` 讀它，彈艙的推進與投放全在物理步。
     // 兩個來源：有瞄具的轟炸機在投彈視角下按左鍵、直接投彈的機種按 B（`InputState.bombTaps`）
     const held = this.input.firing && this.input.viewMode === 'bomb'
-    const tapped = this.input.bombTaps !== this.bombTapsSeen
+    // 【比多不比不同】進場導覽把累計次數歸零（`holdIntroInput`），控制器整個遊戲只有一個 ——
+    // 比「不同」的話歸零那一下會被當成按了一次，開場就投彈
+    const tapped = this.input.bombTaps > this.bombTapsSeen
     this.bombTapsSeen = this.input.bombTaps
     out.bombing = (held && !this.bombHeld) || tapped
     this.bombHeld = held
