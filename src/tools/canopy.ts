@@ -180,6 +180,12 @@ const state = {
   pointCal: false,
   /** 林子的遮擋，1/m：林子裡每公尺水平視線被樹冠擋掉的比例。只在照當下的燈算時用 */
   blocking: 0,
+  /** 林間空隙的式子乘多少：1 = 隨機撒的樹 */
+  gapScale: 1,
+  /** 算式加不加太陽的鏡面反射。只在照當下的燈算時用 */
+  specular: false,
+  /** 算式照哪一級的形狀：簡易樹冠或立體樹。只在照當下的燈算時用 */
+  shape: 'mid' as 'mid' | 'high',
   gap: true,
   fog: false,
 }
@@ -192,13 +198,16 @@ function pointPool(): PointPool {
   return state.species === 'broad' ? 'broadPoint' : 'conePoint'
 }
 
-/** 點蓋住地面的比例由 `uGapDensity / sin 仰角` 決定：一格一株、點的平均面積 */
+/**
+ * 點蓋住地面的比例由 `uGapDensity / sin 仰角` 決定：一格一株、點的平均面積，乘
+ * `state.gapScale`。樹排在抖動的格點上，彼此重疊比隨機撒的少，蓋住的比例比隨機的式子高
+ */
 function gapDensity(): number {
   const s = POINT_SIZE[pointPool()]
   // 縮放在 TREE_SCALE 之間均勻分布，E[scale²] = (b³ − a³) / (3(b − a))
   const [a, b] = TREE_SCALE
   const e2 = (b ** 3 - a ** 3) / (3 * (b - a))
-  return (s * s * e2) / (WOOD_GRID * WOOD_GRID)
+  return (s * s * e2 * state.gapScale) / (WOOD_GRID * WOOD_GRID)
 }
 
 // ── 點的底色照當下的燈算 ──────────────────────────────
@@ -265,13 +274,44 @@ function standFaces(geo: BufferGeometry): StandFace[] {
   return out
 }
 
-/** 中級樹冠的面，三個樹種 */
-const STAND_FACES: StandFace[][] = (() => {
+/** 三個樹種的面：中級（簡易樹冠）與高模（立體樹）各一份 */
+const STAND_FACES: Record<'mid' | 'high', StandFace[][]> = (() => {
   const g = createFloraGeometries(SEASON)
-  const out = [standFaces(g.broadMid), standFaces(g.coneMid), standFaces(g.bushMid)]
+  const out = {
+    mid: [standFaces(g.broadMid), standFaces(g.coneMid), standFaces(g.bushMid)],
+    high: [standFaces(g.broadHigh), standFaces(g.coneHigh), standFaces(g.bushHigh)],
+  }
   disposeFloraGeometries(g)
   return out
 })()
+
+/** 植被材質的粗糙度，與 `createVegetationPools` 的材質相同 */
+const TREE_ROUGHNESS = 0.9
+
+/**
+ * 太陽在一面上的鏡面反射（BRDF × n·L），與 three 標準材質的 `BRDF_GGX` 同一條式子：
+ * 非金屬 F0 = 0.04、F90 = 1，平面著色的法線在面內不變，粗糙度就是材質的值。
+ * 沒有環境貼圖時天空光與環境光不產生鏡面反射，只有太陽這一項
+ */
+function sunSpecular(
+  nx: number, ny: number, nz: number, V: Vector3, L: Vector3,
+): number {
+  const nl = Math.max(0, nx * L.x + ny * L.y + nz * L.z)
+  if (nl <= 0) return 0
+  const nv = Math.max(0, nx * V.x + ny * V.y + nz * V.z)
+  let hx = L.x + V.x, hy = L.y + V.y, hz = L.z + V.z
+  const hl = Math.hypot(hx, hy, hz) || 1
+  hx /= hl; hy /= hl; hz /= hl
+  const nh = Math.max(0, nx * hx + ny * hy + nz * hz)
+  const vh = Math.max(0, V.x * hx + V.y * hy + V.z * hz)
+  const alpha = TREE_ROUGHNESS * TREE_ROUGHNESS
+  const a2 = alpha * alpha
+  const fr = 0.04 + 0.96 * 2 ** ((-5.55473 * vh - 6.98316) * vh)
+  const vis = 0.5 / Math.max(nl * Math.sqrt(a2 + (1 - a2) * nv * nv) + nv * Math.sqrt(a2 + (1 - a2) * nl * nl), 1e-6)
+  const den = nh * nh * (a2 - 1) + 1
+  const d = a2 / (Math.PI * den * den)
+  return fr * vis * d * nl
+}
 const ROW_POOL: readonly PointPool[] = ['broadPoint', 'conePoint', 'bushPoint']
 /** 轉向平均取幾個方位，與 `viewShade.ts` 相同 */
 const YAWS = 16
@@ -279,10 +319,10 @@ const YAWS = 16
 /**
  * 一個樹種轉向平均後由 `V`（物件指向鏡頭）看過去的平均輻射，線性、three 的輸出單位
  * （Lambert 是 albedo / π × 照度）。`blocking` 是林子的遮擋：每一面取樣點的權重乘
- * `exp(−blocking·深度 / tan 仰角)`，0 = 孤樹
+ * `exp(−blocking·深度 / tan 仰角)`，0 = 孤樹。`specular` 加上太陽的鏡面反射
  */
 function radianceOf(
-  faces: readonly StandFace[], V: Vector3, L: ShadeLights, blocking: number,
+  faces: readonly StandFace[], V: Vector3, L: ShadeLights, blocking: number, specular: boolean,
 ): [number, number, number] {
   const tanE = Math.max(MIN_TAN_ELEVATION, V.y / Math.max(1e-9, Math.hypot(V.x, V.z)))
   const vis = faces.map((f) => {
@@ -308,6 +348,13 @@ function radianceOf(
       r += w * f.r * (L.sunColor.r * nl + L.ground.r + (L.sky.r - L.ground.r) * hw + L.ambient.r)
       g += w * f.g * (L.sunColor.g * nl + L.ground.g + (L.sky.g - L.ground.g) * hw + L.ambient.g)
       b += w * f.b * (L.sunColor.b * nl + L.ground.b + (L.sky.b - L.ground.b) * hw + L.ambient.b)
+      if (specular) {
+        // 鏡面那一項沒有 1/π，先乘 π，最後與漫射一起除
+        const sp = w * Math.PI * sunSpecular(nx, f.ny, nz, V, L.sun)
+        r += sp * L.sunColor.r
+        g += sp * L.sunColor.g
+        b += sp * L.sunColor.b
+      }
       den += w
     }
   }
@@ -327,7 +374,7 @@ function cellToCamera(i: number, j: number, sx: number, sz: number, out: Vector3
 }
 
 /**
- * 把係數表改寫成「點畫出來 = 中級樹冠從這個方向看的平均輻射」：
+ * 把係數表改寫成「點畫出來 = 所選形狀（`state.shape`）從這個方向看的平均輻射」：
  * 表 = 輻射 ÷ 點原本的輸出（頂點色 × 材質色 × `POINT_TOPDOWN_GAIN`）。
  * 只改表的內容，著色器不變。灌木不算遮擋
  */
@@ -348,7 +395,8 @@ function calibratePoints(): void {
     const blocking = row === ViewShadeRow.Bush ? 0 : state.blocking
     for (let j = 0; j < VIEW_SHADE_ROWS; j++) {
       for (let i = 0; i < VIEW_SHADE_COLS; i++) {
-        const rad = radianceOf(STAND_FACES[row]!, cellToCamera(i, j, sx, sz, V), L, blocking)
+        const rad = radianceOf(
+          STAND_FACES[state.shape][row]!, cellToCamera(i, j, sx, sz, V), L, blocking, state.specular)
         const o = ((row * VIEW_SHADE_ROWS + j) * VIEW_SHADE_COLS + i) * 4
         for (let c = 0; c < 3; c++) data[o + c] = DataUtils.toHalfFloat(rad[c]! / div[c]!)
       }
@@ -494,6 +542,20 @@ function buttons<T>(id: string, items: readonly (readonly [string, T])[], get: (
   return () => { for (const [b, v] of els) b.classList.toggle('on', v === get()) }
 }
 const syncs: (() => void)[] = []
+/** 整套切換：遊戲現在的做法，與這一頁調出來的新做法 */
+const SETS = {
+  now: { pointCal: false, specular: false, blocking: 0, gapScale: 1, bakeNew: false },
+  new: { pointCal: true, specular: true, blocking: 0.03, gapScale: 1.4, bakeNew: true },
+} as const
+syncs.push(buttons('set', [['現在', 'now'], ['新', 'new']] as const,
+  () => (Object.keys(SETS) as (keyof typeof SETS)[])
+    .find((k) => Object.entries(SETS[k]).every(([f, v]) => state[f as keyof typeof SETS.now] === v)) ?? null,
+  (v) => {
+    if (v === null) return
+    Object.assign(state, SETS[v])
+    groundUniforms.uBakeMode.value = state.bakeNew ? 1 : 0
+    applyPalette()
+  }))
 syncs.push(buttons('tod', [['清晨', 'dawn'], ['正午', 'noon'], ['黃昏', 'dusk']] as const,
   () => state.tod, (v) => { state.tod = v; applyPalette() }))
 syncs.push(buttons('species', [['闊葉', 'broad'], ['針葉', 'cone']] as const,
@@ -506,6 +568,10 @@ syncs.push(buttons('pointK', [['角度係數 開', true], ['關', false]] as con
   () => state.pointK, (v) => { state.pointK = v; shade.uniforms.uViewShadeOn.value = v ? 1 : 0 }))
 syncs.push(buttons('pointCal', [['手調倍率（現在）', false], ['照當下的燈算', true]] as const,
   () => state.pointCal, (v) => { state.pointCal = v; applyPalette() }))
+syncs.push(buttons('specular', [['不算', false], ['算', true]] as const,
+  () => state.specular, (v) => { state.specular = v; applyPalette() }))
+syncs.push(buttons('shape', [['簡易樹冠', 'mid'], ['立體樹', 'high']] as const,
+  () => state.shape, (v) => { state.shape = v; applyPalette() }))
 syncs.push(buttons('bake', [['現在（一般地面）', false], ['新（跟點同一套）', true]] as const,
   () => state.bakeNew, (v) => { state.bakeNew = v; groundUniforms.uBakeMode.value = v ? 1 : 0 }))
 syncs.push(buttons('gap', [['算', true], ['不算', false]] as const,
@@ -525,6 +591,14 @@ for (const [id, key, fmt] of [
   })
 }
 
+{
+  const el = document.getElementById('gapScale') as HTMLInputElement
+  el.oninput = () => { state.gapScale = Number(el.value); applyPalette(); refresh() }
+  syncs.push(() => {
+    el.value = String(state.gapScale)
+    document.getElementById('gapScaleV')!.textContent = `× ${state.gapScale.toFixed(2)}`
+  })
+}
 {
   const el = document.getElementById('blocking') as HTMLInputElement
   el.oninput = () => { state.blocking = Number(el.value); applyPalette(); refresh() }
