@@ -193,7 +193,10 @@ const SITE_RAIL_WIDTH = 26
  * (ox, oz)」；`SiteLayout` 的世界轉局部是 `R_y(heading)`，所以 `heading = −yaw`。
  * 道路與鐵路在 `SiteLayout` 裡是世界座標，逐點轉過去
  */
-export function reelSiteLayout(g: ReelGround, ox: number, oz: number, yaw: number): SiteLayout {
+export function reelSiteLayout(
+  g: ReelGround, ox: number, oz: number, yaw: number,
+  flat?: { readonly x: number, readonly z: number, readonly r: number },
+): SiteLayout {
   const c = Math.cos(yaw)
   const s = Math.sin(yaw)
   const line = (pts: readonly ReelPoint[]): { x: number, z: number }[] =>
@@ -201,6 +204,7 @@ export function reelSiteLayout(g: ReelGround, ox: number, oz: number, yaw: numbe
   return {
     pivot: { x: ox, z: oz },
     heading: -yaw,
+    ...(flat === undefined ? {} : { flat }),
     pad: g.pad,
     ...(g.patches === undefined ? {} : { patches: g.patches }),
     ...(g.treeClear === undefined ? {} : { treeClear: g.treeClear }),
@@ -353,7 +357,11 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       key: next.id,
       layout: (hills) => {
         placeOrigin(next, hills)
-        return reelSiteLayout(ground, ox, oz, yaw)
+        // 【動作圈要平】`openSeaOrigin` 只躲得開山丘，內陸的緩坡由這一圈擋掉。圓心是動作圈的
+        // 局部圓心轉到世界
+        V1.set(next.clear.x, 0, next.clear.z)
+        toWorld(V1)
+        return reelSiteLayout(ground, ox, oz, yaw, { x: V1.x, z: V1.z, r: next.clear.radius })
       },
     })
     stage.setTimeOfDay(next.timeOfDay)

@@ -503,11 +503,21 @@ export function createArchipelago(): {
 export function bakeRelief(
   field: HeightFieldData, islands: readonly IslandDesc[], floor: number,
 ): void {
+  // 底面先鋪滿。島是從這個高度長上來的，島緣也回到它 —— 見 SEA_FLOOR
+  field.data.fill(floor)
+  raiseRelief(field, islands, floor)
+}
+
+/**
+ * 同 `bakeRelief`，但**不先鋪底面**：每一格與島的高度取 max。已經烘好的地形上再疊一層
+ * （內陸的緩坡，`rollingRelief.ts`）用它
+ */
+export function raiseRelief(
+  field: HeightFieldData, islands: readonly IslandDesc[], floor: number,
+): void {
   const { size, cell, data } = field
   const half = (size - 1) / 2
   const last = size - 1
-  // 底面先鋪滿。島是從這個高度長上來的，島緣也回到它 —— 見 SEA_FLOOR
-  data.fill(floor)
 
   for (let k = 0; k < islands.length; k++) {
     const isl = islands[k]!

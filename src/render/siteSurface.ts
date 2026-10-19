@@ -41,6 +41,11 @@ export interface SiteLayout {
   /** 局部系相對世界的旋轉，弧度。省略或 0 時局部＝世界 */
   readonly heading?: number
   /**
+   * 這一圈地面要保持平（世界座標的圓心與半徑，m）：內陸的緩坡（`world/rollingRelief.ts`）
+   * 不烘進來。選單短片的動作圈用它 —— 分鏡的飛行高度、爆點是照平地寫的
+   */
+  readonly flat?: { readonly x: number; readonly z: number; readonly r: number }
+  /**
    * 墊面矩形，廠區局部座標。**省略 = 沒有墊面**：勒熱夫只有道路與戰場的痕跡，
    * 地面照樣是田
    */

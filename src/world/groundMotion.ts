@@ -1,6 +1,6 @@
 import { Quaternion, Vector3 } from 'three'
 import { headingToward, walkRoute, type PoseState, type RouteMotion } from '../core/routeMotion'
-import type { GroundTarget } from './groundTargets'
+import { groundPose, type GroundTarget } from './groundTargets'
 
 /**
  * # 地面車輛沿路線的移動
@@ -114,8 +114,11 @@ export function stepGroundMotion(
     t.speed = 0
     return
   }
-  t.position.set(POSE.position.x, groundAt(POSE.position.x, POSE.position.z), POSE.position.z)
-  t.orientation.copy(POSE.orientation)
+  const x = POSE.position.x
+  const z = POSE.position.z
+  t.position.set(x, groundAt(x, z), z)
+  // `walkRoute` 的姿態只有航向（繞 Y），航向角照四元數反解
+  groundPose(t, x, z, 2 * Math.atan2(POSE.orientation.y, POSE.orientation.w), groundAt)
   const moving = time > t.departAt && m.offsetSeconds + (time - t.departAt) < m.holdTau
   t.speed = moving ? m.motion.speed : 0
 }
