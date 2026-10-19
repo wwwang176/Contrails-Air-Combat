@@ -34,34 +34,46 @@ describe('任務攔截接線', () => {
     expect(b.outcome).toBe('defeat')
   })
 
-  it('美 M1 只啟用德軍戰鬥機，重開與兩批整隊重生也沿用設定', () => {
+  /**
+   * 【增援看時鐘，不看全滅】開場 3 架；60、120 秒各來 3 架。開場那一批全滅之後，
+   * 增援前一秒也不補 —— 補了就是整隊重生的舊規則。
+   *
+   * 【時鐘直接撥】節拍只讀 `world.time`；一路模擬到 120 秒要十幾秒，撥到預警（進場前 5 秒）
+   * 之前再走。撥過預警的話，預警落在撥到的那一刻，進場也跟著往後推
+   */
+  it('美 M1 只啟用德軍戰鬥機，重開與兩批定時增援也沿用設定', () => {
     const b = createBattle(new AiController(), missionConfigFrom(readyCard('allies-m1')), 20261015)
-    for (let i = 0; i < 48; i++) stepBattle(b, DT)
+    const run = (sec: number): void => { for (let i = 0; i < sec * 240; i++) stepBattle(b, DT) }
+    run(0.2)
     const lead = b.red.find(c => c.alive)!.controller as AiController
     expect(lead.convoyIntercept.phase).not.toBe('none')
     resetBattle(b)
     expect(lead.convoyIntercept.phase).toBe('none')
-    for (let i = 0; i < 48; i++) stepBattle(b, DT)
+    run(0.2)
     expect(b.red.filter(c => c.alive)).toHaveLength(3)
     for (const c of b.red.filter(c => c.alive)) {
       expect((c.controller as AiController).interceptConvoy).toBe(true)
       expect((c.controller as AiController).convoyIntercept.phase).not.toBe('none')
     }
-    for (let batch = 1; batch <= 2; batch++) {
+    for (const at of [60, 120]) {
       for (const c of b.red) b.world.destroy(c)
-      for (let i = 0; i < 6 * 240; i++) stepBattle(b, DT)
-      expect(b.batches).toBe(batch)
-      expect(b.red.filter(c => c.alive)).toHaveLength(3)
+      run(1)
+      expect(b.red.filter(c => c.alive), `${at} 秒的前一批全滅後`).toHaveLength(0)
+      b.world.time = at - 6
+      run(5)
+      expect(b.red.filter(c => c.alive), `${at} 秒前`).toHaveLength(0)
+      run(2)
+      expect(b.red.filter(c => c.alive), `${at} 秒`).toHaveLength(3)
       for (const c of b.world.combatants) {
         if (!c.alive) continue
         expect((c.controller as AiController).interceptConvoy).toBe(c.team === 'red')
       }
     }
     for (const c of b.red) b.world.destroy(c)
-    for (let i = 0; i < 6 * 240; i++) stepBattle(b, DT)
-    expect(b.batches).toBe(2)
+    b.world.time = 180
+    run(2)
     expect(b.red.filter(c => c.alive)).toHaveLength(0)
-  }, 30_000)
+  })
 
   it('美 M3 與遭遇戰不啟用攔截任務', () => {
     for (const cfg of [missionConfigFrom(readyCard('allies-m3')), DEFAULT_BATTLE]) {
