@@ -50,11 +50,13 @@ import type { DrawnTiles } from './drawnTiles'
 export interface Vegetation {
   readonly object: Object3D
   /**
-   * 點池的亮度倍率與可選光照色（sRGB），1 與白色 = 不變。**只作用在點池上** —— 近、中兩級走標準材質，
-   * 換了燈就自己變暗。
+   * 點池的材質色：倍率乘光照色（sRGB），1 與白色 = 不變。**只作用在點池上**。
    *
-   * 【為什麼乘在材質上而不是重烘逐株的顏色】格是串流進來的，重烘只會影響
-   * 之後才生出來的格 —— 畫面上會是新舊兩種亮度並存的補丁。
+   * 視角係數表（`viewShade.ts`）在同一份色盤下把這個材質色除掉，所以點的亮度只由燈決定；
+   * 兩邊要拿同一份色盤（`terrain.ts` 的 `setPalette`），只換一邊的話點會差這個倍率。
+   *
+   * 【乘在材質上而不是重烘逐株的顏色】格是串流進來的，重烘只會影響之後才生出來的格 ——
+   * 畫面上會是新舊兩種亮度並存的補丁。
    */
   setPointLight(scale: number, tint?: number): void
   update(centerX: number, centerZ: number): void

@@ -68,17 +68,13 @@ export interface DayPalette {
    */
   readonly sparkle: number
   /**
-   * 遠處植被（點池）的亮度倍率。正午 = 1。
+   * 遠處植被（點池）材質色的倍率。正午 = 1。
    *
-   * 【為什麼只有點池要這一格】近、中兩級的樹與房子走 `MeshStandardMaterial`，
-   * 換了燈就自己變暗。**點走 `PointsMaterial`，是 basic 的** —— 見
-   * `vegetation.ts` 的 `POINT_LIGHT`。不補的話夜間會是一片發光的樹海。
-   *
-   * 【為什麼是可調的數字而不是從三盞燈推導】推導要假設一個照度模型，而
-   * `POINT_LIGHT` 本身就是量出來的、不是算出來的。同一條規矩：拿眼睛校。
+   * **不改變點的亮度**：點的亮度由視角係數表照三盞燈算（`viewShade.ts`），表把這個倍率與
+   * `foliageTint` 除掉
    */
   readonly foliage: number
-  /** 遠方粒子植被的光照色，sRGB；省略時不染色，與亮度倍率分開調整。 */
+  /** 點池材質色的染色，sRGB；省略時不染色。與 `foliage` 一樣在視角係數表裡除掉 */
   readonly foliageTint?: number
   /** 地面與植被額外混入霧色的比例，0～1；不改全場距離霧與物件光照。 */
   readonly groundHaze?: number

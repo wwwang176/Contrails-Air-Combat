@@ -11,7 +11,7 @@ import {
 } from './floraShapes'
 import { POOL_NAMES, IS_POINT, RUN_CAP, RUN_SPLIT_MIN } from './vegetationPolicy'
 import type { Season } from './season'
-import { VIEW_SHADE_GLSL, ViewShadeRow, type ViewShade } from './viewShade'
+import { FLORA_ROUGHNESS, VIEW_SHADE_GLSL, ViewShadeRow, type ViewShade } from './viewShade'
 
 /**
  * 遠處那三個池的材質。**`gl.POINTS`。**
@@ -39,12 +39,9 @@ import { VIEW_SHADE_GLSL, ViewShadeRow, type ViewShade } from './viewShade'
  *   scale / -mvPosition.z     (CSS 高 / 2) / 距離        ← sizeAttenuation
  * ```
  *
- * 【點吃不到光照】`PointsMaterial` 是 basic 的。開局後光照固定，所以亮度
- * 由 `POINT_LIGHT` 烘進逐株的顏色 —— 見那個常數。
- *
- * 【隨視角變亮暗】它取代的中級樹冠迎光暗、背光亮；點乘上那一類樹的視角係數
- * （`viewShade.ts`），由鏡頭到這一點的方向查表。一個樹種一個材質 —— 查的是表的
- * 哪一列（`uViewRow`），三個材質共用同一支程式
+ * 【點吃不到光照】`PointsMaterial` 是 basic 的。逐株的顏色是樹冠色 × 明度，再乘
+ * 那一類樹的表（`viewShade.ts`）：表是照此刻的燈算的中級樹冠輻射，由鏡頭到這一點的
+ * 方向查。一個樹種一個材質 —— 查的是表的哪一列（`uViewRow`），三個材質共用同一支程式
  */
 function createPointMaterial(row: ViewShadeRow, shade: ViewShade): PointsMaterial {
   const m = new PointsMaterial({ vertexColors: true, sizeAttenuation: true, size: 1 })
@@ -55,40 +52,13 @@ function createPointMaterial(row: ViewShadeRow, shade: ViewShade): PointsMateria
       .replace('#include <color_vertex>', `#include <color_vertex>
 {
   vec3 toCam = normalize(cameraPosition - (modelMatrix * vec4(position, 1.0)).xyz);
-  vColor.rgb *= ${POINT_TOPDOWN_GAIN.toFixed(3)} * viewShade(uViewRow, toCam);
+  vColor.rgb *= viewShade(uViewRow, toCam);
 }`)
   }
   // 【換了著色器就要換 key】three 用它決定程式能不能重用。列是 uniform，三個樹種同一個 key
   m.customProgramCacheKey = () => 'flora-point-view'
   return m
 }
-
-/**
- * 點池的亮度補償。**逐通道乘在樹冠色上。**
- *
- * 【為什麼要有它】點走 `PointsMaterial`，吃不到場上那三盞燈；而它取代的
- * 中級樹冠走 `MeshStandardMaterial`，是被照亮的。不補的話過 3 km 門檻時
- * 整片林相會暗一階。
- *
- * 【值是量出來的】`flora-card.e2e.ts` 在 `POINT_NEAR` 兩側各量一次平均 RGB
- * （2,500 m 的中級樹冠對 3,600 m 的點），要求亮度差在 8% 以內。實測 −2.5%。
- *
- * 【小於 1 是對的】輸出是 sRGB 編碼的，而樹冠色本身就是那個亮度 —— 補的是
- * 「標準材質在這組燈下比純色暗一點」那一段，不是「把暗的補亮」。
- *
- * 【烘一次成立是因為開局後光照固定】燈的定義在 `render/lighting.ts`，量測
- * 用的 fixture 與正式場景共用同一份 —— 各配一組的話係數會是錯的。
- */
-export const POINT_LIGHT = new Color(0.36, 0.36, 0.36)
-
-/**
- * 正上方往下看時點要乘多少，其他角度再乘視角係數（`viewShade.ts`，正上方 = 1）。
- *
- * 【為什麼要它】`POINT_LIGHT` 是平視校的（樹冠多半露側面、偏暗）；往下看露出
- * 被太陽照亮的樹冠頂，同一片林子亮得多。實測 1.5 km 與 3 km 高度看 3.5～5.5 km 的
- * 林子（sin 俯角 0.26～0.65），點都要乘約 1.45 才與樹冠、遠處的烘圖接得上
- */
-export const POINT_TOPDOWN_GAIN = 1.45
 
 /**
  * 實例池的一段：一顆 `InstancedMesh`，實例矩陣與顏色是指向池緩衝某個位移的
@@ -172,7 +142,7 @@ export function createVegetationPools(
 ) {
   const geometries = createFloraGeometries(season)
   const material = new MeshStandardMaterial({
-    vertexColors: true, flatShading: true, roughness: 0.9,
+    vertexColors: true, flatShading: true, roughness: FLORA_ROUGHNESS,
   })
   const pointMaterials = {
     broadPoint: createPointMaterial(POINT_ROW.broadPoint, shade),
@@ -191,7 +161,7 @@ export function createVegetationPools(
     {} as Record<PoolName, InstancedMesh | Points>
   /** 點池的三條屬性，各兩份輪流換。索引順序：位置、顏色、大小 */
   const altPt: Partial<Record<PoolName, BufferAttribute[][]>> = {}
-  /** 點池的樹冠色 × `POINT_LIGHT`，開場算一次 */
+  /** 點池的樹冠色（線性），開場算一次 */
   const pointBase: Partial<Record<PoolName, Color>> = {}
   /**
    * 每個池兩份實例緩衝，重建時輪流換。**這是 1% low 的關鍵。**
@@ -251,7 +221,7 @@ export function createVegetationPools(
       pointRuns[name] = runs
       pools[name] = runs[0]!
       group.add(runs[0]!)
-      pointBase[name] = new Color(pointColorOf(name as PointPool, season)).multiply(POINT_LIGHT)
+      pointBase[name] = new Color(pointColorOf(name as PointPool, season))
       continue
     }
     const mats = [0, 1].map(() => new InstancedInterleavedBuffer(
