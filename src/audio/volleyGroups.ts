@@ -1,5 +1,5 @@
 import type { AircraftSpec } from '../specs/types'
-import { jamPool, ownTurretVolleyPools, volleyPool, type Pool } from './catalog'
+import { jamPool, ownTurretVolleyPools, volleyGainDb, volleyPool, type Pool } from './catalog'
 
 export interface VolleyGroup {
   readonly mount: number
@@ -29,13 +29,13 @@ export function buildVolleyGroups(
     for (const m of mounts) if (m.weapon.id === id) guns++
     const pool = volleyPool(id, guns)
     if (pool !== null && groups.length < maxGroups) {
-      groups.push({ mount: i, turret: -1, pool, db: 0, jam: jamPool(id, guns) })
+      groups.push({ mount: i, turret: -1, pool, db: volleyGainDb(pool), jam: jamPool(id, guns) })
     }
   }
   const rear = ownTurretVolleyPools(player.aircraft.spec.turrets)
   if (rear === null) return { groups, ownTurretVolley: false }
   for (let i = 0; i < rear.length && groups.length < maxGroups; i++) {
-    groups.push({ mount: -1, turret: i, pool: rear[i]!, db: turretDb, jam: null })
+    groups.push({ mount: -1, turret: i, pool: rear[i]!, db: turretDb + volleyGainDb(rear[i]!), jam: null })
   }
   return { groups, ownTurretVolley: true }
 }

@@ -2,7 +2,7 @@ import type { Vector3 } from 'three'
 import type { Combatant } from '../world/combatant'
 import { indicatedAirspeed } from '../core/airspeed'
 import type { AudioEngine } from './engine'
-import { engineFile, fireFile, sirenFile, turretFile, turretGainDb } from './catalog'
+import { engineFile, fireFile, fireGainDb, sirenFile, turretFile, turretGainDb } from './catalog'
 import { SIREN_AUDIBLE_DB, dopplerRate, engineRate, fireHold, noseDownRad, sirenParams, sirenWobble } from './curves'
 import { nearestN } from './nearest'
 
@@ -146,8 +146,9 @@ export function createAircraftLoopAudio(audio: Pick<AudioEngine, 'assign'>, cam:
     for (let j = 0; j < m; j++) {
       const c = all[FIRE_KEYS[j]!]!
       const p = positions[c.index]!
-      audio.assign('fire', c.index, fireFile(c.aircraft.spec.id)!, p.x, p.y, p.z,
-        dopplerRate(p, c.aircraft.state.velocity, cam, camVel))
+      const file = fireFile(c.aircraft.spec.id)!
+      audio.assign('fire', c.index, file, p.x, p.y, p.z,
+        dopplerRate(p, c.aircraft.state.velocity, cam, camVel), fireGainDb(file))
     }
     // 砲塔（自己的轟炸機也算 —— 砲塔由 AI 操作）
     for (let i = 0; i < n; i++) {
