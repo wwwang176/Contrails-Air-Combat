@@ -93,9 +93,10 @@ export interface AudioEngine {
    * key 是該池的單位 index；同一個 key 會拿回同一個聲道。飛機與地面車輛用不同池。
    * `gainDb` 是這一架自己的增益，疊在類別音量之上（預設 0）—— 音量隨狀態變的循環用（警笛隨空速）。
    * 它同時進 HDR 的響度估計；只改實際增益的話，一架很小聲的循環會被當成全音量，把別的聲音壓下去。
+   * `cutoffHz` 是這個檔自己的音色上限（兩級低通），與距離的大氣吸收分開；省略 = 不過低通。
    */
   assign(pool: LoopPool, key: number, file: string, x: number, y: number, z: number, rate: number,
-    gainDb?: number): void
+    gainDb?: number, cutoffHz?: number): void
   endFrame(): void
   /** 離開戰鬥：停掉所有聲音 */
   stopAll(): void
@@ -605,7 +606,7 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
   }
 
   function assign(pool: LoopPool, key: number, file: string, x: number, y: number, z: number, rate: number,
-    gainDb = 0): void {
+    gainDb = 0, cutoffHz = FULL_BAND): void {
     const buffer = buffers.get(file)
     if (buffer === undefined || playback.muted) return
     const cat = LOOP_CATEGORY[pool]
@@ -629,6 +630,8 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
     v.audio.position.set(x, y, z)
     const fresh = v.file !== file
     v.air.setDistance(d, now, fresh)
+    // 【每次指派都要排】同一個聲道換播別的檔時，上一個檔的低通要拿掉
+    setCutoff(v, cutoffHz, now, fresh ? 0 : 0.1)
     if (fresh) {
       if (v.audio.isPlaying) {
         v.audio.stop()

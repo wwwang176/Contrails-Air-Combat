@@ -289,18 +289,16 @@ export function turretFile(weaponId: string, guns: number): string {
  *   M2 .50 單管/雙聯     −21.5 / −22.2     0
  *   MG 131               −23.2             0
  *   MG 15 單管/雙聯      −23.0 / −23.8     0
- *   九二式 7.7 mm        −19.5            −5     −24.5
+ *   九二式 7.7 mm        −19.5            −4     −24.3（含低通）
  *   九九式 20 mm         −23.8            +1     −22.8
  * ```
  *
  * 【為什麼不看 LUFS】七個檔的 LUFS 都在 −16.4 上下，但九二式的能量在中高頻、九九式在 300 Hz
  * 以下 —— 耳朵對中高頻敏感，同樣的 LUFS 下九二式明顯比較大聲，九九式偏小。
- * 【九二式比 MG 15 再低 1 dB】它的聲音重心在 2.2 kHz、尖峰比同頻段的 MG 15／MG 131 利，
- * 整段 A 加權對齊時聽起來仍偏大。
  * 【不放進素材清單的補償值】那一欄只能是 0–12 dB，負的修正放不進去。
  */
 const TURRET_GAIN_DB: Readonly<Record<string, number>> = {
-  'turret-type92x1': -5,
+  'turret-type92x1': -4,
   'turret-type99-1x1': 1,
 }
 
@@ -308,6 +306,22 @@ export const TURRET_GAIN_FILES: readonly string[] = Object.keys(TURRET_GAIN_DB)
 
 export function turretGainDb(file: string): number {
   return TURRET_GAIN_DB[file] ?? 0
+}
+
+/**
+ * 各砲塔檔的音色上限，Hz；不在表裡的不過低通（回 undefined）。
+ *
+ * 【九二式 6200 Hz】8 kHz 以上的能量比其他砲塔多 2～10 dB，聽起來偏尖；低通本身讓它小約 0.8 dB(A)，
+ * 已算進上表的修正後。
+ */
+const TURRET_CUTOFF_HZ: Readonly<Record<string, number>> = {
+  'turret-type92x1': 6200,
+}
+
+export const TURRET_CUTOFF_FILES: readonly string[] = Object.keys(TURRET_CUTOFF_HZ)
+
+export function turretCutoffHz(file: string): number | undefined {
+  return TURRET_CUTOFF_HZ[file]
 }
 
 /**

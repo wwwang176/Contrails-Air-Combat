@@ -130,6 +130,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import {
   ALL_FILES, CATEGORY, POOLS, TURRET_GAIN_FILES, engineFile, fireFile, ownTurretVolleyPools, sirenFile, turretFile,
   turretGainDb, volleyPool, jamPool, WATER_HIT, FIRE_GAIN_FILES, VOLLEY_GAIN_POOLS, fireGainDb, volleyGainDb,
+  TURRET_CUTOFF_FILES, turretCutoffHz,
 } from '../../src/audio/catalog'
 import { ALL_SPECS } from '../../src/battle/skirmish'
 import { JU87 } from '../../src/specs/ju87'
@@ -305,8 +306,8 @@ describe('音效目錄', () => {
    * 【各砲塔聽起來一樣大】七個檔的 LUFS 都在 −16.4 上下，但九二式 7.7 mm 的中高頻多、
    * A 加權比其他砲塔大 3 dB 以上；九九式 20 mm 的能量在低頻，聽起來偏小。
    */
-  it('砲塔音量修正：九二式 −5 dB、九九式 +1 dB，其他不修正', () => {
-    expect(turretGainDb('turret-type92x1')).toBe(-5)
+  it('砲塔音量修正：九二式 −4 dB、九九式 +1 dB，其他不修正', () => {
+    expect(turretGainDb('turret-type92x1')).toBe(-4)
     expect(turretGainDb('turret-type99-1x1')).toBe(1)
     for (const id of ['turret-m2-50calx1', 'turret-m2-50calx2', 'turret-mg131x1', 'turret-mg15x1', 'turret-mg15x2']) {
       expect(turretGainDb(id), id).toBe(0)
@@ -317,6 +318,14 @@ describe('音效目錄', () => {
   it('砲塔音量修正表裡的每一個檔都是遊戲用得到的砲塔檔', () => {
     const used = new Set(ALL_SPECS.flatMap((s) => s.turrets.map((t) => turretFile(t.weapon.id, t.guns))))
     for (const id of TURRET_GAIN_FILES) expect(used.has(id), id).toBe(true)
+    for (const id of TURRET_CUTOFF_FILES) expect(used.has(id), id).toBe(true)
+  })
+
+  it('砲塔音色上限：只有九二式過 6200 Hz 低通', () => {
+    expect(turretCutoffHz('turret-type92x1')).toBe(6200)
+    for (const id of ['turret-type99-1x1', 'turret-m2-50calx1', 'turret-m2-50calx2', 'turret-mg131x1', 'turret-mg15x1', 'turret-mg15x2']) {
+      expect(turretCutoffHz(id), id).toBeUndefined()
+    }
   })
 
   /** 零戰的開火循環與機首九七式的齊射比其他機種大 2～3 dB(A) */

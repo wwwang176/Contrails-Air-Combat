@@ -43,12 +43,19 @@ describe('警笛：音訊引擎', () => {
    * 一架幾乎沒在動的警笛也被當成全音量，會把其他聲音壓下去，而且不報錯。
    */
   it('定位循環可以帶每架自己的增益，而且進 HDR 的峰值、響度估計與實際增益', () => {
-    expect(ENGINE).toMatch(/assign\(pool: LoopPool, key: number, file: string, x: number, y: number, z: number, rate: number,\s*gainDb\?: number\): void/)
+    expect(ENGINE).toMatch(/assign\(pool: LoopPool, key: number, file: string, x: number, y: number, z: number, rate: number,\s*gainDb\?: number, cutoffHz\?: number\): void/)
     const assign = body(ENGINE, 'function assign(')
     expect(assign).toContain('v.extraDb = gainDb')
     expect(assign).toMatch(/CATEGORY\[cat\]\.gainDb \+ \(makeup\.get\(file\) \?\? 0\) \+ gainDb/)
     expect(assign).toMatch(/gainOf\(file, cat, duck \+ gainDb\)/)
     expect(body(ENGINE, 'function framePeak(')).toContain('+ v.extraDb')
+  })
+
+  /** 【每次指派都排低通】漏排的話音色上限不生效；換檔不重排的話上一個檔的低通留在聲道上 */
+  it('定位循環帶這個檔自己的音色上限，省略就是不過低通', () => {
+    const assign = body(ENGINE, 'function assign(')
+    expect(assign).toContain('gainDb = 0, cutoffHz = FULL_BAND): void {')
+    expect(assign).toContain('setCutoff(v, cutoffHz, now, fresh ? 0 : 0.1)')
   })
 })
 

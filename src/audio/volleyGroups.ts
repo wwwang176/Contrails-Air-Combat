@@ -35,7 +35,7 @@ export function buildVolleyGroups(
   const rear = ownTurretVolleyPools(player.aircraft.spec.turrets)
   if (rear === null) return { groups, ownTurretVolley: false }
   for (let i = 0; i < rear.length && groups.length < maxGroups; i++) {
-    groups.push({ mount: -1, turret: i, pool: rear[i]!, db: turretDb + volleyGainDb(rear[i]!), jam: null })
+    groups.push({ mount: -1, turret: i, pool: rear[i]!, db: turretDb, jam: null })
   }
   return { groups, ownTurretVolley: true }
 }
