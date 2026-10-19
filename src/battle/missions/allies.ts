@@ -72,16 +72,23 @@ export const ALLIES: readonly MissionCard[] = [
       /**
        * 【航程約 3 分鐘】終點在 z = −8,450、轟炸機出生在 z ≈ +5,000，
        * 以 250 km/h 巡航，計入抵達圈半徑與箱型縱深後約 3 分鐘達標。
-       * 不使用定時增援；開場小隊全滅後才整隊補回，最多兩批。
+       * 開場 3 架；任務計時 60、120 秒各加入 3 架，前一批是否存活不影響增援。
        *
-       * 紅隊同時最多 3 架，整場最多 3 + 3 + 3 = 9 架次。
+       * 每批提前 5 秒預警，整場最多 3 + 3 + 3 = 9 架，不再全滅補回。
        * 全部的秒數與架數都是**起始值，由試飛裁定。**
        */
-      recycle: {
-        side: 'theirs', batches: 2,
-        warnKey: 'mission.allies-m1.recycle',
-        warnLead: 5,
-      },
+      waves: [
+        {
+          when: { kind: 'clock', at: 55 },
+          warnKey: 'mission.allies-m1.wave.more', warnLead: 5,
+          side: 'theirs', spec: BF109K4, count: 3,
+        },
+        {
+          when: { kind: 'clock', at: 115 },
+          warnKey: 'mission.allies-m1.wave.join', warnLead: 5,
+          side: 'theirs', spec: BF109K4, count: 3,
+        },
+      ],
     },
   },
   {
