@@ -30,6 +30,20 @@ describe('PlayerController：B 投彈', () => {
     expect(out.bombing).toBe(true)
   })
 
+  it('進場導覽把累計次數歸零時不算按了一下', () => {
+    const input = createInputState()
+    const pc = new PlayerController(input)
+    const out = createCommand()
+    input.bombTaps = 3
+    pc.update(self, 1 / 240, out)
+    input.bombTaps = 0
+    pc.update(self, 1 / 240, out)
+    expect(out.bombing).toBe(false)
+    input.bombTaps++
+    pc.update(self, 1 / 240, out)
+    expect(out.bombing).toBe(true)
+  })
+
   it('投彈鍵不會開槍，左鍵照常開槍', () => {
     const input = createInputState()
     const pc = new PlayerController(input)
