@@ -36,6 +36,14 @@ export async function preloadLeunaFeatures(
   cache = await fetcher(LEUNA_FEATURES_URL)
 }
 
+/**
+ * 村鎮與礦坑的範圍，**只看位置**。內陸的緩坡要在取樣地形之前知道它們在哪裡（`terrain.ts`）
+ */
+export function leunaFeatureZones(): KeepOutZone[] {
+  if (cache === null) throw new Error('洛伊納的地物還沒載入 —— 少了 preloadLeunaFeatures()')
+  return [settlementZone(cache.places), mineZone(cache.mines, 0)]
+}
+
 /** 地形上的一層真實地物。`terrain.ts` 的 `createInlandTerrain` 吃這一份 */
 export interface LandDressing {
   /** 鋪在地表上的網格：村鎮的地面、礦坑、高速公路。掛在陸地底下 */

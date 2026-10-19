@@ -48,8 +48,11 @@ import { bakeKeepOut, corridorZone, excludingZones, type KeepOutZone } from './k
 import {
   buildRiverMeshes, CLEAR_HALF, disposeRiverMeshes, riverBankFlora, type RiverSet,
 } from './river'
-import { buildLeunaRivers, preloadLeunaRivers } from './leunaRiver'
-import { buildLeunaDressing, preloadLeunaFeatures, type LandDressing } from './leunaFeatures'
+import { buildLeunaRivers, leunaRiverPaths, preloadLeunaRivers } from './leunaRiver'
+import { buildLeunaDressing, leunaFeatureZones, preloadLeunaFeatures, type LandDressing } from './leunaFeatures'
+import { addRolling, type FlatTest } from '../world/rollingRelief'
+import { FLAK_SITES, HILL_RIVER_CLEARANCE } from '../world/leuna'
+import { PAD_SKIRT } from './siteSurface'
 import { buildPlantScenery, preloadPlantScenery } from './geometry/ground/plantScenery'
 import { buildAirfieldScenery, preloadAirfieldScenery } from './geometry/ground/airfieldScenery'
 import type { TerrainKind } from '../world/terrainKind'
@@ -166,7 +169,9 @@ function createFarmlandTerrain(
   gfx?: TerrainGfx, farmSite?: (hills: readonly IslandDesc[]) => SiteLayout,
 ): Terrain {
   const farm = createFarmland()
-  return createInlandTerrain(farm, 'summer', farmSite?.(farm.hills), undefined, gfx)
+  const site = farmSite?.(farm.hills)
+  addRolling(farm.field, ROLLING_SEEDS.farmland, [villageFlat(), ...(site === undefined ? [] : [siteFlat(site)])])
+  return createInlandTerrain(farm, 'summer', site, undefined, gfx)
 }
 
 /**
@@ -175,12 +180,23 @@ function createFarmlandTerrain(
  */
 function createLeunaTerrain(gfx?: TerrainGfx): Terrain {
   const leuna = createLeuna()
+  const scenery = buildPlantScenery()
+  // 【緩坡在任何取樣之前】河的水面、村鎮、礦坑都照地形建。要平的：河廊（與丘陵同一個
+  // 間隙）、村鎮、礦坑、廠區、砲位、廠區佈景落到的每一格
+  const rivers0 = corridorZone(leunaRiverPaths(), HILL_RIVER_CLEARANCE)
+  addRolling(leuna.field, ROLLING_SEEDS.leuna, [
+    siteFlat(LEUNA_SITE), rivers0.test, ...leunaFeatureZones().map((z) => z.test),
+    (x, z) => FLAK_SITES.some((s) => (x - s.x) ** 2 + (z - s.z) ** 2 < FLAK_FLAT * FLAK_FLAT),
+  ], sceneryPoints(scenery))
   const solid = outsideZero(leuna.field)
   const sample = (x: number, z: number): number => solid.sample(x, z)
   const rivers = buildLeunaRivers(sample)
-  return createInlandTerrain(leuna, 'lateAutumn', LEUNA_SITE, buildPlantScenery, gfx, rivers,
+  return createInlandTerrain(leuna, 'lateAutumn', LEUNA_SITE, () => scenery, gfx, rivers,
     buildLeunaDressing(sample, rivers, leuna.field))
 }
+
+/** 洛伊納的砲位周圍要平的半徑，m：砲位的沙包與砲在這一圈裡 */
+const FLAK_FLAT = 150
 
 /**
  * 晚秋的內陸：農地的高度場，洛伊納的晚秋色盤。**沒有廠區的墊面與佈景** ——
@@ -190,12 +206,18 @@ function createAutumnFarmlandTerrain(
   gfx?: TerrainGfx, farmSite?: (hills: readonly IslandDesc[]) => SiteLayout,
 ): Terrain {
   const farm = createFarmland()
-  return createInlandTerrain(farm, 'lateAutumn', farmSite?.(farm.hills), undefined, gfx)
+  const site = farmSite?.(farm.hills)
+  addRolling(farm.field, ROLLING_SEEDS.farmland, [villageFlat(), ...(site === undefined ? [] : [siteFlat(site)])])
+  return createInlandTerrain(farm, 'lateAutumn', site, undefined, gfx)
 }
 
 /** 波爾塔瓦：農地的算繪路徑、極緩的丘、夏季、機場的墊面與佈景 */
 function createPoltavaTerrain(gfx?: TerrainGfx): Terrain {
-  return createInlandTerrain(createPoltava(), 'summer', POLTAVA_SITE, buildAirfieldScenery, gfx)
+  const farm = createPoltava()
+  const scenery = buildAirfieldScenery()
+  // 要平的：村、機場、佈景（沿北路的電線桿）落到的每一格
+  addRolling(farm.field, ROLLING_SEEDS.poltava, [villageFlat(), siteFlat(POLTAVA_SITE)], sceneryPoints(scenery))
+  return createInlandTerrain(farm, 'summer', POLTAVA_SITE, () => scenery, gfx)
 }
 
 /**
@@ -209,6 +231,8 @@ export function siteClearances(site?: SiteLayout): { trees: number; buildings: n
 /** Y-29：農地的算繪路徑、極緩的丘、深秋的枯色、營房與車場的佈景 */
 function createAschTerrain(gfx?: TerrainGfx): Terrain {
   const farm = createAsch()
+  // 要平的：村、機場（滑行與起飛整段釘在起點的地面高度）。營房與車場逐點取地高
+  addRolling(farm.field, ROLLING_SEEDS.asch, [villageFlat(), siteFlat(ASCH_SITE)])
   return createInlandTerrain(
     farm, 'lateAutumn', ASCH_SITE, () => buildAschScenery((x, z) => farm.field.sample(x, z)), gfx,
   )
@@ -237,6 +261,57 @@ export function rzhevHillAvoid(): HillAvoid[] {
   return farmLaneVillages(14000).map((v) => ({
     x: v.place.x, z: v.place.z, r: v.place.kind === 'village' ? 700 : 300,
   }))
+}
+
+/** 內陸緩坡（`world/rollingRelief.ts`）的種子：每張圖一個，起伏才不會每張一樣 */
+const ROLLING_SEEDS = { farmland: 0x2a01, asch: 0x2a02, poltava: 0x2a03, leuna: 0x2a04 } as const
+
+/** 程序村與小聚落要平的範圍：與勒熱夫避丘陵同一組圓（`rzhevHillAvoid`） */
+function villageFlat(): FlatTest {
+  const vs = rzhevHillAvoid()
+  return (x, z) => {
+    for (const v of vs) if ((x - v.x) ** 2 + (z - v.z) ** 2 < v.r * v.r) return true
+    return false
+  }
+}
+
+/**
+ * 廠區／機場要平的範圍：墊面、附加墊面、衛星設施各往外 `PAD_SKIRT` 加 `treeClear`（機場的
+ * 砲位在那一圈裡），以及 `flat` 那一圈。矩形在廠區局部系，轉法與地色的著色器相同
+ */
+function siteFlat(site: SiteLayout): FlatTest {
+  const margin = PAD_SKIRT + (site.treeClear ?? 0)
+  const rects = [...(site.pad === undefined ? [] : [site.pad]), ...(site.padLobes ?? []), ...(site.outposts ?? [])]
+  const c = Math.cos(site.heading ?? 0)
+  const s = Math.sin(site.heading ?? 0)
+  const px = site.pivot?.x ?? 0
+  const pz = site.pivot?.z ?? 0
+  const flat = site.flat
+  return (x, z) => {
+    if (flat !== undefined && (x - flat.x) ** 2 + (z - flat.z) ** 2 < flat.r * flat.r) return true
+    const rx = x - px
+    const rz = z - pz
+    const lx = rx * c + rz * s
+    const lz = -rx * s + rz * c
+    for (const r of rects) {
+      if (lx > r.x0 - margin && lx < r.x1 + margin && lz > r.z0 - margin && lz < r.z1 + margin) return true
+    }
+    return false
+  }
+}
+
+/**
+ * 佈景每一個頂點的 x, z（交錯）。廠區、機場的佈景整顆擺在 y = 0（電線桿、沙包散到墊面外好幾
+ * 公里），緩坡要避開它們落到的每一格
+ */
+function sceneryPoints(geo: BufferGeometry): Float32Array {
+  const pos = geo.getAttribute('position')
+  const out = new Float32Array(pos.count * 2)
+  for (let i = 0; i < pos.count; i++) {
+    out[i * 2] = pos.getX(i)
+    out[i * 2 + 1] = pos.getZ(i)
+  }
+  return out
 }
 
 /**
