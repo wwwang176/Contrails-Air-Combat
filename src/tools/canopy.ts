@@ -1,5 +1,5 @@
 import {
-  Color, DataUtils, FogExp2, Mesh, MeshStandardMaterial, PlaneGeometry, Vector3, type BufferGeometry,
+  Color, DataUtils, FogExp2, Mesh, MeshStandardMaterial, PlaneGeometry, Vector2, Vector3, type BufferGeometry,
 } from 'three'
 import { createScene } from '../render/scene'
 import { paletteOf, type DayPalette, type TimeOfDay } from '../render/timeOfDay'
@@ -44,8 +44,13 @@ import { DEG } from '../core/math'
 const SEASON: Season = 'lateAutumn'
 /** 德 M3 的地形；色盤的覆寫跟著它 */
 const TERRAIN = 'asch' as const
-/** 一塊林子的半邊長，m */
+/** 一塊林子左右方向的半寬，m；量亮度的框取中心 ±0.8 倍這個值的方形 */
 const HALF = 240
+/**
+ * 林子前後方向最深多少的一半，m。很平的角度看過去，視線從樹冠底下穿過；林子太淺的話
+ * 會一路穿到後面的田，量到的不是林子的顏色
+ */
+const MAX_DEPTH_HALF = 2000
 /** 相鄰兩塊的中心距，m */
 const PITCH = 600
 const STRIPS = ['立體樹', '簡易樹冠', '點', '烘圖'] as const
@@ -66,7 +71,8 @@ interface Tree { readonly u: number; readonly v: number; readonly rot: number; r
 const TREES: Tree[] = []
 {
   const n = Math.round(HALF / WOOD_GRID)
-  for (let gz = -n; gz < n; gz++) {
+  const nd = Math.round(MAX_DEPTH_HALF / WOOD_GRID)
+  for (let gz = -nd; gz < nd; gz++) {
     for (let gx = -n; gx < n; gx++) {
       const h = hash2(gx + 1000, gz + 1000)
       const g = hash1(h)
@@ -107,7 +113,8 @@ const groundUniforms = {
   uStripC: { value: [0, 1, 2, 3].map(() => new Vector3()) },
   uStripR: { value: new Vector3(1, 0, 0) },
   uStripF: { value: new Vector3(0, 0, -1) },
-  uStripHalf: { value: HALF },
+  /** 左右的半寬、前後的半深 */
+  uStripHalf: { value: new Vector2(HALF, HALF) },
   uFieldColor: { value: new Color(FIELD_COLORS[SEASON].ploughed) },
   uWoodColor: { value: new Color(FIELD_COLORS[SEASON].wood) },
   uBakeColor: { value: new Color() },
@@ -130,7 +137,7 @@ groundMaterial.onBeforeCompile = (shader) => {
 uniform vec3 uStripC[4];
 uniform vec3 uStripR;
 uniform vec3 uStripF;
-uniform float uStripHalf;
+uniform vec2 uStripHalf;
 uniform vec3 uFieldColor;
 uniform vec3 uWoodColor;
 uniform vec3 uBakeColor;
@@ -143,7 +150,7 @@ ${VIEW_SHADE_GLSL}
 int canopyStripAt(vec3 w) {
   for (int i = 0; i < 4; i++) {
     vec3 d = w - uStripC[i];
-    if (abs(dot(d, uStripR)) < uStripHalf && abs(dot(d, uStripF)) < uStripHalf) return i;
+    if (abs(dot(d, uStripR)) < uStripHalf.x && abs(dot(d, uStripF)) < uStripHalf.y) return i;
   }
   return -1;
 }
@@ -174,6 +181,8 @@ const state = {
   az: 0,
   elev: 15,
   dist: 4000,
+  /** 林子前後方向的深度，m */
+  depth: 480,
   pointK: true,
   bakeNew: false,
   /** 點的底色：false = 手調倍率（遊戲現在）、true = 照當下的燈算 */
@@ -438,6 +447,7 @@ function layout(): void {
   groundUniforms.uStripR.value.copy(right)
   groundUniforms.uStripF.value.copy(forward)
   groundUniforms.uStripC.value.forEach((c, i) => c.copy(centres[i]!))
+  groundUniforms.uStripHalf.value.set(HALF, state.depth / 2)
 
   const kind = state.species === 'broad' ? FloraKind.BroadTree : FloraKind.ConeTree
   for (let s = 0; s < STRIP_LOD.length; s++) {
@@ -445,6 +455,7 @@ function layout(): void {
     buf.count = 0
     const c = centres[s]!
     for (const t of TREES) {
+      if (Math.abs(t.v) >= state.depth / 2) continue
       const x = c.x + right.x * t.u + forward.x * t.v
       const z = c.z + right.z * t.u + forward.z * t.v
       pushFlora(buf, x, 0, z, t.rot, t.scale, TREE_TINT, kind)
@@ -517,7 +528,7 @@ const tags = STRIPS.map(() => {
 function placeTags(): void {
   const rect = canvas.getBoundingClientRect()
   for (let i = 0; i < 4; i++) {
-    corner.copy(centres[i]!).addScaledVector(forward, HALF).setY(30).project(ctx.camera)
+    corner.copy(centres[i]!).addScaledVector(forward, state.depth / 2).setY(30).project(ctx.camera)
     const tag = tags[i]!
     tag.style.left = `${rect.left + (corner.x + 1) / 2 * rect.width}px`
     tag.style.top = `${rect.top + (1 - corner.y) / 2 * rect.height - 6}px`
@@ -582,6 +593,7 @@ for (const [id, key, fmt] of [
   ['az', 'az', (v: number) => `${v}°`],
   ['elev', 'elev', (v: number) => `${v}°`],
   ['dist', 'dist', (v: number) => `${(v / 1000).toFixed(1)} km`],
+  ['depth', 'depth', (v: number) => `${(v / 1000).toFixed(2)} km`],
 ] as const) {
   const el = document.getElementById(id) as HTMLInputElement
   el.oninput = () => { state[key] = Number(el.value); refresh() }
