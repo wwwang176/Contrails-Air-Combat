@@ -3,6 +3,7 @@ import type { IslandDesc } from '../world/archipelago'
 import type { LandField } from '../world/occlusion'
 import type { DayPalette } from './timeOfDay'
 import type { FieldClipmap } from './fieldClipmap'
+import type { ViewShade } from './viewShade'
 
 /**
  * 有 GPU 可用時給 `createTerrain` 的東西。**省略就是純算式的地面**，headless
@@ -107,5 +108,10 @@ export interface Terrain {
    * （`hud/rangeProbe.ts`）用，距離從上一次 `update` 的中心量。**只有內陸有**
    */
   describeAt?(x: number, z: number): readonly string[]
+  /**
+   * 烘進地面的林子與屋頂、遠處的點共用的視角係數（`viewShade.ts`）。**沒有陸地的
+   * 地形沒有。** 同頁 A/B 經它的 `uViewShadeOn` 開關
+   */
+  readonly viewShade?: ViewShade
   dispose(): void
 }

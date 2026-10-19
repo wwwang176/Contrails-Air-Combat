@@ -109,14 +109,16 @@ export function shareGeometry(base: BufferGeometry): BufferGeometry {
  * 【段數超過 `cap` 就把間隔最小的兩段併起來】多畫一些看不到的實例，換少一次
  * draw call。間隔一樣大時併前面的，結果與輸入順序一一對應。
  *
- * `outStart` / `outEnd` 至少要有 `n` 格。不配置。
+ * 只看第 `first` 筆到第 `n` 筆之前（植被一池的區段表分成一般、淡入、淡出三組，各自接段）。
+ *
+ * `outStart` / `outEnd` 至少要有 `n − first` 格。不配置。
  */
 export function visibleRuns(
   n: number, starts: Int32Array, ends: Int32Array, boxes: Float32Array,
-  planes: Float64Array, cap: number, outStart: Int32Array, outEnd: Int32Array,
+  planes: Float64Array, cap: number, outStart: Int32Array, outEnd: Int32Array, first = 0,
 ): number {
   let runs = 0
-  for (let k = 0; k < n; k++) {
+  for (let k = first; k < n; k++) {
     const b = k * 6
     if (boxOutside(planes, boxes[b]!, boxes[b + 1]!, boxes[b + 2]!,
       boxes[b + 3]!, boxes[b + 4]!, boxes[b + 5]!)) continue

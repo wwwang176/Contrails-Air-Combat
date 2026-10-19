@@ -1,13 +1,21 @@
 import {
   AddEquation, CustomBlending, DoubleSide, Group, OneFactor, OneMinusSrcAlphaFactor, SrcAlphaFactor, LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, OrthographicCamera,
-  PlaneGeometry, Scene, ShaderMaterial, Vector2, Vector4, WebGLRenderTarget,
+  PlaneGeometry, RGFormat, Scene, ShaderMaterial, Vector2, Vector3, Vector4, WebGLRenderTarget,
   type BufferGeometry, type DataTexture, type WebGLProgramParametersWithUniforms, type WebGLRenderer,
 } from 'three'
 import { fieldGlslWithSite } from './fieldShaders'
-import { type RegionCandidates } from './fields'
+import {
+  OPEN_CONIFER_SHARE, OPEN_TREE_SCALE, OPEN_WOOD_DENSITY, WOOD_GRID, type RegionCandidates,
+} from './fields'
 import { type SiteLayout } from './siteSurface'
 import { SCAR_ATLAS } from './battleScars'
 import type { Season } from './season'
+import { matteGround } from './matteGround'
+import { DRAWN_TILES_N, type DrawnTiles } from './drawnTiles'
+import { TILE_SIZE } from './vegetationPolicy'
+import { POINT_SIZE } from './floraShapes'
+import { TREE_SCALE } from '../specs/flora'
+import { VIEW_SHADE_GLSL, ViewShadeRow, type ViewShade } from './viewShade'
 
 /**
  * # 田色 clipmap
@@ -39,6 +47,43 @@ import type { Season } from './season'
 
 /** 鏡頭離窗中心超過窗寬的幾分之幾就挪窗 */
 export const RECENTRE_FRACTION = 1 / 8
+
+/**
+ * 樹冠份量（`fieldShaders.ts` 的 `fieldTree`）存進第二張時乘這個。第二張是 RG8（0..1），
+ * 而樹籬折成闊葉的份量最多到 `HEDGE_TREE_SHARE`（1.27）
+ */
+export const TREE_BAKE_SCALE = 0.5
+
+/**
+ * 樹林田的樹排在抖動的格點上（一格一株），彼此重疊比隨機撒的少，蓋住地面的比例比隨機的
+ * 式子高。展示區（/tools/canopy.html）16 m 一格的闊葉林，點從正上方看蓋住 47%，
+ * 隨機的式子是 37%；乘 1.4 之後烘圖與點的亮度差均方根 2.1%。
+ *
+ * 空地的林子只接受一半多一點的格點（`OPEN_WOOD_DENSITY`），格點的規律被打散，照隨機的式子
+ * 算（乘 1）：德 M3 地形 2 km 外、仰角 8°～85° 林子裡點的覆蓋率反推 d 是 0.26～0.39，
+ * 式子是 0.35
+ */
+export const GRID_OVERLAP = { field: 1.4, open: 1 } as const
+
+/** 縮放在 `[a, b]` 之間均勻分布時縮放平方的期望值 `(b³ − a³) / (3(b − a))` */
+const meanSquare = ([a, b]: readonly [number, number]): number => (b ** 3 - a ** 3) / (3 * (b - a))
+
+/**
+ * 林子裡的點從仰角 e 看過去蓋住地面的比例是 `1 − exp(−d / sin e)`，這是 d：每格點的平均
+ * 面積（`POINT_SIZE` × 縮放平方 × 接受率）÷ 一格的面積 × `GRID_OVERLAP`。
+ *
+ * `broad`、`cone` 是樹林田（整塊一個樹種、`TREE_SCALE`、每格一株）；`open` 是空地的林子
+ * （`OPEN_TREE_SCALE`、接受率 `OPEN_WOOD_DENSITY`、樹種照 `OPEN_CONIFER_SHARE` 混）
+ */
+export function canopyGapDensity(kind: 'broad' | 'cone' | 'open'): number {
+  const area = (pool: 'broadPoint' | 'conePoint'): number => POINT_SIZE[pool] ** 2
+  const cell = WOOD_GRID * WOOD_GRID
+  if (kind === 'open') {
+    const mix = (1 - OPEN_CONIFER_SHARE) * area('broadPoint') + OPEN_CONIFER_SHARE * area('conePoint')
+    return (mix * meanSquare(OPEN_TREE_SCALE) * OPEN_WOOD_DENSITY * GRID_OVERLAP.open) / cell
+  }
+  return (area(kind === 'broad' ? 'broadPoint' : 'conePoint') * meanSquare(TREE_SCALE) * GRID_OVERLAP.field) / cell
+}
 
 /**
  * 最外層 → 遠景層、遠景層 → 平均色的兩個圓環（離鏡頭的水平距離，m）。
@@ -161,6 +206,14 @@ export interface FieldClipmapOptions {
   readonly near: ClipLevelSpec
   readonly far: ClipLevelSpec
   /**
+   * 中圖：與近圖同一種烘法（近處的樣子：林地色、細樹籬、不烘屋頂色塊），蓋住整個植被圈。
+   * 近窗外、**這一格有畫樹**（`drawnTiles`）的地方讀它，其餘讀遠圖 —— 樹底下是地、不是
+   * 烘好的樹冠。要與 `drawnTiles` 一起給
+   */
+  readonly mid?: ClipLevelSpec
+  /** 哪些植被格有畫樹（`drawnTiles.ts`），與植被共用同一份 */
+  readonly drawnTiles?: DrawnTiles
+  /**
    * 遠圖外面再一層，田色與疊圖都烘，遠處的樣子（與遠圖同一種烘法）。遠圖窗外讀它，
    * 它的窗外讀它的平均色 —— 見地面著色器的 `horizonColourAt`。省略的話遠圖窗外
    * 走算式，`beyondFar` 的粗網格畫在遠圖外
@@ -180,6 +233,20 @@ export interface FieldClipmapOptions {
   readonly innerRadius?: number
   /** 內圈往外漸變到貼圖的寬度，m */
   readonly innerBand?: number
+  /**
+   * 植被的點用的那一張表（`viewShade.ts`）。給了的話遠處的樣子（遠圖、最外層、遠景層）
+   * 多烘一張樹冠份量，地面把那一份樹冠換成照點的算式畫：
+   *
+   * ```
+   *   底色 = 烘的顏色 − 樹冠色 × 份量 + 林地色 × 份量 × (1 − 覆蓋)
+   *   自發光 += 份量 × 覆蓋 × 點的底色 × 表(鏡頭方向)
+   *   鏡面反射 ×= 1 − 份量 × 覆蓋
+   * ```
+   *
+   * 覆蓋是點從這個仰角看過去蓋住地面的比例（`canopyGapDensity`）。見
+   * `docs/superpowers/specs/2026-10-19-baked-canopy-like-points-design.md`
+   */
+  readonly viewShade?: ViewShade
   /** 近圖邊緣漸變到遠圖的寬度，佔近窗半寬的比例 */
   readonly edgeBlend?: number
 }
@@ -231,6 +298,11 @@ export interface FieldClipmap {
   benchFarBake(trees: boolean): number
   /** 整支改走算式。A/B 用 —— 兩邊是同一個 program，差的只有一個 uniform */
   setBypass(on: boolean): void
+  /**
+   * 烘進地面的林子的表在頂點查（預設）還是在像素查；給了就切換（重編地面的程式），回傳目前
+   * 是不是在像素查。沒有樹冠份量（沒給 `viewShade`）時沒有作用
+   */
+  canopyLookup(perPixel?: boolean): boolean
   dispose(): void
 }
 
@@ -248,11 +320,17 @@ interface Level {
 /** 與 `farmGround.ts` 同一組材質參數；換了的話同一片田在兩條路徑下明暗不同 */
 const ROUGHNESS = 0.95
 
+/** 烘圖材質的第二個輸出（樹冠份量）的宣告 */
+const TREE_OUT = (tree: boolean): string => tree ? '\nlayout(location = 1) out highp vec4 treeBake;' : ''
+
 let instances = 0
 
 export function createFieldClipmap(renderer: WebGLRenderer, opts: FieldClipmapOptions): FieldClipmap {
   const cand = opts.candidates
-  const glsl = fieldGlslWithSite(opts.season, opts.site, cand !== undefined, opts.open ?? false)
+  const shade = opts.viewShade
+  /** 遠處的樣子要不要多烘一張樹冠份量 —— 見 `viewShade` 選項 */
+  const tree = shade !== undefined
+  const glsl = fieldGlslWithSite(opts.season, opts.site, cand !== undefined, opts.open ?? false, tree)
   /**
    * 候選表的兩個 uniform，加上戰場痕跡的圖集（有的話）；烘圖材質與地面材質各掛一份
    * 同樣的。圖集是共用的物件（`SCAR_ATLAS`）—— 進場前已經載好
@@ -265,25 +343,40 @@ export function createFieldClipmap(renderer: WebGLRenderer, opts: FieldClipmapOp
     ...(opts.site?.scars === undefined ? {} : { uScarAtlas: SCAR_ATLAS }),
   })
   const anisotropy = renderer.capabilities.getMaxAnisotropy()
-  const level = (spec: ClipLevelSpec): Level => {
+  /**
+   * @param share 要不要第二張（樹冠份量）。**近處的樣子（近圖、中圖）不要**：份量恆為 0。
+   *   烘圖的材質照樣寫第二個輸出，沒有那張附件時 GL 丟掉它
+   */
+  const level = (spec: ClipLevelSpec, share = false): Level => {
     const rt = new WebGLRenderTarget(spec.size, spec.size, {
       minFilter: LinearMipmapLinearFilter, magFilter: LinearFilter, generateMipmaps: true,
-      depthBuffer: false, stencilBuffer: false, anisotropy,
+      depthBuffer: false, stencilBuffer: false, anisotropy, count: share ? 2 : 1,
     })
+    // 【第二張只要兩個通道、不開各向異性】建構選項套到每一張；第一張的 alpha 是疊圖的覆蓋率，
+    // 要留 RGBA。份量只是換算顏色的比例，不必銳利
+    if (share) {
+      rt.textures[1]!.format = RGFormat
+      rt.textures[1]!.anisotropy = 1
+    }
     return {
       n: spec.size, m: spec.metersPerTexel, span: spec.size * spec.metersPerTexel,
       rt, centre: new Vector2(), ox: 0, oz: 0, primed: false,
     }
   }
   const near = level(opts.near)
-  const far = level(opts.far)
-  const horizon = opts.horizon === undefined ? null : level(opts.horizon)
-  const backdrop = horizon === null || opts.backdrop === undefined ? null : level(opts.backdrop)
+  const drawn = opts.drawnTiles
+  const mid = opts.mid === undefined || drawn === undefined ? null : level(opts.mid)
+  const far = level(opts.far, tree)
+  const horizon = opts.horizon === undefined ? null : level(opts.horizon, tree)
+  const backdrop = horizon === null || opts.backdrop === undefined ? null : level(opts.backdrop, tree)
   const stats: FieldClipmapStats = { recentres: 0, pieces: 0, texels: 0 }
+  /** 近處的樣子（近圖、中圖）：林地色、細樹籬，`near = false` 的疊圖不烘 */
+  const nearLook = (L: Level): boolean => L === near || L === mid
   // 【context 還原後整張重烘】three 重建 GPU 資源時貼圖是空的，而鏡頭沒跨挪窗門檻就
   // 不會再烘 —— 遠處讀到一片黑。標成沒烘過，下一次 `update` 整張重來
   const onRestored = (): void => {
     near.primed = false
+    if (mid !== null) mid.primed = false
     far.primed = false
     if (horizon !== null) horizon.primed = false
     if (backdrop !== null) backdrop.primed = false
@@ -302,9 +395,13 @@ export function createFieldClipmap(renderer: WebGLRenderer, opts: FieldClipmapOp
 void main() { vWorld = (uCell0 + uv * uCells) * uMetres; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
     // 【遠圖烘遠處的樣子】近窗外就是遠圖，樹籬的樹 6 km 外不畫；近窗內的樹籬烘近圖。
     // 空地的樹一棵一棵的點也只烘在遠圖（`fieldTrees`）
-    fragmentShader: `varying vec2 vWorld; uniform float uBakeFar; uniform float uBakeTrees;
+    //
+    // 【第二個輸出】three 把這支編成 GLSL 300 es，gl_FragColor 是它宣告的 location 0；
+    // 樹冠份量寫 location 1
+    fragmentShader: `varying vec2 vWorld; uniform float uBakeFar; uniform float uBakeTrees;${TREE_OUT(tree)}
 ${glsl}
-void main() { fieldFar = uBakeFar; fieldTrees = uBakeFar * uBakeTrees; gl_FragColor = vec4(fieldColorAt(vWorld), 0.0); }`,
+void main() { fieldFar = uBakeFar; fieldTrees = uBakeFar * uBakeTrees; gl_FragColor = vec4(fieldColorAt(vWorld), 0.0);${
+  tree ? ` treeBake = vec4(fieldTree * ${TREE_BAKE_SCALE.toFixed(3)}, 0.0, 0.0);` : ''} }`,
   })
   const quadGeo = new PlaneGeometry(2, 2)
   const bakeScene = new Scene()
@@ -320,8 +417,9 @@ void main() { fieldFar = uBakeFar; fieldTrees = uBakeFar * uBakeTrees; gl_FragCo
     vertexShader: `uniform vec2 uCell0; uniform vec2 uCells; uniform float uMetres;
 attribute vec4 color; varying vec4 vCol;
 void main() { vCol = color; gl_Position = vec4((position.xz / uMetres - uCell0) / uCells * 2.0 - 1.0, 0.0, 1.0); }`,
-    fragmentShader: `varying vec4 vCol;
-void main() { gl_FragColor = vCol; }`,
+    // 疊圖不是樹冠：份量寫 0，透明度與顏色相同，混合時照覆蓋率把底下的份量衰減掉
+    fragmentShader: `varying vec4 vCol;${TREE_OUT(tree)}
+void main() { gl_FragColor = vCol;${tree ? ' treeBake = vec4(0.0, 0.0, 0.0, vCol.a);' : ''} }`,
     // 世界 z 映到裁切 y，繞序跟著翻
     side: DoubleSide,
     // 【顏色照不透明度混、透明度累加】三個分量的頂點色第四個分量讀成 1，整片蓋掉；
@@ -347,8 +445,9 @@ void main() { gl_FragColor = vCol; }`,
     vertexShader: `uniform vec2 uCell0; uniform vec2 uCells; uniform float uMetres;
 varying vec2 vUv;
 void main() { vUv = uv; gl_Position = vec4((position.xz / uMetres - uCell0) / uCells * 2.0 - 1.0, 0.0, 1.0); }`,
-    fragmentShader: `varying vec2 vUv; uniform sampler2D uScarAtlas;
-void main() { gl_FragColor = texture2D(uScarAtlas, vUv); }`,
+    fragmentShader: `varying vec2 vUv; uniform sampler2D uScarAtlas;${TREE_OUT(tree)}
+void main() { gl_FragColor = texture2D(uScarAtlas, vUv);${
+  tree ? ' treeBake = vec4(0.0, 0.0, 0.0, gl_FragColor.a);' : ''} }`,
     side: DoubleSide,
     transparent: true,
     blending: CustomBlending,
@@ -367,17 +466,17 @@ void main() { gl_FragColor = texture2D(uScarAtlas, vUv); }`,
   const beyond: Mesh[] = []
 
   const bakePiece = (L: Level, p: TorusPiece, last: boolean): void => {
-    for (const o of overlays.children) o.visible = L !== near || o.userData['near'] === true
+    for (const o of overlays.children) o.visible = !nearLook(L) || o.userData['near'] === true
     // 【viewport／scissor 設在 RT 上】`setRenderTarget` 讀的是 RT 自己那一份，
     // `renderer.setViewport` 設的是畫布的
     L.rt.viewport.set(p.tx, p.tz, p.w, p.h)
     L.rt.scissor.set(p.tx, p.tz, p.w, p.h)
     L.rt.scissorTest = true
-    L.rt.texture.generateMipmaps = last
+    for (const t of L.rt.textures) t.generateMipmaps = last
     bakeMat.uniforms['uCell0']!.value.set(p.cx0, p.cz0)
     bakeMat.uniforms['uCells']!.value.set(p.w, p.h)
     bakeMat.uniforms['uMetres']!.value = L.m
-    bakeMat.uniforms['uBakeFar']!.value = L === near ? 0 : 1
+    bakeMat.uniforms['uBakeFar']!.value = nearLook(L) ? 0 : 1
     renderer.setRenderTarget(L.rt)
     renderer.render(bakeScene, bakeCam)
     stats.pieces++
@@ -418,6 +517,12 @@ void main() { gl_FragColor = texture2D(uScarAtlas, vUv); }`,
     uFar: { value: far.rt.texture },
     uFarCentre: { value: far.centre },
     uFarSpan: { value: far.span },
+    ...(mid === null || drawn === undefined ? {} : {
+      uMid: { value: mid.rt.texture },
+      uMidCentre: { value: mid.centre },
+      uMidSpan: { value: mid.span },
+      ...drawn.uniforms,
+    }),
     uCam: { value: new Vector2() },
     uInner: { value: opts.innerRadius ?? 500 },
     uInnerBand: { value: opts.innerBand ?? 100 },
@@ -440,11 +545,19 @@ void main() { gl_FragColor = texture2D(uScarAtlas, vUv); }`,
         uAvgFade: { value: new Vector2(f.avgFrom, f.avgTo) },
       }
     })()),
+    ...(shade === undefined ? {} : {
+      uFarS: { value: far.rt.textures[1]! },
+      ...(horizon === null ? {} : { uHorS: { value: horizon.rt.textures[1]! } }),
+      ...(backdrop === null ? {} : { uBackS: { value: backdrop.rt.textures[1]! } }),
+      ...shade.uniforms,
+      uCanopyGap: { value: new Vector3(canopyGapDensity('broad'), canopyGapDensity('cone'), canopyGapDensity('open')) },
+    }),
   }
   const horizonDecl = (horizon === null ? ''
     : 'uniform sampler2D uHor; uniform vec2 uHorCentre; uniform float uHorSpan; uniform float uHorTop;')
     + (backdrop === null ? ''
       : '\nuniform sampler2D uBack; uniform float uBackSpan; uniform float uBackTop; uniform vec2 uHorFade; uniform vec2 uAvgFade;')
+    + (!tree ? '' : (horizon === null ? '' : '\nuniform sampler2D uHorS;') + (backdrop === null ? '' : '\nuniform sampler2D uBackS;'))
   const horizonGrad = (horizon === null ? '' : `
   vec2 qH = w / uHorSpan;
   vec2 dHx = dFdx(qH); vec2 dHy = dFdy(qH);
@@ -471,7 +584,42 @@ void main() { gl_FragColor = texture2D(uScarAtlas, vUv); }`,
    * beyondFar 的粗網格（鎮的地面、河漫灘），一出窗就整塊出現 —— 疊圖在窗緣前先淡掉
    * 的話，鎮會先變糊或消失、再跳出來
    */
-  const horizonColour = horizon === null ? '' : backdrop === null ? `
+  /**
+   * 有樹冠份量時同一套取樣與權重多讀第二張，由 `hs` 帶出（存的是乘過 `TREE_BAKE_SCALE` 的值）
+   */
+  const horizonColourTree = horizon === null ? '' : backdrop === null ? `
+vec3 horizonColourAt(vec2 qH, vec2 dHx, vec2 dHy, float eH, out vec2 hs) {
+  vec3 avg = textureLod(uHor, vec2(0.5), uHorTop).rgb;
+  vec2 avgS = textureLod(uHorS, vec2(0.5), uHorTop).rg;
+  if (eH >= 1.0) { hs = avgS; return avg; }
+  vec4 h = textureGrad(uHor, fract(qH), dHx, dHy);
+  vec2 hS = textureGrad(uHorS, fract(qH), dHx, dHy).rg;
+  float keep = clamp(h.a * 4.0, 0.0, 1.0);
+  float f = smoothstep(1.0 - uEdgeBlend, 1.0, eH) * (1.0 - keep);
+  hs = mix(hS, avgS, f);
+  return mix(h.rgb, avg, f);
+}` : `
+vec3 backdropColourAt(vec2 qB, vec2 dBx, vec2 dBy, float rCam, out vec2 bs) {
+  vec3 avg = textureLod(uBack, vec2(0.5), uBackTop).rgb;
+  vec2 avgS = textureLod(uBackS, vec2(0.5), uBackTop).rg;
+  float tA = smoothstep(uAvgFade.x, uAvgFade.y, rCam);
+  if (tA >= 1.0) { bs = avgS; return avg; }
+  bs = mix(textureGrad(uBackS, fract(qB), dBx, dBy).rg, avgS, tA);
+  return mix(textureGrad(uBack, fract(qB), dBx, dBy).rgb, avg, tA);
+}
+vec3 horizonColourAt(vec2 qH, vec2 dHx, vec2 dHy, float eH, vec2 qB, vec2 dBx, vec2 dBy, float rCam, out vec2 hs) {
+  if (eH >= 1.0) return backdropColourAt(qB, dBx, dBy, rCam, hs);
+  vec4 h = textureGrad(uHor, fract(qH), dHx, dHy);
+  vec2 hS = textureGrad(uHorS, fract(qH), dHx, dHy).rg;
+  float keep = clamp(h.a * 4.0, 0.0, 1.0);
+  float f = smoothstep(uHorFade.x, uHorFade.y, rCam) * (1.0 - keep);
+  if (f <= 0.0) { hs = hS; return h.rgb; }
+  vec2 bs;
+  vec3 b = backdropColourAt(qB, dBx, dBy, rCam, bs);
+  hs = mix(hS, bs, f);
+  return mix(h.rgb, b, f);
+}`
+  const horizonColour = tree ? horizonColourTree : horizon === null ? '' : backdrop === null ? `
 vec3 horizonColourAt(vec2 qH, vec2 dHx, vec2 dHy, float eH) {
   vec3 avg = textureLod(uHor, vec2(0.5), uHorTop).rgb;
   if (eH >= 1.0) return avg;
@@ -497,26 +645,111 @@ vec3 horizonColourAt(vec2 qH, vec2 dHx, vec2 dHy, float eH, vec2 qB, vec2 dBx, v
   /** 遠圖窗外在不在「算式」那一邊：有最外層時整圈讀貼圖 */
   const farOutProc = horizon === null ? ' || eF >= 1.0' : ''
   const farOutTex = horizon === null ? ' && eF < 1.0' : ''
-  const texBlock = horizon === null ? `
-    vec3 t = textureGrad(uFar, fract(qF), dFx, dFy).rgb;
+  const midDecl = mid === null ? ''
+    : 'uniform sampler2D uMid; uniform vec2 uMidCentre; uniform float uMidSpan;\n'
+      + 'uniform sampler2D uTreesDrawn; uniform vec2 uTreesOrigin;'
+  /**
+   * 【這一點有沒有畫樹】查植被發布的那一張（`drawnTiles.ts`）：貼圖第 k 格是植被格
+   * `uTreesOrigin + k`，格心對格心，線性過濾讓格與格之間 250 m 漸變。中窗邊緣淡出 ——
+   * 中窗外讀不到中圖，那裡照讀遠圖（見 `2026-10-19-ground-under-drawn-trees-design.md`）
+   */
+  const midGrad = mid === null ? '\n  float drawn = 0.0;' : `
+  vec2 qM = w / uMidSpan;
+  vec2 dMx = dFdx(qM); vec2 dMy = dFdy(qM);
+  float eM = max(abs(w.x - uMidCentre.x), abs(w.y - uMidCentre.y)) / (0.5 * uMidSpan);
+  float drawn = texture2D(uTreesDrawn, (w / ${TILE_SIZE.toFixed(1)} - uTreesOrigin) / ${DRAWN_TILES_N.toFixed(1)}).r
+    * (1.0 - smoothstep(1.0 - uEdgeBlend, 1.0, eM));`
+  /** 有畫樹的地方由遠圖換成中圖（近處的樣子） */
+  const midMix = mid === null ? ''
+    : '\n    if (drawn > 0.0) t = mix(t, textureGrad(uMid, fract(qM), dMx, dMy).rgb, drawn);'
+  const texBlockPlain = horizon === null ? `
+    vec3 t = textureGrad(uFar, fract(qF), dFx, dFy).rgb;${midMix}
     float tN = smoothstep(1.0 - uEdgeBlend, 1.0, eN);
     if (tN < 1.0) t = mix(textureGrad(uNear, fract(qN), dNx, dNy).rgb, t, tN);` : `
     // 【遠圖讀不到的地方不讀】窗外是環面上別處的內容
     float tF = smoothstep(1.0 - uEdgeBlend, 1.0, eF);
     vec3 t = vec3(0.0);
     if (tF < 1.0) {
-      t = textureGrad(uFar, fract(qF), dFx, dFy).rgb;
+      t = textureGrad(uFar, fract(qF), dFx, dFy).rgb;${midMix}
       float tN = smoothstep(1.0 - uEdgeBlend, 1.0, eN);
       if (tN < 1.0) t = mix(textureGrad(uNear, fract(qN), dNx, dNy).rgb, t, tN);
     }
     if (tF > 0.0) t = mix(t, horizonColourAt(${horizonArgs}), tF);`
+  // 【樹冠份量照顏色的權重混】近圖、中圖的份量是 0（近處的樣子），所以換成它們時份量照
+  // 權重衰減；每一處少跟一步，遠圖與最外層的交界就會出現接縫
+  const midMixTree = mid === null ? ''
+    : '\n    if (drawn > 0.0) { t = mix(t, textureGrad(uMid, fract(qM), dMx, dMy).rgb, drawn); ts *= 1.0 - drawn; }'
+  const texBlockTree = horizon === null ? `
+    vec3 t = textureGrad(uFar, fract(qF), dFx, dFy).rgb;
+    vec2 ts = textureGrad(uFarS, fract(qF), dFx, dFy).rg;${midMixTree}
+    float tN = smoothstep(1.0 - uEdgeBlend, 1.0, eN);
+    if (tN < 1.0) { t = mix(textureGrad(uNear, fract(qN), dNx, dNy).rgb, t, tN); ts *= tN; }` : `
+    // 【遠圖讀不到的地方不讀】窗外是環面上別處的內容
+    float tF = smoothstep(1.0 - uEdgeBlend, 1.0, eF);
+    vec3 t = vec3(0.0);
+    vec2 ts = vec2(0.0);
+    if (tF < 1.0) {
+      t = textureGrad(uFar, fract(qF), dFx, dFy).rgb;
+      ts = textureGrad(uFarS, fract(qF), dFx, dFy).rg;${midMixTree}
+      float tN = smoothstep(1.0 - uEdgeBlend, 1.0, eN);
+      if (tN < 1.0) { t = mix(textureGrad(uNear, fract(qN), dNx, dNy).rgb, t, tN); ts *= tN; }
+    }
+    if (tF > 0.0) {
+      vec2 hs;
+      vec3 h = horizonColourAt(${horizonArgs}, hs);
+      t = mix(t, h, tF);
+      ts = mix(ts, hs, tF);
+    }`
+  const texBlock = tree ? texBlockTree : texBlockPlain
+  // 【樹冠換成點的算式】三段：宣告、`color_fragment` 裡換底色與算樹冠的光、光照算完之後
+  // 加上樹冠的光並把那一份的鏡面反射拿掉。`canopyLight`、`canopyMatte` 是全域變數，兩段
+  // 之間靠它們傳
+  //
+  // 【表在頂點查或在像素查】兩次查表放在像素裡，德 M3 地形 3000 m 往下看多 0.45 ms（Iris Xe）；
+  // 放在頂點、像素之間內插只多 0.06 ms。地面網格密，頂點查的與像素查的看不出差別。
+  // `canopyLookup` 可以同頁切換
+  let perPixel = false
+  const treeDecl = (): string => !tree ? '' : `
+uniform sampler2D uFarS;
+uniform vec3 uCanopyBroad; uniform vec3 uCanopyCone; uniform vec3 uCanopyGap;
+${perPixel ? VIEW_SHADE_GLSL : 'varying vec3 vCanopyKB; varying vec3 vCanopyKC;'}
+vec3 canopyLight = vec3(0.0);
+float canopyMatte = 0.0;`
+  const canopyK = (row: ViewShadeRow, varying: string): string =>
+    perPixel ? `viewShade(${row.toFixed(1)}, toCam)` : varying
+  // 份量 s（乘過 TREE_BAKE_SCALE）→ 闊葉、針葉各自的面積份量；樹籬折成闊葉，最多到 1.27。
+  // 覆蓋：點從這個仰角看過去蓋住地面的比例；沒蓋到的是林地。
+  // 【哪一種林子】樹林田整塊一個樹種，空地的林子闊葉、針葉固定照 OPEN_CONIFER_SHARE 記
+  // （fieldShaders.ts）：兩個分量照那個比例同時有的那一份是空地的林子，點比較稀
+  const treeShade = (): string => !tree ? '' : `
+  vec2 share = s / ${TREE_BAKE_SCALE.toFixed(3)};
+  float shareSum = share.x + share.y;
+  if (shareSum > 1.0e-3) {
+    vec3 toCam = normalize(cameraPosition - vFarmWorld);
+    float sinE = max(toCam.y, 0.02);
+    float openWood = clamp(min(share.x / ${(1 - OPEN_CONIFER_SHARE).toFixed(3)}, share.y / ${OPEN_CONIFER_SHARE.toFixed(3)}) / shareSum, 0.0, 1.0);
+    float coverB = 1.0 - exp(-mix(uCanopyGap.x, uCanopyGap.z, openWood) / sinE);
+    float coverC = 1.0 - exp(-mix(uCanopyGap.y, uCanopyGap.z, openWood) / sinE);
+    c = max(c - share.x * BROAD_FAR_COLOR - share.y * CONE_FAR_COLOR, vec3(0.0))
+      + (share.x * (1.0 - coverB) + share.y * (1.0 - coverC)) * WOOD_COLOR;
+    canopyLight = share.x * coverB * uCanopyBroad * ${canopyK(ViewShadeRow.Broad, 'vCanopyKB')}
+      + share.y * coverC * uCanopyCone * ${canopyK(ViewShadeRow.Cone, 'vCanopyKC')};
+    canopyMatte = clamp(share.x * coverB + share.y * coverC, 0.0, 1.0);
+  }`
   const material = new MeshStandardMaterial({ flatShading: true, roughness: ROUGHNESS })
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     Object.assign(shader.uniforms, U, candUniforms())
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vFarmWorld;')
+      .replace('#include <common>', `#include <common>\nvarying vec3 vFarmWorld;${tree && !perPixel ? `
+varying vec3 vCanopyKB; varying vec3 vCanopyKC;
+${VIEW_SHADE_GLSL}` : ''}`)
       .replace('#include <begin_vertex>',
-        '#include <begin_vertex>\nvFarmWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;')
+        `#include <begin_vertex>\nvFarmWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;${tree && !perPixel ? `
+{
+  vec3 toCam = normalize(cameraPosition - vFarmWorld);
+  vCanopyKB = viewShade(${ViewShadeRow.Broad.toFixed(1)}, toCam);
+  vCanopyKC = viewShade(${ViewShadeRow.Cone.toFixed(1)}, toCam);
+}` : ''}`)
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
 varying vec3 vFarmWorld;
@@ -524,7 +757,8 @@ uniform sampler2D uNear; uniform vec2 uNearCentre; uniform float uNearSpan;
 uniform sampler2D uFar; uniform vec2 uFarCentre; uniform float uFarSpan;
 uniform vec2 uCam; uniform float uInner; uniform float uInnerBand; uniform float uEdgeBlend;
 uniform float uBypass;
-${horizonDecl}
+${midDecl}
+${horizonDecl}${treeDecl()}
 ${glsl}
 ${horizonColour}`)
       .replace('#include <color_fragment>', `
@@ -535,34 +769,49 @@ ${horizonColour}`)
   vec2 qN = w / uNearSpan;
   vec2 qF = w / uFarSpan;
   vec2 dNx = dFdx(qN); vec2 dNy = dFdy(qN);
-  vec2 dFx = dFdx(qF); vec2 dFy = dFdy(qF);${horizonGrad}
+  vec2 dFx = dFdx(qF); vec2 dFy = dFdy(qF);${horizonGrad}${midGrad}
   float eN = max(abs(w.x - uNearCentre.x), abs(w.y - uNearCentre.y)) / (0.5 * uNearSpan);
   float eF = max(abs(w.x - uFarCentre.x), abs(w.y - uFarCentre.y)) / (0.5 * uFarSpan);
   float tIn = uInner <= 0.0 ? 1.0 : smoothstep(uInner - uInnerBand, uInner, distance(w, uCam));
   bool proc = uBypass > 0.5 || tIn < 1.0${farOutProc};
   bool tex = uBypass < 0.5 && tIn > 0.0${farOutTex};
   vec3 c = vec3(0.0);
-  // 算式：旁路、內圈；沒有最外層時還有遠窗外。近窗外畫遠處的樣子，與遠圖烘的相同
-  fieldFar = eN >= 1.0 ? 1.0 : 0.0;
-  if (proc) c = fieldColorAt(w);
+  // 算式：旁路、內圈；沒有最外層時還有遠窗外。近窗外、沒有畫樹的地方畫遠處的樣子，
+  // 與遠圖烘的相同；有畫樹的地方與中圖相同。照 drawn 連續變（植被換級淡化時它逐幀走）
+  fieldFar = eN >= 1.0 ? 1.0 - drawn : 0.0;${tree ? `
+  vec2 s = vec2(0.0);
+  if (proc) { c = fieldColorAt(w); s = fieldTree * ${TREE_BAKE_SCALE.toFixed(3)}; }` : `
+  if (proc) c = fieldColorAt(w);`}
   // 【內圈疊回烘進貼圖的平面】算式裡沒有街、鎮地面、礦坑；貼圖的透明度記著它們。
   // 近圖外（內圈可以伸出近窗）讀遠圖。
   // 【不是 mix(c, rgb, a)】過濾過的 rgb 本來就是田色與疊圖照覆蓋率混好的，再乘一次
   // 覆蓋率，疊圖的邊會淡掉；有兩成五以上就整個用貼圖的顏色
   if (proc && uBypass < 0.5 && eF < 1.0) {
-    vec4 o = eN < 1.0 ? textureGrad(uNear, fract(qN), dNx, dNy) : textureGrad(uFar, fract(qF), dFx, dFy);
-    c = mix(c, o.rgb, clamp(o.a * 4.0, 0.0, 1.0));
+    vec4 o = eN < 1.0 ? textureGrad(uNear, fract(qN), dNx, dNy) : textureGrad(uFar, fract(qF), dFx, dFy);${tree ? `
+    float k = clamp(o.a * 4.0, 0.0, 1.0);
+    c = mix(c, o.rgb, k);
+    s = mix(s, eN < 1.0 ? vec2(0.0) : textureGrad(uFarS, fract(qF), dFx, dFy).rg, k);` : `
+    c = mix(c, o.rgb, clamp(o.a * 4.0, 0.0, 1.0));`}
   }
   if (tex) {${texBlock}
-    c = proc ? mix(c, t, tIn) : t;
-  }
+    c = proc ? mix(c, t, tIn) : t;${tree ? `
+    s = proc ? mix(s, ts, tIn) : ts;` : ''}
+  }${treeShade()}
   diffuseColor.rgb = c;
 }`)
+    if (tree) {
+      shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+totalEmissiveRadiance += canopyLight;
+reflectedLight.directSpecular *= 1.0 - canopyMatte;
+reflectedLight.indirectSpecular *= 1.0 - canopyMatte;`)
+    }
   }
   const id = instances++
   material.customProgramCacheKey = () =>
     `field-clipmap:${opts.season}:${opts.site === undefined ? '' : 'site'}:${cand === undefined ? '' : 'cand'}`
-    + `:${opts.open === true ? 'open' : ''}:${horizon === null ? '' : 'horizon'}:${id}`
+    + `:${opts.open === true ? 'open' : ''}:${horizon === null ? '' : 'horizon'}:${mid === null ? '' : 'mid'}`
+    + `:${tree ? (perPixel ? 'tree-px' : 'tree-vx') : ''}:${id}`
+  matteGround(material)
 
   return {
     material,
@@ -576,7 +825,10 @@ ${horizonColour}`)
       overlays.add(mesh)
       far.primed = false
       if (horizon !== null) horizon.primed = false
-      if (toNear) near.primed = false
+      if (toNear) {
+        near.primed = false
+        if (mid !== null) mid.primed = false
+      }
     },
     replaces(mesh) {
       replaced.push(mesh)
@@ -609,10 +861,12 @@ uniform vec2 uFarCentre; uniform float uFarSpan;`)
 }`)
       }
       m.customProgramCacheKey = () => `beyond-far:${id}`
-      m.needsUpdate = true
+      // 上面整個換掉了貼片原本的掛鉤，地面的光照要重掛
+      matteGround(m)
     },
     update(camX, camZ) {
       recentre(near, camX, camZ)
+      if (mid !== null) recentre(mid, camX, camZ)
       recentre(far, camX, camZ)
       if (horizon !== null) recentre(horizon, camX, camZ)
       if (backdrop !== null) recentre(backdrop, camX, camZ)
@@ -626,6 +880,10 @@ uniform vec2 uFarCentre; uniform float uFarSpan;`)
       if (inner) return `內圈：逐像素算（${Math.round(U.uInner.value)} m 內）`
       if (edge(near.centre, near.span) < 1) {
         return `近圖：${near.m.toFixed(1)} m／格（±${km(near.span / 2)}），樹籬細線、無屋頂樹冠色塊`
+      }
+      if (mid !== null && drawn !== undefined && edge(mid.centre, mid.span) < 1
+        && drawn.drawnAt(Math.floor(x / TILE_SIZE), Math.floor(z / TILE_SIZE))) {
+        return `中圖：${mid.m.toFixed(1)} m／格，這一格有畫樹，近處的樣子`
       }
       if (edge(far.centre, far.span) < 1) {
         return `遠圖：${far.m.toFixed(1)} m／格（±${km(far.span / 2)}），寬樹籬、屋頂樹冠色塊`
@@ -662,9 +920,17 @@ uniform vec2 uFarCentre; uniform float uFarSpan;`)
       for (const m of replaced) m.visible = on
       for (const m of beyond) m.visible = !on
     },
+    canopyLookup(on) {
+      if (on !== undefined && on !== perPixel) {
+        perPixel = on
+        material.needsUpdate = true
+      }
+      return perPixel
+    },
     dispose() {
       renderer.domElement?.removeEventListener('webglcontextrestored', onRestored)
       near.rt.dispose()
+      mid?.rt.dispose()
       far.rt.dispose()
       horizon?.rt.dispose()
       backdrop?.rt.dispose()

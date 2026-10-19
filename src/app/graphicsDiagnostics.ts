@@ -4,6 +4,7 @@ import { PROP_DISC_RENDER_ORDER } from '../render/geometry/assembly'
 import { SKY_RENDER_ORDER } from '../render/sky'
 import { CULL } from '../render/cullRuns'
 import { OCEAN_CULL } from '../render/oceanGeometry'
+import { GROUND_ROUGH, GROUND_SPECULAR } from '../render/matteGround'
 import type { Terrain } from '../render/terrain'
 
 type TargetPicker = () => readonly Object3D[]
@@ -19,7 +20,10 @@ export interface GraphicsDiagnosticsSource {
   /** 地形會換場，必須在探針呼叫時才取目前的那一份。 */
   readonly terrain: () => {
     readonly object: Object3D
-    readonly fieldClip: Pick<NonNullable<Terrain['fieldClip']>, 'stats' | 'setInnerRadius' | 'benchFarBake'> | null
+    readonly fieldClip: Pick<
+      NonNullable<Terrain['fieldClip']>, 'stats' | 'setInnerRadius' | 'benchFarBake' | 'canopyLookup'
+    > | null
+    readonly viewShade?: Terrain['viewShade']
   }
   /** 戰鬥與特效的分組由組裝端提供，探針不依賴各系統的生命週期。 */
   readonly groups: Readonly<Record<string, TargetPicker>>
@@ -109,6 +113,37 @@ export function createGraphicsDiagnostics(source: GraphicsDiagnosticsSource) {
 
     __fieldBake(trees = true) {
       return source.terrain().fieldClip?.benchFarBake(trees) ?? null
+    },
+
+    /**
+     * 烘進地面的林子的表在像素查（true）或在頂點查（false，預設）。同頁 A/B 用：切換時重編
+     * 地面的程式。回傳目前是不是在像素查；沒有田色 clipmap 時是 null
+     */
+    __canopyPerPixel(on?: boolean): boolean | null {
+      return source.terrain().fieldClip?.canopyLookup(on) ?? null
+    },
+
+    /** 地面的鏡面反射倍率（`matteGround.ts`），0 = 不算、1 = 標準材質原本的。同頁 A/B 用 */
+    __groundSpecular(v?: number): number {
+      if (v !== undefined) GROUND_SPECULAR.value = v
+      return GROUND_SPECULAR.value
+    },
+
+    /** 地面 Oren-Nayar 的粗糙度 σ（`matteGround.ts`），0 = Lambert。同頁 A/B 用 */
+    __groundRough(v?: number): number {
+      if (v !== undefined) GROUND_ROUGH.value = v
+      return GROUND_ROUGH.value
+    },
+
+    /**
+     * 遠處的點隨視角變亮暗（`viewShade.ts`）。同頁 A/B 用。
+     * 給數字是強度倍數（1 = 正常）：放大了看哪些地方有吃到係數
+     */
+    __viewShade(on?: boolean | number): number | null {
+      const s = source.terrain().viewShade
+      if (s === undefined) return null
+      if (on !== undefined) s.uniforms.uViewShadeOn.value = typeof on === 'number' ? on : on ? 1 : 0
+      return s.uniforms.uViewShadeOn.value
     },
 
     /**

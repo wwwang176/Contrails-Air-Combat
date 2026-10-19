@@ -20,6 +20,7 @@ import { chromium } from 'playwright'
 import { fieldGlsl, fieldGlslWithSite } from '../../src/render/fieldShaders'
 import { SEASONS } from '../../src/render/season'
 import { RZHEV_SITE, LEUNA_SITE } from '../../src/render/terrain'
+import { ASCH_SITE } from '../../src/render/terrainSites'
 
 async function main(): Promise<void> {
   const browser = await chromium.launch({ headless: false })
@@ -77,6 +78,20 @@ async function main(): Promise<void> {
       throw new Error('GLSL 編譯失敗')
     }
     console.log('  勒熱夫的 fieldGlslWithSite 編譯通過')
+    // 【記樹冠份量的那一份】田色 clipmap 烘遠處時用：樹籬、凹路、空地林子、鐵路、墊面、道路、
+    // 林帶各多幾行，衛星設施的賦值也換了
+    for (const [name, season, site] of [
+      ['德 M3', 'lateAutumn', ASCH_SITE], ['洛伊納', 'lateAutumn', LEUNA_SITE],
+      ['勒熱夫', 'winterSteppe', RZHEV_SITE], ['夏季無廠區', 'summer', undefined],
+    ] as const) {
+      const shareLog = await compile(page, fieldGlslWithSite(season, site, true, true, true))
+      if (shareLog.trim() !== '') {
+        console.error(`  記份量的 fieldGlslWithSite（${name}）編譯失敗：`)
+        console.error(shareLog)
+        throw new Error('GLSL 編譯失敗')
+      }
+      console.log(`  記份量的 fieldGlslWithSite（${name}）編譯通過`)
+    }
   } finally {
     await browser.close()
   }

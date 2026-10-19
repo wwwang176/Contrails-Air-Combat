@@ -197,6 +197,22 @@ export const ISLAND_TILES_PER_FRAME = 61
 export const TILE_CACHE = 2100
 
 /**
+ * 換級時由舊的一級淡到新的一級要幾秒（真實時間）。只有換級的格會淡；淡化期間不開始
+ * 下一次重建，所以換級最多晚這麼久。見 `docs/superpowers/specs/2026-10-20-vegetation-lod-crossfade-design.md`
+ */
+export const CROSSFADE_SECONDS = 0.5
+
+/**
+ * 出了圈、畫面上還有樹的格最多再留多遠，m。
+ *
+ * 格心出了 `radius` 就該放掉，但外圈有抖動與遲滯，那時它可能還畫著點；馬上放掉的話它的
+ * 樹在下一次換上時直接消失、沒有淡出。所以留到某一次重建把它淡出（畫面上的級數變成
+ * `LOD_NONE`）才放。重建每移動 `REBUILD_MOVE` 一次、淡化期間不重建，500 m 夠 600 m/s 的
+ * 鏡頭；超過的（傳送）直接放
+ */
+export const FADE_HOLD = 500
+
+/**
  * 一池最多分幾段畫（幾次 draw call）。
  *
  * 【取四】6 km 圈、97° 視野、希爾伯特順序下，看得到的格佔 28.7%；上限四段時實際畫

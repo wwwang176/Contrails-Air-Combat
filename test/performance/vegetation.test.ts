@@ -258,21 +258,25 @@ describe('植被引擎', () => {
    * 【而且不能開 flatShading】那會讓 fragment shader 由螢幕導數自己算面法線，
    * 幾何裡設的 (0, 1, 0) 完全被忽略，亮度就會隨鏡頭方位變。
    */
-  it('點池走另一顆材質，而且三個池共用它', () => {
+  /**
+   * 【一個樹種一顆點材質】點乘的是那一類樹的視角係數（`viewShade.ts`），查的是表的
+   * 哪一列由材質的 uniform 決定；三個池共用一顆的話針葉與灌木會用闊葉那一列
+   */
+  it('點池各走自己的點材質，實例池共用另一顆', () => {
     const v = createVegetation([EMPTY], FLAT)
     const ms = meshes(v)
     const mats = new Map<PoolName, MeshStandardMaterial>()
     for (let i = 0; i < ms.length; i++) {
       mats.set(POOLS[i]!, ms[i]!.material as MeshStandardMaterial)
     }
-    const point = mats.get('broadPoint')!
-    expect(mats.get('conePoint')).toBe(point)
-    expect(mats.get('bushPoint')).toBe(point)
+    const points = POINT_POOLS.map((n) => mats.get(n)!)
+    expect(new Set(points).size).toBe(POINT_POOLS.length)
+    for (const p of points) expect(p.type).toBe('PointsMaterial')
     for (const n of POOLS) {
       if (POINT_POOLS.includes(n)) continue
       // 【掛錯材質會讓近樹全部變成點】而幾何、池對應、容量、GLSL 編譯
       // 那幾條測試仍然可以全綠
-      expect([n, mats.get(n) === point]).toEqual([n, false])
+      expect([n, points.includes(mats.get(n)!)]).toEqual([n, false])
       expect([n, mats.get(n)!.flatShading]).toEqual([n, true])
     }
     v.dispose()
@@ -879,7 +883,7 @@ describe('植被引擎', () => {
     v.dispose()
   })
 
-  it('dispose 之後幾何與兩顆材質都被釋放，各只釋放一次', () => {
+  it('dispose 之後幾何與四顆材質（實例池一顆、點池三顆）都被釋放，各只釋放一次', () => {
     const v = createVegetation([EVERY_KIND], FLAT)
     let geos = 0
     const mats = new Map<MeshStandardMaterial, number>()
@@ -892,10 +896,10 @@ describe('植被引擎', () => {
         mat.addEventListener('dispose', () => mats.set(mat, mats.get(mat)! + 1))
       }
     }
-    expect(mats.size).toBe(2)
+    expect(mats.size).toBe(4)
     v.dispose()
     expect(geos).toBe(POOLS.length)
-    expect([...mats.values()]).toEqual([1, 1])
+    expect([...mats.values()]).toEqual([1, 1, 1, 1])
   })
 
   /**

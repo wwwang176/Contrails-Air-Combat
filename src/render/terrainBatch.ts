@@ -9,12 +9,13 @@ function prepareMaterial(material: MeshStandardMaterial): void {
   if (prepared.has(material)) return
   prepared.add(material)
   const compile = material.onBeforeCompile
-  const key = material.customProgramCacheKey()
+  // 【每次重問原本的鍵】材質自己的鍵可能跟著設定變（`fieldClipmap.ts` 的 `canopyLookup`）
+  const key = material.customProgramCacheKey.bind(material)
   material.onBeforeCompile = function(shader, renderer) {
     compile.call(this, shader, renderer)
     shader.vertexShader = '#undef USE_BATCHING\n' + shader.vertexShader
   }
-  material.customProgramCacheKey = () => key + ':static-terrain'
+  material.customProgramCacheKey = () => key() + ':static-terrain'
   material.needsUpdate = true
 }
 

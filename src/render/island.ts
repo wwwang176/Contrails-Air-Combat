@@ -6,6 +6,7 @@ import type { HeightFieldData } from '../world/heightfield'
 import type { IslandDesc } from '../world/archipelago'
 import { buildGroundRect } from './groundGeometry'
 import { createTerrainBatch } from './terrainBatch'
+import { matteGround } from './matteGround'
 export { buildGroundRect, DRAW_FLOOR } from './groundGeometry'
 
 /**
@@ -108,6 +109,7 @@ export function createIslands(
   const material = new MeshStandardMaterial({
     vertexColors: true, flatShading: true, roughness: ROUGHNESS,
   })
+  matteGround(material)
   const geometries: BufferGeometry[] = []
 
   for (const isl of islands) {

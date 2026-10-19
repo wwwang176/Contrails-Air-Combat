@@ -8,23 +8,34 @@ import {
 
 type Pools = Pick<ReturnType<typeof createVegetationPools>,
   'altPt' | 'pointBase' | 'altMat' | 'altCol' | 'side' | 'pointRuns' |
-  'poolCount' | 'entStart' | 'entEnd' | 'entBox' | 'entN' | 'geoRx' | 'geoRz' |
-  'geoLo' | 'geoHi' | 'counts' | 'showAll'>
+  'poolCount' | 'entStart' | 'entEnd' | 'entBox' | 'entN' | 'entFadeIn' | 'entFadeOut' |
+  'geoRx' | 'geoRz' | 'geoLo' | 'geoHi' | 'counts' | 'showAll'>
 
 interface Tiles {
   readonly slotBuf: readonly (FloraBuffer | null)[]
   readonly slotUsed: Uint8Array
   readonly slotLod: Int8Array
   readonly slotBush: Int8Array
+  /**
+   * 畫面上那一格現在是哪一級、灌木哪一級（換上時由呼叫端更新）。還沒畫的格是
+   * `LOD_NONE`／−1：查 `POOL_LUT` 每一種都不畫
+   */
+  readonly slotShownLod: Int8Array
+  readonly slotShownBush: Int8Array
   readonly slotKey: Float64Array
 }
 
 interface VegetationRebuild {
   readonly active: boolean
-  /** 只在沒有進行中時開始；吃掉髒旗標，並定下這一輪的打包順序 */
-  start(poolDirty: Record<PoolName, boolean>): void
+  /**
+   * 只在沒有進行中時開始；吃掉髒旗標，並定下這一輪的打包順序。`fade` 為真時換級的株
+   * 另外寫淡入、淡出兩組（見檔頭）
+   */
+  start(poolDirty: Record<PoolName, boolean>, fade?: boolean): void
   /** 在工作預算內處理整格的 tile；緩衝換上去的那一次回 true */
   step(budget: number): boolean
+  /** 上一次換上的池裡有沒有淡入、淡出組（逐池，以池在 `POOL_NAMES` 的索引） */
+  readonly fadePools: Uint8Array
 }
 
 /**
@@ -34,6 +45,19 @@ interface VegetationRebuild {
  * 一半的重建就會讀到另一格的資料；級數中途變了則前後半段用的是兩套級數。
  * 暫停到完成為止，寫出來的就等於「開始那一幀一次寫完」的內容。
  *
+ * 【換級的株分組】`fade` 時，一格的「現在這一級」與「畫面上那一級」（`slotShownLod`）查
+ * `POOL_LUT` 落在不同池的株是換級的株。每一池照這個順序寫，三組各自連續：
+ *
+ * ```
+ *   [ 一般 ][ 淡入 ][ 淡出 ]
+ *   一般   沒換級的株，照現在的級數
+ *   淡入   換級的株，照現在的級數
+ *   淡出   換級的株，照畫面上那一級（舊的樣子）
+ * ```
+ *
+ * 一組走完整條打包順序才換下一組，每一組照樣一格一筆區段表；分界記在 `entFadeIn`、
+ * `entFadeOut`。溢位時後寫的先丟：淡出、再淡入。
+ *
  * 狀態全部開場配好，重建不配置。
  */
 export function createVegetationRebuild(
@@ -42,13 +66,20 @@ export function createVegetationRebuild(
   pools: Pools,
   stats: { overflow: number; rebuilds: number },
 ): VegetationRebuild {
-  const { slotBuf, slotUsed, slotLod, slotBush, slotKey } = tiles
+  const { slotBuf, slotUsed, slotLod, slotBush, slotShownLod, slotShownBush, slotKey } = tiles
   const tileCache = slotUsed.length
   const {
     altPt, pointBase, altMat, altCol, side, pointRuns,
-    poolCount, entStart, entEnd, entBox, entN, geoRx, geoRz,
+    poolCount, entStart, entEnd, entBox, entN, entFadeIn, entFadeOut, geoRx, geoRz,
     geoLo, geoHi, counts, showAll,
   } = pools
+  /** 這一次哪些格換級（逐槽位，1 = 換級）。開始時定 */
+  const tileFade = new Uint8Array(tileCache)
+  /** 這一次有沒有任何一格換級 */
+  let anyFade = false
+  /** 走到第幾組：0 一般、1 淡入、2 淡出 */
+  let phase = 0
+  const fadePools = new Uint8Array(pools.poolCount)
 
   /**
    * 這一次的打包順序：有東西的槽位依希爾伯特位置排好（見 `hilbertKey`）。
@@ -112,7 +143,15 @@ export function createVegetationRebuild(
    * 【只碰髒的池】沒變的池連寫都不寫 —— 它掛著的那份屬性已經是對的，而
    * 重寫一遍再上傳只是把 GPU 逼去等。
    */
-  function startRebuild(poolDirty: Record<PoolName, boolean>): void {
+  function startRebuild(poolDirty: Record<PoolName, boolean>, fade = false): void {
+    anyFade = false
+    for (let s = 0; s < tileCache; s++) {
+      const f = fade && slotUsed[s] !== 0 && slotBuf[s] !== null
+        && (slotLod[s] !== slotShownLod[s] || slotBush[s] !== slotShownBush[s])
+      tileFade[s] = f ? 1 : 0
+      if (f) anyFade = true
+    }
+    phase = 0
     for (let p = 0; p < poolCount; p++) {
       const name = POOL_NAMES[p]!
       jobDirty[p] = poolDirty[name] ? 1 : 0
@@ -150,9 +189,15 @@ export function createVegetationRebuild(
   /** 往下寫，走過至少 `budget` 筆就停；寫完最後一格就換上去 */
   function stepRebuild(budget: number): boolean {
     let work = 0
-    while (jobPos < orderLen && work < budget) {
+    while (state.active && work < budget) {
+      if (jobPos >= orderLen) {
+        endPhase()
+        continue
+      }
       const s = order[jobPos++]!
       if (slotUsed[s] === 0) continue
+      // 淡入、淡出兩組只走換級的格
+      if (phase > 0 && tileFade[s] === 0) continue
       const buf = slotBuf[s] ?? null
       if (buf === null) continue
       const n = buf.count
@@ -161,6 +206,8 @@ export function createVegetationRebuild(
       const kinds = buf.kind
       const shapes = buf.shape
       const row = lutRow(slotLod[s]!, slotBush[s]!)
+      const rowShown = lutRow(slotShownLod[s]!, slotShownBush[s]!)
+      const fading = tileFade[s] === 1
       for (let p = 0; p < poolCount; p++) {
         tileFrom[p] = jobCounts[p]!
         const b = p * 6
@@ -168,7 +215,11 @@ export function createVegetationRebuild(
         acc[b + 3] = -Infinity; acc[b + 4] = -Infinity; acc[b + 5] = -Infinity
       }
       for (let k = 0; k < n; k++) {
-        const p = POOL_LUT[kinds[k]! * LUT_KIND_STRIDE + row]!
+        const pNow = POOL_LUT[kinds[k]! * LUT_KIND_STRIDE + row]!
+        const pShown = fading ? POOL_LUT[kinds[k]! * LUT_KIND_STRIDE + rowShown]! : pNow
+        // 一般組寫沒換級的株；淡入組寫換級的株的新池、淡出組寫它的舊池
+        const p = phase === 0 ? (pNow === pShown ? pNow : -1)
+          : pNow === pShown ? -1 : phase === 1 ? pNow : pShown
         if (p < 0 || jobDirty[p] === 0) continue
         const at = jobCounts[p]!
         if (at >= capOf[p]!) {
@@ -249,8 +300,38 @@ export function createVegetationRebuild(
         for (let c = 0; c < 6; c++) box[e * 6 + c] = acc[p * 6 + c]!
       }
     }
-    if (jobPos >= orderLen) finishRebuild()
+    if (state.active && jobPos >= orderLen) endPhase()
     return !state.active
+  }
+
+  /**
+   * 一組走完：記下各池的分界，換下一組。沒有任何一格換級時一般組走完就換上。分界記在
+   * 寫的那一側，沒寫的池沿用它掛著那一側的分界
+   */
+  function endPhase(): void {
+    if (phase === 0) {
+      for (let p = 0; p < poolCount; p++) {
+        if (jobDirty[p] === 0) continue
+        entFadeIn[p]![jobSide[p]!] = entN[p]![jobSide[p]!]!
+        entFadeOut[p]![jobSide[p]!] = entN[p]![jobSide[p]!]!
+      }
+      if (!anyFade) {
+        finishRebuild()
+        return
+      }
+      phase = 1
+      jobPos = 0
+      return
+    }
+    if (phase === 1) {
+      for (let p = 0; p < poolCount; p++) {
+        if (jobDirty[p] !== 0) entFadeOut[p]![jobSide[p]!] = entN[p]![jobSide[p]!]!
+      }
+      phase = 2
+      jobPos = 0
+      return
+    }
+    finishRebuild()
   }
 
   /** 換上寫好的那一份、發布實例數、標上傳 */
@@ -289,11 +370,15 @@ export function createVegetationRebuild(
       // 【換上時整條畫】下一次 `cull` 才分段；沒有人呼叫 `cull` 的話就一直是整條
       showAll(p)
     }
+    for (let p = 0; p < poolCount; p++) {
+      const sd = side[POOL_NAMES[p]!]!
+      fadePools[p] = entFadeIn[p]![sd]! < entN[p]![sd]! ? 1 : 0
+    }
     stats.overflow = jobOverflow
     state.active = false
     stats.rebuilds++
   }
 
-  const state = { active: false, start: startRebuild, step: stepRebuild }
+  const state = { active: false, start: startRebuild, step: stepRebuild, fadePools }
   return state
 }

@@ -18,7 +18,6 @@
  * 拿掉，「絕對像素數」必紅而「兩個距離的比值」照樣過。
  */
 import { chromium } from 'playwright'
-import { POINT_TOPDOWN_GAIN, POINT_TOPDOWN_RAMP } from '../../src/render/vegetationPools'
 
 const URL = 'http://localhost:5190/'
 /** 與 fixture 的 `PROBE_FOV_DEG` 一致 */
@@ -104,24 +103,23 @@ async function main(): Promise<void> {
     // ── 跨門檻的亮度 ──────────────────────────────────
     // 【POINT_NEAR = 3000，但 LOD 是按格心算的】格心離樹最遠 177 m，所以
     // 3,100 m 那一發其實還在中級 —— 兩邊都取樹冠的話這一條是空操作
-    const mid = await shot(30, -10, 2500)
-    const pt = await shot(30, -10, 3600)
+    //
+    // 【每個方位都要接得上】中級樹冠迎光暗、背光亮，點乘的是同一張視角係數表
+    // （`viewShade.ts`）。fixture 用正午的燈，太陽在 (−0.4, 0.8, 0.45)：眼睛在方位
+    // 139° 是迎著太陽看、−41° 是背著、49° 是側光；30° 是 `POINT_LIGHT` 校的那一個
     const lum = (s: Shot): number => 0.2126 * s.r + 0.7152 * s.g + 0.0722 * s.b
-    const lm = lum(mid)
-    // 【先除掉俯角增益】點往下看會再亮（`POINT_TOPDOWN_GAIN`，那是在遊戲裡量密林定的：
-    // 往下看露出被照亮的樹冠頂）。這一條驗的是平視那一份 `POINT_LIGHT`，所以把這個
-    // 俯角的增益（線性值，換回 sRGB 約是 1/2.2 次方）除掉再比
-    const s = Math.sin((10 * Math.PI) / 180)
-    const t = Math.min(1, Math.max(0, s / POINT_TOPDOWN_RAMP))
-    const gain = 1 + (POINT_TOPDOWN_GAIN - 1) * t * t * (3 - 2 * t)
-    const lp = lum(pt) / gain ** (1 / 2.2)
-    console.log(`    中級樹冠 RGB(${mid.r.toFixed(0)}, ${mid.g.toFixed(0)}, ${mid.b.toFixed(0)})`
-      + ` 亮度 ${lm.toFixed(1)}`)
-    console.log(`    點       RGB(${pt.r.toFixed(0)}, ${pt.g.toFixed(0)}, ${pt.b.toFixed(0)})`
-      + ` 亮度 ${lp.toFixed(1)}`)
-    console.log(`    POINT_LIGHT 要乘的倍率：${(lm / lp).toFixed(3)}`)
-    allPass = ok('過門檻時亮度接得上', Math.abs(lp - lm) < lm * 0.08,
-      `差 ${(((lp - lm) / lm) * 100).toFixed(1)}%`) && allPass
+    const views: readonly [string, number, number][] = [
+      ['迎光', 139, -10], ['側光', 49, -10], ['背光', -41, -10], ['校正方位', 30, -10], ['俯視', 139, -60],
+    ]
+    for (const [name, az, pitch] of views) {
+      const mid = await shot(az, pitch, 2500)
+      const pt = await shot(az, pitch, 3600)
+      const lm = lum(mid)
+      const lp = lum(pt)
+      console.log(`    ${name.padEnd(4)} 中級樹冠 ${lm.toFixed(1)}　點 ${lp.toFixed(1)}`)
+      allPass = ok(`${name}過門檻時亮度接得上`, Math.abs(lp - lm) < lm * 0.08,
+        `差 ${(((lp - lm) / lm) * 100).toFixed(1)}%`) && allPass
+    }
 
     console.log(`\n  console 錯誤 ${errors.length} 則`)
     for (const e of errors) console.log('    ' + e)

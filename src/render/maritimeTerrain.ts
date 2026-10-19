@@ -13,6 +13,7 @@ import {
   ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS, ISLAND_TILES_PER_FRAME, LEYTE_CAPACITY,
 } from './vegetationPolicy'
 import type { Terrain } from './terrainTypes'
+import { createViewShade } from './viewShade'
 
 /**
  * 雷伊泰：半邊是海、半邊是平坦的大島。**海面、浪花、地面網格與植被的機制
@@ -25,6 +26,8 @@ import type { Terrain } from './terrainTypes'
 export function createLeyteTerrain(): Terrain {
   const { field, hills } = createLeyte()
   const ocean = createOcean(bakeShore(field))
+  // 【點隨視角變亮暗】植被的點的視角係數，換時段跟著燈重算
+  const shade = createViewShade('summer')
   // 【樹冠圖先粗後細】精細的那一張要烘兩秒多，放在背景執行緒；烘好之前是粗的
   // 平均暗綠。場已經收掉的話不換
   const ground = createLeyteGround(field, leyteCanopyCoarse(field), leyteFarCover)
@@ -38,7 +41,7 @@ export function createLeyteTerrain(): Terrain {
   // 多一個量級。單格上限用群島的（丘陵上的林子單格可到五百多株）
   const flora = createVegetation(
     [createLeyteFlora(field)], (x, z) => field.sample(x, z),
-    { capacity: LEYTE_CAPACITY, maxPerTile: ISLAND_MAX_PER_TILE },
+    { capacity: LEYTE_CAPACITY, maxPerTile: ISLAND_MAX_PER_TILE, viewShade: shade },
   )
   const group = new Group()
   group.add(ocean.farMesh)
@@ -76,6 +79,7 @@ export function createLeyteTerrain(): Terrain {
     setPalette(p) {
       ocean.setPalette(p)
       flora.setPointLight(p.foliage, p.foliageTint)
+      shade.setPalette(p)
     },
     update(time, centerX, centerZ) {
       ocean.update(time, centerX, centerZ)
@@ -86,11 +90,13 @@ export function createLeyteTerrain(): Terrain {
       flora.cull(camera)
     },
     settle() { flora.settle() },
+    viewShade: shade,
     dispose() {
       disposed = true
       ocean.dispose()
       ground.dispose()
       flora.dispose()
+      shade.dispose()
       beach.geometry.dispose()
       ;(beach.material as MeshStandardMaterial).dispose()
     },
@@ -134,6 +140,8 @@ export function createArchipelagoTerrain(): Terrain {
   // 側都用不到它，讓生成器一律烘等於每個呼叫端都付一次 1024² 的距離傳播。
   const { field, islands } = createArchipelago()
   const ocean = createOcean(bakeShore(field))
+  // 【點隨視角變亮暗】植被的點的視角係數，換時段跟著燈重算
+  const shade = createViewShade('summer')
   // 【地色先帶上林相】見 `island.ts` 的 `shade`：植被的圈外一棵樹都不畫，
   // 地色若不先按覆蓋率調暗，飛進圈時整座島會同時變暗變花
   const meshes = createIslands(field, islands, islandCanopyCover(field, islands))
@@ -144,7 +152,7 @@ export function createArchipelagoTerrain(): Terrain {
     [createIslandFlora(field, islands)], (x, z) => field.sample(x, z),
     {
       capacity: ISLAND_CAPACITY, maxPerTile: ISLAND_MAX_PER_TILE,
-      radius: ISLAND_RADIUS, tilesPerFrame: ISLAND_TILES_PER_FRAME,
+      radius: ISLAND_RADIUS, tilesPerFrame: ISLAND_TILES_PER_FRAME, viewShade: shade,
     },
   )
   const group = new Group()
@@ -185,6 +193,7 @@ export function createArchipelagoTerrain(): Terrain {
     setPalette(p) {
       ocean.setPalette(p)
       flora.setPointLight(p.foliage, p.foliageTint)
+      shade.setPalette(p)
     },
     update(time, centerX, centerZ) {
       ocean.update(time, centerX, centerZ)
@@ -195,10 +204,12 @@ export function createArchipelagoTerrain(): Terrain {
       flora.cull(camera)
     },
     settle() { flora.settle() },
+    viewShade: shade,
     dispose() {
       ocean.dispose()
       meshes.dispose()
       flora.dispose()
+      shade.dispose()
     },
   }
 }

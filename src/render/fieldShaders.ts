@@ -93,23 +93,30 @@ const CANDIDATE_LOOKUP_GLSL = `  uint candN = 15u;
  *
  * `candidates` 為真時多一段查候選表（`buildRegionCandidates`）的剪枝，
  * 材質要提供 `uRegionCand` 與 `uRegionCandRect` 兩個 uniform。
+ *
+ * `share` 為真時 `fieldColorAt` 同時寫 `fieldTree`（見那個變數）；為假時字串與不帶它時
+ * 逐字相同
  */
-export function fieldGlsl(season: Season, candidates = false, open = false): string {
-  const base = fieldGlslBase(season, candidates)
+export function fieldGlsl(season: Season, candidates = false, open = false, share = false): string {
+  const base = fieldGlslBase(season, candidates, share)
   // 【草原田沒有「空地」】整片都是田（大田、牧草地、田埂），沒有田圍著村那一套
   if (!open || FIELD_COLORS[season].layout === 'steppe') return base
   // 【空地疊在條紋之後】空地沒有條紋、沒有樹籬；凹路照舊壓在上面
-  const at = base.indexOf('  col = mix(col, mix(HEDGE_COLOR')
+  const at = base.indexOf(share ? '  float hedgeCover = ' : '  col = mix(col, mix(HEDGE_COLOR')
   const decl = base.indexOf('vec3 fieldColorAt(')
-  return base.slice(0, decl) + openDeclGlsl(season) + base.slice(decl, at) + OPEN_PARCEL_GLSL + base.slice(at)
+  return base.slice(0, decl) + openDeclGlsl(season, share) + base.slice(decl, at) + openParcelGlsl(share)
+    + base.slice(at)
 }
 
 /**
  * `open` 的地圖多出來的常數與函式：值雜訊、到村的距離、地塊是不是空地、空地的
  * 地色。與 CPU 那一份（`valueNoise`、`villageDistance`、`isOpenParcel`、
- * `openColor`）逐項對應
+ * `openColor`）逐項對應。
+ *
+ * `share` 時空地林子的遠處樹冠色是闊葉、針葉照 `OPEN_CONIFER_SHARE` 混（植被一株一株抽
+ * 樹種），`fieldTree` 照同一個比例記 —— 只記闊葉的話地面換上的是闊葉的亮度與顏色
  */
-function openDeclGlsl(season: Season): string {
+function openDeclGlsl(season: Season, share: boolean): string {
   const c = FIELD_COLORS[season]
   return `const float FIELD_REACH = ${FIELD_REACH.toFixed(1)};
 const float REACH_NOISE_CELL = ${REACH_NOISE_CELL.toFixed(1)};
@@ -172,8 +179,9 @@ float openWoodCover(vec2 w) {
 }
 
 vec3 openColorAt(vec2 w) {
-  vec3 c = mix(OPEN_COLOR, OPEN_ALT_COLOR, fieldNoise(w, ${OPEN_TONE_CELL.toFixed(1)}, 0x1f7e));
-  return mix(c, mix(WOOD_COLOR, BROAD_FAR_COLOR, fieldFar), openWoodCover(w));
+  vec3 c = mix(OPEN_COLOR, OPEN_ALT_COLOR, fieldNoise(w, ${OPEN_TONE_CELL.toFixed(1)}, 0x1f7e));${share ? `
+  return mix(c, mix(WOOD_COLOR, mix(BROAD_FAR_COLOR, CONE_FAR_COLOR, ${OPEN_CONIFER_SHARE.toFixed(3)}), fieldFar), openWoodCover(w));` : `
+  return mix(c, mix(WOOD_COLOR, BROAD_FAR_COLOR, fieldFar), openWoodCover(w));`}
 }
 
 // 【空地的樹一棵一棵畫成點】與植被（flora.ts 的 woods／openTree）同一套：16 m 網格一格
@@ -222,7 +230,8 @@ vec3 openTreesOver(vec2 w, vec3 col, float px) {
       float r = (cone ? CONE_CROWN_R : BROAD_CROWN_R) * scale;
       // 邊緣照像素足跡抗鋸齒
       float cov = clamp((r - d) / (2.0 * aa) + 0.5, 0.0, 1.0);
-      col = mix(col, cone ? CONE_FAR_COLOR : BROAD_FAR_COLOR, cov);
+      col = mix(col, cone ? CONE_FAR_COLOR : BROAD_FAR_COLOR, cov);${share ? `
+      fieldTree = mix(fieldTree, cone ? vec2(0.0, 1.0) : vec2(1.0, 0.0), cov);` : ''}
     }
   }
   return col;
@@ -235,7 +244,7 @@ vec3 openTreesOver(vec2 w, vec3 col, float px) {
  * 插在條紋之後、樹籬之前：這一塊地的中心（對切過的取那一半）轉回世界座標，
  * 是空地就換成空地的地色、不畫樹籬
  */
-const OPEN_PARCEL_GLSL = `  vec2 pq = vec2((left + right) * 0.5, (bottom + top) * 0.5);
+const openParcelGlsl = (share: boolean): string => `  vec2 pq = vec2((left + right) * 0.5, (bottom + top) * 0.5);
   if (float(cellHash & 0xffu) / 256.0 < SPLIT_CHANCE) {
     float pf = 0.34 + (float((cellHash >> 8u) & 0xffu) / 255.0) * 0.32;
     if (right - left >= top - bottom) {
@@ -252,13 +261,14 @@ const OPEN_PARCEL_GLSL = `  vec2 pq = vec2((left + right) * 0.5, (bottom + top) 
   vec2 dq = pq - q;
   vec2 parcel = world + vec2(dq.x * cos(angle) - dq.y * sin(angle), dq.x * sin(angle) + dq.y * cos(angle));
   if (isOpenParcel(parcel, fh)) {
-    col = openColorAt(world);
+    col = openColorAt(world);${share ? `
+    fieldTree = fieldFar * openWoodCover(world) * vec2(${(1 - OPEN_CONIFER_SHARE).toFixed(3)}, ${OPEN_CONIFER_SHARE.toFixed(3)});` : ''}
     if (fieldTrees > 0.5) col = openTreesOver(world, col, px);
     isHedge = false;
   }
 `
 
-function fieldGlslBase(season: Season, candidates: boolean): string {
+function fieldGlslBase(season: Season, candidates: boolean, share: boolean): string {
   const c = FIELD_COLORS[season]
   const steppe = c.layout === 'steppe'
   const S = STEPPE_LAYOUT
@@ -286,7 +296,13 @@ const float HEDGE_FAR_GROW = ${(steppe ? 1 : HEDGE_FAR_GROW).toFixed(3)};
 float fieldFar = 0.0;
 // 【樹一棵一棵畫成點】1 = 烘遠圖：植被圈外樹不畫，地上留的是每一棵樹的點。只在烘圖
 // 時開 —— 每個像素要重算周圍九格的候選樹，逐幀的算式付不起
-float fieldTrees = 0.0;
+float fieldTrees = 0.0;${share ? `
+// 【樹冠的份量】fieldColorAt 回傳的顏色裡有幾成是遠處的樹冠色：x = 闊葉的 BROAD_FAR_COLOR、
+// y = 針葉的 CONE_FAR_COLOR。樹籬的樹冠色是闊葉的 HEDGE_TREE_SHARE 倍，折成闊葉記。
+// 每一處改 col 的地方都跟著更新：蓋上去的東西照覆蓋率把它衰減掉，樹冠色照覆蓋率加進來 ——
+// 地面著色器拿它把那一份樹冠換成照燈算的樹冠（fieldClipmap.ts）
+vec2 fieldTree = vec2(0.0);
+const float HEDGE_TREE_SHARE = ${steppe ? '0.0' : (HEDGE_FAR_SHADE / TREE_DOT_SHADE).toFixed(4)};` : ''}
 const vec3 TRACK_COLOR = ${rgb(c.track)};
 const vec3 PLOUGHED_COLOR = ${rgb(c.ploughed)};
 const vec3 WOOD_COLOR = ${rgb(c.wood)};
@@ -440,7 +456,8 @@ ${candidates ? '  }\n' : ''}  uint rh = fieldHash1(rid);
   vec3 col = ${steppe
     // 【牧草地】沒耕的草：兩個草色逐塊漸變，不分遠近
     ? `wood ? mix(${rgb(c.open)}, ${rgb(c.openAlt)}, float((fh >> 12u) & 0xffu) / 255.0) : PLOUGHED_COLOR`
-    : 'wood ? mix(WOOD_COLOR, woodCone ? CONE_FAR_COLOR : BROAD_FAR_COLOR, fieldFar) : PLOUGHED_COLOR'};
+    : 'wood ? mix(WOOD_COLOR, woodCone ? CONE_FAR_COLOR : BROAD_FAR_COLOR, fieldFar) : PLOUGHED_COLOR'};${share ? `
+  fieldTree = ${steppe ? 'vec2(0.0)' : 'wood ? fieldFar * (woodCone ? vec2(0.0, 1.0) : vec2(1.0, 0.0)) : vec2(0.0)'};` : ''}
   if (!wood && !ploughed) {
     int t = clamp(tone + int((fh >> 8u) % 3u) - 1, 0, ${PALETTE_STEPS - 1});
     float k = 0.94 + (float((fh >> 16u) & 0xffu) / 255.0) * 0.12;
@@ -453,9 +470,14 @@ ${candidates ? '  }\n' : ''}  uint rh = fieldHash1(rid);
   // 【順序就是優先權】凹路壓過樹籬，樹籬壓過田 —— 與 fieldSurfaceColor 相同。
   // 兩條帶的半寬不一樣：凹路的判準是 trackGap < trackWidthAt，樹籬的是
   // best < HEDGE_WIDTH * 0.5
-  col = mix(col, mix(HEDGE_COLOR, HEDGE_FAR_COLOR, fieldFar),
+${share ? `  float hedgeCover = isHedge ? bandCoverage(best, HEDGE_WIDTH * 0.5 * mix(1.0, HEDGE_FAR_GROW, fieldFar), px) : 0.0;
+  col = mix(col, mix(HEDGE_COLOR, HEDGE_FAR_COLOR, fieldFar), hedgeCover);
+  fieldTree = mix(fieldTree, vec2(fieldFar * HEDGE_TREE_SHARE, 0.0), hedgeCover);
+  float trackCover = bandCoverage(trackGap(world, s1, s2), trackWidthAt(world), px);
+  col = mix(col, TRACK_COLOR, trackCover);
+  fieldTree *= 1.0 - trackCover;` : `  col = mix(col, mix(HEDGE_COLOR, HEDGE_FAR_COLOR, fieldFar),
     isHedge ? bandCoverage(best, HEDGE_WIDTH * 0.5 * mix(1.0, HEDGE_FAR_GROW, fieldFar), px) : 0.0);
-  col = mix(col, TRACK_COLOR, bandCoverage(trackGap(world, s1, s2), trackWidthAt(world), px));
+  col = mix(col, TRACK_COLOR, bandCoverage(trackGap(world, s1, s2), trackWidthAt(world), px));`}
   return col;
 }
 `
@@ -490,7 +512,7 @@ export const FIELD_GLSL = fieldGlsl('summer')
  * 廠區那一層的 GLSL。接在 `fieldColorAt` 的 `return col;` 之前：先鋪墊面，
  * 再鋪道路 —— 道路壓過墊面，墊面壓過田。
  */
-function siteGlsl(site: SiteLayout): string {
+function siteGlsl(site: SiteLayout, share: boolean): string {
   const segs = segmentsOf(site.roads)
   const rail = segmentsOf(site.rails ?? [])
   const railGlsl = rail.length === 0 ? '' : `
@@ -507,8 +529,10 @@ ${rail.map((s) => `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, `
     float t = clamp(dot(world - a, ab) / max(dot(ab, ab), 1.0e-6), 0.0, 1.0);
     railD = min(railD, length(world - (a + ab * t)));
   }
-  col = mix(col, ${rgb(BALLAST)},
-    bandCoverage(railD, ${((site.railWidth ?? 24) / 2).toFixed(1)}, px));`
+${share ? `  float railCover = bandCoverage(railD, ${((site.railWidth ?? 24) / 2).toFixed(1)}, px);
+  col = mix(col, ${rgb(BALLAST)}, railCover);
+  fieldTree *= 1.0 - railCover;` : `  col = mix(col, ${rgb(BALLAST)},
+    bandCoverage(railD, ${((site.railWidth ?? 24) / 2).toFixed(1)}, px));`}`
   const list = segs.map((s) =>
     `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, ${s.bx.toFixed(1)}, ${s.bz.toFixed(1)})`).join(',\n')
   /**
@@ -576,7 +600,7 @@ ${rs.map((p) => `  ${rgb(p.hex)}`).join(',\n')}
   const patchGlsl = rectsGlsl('PATCHES', site.patches ?? [],
     'siteCol = $ * siteGrime * padDark;')
   const outpostGlsl = rectsGlsl('OUTPOSTS', site.outposts ?? [],
-    'col = $ * siteGrime;')
+    share ? 'col = $ * siteGrime; fieldTree = vec2(0.0);' : 'col = $ * siteGrime;')
   const rb = roadBounds(site)
   // 【沒有墊面就整段不產生】衛星設施與附加墊面都依附墊面
   const pad = site.pad
@@ -626,14 +650,17 @@ ${patchGlsl}
   //
   // 【這一像素的柔化只為了抗鋸齒】寬度就是像素在地面上的足跡 —— 拉寬就變回
   // 過渡帶了
-  col = mix(siteCol, col, clamp(padD / max(px, 0.25) * 0.5 + 0.5, 0.0, 1.0));
+${share ? `  float padKeep = clamp(padD / max(px, 0.25) * 0.5 + 0.5, 0.0, 1.0);
+  col = mix(siteCol, col, padKeep);
+  fieldTree *= padKeep;` : '  col = mix(siteCol, col, clamp(padD / max(px, 0.25) * 0.5 + 0.5, 0.0, 1.0));'}
 ${outpostGlsl}
   }`
   })()
   // 【戰場的痕跡畫在道路之後】先有路、後來才被炸：坑蓋在路面上
+  // 痕跡不衰減 fieldTree：只有草原的地圖有痕跡，而草原的樹冠份量恆為 0
   const scarSection = site.scars === undefined ? '' : scarsGlsl(site.scars)
   // 【林帶畫在痕跡之前】遠圖上的帶子是田界的一部分，戰場的坑與壕溝壓在它上面
-  const beltSection = site.belts === undefined ? '' : beltsGlsl(site.belts)
+  const beltSection = site.belts === undefined ? '' : beltsGlsl(site.belts, share)
   // 【沒有道路也沒有鐵路就整段不產生】GLSL 不准零長度的陣列
   if (segs.length === 0 && rail.length === 0) return `${padSection}${beltSection}${scarSection}`
   return `${padSection}
@@ -656,7 +683,9 @@ ${list}
     float t = clamp(dot(world - a, ab) / max(dot(ab, ab), 1.0e-6), 0.0, 1.0);
     roadD = min(roadD, length(world - (a + ab * t)));
   }
-  col = mix(col, ${rgb(site.roadHex ?? ASPHALT)}, bandCoverage(roadD, ${(site.roadWidth / 2).toFixed(1)}, px));
+${share ? `  float roadCover = bandCoverage(roadD, ${(site.roadWidth / 2).toFixed(1)}, px);
+  col = mix(col, ${rgb(site.roadHex ?? ASPHALT)}, roadCover);
+  fieldTree *= 1.0 - roadCover;` : `  col = mix(col, ${rgb(site.roadHex ?? ASPHALT)}, bandCoverage(roadD, ${(site.roadWidth / 2).toFixed(1)}, px));`}
   }${beltSection}${scarSection}`
 }
 
@@ -669,7 +698,7 @@ ${list}
  * - 只畫在遠層（`fieldFar`）：近處有真的樹，這一條在植被圈外才接手
  * - 戰場方框裡不畫、往外漸增：公式與 `world/rzhev.ts` 的 `shelterbeltFade` 同一條
  */
-function beltsGlsl(b: SiteBelts): string {
+function beltsGlsl(b: SiteBelts, share: boolean): string {
   const f = b.frame
   const n = (v: number): string => v.toFixed(5)
   return `
@@ -686,16 +715,22 @@ function beltsGlsl(b: SiteBelts): string {
     // 遠近切換時路面會變色
     float beltCover = bandCoverage(best, ${n(b.halfWidth)}, px) * beltFade
       * (1.0 - bandCoverage(trackGap(world, s1, s2), trackWidthAt(world), px));
-    col = mix(col, ${rgb(b.hex)}, beltCover);
+    col = mix(col, ${rgb(b.hex)}, beltCover);${share ? `
+    fieldTree *= 1.0 - beltCover;` : ''}
   }`
 }
 
-/** 有廠區的那一份 GLSL。`site` 省略時與 `fieldGlsl(season)` 逐字相同 */
-export function fieldGlslWithSite(season: Season, site?: SiteLayout, candidates = false, open = false): string {
-  const base = fieldGlsl(season, candidates, open)
+/**
+ * 有廠區的那一份 GLSL。`site` 省略時與 `fieldGlsl(season)` 逐字相同；`share` 見
+ * `fieldGlsl`
+ */
+export function fieldGlslWithSite(
+  season: Season, site?: SiteLayout, candidates = false, open = false, share = false,
+): string {
+  const base = fieldGlsl(season, candidates, open, share)
   if (site === undefined) return base
   const at = base.lastIndexOf('  return col;')
   // 【戰場的痕跡要一個貼圖與一支取樣函式】放在整段最前面（頂層）
   const head = site.scars === undefined ? '' : SCARS_DECL + SCARS_FN
-  return head + base.slice(0, at) + siteGlsl(site) + '\n' + base.slice(at)
+  return head + base.slice(0, at) + siteGlsl(site, share) + '\n' + base.slice(at)
 }
