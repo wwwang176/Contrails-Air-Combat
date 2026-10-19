@@ -110,12 +110,16 @@ describe('圖形診斷', () => {
     const { source, probe } = fixture()
     expect(probe.__fieldClip()).toBeNull()
     expect(probe.__fieldBake()).toBeNull()
+    expect(probe.__canopyPerPixel(true)).toBeNull()
     const clip = {
       stats: { recentres: 1, pieces: 2, texels: 3 },
       setInnerRadius: vi.fn(),
       benchFarBake: vi.fn(() => 12.5),
+      canopyLookup: vi.fn((on?: boolean) => on ?? false),
     }
     source.terrain.mockReturnValue({ object: new Group(), fieldClip: clip })
+    expect(probe.__canopyPerPixel(true)).toBe(true)
+    expect(clip.canopyLookup).toHaveBeenCalledWith(true)
     const stats = probe.__fieldClip(500)
     expect(clip.setInnerRadius).toHaveBeenCalledWith(500)
     expect(stats).toEqual(clip.stats)

@@ -300,7 +300,7 @@ function createInlandTerrain(
   const open = dressing === undefined && !steppe
   const horizon = createFarHorizon(season, open)
   const ground = createFarmGround(farm.field, season, site, open)
-  // 【點隨視角變亮暗】植被的點的視角係數，換時段跟著燈重算
+  // 【點照此刻的燈算亮度】植被的點與烘進地面的林子共用這一張表，換時段跟著燈重算
   const viewShade = createViewShade(season)
   // 【有畫樹的格】植被重建時記下、換上新的樹時發布；地面在那些格畫樹底下的地（中圖）
   const drawnTiles = gfx === undefined ? undefined : createDrawnTiles()
@@ -311,6 +311,8 @@ function createInlandTerrain(
     near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR, horizon: FIELD_CLIP_HORIZON, backdrop: FIELD_CLIP_BACKDROP,
     innerRadius: gfx.fieldInner,
     ...(drawnTiles === undefined ? {} : { mid: FIELD_CLIP_MID, drawnTiles }),
+    // 草原的遠處沒有樹冠色（林帶是另一個顏色），不多烘那一張
+    ...(steppe ? {} : { viewShade }),
   })
   if (clipmap !== null) {
     horizon.mesh.material = clipmap.material

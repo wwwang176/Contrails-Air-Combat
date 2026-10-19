@@ -58,7 +58,9 @@ reflectedLight.indirectSpecular *= uGroundSpecular;
  */
 export function matteGround(material: MeshStandardMaterial): void {
   const compile = material.onBeforeCompile
-  const key = material.customProgramCacheKey()
+  // 【每次重問原本的鍵】材質自己的鍵可能跟著設定變（`fieldClipmap.ts` 的 `canopyLookup`）；
+  // 這裡記死的話換了設定 three 照樣重用舊的程式
+  const key = material.customProgramCacheKey.bind(material)
   material.onBeforeCompile = function (shader, renderer) {
     compile.call(this, shader, renderer)
     shader.uniforms['uGroundSpecular'] = GROUND_SPECULAR
@@ -66,6 +68,6 @@ export function matteGround(material: MeshStandardMaterial): void {
     shader.fragmentShader = 'uniform float uGroundSpecular;\nuniform float uGroundRough;\n' + shader.fragmentShader
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>${MATTE_GROUND_GLSL}`)
   }
-  material.customProgramCacheKey = () => key + ':matte'
+  material.customProgramCacheKey = () => key() + ':matte'
   material.needsUpdate = true
 }

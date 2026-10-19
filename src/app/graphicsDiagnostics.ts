@@ -20,7 +20,9 @@ export interface GraphicsDiagnosticsSource {
   /** 地形會換場，必須在探針呼叫時才取目前的那一份。 */
   readonly terrain: () => {
     readonly object: Object3D
-    readonly fieldClip: Pick<NonNullable<Terrain['fieldClip']>, 'stats' | 'setInnerRadius' | 'benchFarBake'> | null
+    readonly fieldClip: Pick<
+      NonNullable<Terrain['fieldClip']>, 'stats' | 'setInnerRadius' | 'benchFarBake' | 'canopyLookup'
+    > | null
     readonly viewShade?: Terrain['viewShade']
   }
   /** 戰鬥與特效的分組由組裝端提供，探針不依賴各系統的生命週期。 */
@@ -111,6 +113,14 @@ export function createGraphicsDiagnostics(source: GraphicsDiagnosticsSource) {
 
     __fieldBake(trees = true) {
       return source.terrain().fieldClip?.benchFarBake(trees) ?? null
+    },
+
+    /**
+     * 烘進地面的林子的表在像素查（true）或在頂點查（false，預設）。同頁 A/B 用：切換時重編
+     * 地面的程式。回傳目前是不是在像素查；沒有田色 clipmap 時是 null
+     */
+    __canopyPerPixel(on?: boolean): boolean | null {
+      return source.terrain().fieldClip?.canopyLookup(on) ?? null
     },
 
     /** 地面的鏡面反射倍率（`matteGround.ts`），0 = 不算、1 = 標準材質原本的。同頁 A/B 用 */

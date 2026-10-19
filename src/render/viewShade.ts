@@ -354,16 +354,23 @@ vec3 viewShade(float row, vec3 toCam) {
   vec2 uv = vec2(
     ((c * 0.5 + 0.5) * ${(VIEW_SHADE_COLS - 1).toFixed(1)} + 0.5) / ${VIEW_SHADE_COLS.toFixed(1)},
     (row * ${VIEW_SHADE_ROWS.toFixed(1)} + s * ${(VIEW_SHADE_ROWS - 1).toFixed(1)} + 0.5) / ${(VIEW_SHADE_CLASSES * VIEW_SHADE_ROWS).toFixed(1)});
-  return mix(vec3(1.0), texture(uViewShade, uv).rgb, uViewShadeOn);
+  return mix(vec3(1.0), textureLod(uViewShade, uv, 0.0).rgb, uViewShadeOn);
 }
 `
 
-/** 一張地形的表：貼圖與 uniform。**所有用它的材質共用同一組 uniform 物件** */
+/**
+ * 一張地形的表：貼圖與 uniform。**所有用它的材質共用同一組 uniform 物件**。
+ *
+ * `uCanopyBroad`、`uCanopyCone` 是闊葉、針葉的點在表乘上去之前的顏色（`pointBaseOf`），
+ * 烘進地面的林子照點的算式畫時用（`fieldClipmap.ts`）
+ */
 export interface ViewShade {
   readonly uniforms: {
     readonly uViewShade: { value: DataTexture }
     readonly uViewSunH: { value: Vector2 }
     readonly uViewShadeOn: { value: number }
+    readonly uCanopyBroad: { value: Color }
+    readonly uCanopyCone: { value: Color }
   }
   /** 換時段：重算整張表。與三盞燈、`setPointLight` 同一份色盤（`applyTimeOfDay`） */
   setPalette(p: DayPalette): void
@@ -383,6 +390,8 @@ export function createViewShade(season: Season): ViewShade {
   tex.wrapS = ClampToEdgeWrapping
   tex.wrapT = ClampToEdgeWrapping
   const sunH = new Vector2(1, 0)
+  const broad = new Color()
+  const cone = new Color()
   const fill = (p: DayPalette): void => {
     const t = buildViewShadeTable(p, season)
     for (let i = 0; i < t.length; i++) data[i] = DataUtils.toHalfFloat(t[i]!)
@@ -390,10 +399,15 @@ export function createViewShade(season: Season): ViewShade {
     const h = Math.hypot(p.sunDir[0], p.sunDir[2])
     if (h > 1e-6) sunH.set(p.sunDir[0] / h, p.sunDir[2] / h)
     else sunH.set(1, 0)
+    pointBaseOf('broadPoint', season, p, broad)
+    pointBaseOf('conePoint', season, p, cone)
   }
   fill(DAY_PALETTES.noon)
   return {
-    uniforms: { uViewShade: { value: tex }, uViewSunH: { value: sunH }, uViewShadeOn: { value: 1 } },
+    uniforms: {
+      uViewShade: { value: tex }, uViewSunH: { value: sunH }, uViewShadeOn: { value: 1 },
+      uCanopyBroad: { value: broad }, uCanopyCone: { value: cone },
+    },
     setPalette: fill,
     dispose() { tex.dispose() },
   }
