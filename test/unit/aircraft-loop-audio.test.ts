@@ -133,7 +133,30 @@ describe('飛機定位循環的聲道選擇', () => {
     const call = assign.mock.calls.find(c => c[0] === 'turret')!
     expect(call[2]).toBe('turret-type92x1')
     expect(call[7]).toBe(turretGainDb('turret-type92x1'))
-    expect(call[7]).toBe(-3)
+    expect(call[7]).toBe(-4)
+    expect(call[8]).toBe(6200)
+  })
+
+  it('沒有音色上限的砲塔不過低通', () => {
+    const { world, positions, assign, loops, add } = setup()
+    const me = add(), bomber = add(B17G)
+    bomber.turretStates[0]!.flash = 0.03
+    loops.update(world.combatants, positions, me, 1, true, false)
+    const call = assign.mock.calls.find(c => c[0] === 'turret')!
+    expect(call[2]).toMatch(/^turret-m2-50cal/)
+    expect(call[8]).toBeUndefined()
+  })
+
+  it('別人的槍帶上這個檔的音量修正', () => {
+    const { world, positions, assign, loops, add } = setup()
+    const me = add(), zero = add(A6M5, 110), mustang = add(P51D, 120)
+    zero.muzzleFlash.fill(0.03)
+    mustang.muzzleFlash.fill(0.03)
+    loops.update(world.combatants, positions, me, 1, true, false)
+    const fire = (key: number) => assign.mock.calls.find(c => c[0] === 'fire' && c[1] === key)!
+    expect(fire(zero.index)[2]).toBe('fire-a6m5')
+    expect(fire(zero.index)[7]).toBe(-2.3)
+    expect(fire(mustang.index)[7]).toBe(0)
   })
 
   it('只處理前 64 席，死亡及退場飛機不佔引擎聲道', () => {

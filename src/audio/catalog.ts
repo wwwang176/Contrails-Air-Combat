@@ -240,6 +240,29 @@ export function fireFile(specId: string): string | null {
 }
 
 /**
+ * 別人的槍（開火循環）各檔的音量修正，dB；不在表裡的是 0。目標是各機種聽起來一樣大。
+ *
+ * ```
+ *   檔             A 加權（整段）   修正    修正後
+ *   fire-m2x6      −27.8             0
+ *   fire-bf109k4   −27.3             0
+ *   fire-fw190     −27.3             0
+ *   fire-ki84      −27.2             0
+ *   fire-ju87      −26.6             0
+ *   fire-a6m5      −25.0           −2.3     −27.3
+ * ```
+ */
+const FIRE_GAIN_DB: Readonly<Record<string, number>> = {
+  'fire-a6m5': -2.3,
+}
+
+export const FIRE_GAIN_FILES: readonly string[] = Object.keys(FIRE_GAIN_DB)
+
+export function fireGainDb(file: string): number {
+  return FIRE_GAIN_DB[file] ?? 0
+}
+
+/**
  * 俯衝警笛的檔。**只有 Ju 87 有**（Jericho 警笛）；回 null 的機種不響警笛 ——
  * 這是「這架會不會響」的唯一判斷，音量與音高隨空速變（`curves.ts` 的 `sirenParams`）。
  *
@@ -266,7 +289,7 @@ export function turretFile(weaponId: string, guns: number): string {
  *   M2 .50 單管/雙聯     −21.5 / −22.2     0
  *   MG 131               −23.2             0
  *   MG 15 單管/雙聯      −23.0 / −23.8     0
- *   九二式 7.7 mm        −19.5            −3     −22.5
+ *   九二式 7.7 mm        −19.5            −4     −24.3（含低通）
  *   九九式 20 mm         −23.8            +1     −22.8
  * ```
  *
@@ -275,7 +298,7 @@ export function turretFile(weaponId: string, guns: number): string {
  * 【不放進素材清單的補償值】那一欄只能是 0–12 dB，負的修正放不進去。
  */
 const TURRET_GAIN_DB: Readonly<Record<string, number>> = {
-  'turret-type92x1': -3,
+  'turret-type92x1': -4,
   'turret-type99-1x1': 1,
 }
 
@@ -283,6 +306,22 @@ export const TURRET_GAIN_FILES: readonly string[] = Object.keys(TURRET_GAIN_DB)
 
 export function turretGainDb(file: string): number {
   return TURRET_GAIN_DB[file] ?? 0
+}
+
+/**
+ * 各砲塔檔的音色上限，Hz；不在表裡的不過低通（回 undefined）。
+ *
+ * 【九二式 6200 Hz】8 kHz 以上的能量比其他砲塔多 2～10 dB，聽起來偏尖；低通本身讓它小約 0.8 dB(A)，
+ * 已算進上表的修正後。
+ */
+const TURRET_CUTOFF_HZ: Readonly<Record<string, number>> = {
+  'turret-type92x1': 6200,
+}
+
+export const TURRET_CUTOFF_FILES: readonly string[] = Object.keys(TURRET_CUTOFF_HZ)
+
+export function turretCutoffHz(file: string): number | undefined {
+  return TURRET_CUTOFF_HZ[file]
 }
 
 /**
@@ -428,6 +467,30 @@ export function groundGunTier(unitId: string): string | null {
 export function volleyPool(weaponId: string, guns: number): Pool | null {
   const id = `volley-${weaponId}x${guns}`
   return id in POOLS ? id as Pool : null
+}
+
+/**
+ * 自己的槍各齊射庫的音量修正，dB；不在表裡的是 0。目標是各機種全速連射時聽起來一樣大。
+ *
+ * ```
+ *   庫（射速）                 A 加權（穩態連射）   修正    修正後
+ *   m2-50calx6（800）          −16.9                 0
+ *   mg131x2（900）             −18.7                 0
+ *   mg17x2（1150）             −17.2                 0
+ *   ho103x2（850）             −16.9                 0
+ *   type97x2（900）            −15.0                −3     −18.0
+ * ```
+ *
+ * 零戰整架（九七式加九九式二號）由 −14.0 降到 −16.3，與 Fw 190（−16.1）同一級。
+ */
+const VOLLEY_GAIN_DB: Readonly<Partial<Record<Pool, number>>> = {
+  'volley-type97x2': -3,
+}
+
+export const VOLLEY_GAIN_POOLS: readonly Pool[] = Object.keys(VOLLEY_GAIN_DB) as Pool[]
+
+export function volleyGainDb(pool: Pool): number {
+  return VOLLEY_GAIN_DB[pool] ?? 0
 }
 
 /** 前機槍過熱的空響：武器 id 與挺數 → 空響庫。沒有對應的庫回 null（那一組過熱時不響） */
