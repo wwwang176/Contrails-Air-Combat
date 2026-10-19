@@ -11,6 +11,7 @@ import {
 } from './vegetationPolicy'
 import type { Season } from './season'
 import { createViewShade, type ViewShade } from './viewShade'
+import type { DrawnTiles } from './drawnTiles'
 
 /**
  * 植被的引擎：**跟著鏡頭的 tile 快取 ＋ 分級的 InstancedMesh 池。**
@@ -127,10 +128,14 @@ export interface VegetationOptions {
   /** 樹冠色的季節。省略 = 夏季。每一份植被自己建幾何與池，兩個季節互不污染 */
   season?: Season
   /**
-   * 點池的視角係數（`viewShade.ts`）。**與地面共用同一份**，換時段由地形一起換。
-   * 省略 = 自己建一份正午的
+   * 點池的視角係數（`viewShade.ts`），換時段由地形一起換。省略 = 自己建一份正午的
    */
   viewShade?: ViewShade
+  /**
+   * 哪些格有畫樹，給地面用（`drawnTiles.ts`）。重建開始時記下、新的樹換上時發布。
+   * 省略 = 不記
+   */
+  drawnTiles?: DrawnTiles
 }
 
 export function createVegetation(
@@ -490,8 +495,23 @@ export function createVegetation(
     cap, { slotBuf, slotUsed, slotLod, slotBush, slotKey }, pools, stats,
   )
 
+  /** 往下寫一段；寫完、新的樹換上的那一次，地面那一份「哪些格有畫樹」跟著發布 */
+  function stepRebuild(budget: number): boolean {
+    const done = rebuild.step(budget)
+    if (done) opts.drawnTiles?.publish()
+    return done
+  }
+
   function startRebuild(): void {
     rebuild.start(poolDirty)
+    // 【記下這一次會畫出來的格】級數凍住到寫完（見 `vegetationRebuild.ts`），換上時發布
+    const drawn = opts.drawnTiles
+    if (drawn !== undefined) {
+      drawn.stage(Math.floor(centerX / TILE_SIZE), Math.floor(centerZ / TILE_SIZE))
+      for (let s = 0; s < tileCache; s++) {
+        if (slotUsed[s] !== 0 && slotLod[s]! < LOD_NONE) drawn.mark(slotI[s]!, slotJ[s]!)
+      }
+    }
     dirty = false
     lastBuildX = centerX
     lastBuildZ = centerZ
@@ -505,7 +525,7 @@ export function createVegetation(
     started = true
     // 【重建進行中只往下寫】tile 與級數凍住到寫完，見 `vegetationRebuild.ts`
     if (rebuild.active) {
-      if (rebuild.step(rebuildBudget)) sinceRebuild = 0
+      if (stepRebuild(rebuildBudget)) sinceRebuild = 0
       return
     }
     evict()
@@ -524,14 +544,14 @@ export function createVegetation(
     if (dirty && sinceRebuild >= REBUILD_EVERY
       && (moved >= REBUILD_MOVE || sinceRebuild >= REBUILD_IDLE)) {
       startRebuild()
-      if (rebuild.step(rebuildBudget)) sinceRebuild = 0
+      if (stepRebuild(rebuildBudget)) sinceRebuild = 0
     }
   }
 
   function settle(force?: boolean): void {
     if (!started) update(centerX, centerZ)
     // 【進行中的重建先寫完】它寫的是開始那一幀的狀態；之後照常補格、換級
-    if (rebuild.active && rebuild.step(Infinity)) sinceRebuild = 0
+    if (rebuild.active && stepRebuild(Infinity)) sinceRebuild = 0
     if (force === true) {
       for (const name of POOL_NAMES) poolDirty[name] = true
       dirty = true
@@ -544,7 +564,7 @@ export function createVegetation(
     // 【settle 不受節流也不分幀】定格截圖要的是「現在就對」
     if (dirty) {
       startRebuild()
-      if (rebuild.step(Infinity)) sinceRebuild = 0
+      if (stepRebuild(Infinity)) sinceRebuild = 0
     }
   }
 

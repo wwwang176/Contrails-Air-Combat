@@ -21,6 +21,7 @@ import {
 } from './vegetationPolicy'
 import { createVegetation } from './vegetation'
 import { createViewShade } from './viewShade'
+import { createDrawnTiles } from './drawnTiles'
 import {
   farmHedgeFlora, farmWoodFlora, openHedgeFloraFor, openWoodFloraFor, steppeBeltFloraFor,
 } from './flora'
@@ -66,6 +67,14 @@ export type { TerrainKind }
  * 先讀 `docs/superpowers/specs/2026-09-17-field-clipmap-showcase-design.md`。
  */
 export const FIELD_CLIP_NEAR: ClipLevelSpec = { size: 2048, metersPerTexel: 2 }
+/**
+ * 中圖：近處的樣子（樹底下的地），9 m 一格蓋 18.4 km，給有畫樹的格用（`drawnTiles.ts`）。
+ *
+ * 【窗要蓋住整個植被圈】鏡頭離窗心最多 `RECENTRE_FRACTION` 個窗寬才挪，所以窗心到窗邊扣掉
+ * 那一段，還要大於植被外圈加上換級的遲滯與重建的移動門檻 —— 不夠的話植被圈邊上有畫樹的
+ * 格讀不到中圖，退回遠圖的樹冠色（`terrain.test.ts` 釘住）
+ */
+export const FIELD_CLIP_MID: ClipLevelSpec = { size: 2048, metersPerTexel: 9 }
 export const FIELD_CLIP_FAR: ClipLevelSpec = { size: 4096, metersPerTexel: 30000 / 4096 }
 /**
  * 遠圖外那一層：田色與疊圖（鎮的地面、河漫灘、礦坑、屋頂與樹冠的色塊）都烘，29 m 一格
@@ -293,12 +302,15 @@ function createInlandTerrain(
   const ground = createFarmGround(farm.field, season, site, open)
   // 【點隨視角變亮暗】植被的點的視角係數，換時段跟著燈重算
   const viewShade = createViewShade(season)
+  // 【有畫樹的格】植被重建時記下、換上新的樹時發布；地面在那些格畫樹底下的地（中圖）
+  const drawnTiles = gfx === undefined ? undefined : createDrawnTiles()
   // 【田色烘成貼圖】地面 25 塊與遠景環一起換材質 —— 兩者本來共用同一支算式，
   // 只換地面的話 15 km 外那一圈會與地面接不上。沒有 GPU 就留著算式的材質
   const clipmap = gfx === undefined ? null : createFieldClipmap(gfx.renderer, {
     season, candidates: ground.candidates, ...(site === undefined ? {} : { site }), open,
     near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR, horizon: FIELD_CLIP_HORIZON, backdrop: FIELD_CLIP_BACKDROP,
     innerRadius: gfx.fieldInner,
+    ...(drawnTiles === undefined ? {} : { mid: FIELD_CLIP_MID, drawnTiles }),
   })
   if (clipmap !== null) {
     horizon.mesh.material = clipmap.material
@@ -415,7 +427,7 @@ function createInlandTerrain(
   /** 上一次 `update` 的中心：植被量距離的那一點 */
   const centre = { x: 0, z: 0 }
   const vegetation = createVegetation(fields, (x, z) => solid.sample(x, z), {
-    season, viewShade,
+    season, viewShade, ...(drawnTiles === undefined ? {} : { drawnTiles }),
     ...(dressing !== undefined ? { capacity: dressing.capacity } : steppe ? { capacity: STEPPE_CAPACITY } : {}),
   })
   if (season === 'winterSteppe') {
@@ -498,6 +510,7 @@ function createInlandTerrain(
       vegetation.dispose()
       clipmap?.dispose()
       viewShade.dispose()
+      drawnTiles?.dispose()
       roofs?.dispose()
       for (const g of villageGeometry) g.dispose()
       if (river !== null) disposeRiverMeshes(river)

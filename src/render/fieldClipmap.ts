@@ -9,6 +9,8 @@ import { type SiteLayout } from './siteSurface'
 import { SCAR_ATLAS } from './battleScars'
 import type { Season } from './season'
 import { matteGround } from './matteGround'
+import { DRAWN_TILES_N, type DrawnTiles } from './drawnTiles'
+import { TILE_SIZE } from './vegetationPolicy'
 
 /**
  * # 田色 clipmap
@@ -162,6 +164,14 @@ export interface FieldClipmapOptions {
   readonly near: ClipLevelSpec
   readonly far: ClipLevelSpec
   /**
+   * 中圖：與近圖同一種烘法（近處的樣子：林地色、細樹籬、不烘屋頂色塊），蓋住整個植被圈。
+   * 近窗外、**這一格有畫樹**（`drawnTiles`）的地方讀它，其餘讀遠圖 —— 樹底下是地、不是
+   * 烘好的樹冠。要與 `drawnTiles` 一起給
+   */
+  readonly mid?: ClipLevelSpec
+  /** 哪些植被格有畫樹（`drawnTiles.ts`），與植被共用同一份 */
+  readonly drawnTiles?: DrawnTiles
+  /**
    * 遠圖外面再一層，田色與疊圖都烘，遠處的樣子（與遠圖同一種烘法）。遠圖窗外讀它，
    * 它的窗外讀它的平均色 —— 見地面著色器的 `horizonColourAt`。省略的話遠圖窗外
    * 走算式，`beyondFar` 的粗網格畫在遠圖外
@@ -277,14 +287,19 @@ export function createFieldClipmap(renderer: WebGLRenderer, opts: FieldClipmapOp
     }
   }
   const near = level(opts.near)
+  const drawn = opts.drawnTiles
+  const mid = opts.mid === undefined || drawn === undefined ? null : level(opts.mid)
   const far = level(opts.far)
   const horizon = opts.horizon === undefined ? null : level(opts.horizon)
   const backdrop = horizon === null || opts.backdrop === undefined ? null : level(opts.backdrop)
   const stats: FieldClipmapStats = { recentres: 0, pieces: 0, texels: 0 }
+  /** 近處的樣子（近圖、中圖）：林地色、細樹籬，`near = false` 的疊圖不烘 */
+  const nearLook = (L: Level): boolean => L === near || L === mid
   // 【context 還原後整張重烘】three 重建 GPU 資源時貼圖是空的，而鏡頭沒跨挪窗門檻就
   // 不會再烘 —— 遠處讀到一片黑。標成沒烘過，下一次 `update` 整張重來
   const onRestored = (): void => {
     near.primed = false
+    if (mid !== null) mid.primed = false
     far.primed = false
     if (horizon !== null) horizon.primed = false
     if (backdrop !== null) backdrop.primed = false
@@ -368,7 +383,7 @@ void main() { gl_FragColor = texture2D(uScarAtlas, vUv); }`,
   const beyond: Mesh[] = []
 
   const bakePiece = (L: Level, p: TorusPiece, last: boolean): void => {
-    for (const o of overlays.children) o.visible = L !== near || o.userData['near'] === true
+    for (const o of overlays.children) o.visible = !nearLook(L) || o.userData['near'] === true
     // 【viewport／scissor 設在 RT 上】`setRenderTarget` 讀的是 RT 自己那一份，
     // `renderer.setViewport` 設的是畫布的
     L.rt.viewport.set(p.tx, p.tz, p.w, p.h)
@@ -378,7 +393,7 @@ void main() { gl_FragColor = texture2D(uScarAtlas, vUv); }`,
     bakeMat.uniforms['uCell0']!.value.set(p.cx0, p.cz0)
     bakeMat.uniforms['uCells']!.value.set(p.w, p.h)
     bakeMat.uniforms['uMetres']!.value = L.m
-    bakeMat.uniforms['uBakeFar']!.value = L === near ? 0 : 1
+    bakeMat.uniforms['uBakeFar']!.value = nearLook(L) ? 0 : 1
     renderer.setRenderTarget(L.rt)
     renderer.render(bakeScene, bakeCam)
     stats.pieces++
@@ -419,6 +434,12 @@ void main() { gl_FragColor = texture2D(uScarAtlas, vUv); }`,
     uFar: { value: far.rt.texture },
     uFarCentre: { value: far.centre },
     uFarSpan: { value: far.span },
+    ...(mid === null || drawn === undefined ? {} : {
+      uMid: { value: mid.rt.texture },
+      uMidCentre: { value: mid.centre },
+      uMidSpan: { value: mid.span },
+      ...drawn.uniforms,
+    }),
     uCam: { value: new Vector2() },
     uInner: { value: opts.innerRadius ?? 500 },
     uInnerBand: { value: opts.innerBand ?? 100 },
@@ -498,15 +519,32 @@ vec3 horizonColourAt(vec2 qH, vec2 dHx, vec2 dHy, float eH, vec2 qB, vec2 dBx, v
   /** 遠圖窗外在不在「算式」那一邊：有最外層時整圈讀貼圖 */
   const farOutProc = horizon === null ? ' || eF >= 1.0' : ''
   const farOutTex = horizon === null ? ' && eF < 1.0' : ''
+  const midDecl = mid === null ? ''
+    : 'uniform sampler2D uMid; uniform vec2 uMidCentre; uniform float uMidSpan;\n'
+      + 'uniform sampler2D uTreesDrawn; uniform vec2 uTreesOrigin;'
+  /**
+   * 【這一點有沒有畫樹】查植被發布的那一張（`drawnTiles.ts`）：貼圖第 k 格是植被格
+   * `uTreesOrigin + k`，格心對格心，線性過濾讓格與格之間 250 m 漸變。中窗邊緣淡出 ——
+   * 中窗外讀不到中圖，那裡照讀遠圖（見 `2026-10-19-ground-under-drawn-trees-design.md`）
+   */
+  const midGrad = mid === null ? '\n  float drawn = 0.0;' : `
+  vec2 qM = w / uMidSpan;
+  vec2 dMx = dFdx(qM); vec2 dMy = dFdy(qM);
+  float eM = max(abs(w.x - uMidCentre.x), abs(w.y - uMidCentre.y)) / (0.5 * uMidSpan);
+  float drawn = texture2D(uTreesDrawn, (w / ${TILE_SIZE.toFixed(1)} - uTreesOrigin) / ${DRAWN_TILES_N.toFixed(1)}).r
+    * (1.0 - smoothstep(1.0 - uEdgeBlend, 1.0, eM));`
+  /** 有畫樹的地方由遠圖換成中圖（近處的樣子） */
+  const midMix = mid === null ? ''
+    : '\n    if (drawn > 0.0) t = mix(t, textureGrad(uMid, fract(qM), dMx, dMy).rgb, drawn);'
   const texBlock = horizon === null ? `
-    vec3 t = textureGrad(uFar, fract(qF), dFx, dFy).rgb;
+    vec3 t = textureGrad(uFar, fract(qF), dFx, dFy).rgb;${midMix}
     float tN = smoothstep(1.0 - uEdgeBlend, 1.0, eN);
     if (tN < 1.0) t = mix(textureGrad(uNear, fract(qN), dNx, dNy).rgb, t, tN);` : `
     // 【遠圖讀不到的地方不讀】窗外是環面上別處的內容
     float tF = smoothstep(1.0 - uEdgeBlend, 1.0, eF);
     vec3 t = vec3(0.0);
     if (tF < 1.0) {
-      t = textureGrad(uFar, fract(qF), dFx, dFy).rgb;
+      t = textureGrad(uFar, fract(qF), dFx, dFy).rgb;${midMix}
       float tN = smoothstep(1.0 - uEdgeBlend, 1.0, eN);
       if (tN < 1.0) t = mix(textureGrad(uNear, fract(qN), dNx, dNy).rgb, t, tN);
     }
@@ -525,6 +563,7 @@ uniform sampler2D uNear; uniform vec2 uNearCentre; uniform float uNearSpan;
 uniform sampler2D uFar; uniform vec2 uFarCentre; uniform float uFarSpan;
 uniform vec2 uCam; uniform float uInner; uniform float uInnerBand; uniform float uEdgeBlend;
 uniform float uBypass;
+${midDecl}
 ${horizonDecl}
 ${glsl}
 ${horizonColour}`)
@@ -536,15 +575,16 @@ ${horizonColour}`)
   vec2 qN = w / uNearSpan;
   vec2 qF = w / uFarSpan;
   vec2 dNx = dFdx(qN); vec2 dNy = dFdy(qN);
-  vec2 dFx = dFdx(qF); vec2 dFy = dFdy(qF);${horizonGrad}
+  vec2 dFx = dFdx(qF); vec2 dFy = dFdy(qF);${horizonGrad}${midGrad}
   float eN = max(abs(w.x - uNearCentre.x), abs(w.y - uNearCentre.y)) / (0.5 * uNearSpan);
   float eF = max(abs(w.x - uFarCentre.x), abs(w.y - uFarCentre.y)) / (0.5 * uFarSpan);
   float tIn = uInner <= 0.0 ? 1.0 : smoothstep(uInner - uInnerBand, uInner, distance(w, uCam));
   bool proc = uBypass > 0.5 || tIn < 1.0${farOutProc};
   bool tex = uBypass < 0.5 && tIn > 0.0${farOutTex};
   vec3 c = vec3(0.0);
-  // 算式：旁路、內圈；沒有最外層時還有遠窗外。近窗外畫遠處的樣子，與遠圖烘的相同
-  fieldFar = eN >= 1.0 ? 1.0 : 0.0;
+  // 算式：旁路、內圈；沒有最外層時還有遠窗外。近窗外、沒有畫樹的地方畫遠處的樣子，
+  // 與遠圖烘的相同；有畫樹的地方與中圖相同
+  fieldFar = eN >= 1.0 && drawn < 0.5 ? 1.0 : 0.0;
   if (proc) c = fieldColorAt(w);
   // 【內圈疊回烘進貼圖的平面】算式裡沒有街、鎮地面、礦坑；貼圖的透明度記著它們。
   // 近圖外（內圈可以伸出近窗）讀遠圖。
@@ -563,7 +603,7 @@ ${horizonColour}`)
   const id = instances++
   material.customProgramCacheKey = () =>
     `field-clipmap:${opts.season}:${opts.site === undefined ? '' : 'site'}:${cand === undefined ? '' : 'cand'}`
-    + `:${opts.open === true ? 'open' : ''}:${horizon === null ? '' : 'horizon'}:${id}`
+    + `:${opts.open === true ? 'open' : ''}:${horizon === null ? '' : 'horizon'}:${mid === null ? '' : 'mid'}:${id}`
   matteGround(material)
 
   return {
@@ -578,7 +618,10 @@ ${horizonColour}`)
       overlays.add(mesh)
       far.primed = false
       if (horizon !== null) horizon.primed = false
-      if (toNear) near.primed = false
+      if (toNear) {
+        near.primed = false
+        if (mid !== null) mid.primed = false
+      }
     },
     replaces(mesh) {
       replaced.push(mesh)
@@ -616,6 +659,7 @@ uniform vec2 uFarCentre; uniform float uFarSpan;`)
     },
     update(camX, camZ) {
       recentre(near, camX, camZ)
+      if (mid !== null) recentre(mid, camX, camZ)
       recentre(far, camX, camZ)
       if (horizon !== null) recentre(horizon, camX, camZ)
       if (backdrop !== null) recentre(backdrop, camX, camZ)
@@ -629,6 +673,10 @@ uniform vec2 uFarCentre; uniform float uFarSpan;`)
       if (inner) return `內圈：逐像素算（${Math.round(U.uInner.value)} m 內）`
       if (edge(near.centre, near.span) < 1) {
         return `近圖：${near.m.toFixed(1)} m／格（±${km(near.span / 2)}），樹籬細線、無屋頂樹冠色塊`
+      }
+      if (mid !== null && drawn !== undefined && edge(mid.centre, mid.span) < 1
+        && drawn.drawnAt(Math.floor(x / TILE_SIZE), Math.floor(z / TILE_SIZE))) {
+        return `中圖：${mid.m.toFixed(1)} m／格，這一格有畫樹，近處的樣子`
       }
       if (edge(far.centre, far.span) < 1) {
         return `遠圖：${far.m.toFixed(1)} m／格（±${km(far.span / 2)}），寬樹籬、屋頂樹冠色塊`
@@ -668,6 +716,7 @@ uniform vec2 uFarCentre; uniform float uFarSpan;`)
     dispose() {
       renderer.domElement?.removeEventListener('webglcontextrestored', onRestored)
       near.rt.dispose()
+      mid?.rt.dispose()
       far.rt.dispose()
       horizon?.rt.dispose()
       backdrop?.rt.dispose()
