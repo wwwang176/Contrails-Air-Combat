@@ -2085,7 +2085,12 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     if (event === 'start') audio.music.start()
     // 【短片只在選單類畫面放】機庫有自己的展示場、戰鬥有自己的場景。停下時連共用的
     // 特效池一起清 —— 機庫不推進那些池，留著的黑雲會凍在天上
-    if (screen === 'hangar' || screen === 'battle') menuReel.stop()
+    // 【聲音也一起停】短片的雷聲要等音波走 3～15 秒才響，不停的話落在下一場的開頭。
+    // 結算的「再打一場」也走這裡，上一場的尾巴同樣清掉。背景音樂不受影響
+    if (screen === 'hangar' || screen === 'battle') {
+      menuReel.stop()
+      audio.stopAll()
+    }
     // 【機庫一律正午】短片換過時段，停在黃昏的話機庫的飛機是剪影
     if (screen === 'hangar' && from !== 'hangar') setMenuTimeOfDay('noon')
     // 【`fight` 一律重建】不管是從設定頁進來還是結算的「再打一場」
