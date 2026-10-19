@@ -485,11 +485,13 @@ function createInlandTerrain(
     land: { field: solid, ceiling: HILL_PEAK_MAX, landAbove: -Infinity },
     fieldClip: clipmap,
     oceanHeight: null,
-    // 【遠景環與地面是固定的】植被跟著鏡頭補格，田色貼圖跟著鏡頭挪窗
+    // 【遠景環與地面是固定的】植被跟著鏡頭補格，田色貼圖跟著鏡頭挪窗。
+    // 【植被換級的淡化吃真實時間】遊戲時間在上帝視角與暫停時停住，淡化會停在一半 ——
+    // 淡入的樹整片不見。淡化只是畫面，與模擬無關
     update(_time, centerX, centerZ) {
       centre.x = centerX
       centre.z = centerZ
-      vegetation.update(centerX, centerZ)
+      vegetation.update(centerX, centerZ, performance.now() / 1000)
       clipmap?.update(centerX, centerZ)
     },
     describeAt(x, z) {

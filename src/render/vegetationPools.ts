@@ -43,10 +43,12 @@ import { FLORA_ROUGHNESS, VIEW_SHADE_GLSL, ViewShadeRow, type ViewShade } from '
  * 那一類樹的表（`viewShade.ts`）：表是照此刻的燈算的中級樹冠輻射，由鏡頭到這一點的
  * 方向查。一個樹種一個材質 —— 查的是表的哪一列（`uViewRow`），三個材質共用同一支程式
  */
-function createPointMaterial(row: ViewShadeRow, shade: ViewShade): PointsMaterial {
+function createPointMaterial(
+  row: ViewShadeRow, shade: ViewShade, fade: FadeGroup = FadeGroup.None, uFade = NO_FADE,
+): PointsMaterial {
   const m = new PointsMaterial({ vertexColors: true, sizeAttenuation: true, size: 1 })
   m.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, shade.uniforms, { uViewRow: { value: row } })
+    Object.assign(shader.uniforms, shade.uniforms, { uViewRow: { value: row }, uFade })
     shader.vertexShader = 'attribute float aSize;\nuniform float uViewRow;\n' + VIEW_SHADE_GLSL + shader.vertexShader
       .replace('gl_PointSize = size;', 'gl_PointSize = aSize * projectionMatrix[1][1] * size;')
       .replace('#include <color_vertex>', `#include <color_vertex>
@@ -54,9 +56,57 @@ function createPointMaterial(row: ViewShadeRow, shade: ViewShade): PointsMateria
   vec3 toCam = normalize(cameraPosition - (modelMatrix * vec4(position, 1.0)).xyz);
   vColor.rgb *= viewShade(uViewRow, toCam);
 }`)
+    if (fade !== FadeGroup.None) shader.fragmentShader = withFade(shader.fragmentShader, fade)
   }
   // 【換了著色器就要換 key】three 用它決定程式能不能重用。列是 uniform，三個樹種同一個 key
-  m.customProgramCacheKey = () => 'flora-point-view'
+  m.customProgramCacheKey = () => `flora-point-view${FADE_KEY[fade]}`
+  return m
+}
+
+/** 一池的區段表分三組：一般、淡入、淡出（見 `vegetationRebuild.ts`） */
+export const enum FadeGroup {
+  None = 0,
+  In = 1,
+  Out = 2,
+}
+const FADE_KEY = ['', ':fade-in', ':fade-out'] as const
+/** 一池的段分幾組（一般、淡入、淡出） */
+const GROUPS = 3
+
+/** 不淡的材質用的 uFade（不讀，只為了型別） */
+const NO_FADE = { value: 1 }
+
+/**
+ * 換級時的抖動交疊：螢幕上每個像素一個 4×4 Bayer 門檻 `d`（0..1），淡入的材質 `d ≥ uFade`
+ * 就丟掉、淡出的材質 `d < uFade` 就丟掉。同一個像素同一個門檻，兩種互補：任何時候每個
+ * 像素只看到其中一級，不疊成半透明
+ */
+export const FADE_GLSL = `
+uniform float uFade;
+float floraFadeThreshold(vec2 p) {
+  const float B[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+  int i = int(mod(p.x, 4.0)) + int(mod(p.y, 4.0)) * 4;
+  return (B[i] + 0.5) / 16.0;
+}
+`
+
+/** 片段著色器加上淡入或淡出的丟棄（`FADE_GLSL`） */
+function withFade(frag: string, fade: FadeGroup): string {
+  const test = fade === FadeGroup.In ? '>=' : '<'
+  return FADE_GLSL + frag.replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+if (floraFadeThreshold(gl_FragCoord.xy) ${test} uFade) discard;`)
+}
+
+/** 網格池的材質；`fade` 是淡入或淡出時加上抖動丟棄 */
+function createMeshMaterial(fade: FadeGroup, uFade: { value: number }): MeshStandardMaterial {
+  const m = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: FLORA_ROUGHNESS })
+  if (fade !== FadeGroup.None) {
+    m.onBeforeCompile = (shader) => {
+      shader.uniforms['uFade'] = uFade
+      shader.fragmentShader = withFade(shader.fragmentShader, fade)
+    }
+    m.customProgramCacheKey = () => `flora-mesh${FADE_KEY[fade]}`
+  }
   return m
 }
 
@@ -141,21 +191,31 @@ export function createVegetationPools(
   cap: Record<PoolName, number>, season: Season, tileCache: number, shade: ViewShade,
 ) {
   const geometries = createFloraGeometries(season)
-  const material = new MeshStandardMaterial({
-    vertexColors: true, flatShading: true, roughness: FLORA_ROUGHNESS,
-  })
-  const pointMaterials = {
-    broadPoint: createPointMaterial(POINT_ROW.broadPoint, shade),
-    conePoint: createPointMaterial(POINT_ROW.conePoint, shade),
-    bushPoint: createPointMaterial(POINT_ROW.bushPoint, shade),
-  } satisfies Record<PointPool, PointsMaterial>
-  const pointList = Object.values(pointMaterials)
+  /** 換級淡化的進度 0..1，淡入、淡出的材質共用 */
+  const uFade = { value: 1 }
+  /** 網格池的材質：一般、淡入、淡出（以 `FadeGroup` 索引） */
+  const meshMaterials = [
+    createMeshMaterial(FadeGroup.None, uFade),
+    createMeshMaterial(FadeGroup.In, uFade),
+    createMeshMaterial(FadeGroup.Out, uFade),
+  ]
+  /** 點池的材質，每個樹種一組：一般、淡入、淡出 */
+  const pointMaterialSets = Object.fromEntries((['broadPoint', 'conePoint', 'bushPoint'] as const).map((n) => [n, [
+    createPointMaterial(POINT_ROW[n], shade),
+    createPointMaterial(POINT_ROW[n], shade, FadeGroup.In, uFade),
+    createPointMaterial(POINT_ROW[n], shade, FadeGroup.Out, uFade),
+  ]])) as Record<PointPool, PointsMaterial[]>
+  const pointList = Object.values(pointMaterialSets).flat()
+  /** 正在淡化：淡入組用淡入的材質、淡出組有畫 */
+  let fading = false
   const group = new Group()
   /**
    * 十一個池。**遠處那三個是 `Points`，其餘八個是 `InstancedMesh`。**
    * 寫入路徑因此要分岔 —— 見 `rebuild`。
    *
-   * 池物件本身是第 0 段；第 1 段以後掛在它底下（`object.children` 因此仍是一池一個）。
+   * 池物件本身是一般組的第 0 段；其餘的段（一般組第 1 段以後、淡入組、淡出組，各
+   * `RUN_CAP` 段，第 g 組第 r 段是 `g·RUN_CAP + r`）掛在它底下（`object.children` 因此
+   * 仍是一池一個）
    */
   const pools: Record<PoolName, InstancedMesh | Points> =
     {} as Record<PoolName, InstancedMesh | Points>
@@ -201,7 +261,7 @@ export function createVegetationPools(
       altPt[name] = two
       side[name] = 0
       const runs: Points[] = []
-      for (let r = 0; r < RUN_CAP; r++) {
+      for (let r = 0; r < RUN_CAP * GROUPS; r++) {
         const geo = new BufferGeometry()
         geo.setAttribute('position', two[0]![0]!)
         geo.setAttribute('color', two[0]![1]!)
@@ -210,7 +270,7 @@ export function createVegetationPools(
         // 【包圍球自己給無限大】內容每次重建都換，three 算出來的球會過期；
         // 而 three 的剔除本來就關掉了 —— 見檔頭
         geo.boundingSphere = new Sphere(new Vector3(), Infinity)
-        const pts = new Points(geo, pointMaterials[name as PointPool])
+        const pts = new Points(geo, pointMaterialSets[name as PointPool][r < RUN_CAP * 2 ? 0 : 2]!)
         pts.frustumCulled = false
         if (r > 0) {
           pts.visible = false
@@ -234,8 +294,9 @@ export function createVegetationPools(
     // 【型別】上面那個 `continue` 已經把點池濾掉了，但 TS 收窄不到
     const base = geometries[name as MeshPool]
     const runs: MeshRun[] = []
-    for (let r = 0; r < RUN_CAP; r++) {
-      runs.push(createMeshRun(r === 0 ? base : shareGeometry(base), material, mats[0]!, cols[0]!))
+    for (let r = 0; r < RUN_CAP * GROUPS; r++) {
+      runs.push(createMeshRun(r === 0 ? base : shareGeometry(base),
+        meshMaterials[r < RUN_CAP * 2 ? 0 : 2]!, mats[0]!, cols[0]!))
       if (r > 0) {
         runs[r]!.mesh.visible = false
         runs[0]!.mesh.add(runs[r]!.mesh)
@@ -263,12 +324,21 @@ export function createVegetationPools(
   const entBox: Float32Array[][] = []
   /** 各池各份的筆數 */
   const entN: Int32Array[] = []
+  /**
+   * 各池各份淡入組、淡出組的第一筆（見 `vegetationRebuild.ts`）：一般組是 `[0, 淡入)`、
+   * 淡入組 `[淡入, 淡出)`、淡出組 `[淡出, 筆數)`
+   */
+  const entFadeIn: Int32Array[] = []
+  const entFadeOut: Int32Array[] = []
   for (let p = 0; p < poolCount; p++) {
-    const m = Math.min(tileCache, cap[POOL_NAMES[p]!])
+    // 【一格最多三筆】一般組、淡入組、淡出組各一筆
+    const m = Math.min(tileCache * GROUPS, cap[POOL_NAMES[p]!])
     entStart.push([new Int32Array(m), new Int32Array(m)])
     entEnd.push([new Int32Array(m), new Int32Array(m)])
     entBox.push([new Float32Array(m * 6), new Float32Array(m * 6)])
     entN.push(new Int32Array(2))
+    entFadeIn.push(new Int32Array(2))
+    entFadeOut.push(new Int32Array(2))
   }
   /**
    * 實例幾何的範圍，盒子由它推：水平半徑兩軸各一（實例繞 Y 轉，x 吃面寬倍率、
@@ -301,20 +371,21 @@ export function createVegetationPools(
   const runEnd = new Int32Array(maxEnt)
   const planes = new Float64Array(24)
 
-  /** 第 p 池畫 `runStart/runEnd` 的前 `n` 段；其餘的段藏起來 */
-  function setRuns(p: number, n: number): void {
+  /** 第 p 池第 `g` 組畫 `runStart/runEnd` 的前 `n` 段；那一組其餘的段藏起來 */
+  function setRuns(p: number, g: FadeGroup, n: number): void {
     const name = POOL_NAMES[p]!
     const sd = side[name]!
+    const o = g * RUN_CAP
     if (IS_POINT[name]) {
       const runs = pointRuns[name]!
       for (let r = 0; r < RUN_CAP; r++) {
-        const pts = runs[r]!
+        const pts = runs[o + r]!
         if (r < n) {
           pts.visible = true
           pts.geometry.setDrawRange(runStart[r]!, runEnd[r]! - runStart[r]!)
         } else {
-          // 【第 0 段只清空不藏】它是其餘段的父物件，藏了連孩子一起不畫
-          if (r > 0) pts.visible = false
+          // 【池物件只清空不藏】它是其餘段的父物件，藏了連孩子一起不畫
+          if (o + r > 0) pts.visible = false
           pts.geometry.setDrawRange(0, 0)
         }
       }
@@ -324,24 +395,40 @@ export function createVegetationPools(
     const mat = altMat[name]![sd]!
     const col = altCol[name]![sd]!
     for (let r = 0; r < RUN_CAP; r++) {
-      const run = runs[r]!
+      const run = runs[o + r]!
       if (r < n) {
         run.mesh.visible = true
         aimRun(run, mat, col, runStart[r]!)
         run.mesh.count = runEnd[r]! - runStart[r]!
       } else {
-        if (r > 0) run.mesh.visible = false
+        if (o + r > 0) run.mesh.visible = false
         run.mesh.count = 0
       }
     }
   }
 
-  /** 整條畫成一段 —— 剛換上、`CULL` 關掉、沒有相機時 */
+  /** 第 p 池掛著那一份裡，第 e 筆開始的實例位置；`e` 到底就是實例總數 */
+  function instanceAt(p: number, sd: number, e: number): number {
+    return e < entN[p]![sd]! ? entStart[p]![sd]![e]! : counts[POOL_NAMES[p]!]
+  }
+
+  /**
+   * 整條畫：三組各畫成一段 —— 剛換上、`CULL` 關掉、沒有相機時。淡出組只在淡化時畫
+   */
   function showAll(p: number): void {
+    const sd = side[POOL_NAMES[p]!]!
+    const a = instanceAt(p, sd, entFadeIn[p]![sd]!)
+    const b = instanceAt(p, sd, entFadeOut[p]![sd]!)
     const used = counts[POOL_NAMES[p]!]
     runStart[0] = 0
+    runEnd[0] = a
+    setRuns(p, FadeGroup.None, a > 0 ? 1 : 0)
+    runStart[0] = a
+    runEnd[0] = b
+    setRuns(p, FadeGroup.In, b > a ? 1 : 0)
+    runStart[0] = b
     runEnd[0] = used
-    setRuns(p, used > 0 ? 1 : 0)
+    setRuns(p, FadeGroup.Out, fading && used > b ? 1 : 0)
   }
 
   function cull(camera: Camera): void {
@@ -354,10 +441,39 @@ export function createVegetationPools(
       const used = counts[POOL_NAMES[p]!]
       const sd = side[POOL_NAMES[p]!]!
       const limit = used >= RUN_SPLIT_MIN ? RUN_CAP : 1
-      const n = used === 0 ? 0 : visibleRuns(
-        entN[p]![sd]!, entStart[p]![sd]!, entEnd[p]![sd]!, entBox[p]![sd]!,
-        planes, limit, runStart, runEnd)
-      setRuns(p, n)
+      const e1 = entFadeIn[p]![sd]!
+      const e2 = entFadeOut[p]![sd]!
+      const e3 = entN[p]![sd]!
+      const starts = entStart[p]![sd]!
+      const ends = entEnd[p]![sd]!
+      const boxes = entBox[p]![sd]!
+      // 三組各自接段：組與組之間的實例不相連，接在一起的話中間那一組會用錯材質
+      setRuns(p, FadeGroup.None, used === 0 ? 0
+        : visibleRuns(e1, starts, ends, boxes, planes, limit, runStart, runEnd, 0))
+      setRuns(p, FadeGroup.In, e2 === e1 ? 0
+        : visibleRuns(e2, starts, ends, boxes, planes, limit, runStart, runEnd, e1))
+      setRuns(p, FadeGroup.Out, !fading || e3 === e2 ? 0
+        : visibleRuns(e3, starts, ends, boxes, planes, limit, runStart, runEnd, e2))
+    }
+  }
+
+  /**
+   * 換級淡化的進度。`t` 0..1：淡入組用淡入的材質、淡出組有畫；`null`：沒在淡，淡入組用
+   * 一般材質、淡出組不畫。下一次 `cull`（或 `showAll`）才生效
+   */
+  function setFade(t: number | null): void {
+    uFade.value = t ?? 1
+    if (fading === (t !== null)) return
+    fading = t !== null
+    for (const name of POOL_NAMES) {
+      if (IS_POINT[name]) {
+        const set = pointMaterialSets[name as PointPool]
+        const runs = pointRuns[name]!
+        for (let r = RUN_CAP; r < RUN_CAP * 2; r++) runs[r]!.material = set[fading ? 1 : 0]!
+        continue
+      }
+      const runs = meshRuns[name]!
+      for (let r = RUN_CAP; r < RUN_CAP * 2; r++) runs[r]!.mesh.material = meshMaterials[fading ? 1 : 0]!
     }
   }
 
@@ -368,7 +484,7 @@ export function createVegetationPools(
 
   function dispose(): void {
     disposeFloraGeometries(geometries)
-    material.dispose()
+    for (const m of meshMaterials) m.dispose()
     for (const m of pointList) m.dispose()
     for (const name of POOL_NAMES) {
       for (const run of meshRuns[name] ?? []) {
@@ -381,7 +497,7 @@ export function createVegetationPools(
 
   return {
     group, altPt, pointBase, altMat, altCol, side, pointRuns,
-    poolCount, entStart, entEnd, entBox, entN, geoRx, geoRz,
-    geoLo, geoHi, counts, showAll, cull, setPointLight, dispose,
+    poolCount, entStart, entEnd, entBox, entN, entFadeIn, entFadeOut, geoRx, geoRz,
+    geoLo, geoHi, counts, showAll, cull, setFade, setPointLight, dispose,
   }
 }

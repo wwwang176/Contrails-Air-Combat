@@ -98,6 +98,9 @@ const tiles = {
   slotUsed: new Uint8Array(STRIP_LOD.length).fill(1),
   slotLod: Int8Array.from(STRIP_LOD),
   slotBush: new Int8Array(STRIP_LOD.length).fill(-1),
+  // 這一頁不淡化（重建不帶 fade），畫面上的級數不讀
+  slotShownLod: Int8Array.from(STRIP_LOD),
+  slotShownBush: new Int8Array(STRIP_LOD.length).fill(-1),
   slotKey: Float64Array.from(STRIP_LOD.map((_, i) => i)),
 }
 const rebuild = createVegetationRebuild(cap, tiles, pools, { overflow: 0, rebuilds: 0 })

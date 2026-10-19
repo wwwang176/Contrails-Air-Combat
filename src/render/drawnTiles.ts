@@ -13,6 +13,10 @@ import { ClampToEdgeWrapping, DataTexture, LinearFilter, RedFormat, UnsignedByte
  *
  * 【以重建開始時的格為中心】貼圖的第 k 格是植被格 `origin + k`；`origin` 跟著上傳一起換。
  * 植被圈半徑 24 格，64 格的窗兩側各留 8 格，邊上恆為 0（夾邊取樣讀到 0）
+ *
+ * 【淡化】植被換級時淡入淡出（`vegetation.ts`），這張表跟著由舊的值漸變到新的值：
+ * `publish(true)` 先把畫面上那一份搬到新的原點、不改值，之後每幀 `setFade(t)` 寫
+ * `舊 + (新 − 舊) × t`
  */
 
 /** 每邊幾格 */
@@ -30,9 +34,14 @@ export interface DrawnTiles {
   stage(ci: number, cj: number): void
   /** 這一格有畫樹（`stage` 之後、`publish` 之前） */
   mark(i: number, j: number): void
-  /** 新的樹換上時呼叫：上傳記下來的那一份 */
-  publish(): void
-  /** 已發布的那一份裡，植被格 `(i, j)` 有沒有畫樹（測距工具用） */
+  /**
+   * 新的樹換上時呼叫。`fade` 為假：上傳記下來的那一份。為真：畫面上那一份搬到新的原點、
+   * 值不變，之後由 `setFade` 漸變到記下來的那一份
+   */
+  publish(fade?: boolean): void
+  /** 淡化進度 0..1，寫 `舊 + (新 − 舊) × t` 並上傳。不配置 */
+  setFade(t: number): void
+  /** 已發布的那一份（淡化的終點）裡，植被格 `(i, j)` 有沒有畫樹（測距工具用） */
   drawnAt(i: number, j: number): boolean
   dispose(): void
 }
@@ -41,6 +50,9 @@ export function createDrawnTiles(): DrawnTiles {
   const n = DRAWN_TILES_N
   const data = new Uint8Array(n * n)
   const pending = new Uint8Array(n * n)
+  /** 淡化的起點與終點，都在目前的原點上 */
+  const from = new Uint8Array(n * n)
+  const to = new Uint8Array(n * n)
   const tex = new DataTexture(data, n, n, RedFormat, UnsignedByteType)
   tex.magFilter = LinearFilter
   tex.minFilter = LinearFilter
@@ -64,15 +76,36 @@ export function createDrawnTiles(): DrawnTiles {
       if (x < 0 || y < 0 || x >= n || y >= n) return
       pending[y * n + x] = 255
     },
-    publish() {
-      data.set(pending)
+    publish(fade = false) {
+      if (fade) {
+        // 畫面上那一份搬到新的原點：新窗的第 (x, y) 格是舊窗的第 (x + dx, y + dy) 格
+        const dx = pi - origin.x
+        const dy = pj - origin.y
+        for (let y = 0; y < n; y++) {
+          for (let x = 0; x < n; x++) {
+            const ox = x + dx
+            const oy = y + dy
+            from[y * n + x] = ox >= 0 && oy >= 0 && ox < n && oy < n ? data[oy * n + ox]! : 0
+          }
+        }
+        data.set(from)
+      } else {
+        data.set(pending)
+        from.set(pending)
+      }
+      to.set(pending)
       origin.set(pi, pj)
+      tex.needsUpdate = true
+    },
+    setFade(t) {
+      const k = Math.min(1, Math.max(0, t))
+      for (let i = 0; i < n * n; i++) data[i] = Math.round(from[i]! + (to[i]! - from[i]!) * k)
       tex.needsUpdate = true
     },
     drawnAt(i, j) {
       const x = i - origin.x
       const y = j - origin.y
-      return x >= 0 && y >= 0 && x < n && y < n && data[y * n + x]! > 0
+      return x >= 0 && y >= 0 && x < n && y < n && to[y * n + x]! > 0
     },
     dispose() { tex.dispose() },
   }

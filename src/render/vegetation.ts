@@ -8,6 +8,7 @@ import {
   TILE_SIZE, FLORA_RADIUS, TILES_PER_FRAME, REBUILD_BUDGET, MAX_PER_TILE, CAPACITY,
   SLOT_SPAN, POOL_NAMES, BUILDING_POOLS, outerFor, lodFor, bushLevelFor,
   REBUILD_EVERY, REBUILD_MOVE, REBUILD_IDLE, LOD_NONE, BROAD_BY_LOD, CONE_BY_LOD, BUSH_BY_LEVEL,
+  CROSSFADE_SECONDS, FADE_HOLD,
 } from './vegetationPolicy'
 import type { Season } from './season'
 import { createViewShade, type ViewShade } from './viewShade'
@@ -59,7 +60,11 @@ export interface Vegetation {
    * 畫面上會是新舊兩種亮度並存的補丁。
    */
   setPointLight(scale: number, tint?: number): void
-  update(centerX: number, centerZ: number): void
+  /**
+   * 每幀呼叫。`time` 是秒、單調遞增（地形給真實時間）：給了的話換級的格在
+   * `CROSSFADE_SECONDS` 內由舊的一級淡到新的一級；沒給（測試、工具頁）就換上即完成
+   */
+  update(centerX: number, centerZ: number, time?: number): void
   /**
    * 依這一台相機決定每一池畫哪幾段。**每次 render 之前呼叫**（`scene.onBeforeRender`），
    * 不呼叫的話每一池畫整條。`CULL.enabled` 關掉時也是畫整條。
@@ -149,11 +154,11 @@ export function createVegetation(
   const maxPerTile = opts.maxPerTile ?? MAX_PER_TILE
   const radius = opts.radius ?? FLORA_RADIUS
   /**
-   * 【快取要比圈大】移動時新舊圈會暫時重疊。圈內格數是
-   * `π r² / TILE_SIZE²`，多留一成六 —— 6 km 是 1,815 對 2,106。
+   * 【快取要比圈大】移動時新舊圈會暫時重疊，出了圈還畫著的格最多再留 `FADE_HOLD`。
+   * 以 `radius + FADE_HOLD` 的圓算格數，多留一成六 —— 6 km 是 2,470 格。
    */
   const tileCache = opts.tileCache ?? Math.ceil(
-    ((Math.PI * radius * radius) / (TILE_SIZE * TILE_SIZE)) * 1.16,
+    ((Math.PI * (radius + FADE_HOLD) ** 2) / (TILE_SIZE * TILE_SIZE)) * 1.16,
   )
   const tilesPerFrame = opts.tilesPerFrame ?? TILES_PER_FRAME
   const rebuildBudget = opts.rebuildBudget ?? REBUILD_BUDGET
@@ -161,7 +166,7 @@ export function createVegetation(
   // 【沒給就自己建一份正午的】量測台與工具頁沒有地形來換時段；燈也是正午
   const ownShade = opts.viewShade === undefined ? createViewShade(season) : null
   const pools = createVegetationPools(cap, season, tileCache, opts.viewShade ?? ownShade!)
-  const { group, counts, cull, setPointLight } = pools
+  const { group, counts, cull, setPointLight, setFade } = pools
   const dispose = (): void => {
     pools.dispose()
     ownShade?.dispose()
@@ -208,6 +213,12 @@ export function createVegetation(
   const slotLod = new Int8Array(tileCache)
   /** 灌木的級數（`bushLevelFor`），−1 = 還沒定級 */
   const slotBush = new Int8Array(tileCache)
+  /**
+   * 畫面上這一格是哪一級、灌木哪一級：換上時記成那一次重建的級數。還沒畫的格是
+   * `LOD_NONE`／−1（查 `POOL_LUT` 每一種都不畫）。重建拿它判斷哪些株換級、要淡入淡出
+   */
+  const slotShownLod = new Int8Array(tileCache).fill(LOD_NONE)
+  const slotShownBush = new Int8Array(tileCache).fill(-1)
   /**
    * 逐格的外圈半徑，m。**建格時算一次。**
    *
@@ -336,6 +347,9 @@ export function createVegetation(
     // 沿用上一位住戶的值會讓「其實變了」被當成沒變
     slotLod[slot] = -1
     slotBush[slot] = -1
+    // 【畫面上還沒有這一格】上一位住戶畫過的級數不算 —— 新的一格由沒有淡進來
+    slotShownLod[slot] = LOD_NONE
+    slotShownBush[slot] = -1
     bySlot.set(keyOf(i, j), slot)
     // 【樹與灌木交給 relevel 標】它一定會看到 -1 → 新級數的變化。
     // 這裡只要補上它不管的建築
@@ -360,11 +374,21 @@ export function createVegetation(
     return cx * cx + cz * cz <= radius2
   }
 
-  /** 放掉圈外的格 */
-  function evict(): void {
+  const hold2 = (radius + FADE_HOLD) ** 2
+
+  /**
+   * 放掉圈外的格。`hold`（會淡化的時候）：**畫面上還有樹的先留著**（離圈不到 `FADE_HOLD`），
+   * 等某一次重建把它淡出再放，見 `FADE_HOLD`
+   */
+  function evict(hold: boolean): void {
     for (let s = 0; s < tileCache; s++) {
       if (slotUsed[s] === 0) continue
       if (inRange(slotI[s]!, slotJ[s]!)) continue
+      if (hold && slotShownLod[s] !== LOD_NONE) {
+        const cx = slotI[s]! * TILE_SIZE + TILE_SIZE / 2 - centerX
+        const cz = slotJ[s]! * TILE_SIZE + TILE_SIZE / 2 - centerZ
+        if (cx * cx + cz * cz <= hold2) continue
+      }
       freeSlot(s)
       dirty = true
     }
@@ -494,18 +518,64 @@ export function createVegetation(
   }
 
   const rebuild = createVegetationRebuild(
-    cap, { slotBuf, slotUsed, slotLod, slotBush, slotKey }, pools, stats,
+    cap, { slotBuf, slotUsed, slotLod, slotBush, slotShownLod, slotShownBush, slotKey }, pools, stats,
   )
 
-  /** 往下寫一段；寫完、新的樹換上的那一次，地面那一份「哪些格有畫樹」跟著發布 */
-  function stepRebuild(budget: number): boolean {
-    const done = rebuild.step(budget)
-    if (done) opts.drawnTiles?.publish()
-    return done
+  // ── 換級淡化 ────────────────────────────────────────
+  /** 這一次重建有沒有寫淡入、淡出組（開始時定） */
+  let jobFade = false
+  /** 正在淡化：換上的那一刻的遊戲時間；沒在淡是 NaN */
+  let fadeStart = Number.NaN
+  /** 最近一次 `update` 的遊戲時間；沒給過是 NaN */
+  let now = Number.NaN
+
+  /**
+   * 淡完：淡入組改回一般材質、淡出組不畫、地面到終點。有淡化組的池標髒，下一次重建把它們
+   * 併回一般組（停著的話 `REBUILD_IDLE` 之後）
+   */
+  function endFade(): void {
+    if (Number.isNaN(fadeStart)) return
+    fadeStart = Number.NaN
+    setFade(null)
+    opts.drawnTiles?.setFade(1)
+    for (let p = 0; p < POOL_NAMES.length; p++) {
+      if (rebuild.fadePools[p] === 1) {
+        poolDirty[POOL_NAMES[p]!] = true
+        dirty = true
+      }
+    }
   }
 
-  function startRebuild(): void {
-    rebuild.start(poolDirty)
+  /**
+   * 往下寫一段；寫完、新的樹換上的那一次：畫面上的級數記成這一次的級數、地面那一份
+   * 「哪些格有畫樹」跟著發布；有換級的株就開始淡
+   */
+  function stepRebuild(budget: number): boolean {
+    const done = rebuild.step(budget)
+    if (!done) return false
+    let anyFade = false
+    for (let p = 0; p < POOL_NAMES.length; p++) if (rebuild.fadePools[p] === 1) anyFade = true
+    const fade = jobFade && anyFade
+    opts.drawnTiles?.publish(fade)
+    // 【級數在重建期間凍住】此刻的 slotLod 就是這一次寫進去的級數
+    slotShownLod.set(slotLod)
+    slotShownBush.set(slotBush)
+    if (fade) {
+      // 【沒有時間就不淡】開始時有給、換上這一幀沒給的話直接到終點，淡入組才不會停在 0
+      fadeStart = Number.isNaN(now) ? 0 : now
+      if (Number.isNaN(now)) {
+        endFade()
+      } else {
+        setFade(0)
+        opts.drawnTiles?.setFade(0)
+      }
+    }
+    return true
+  }
+
+  function startRebuild(fade: boolean): void {
+    jobFade = fade
+    rebuild.start(poolDirty, fade)
     // 【記下這一次會畫出來的格】級數凍住到寫完（見 `vegetationRebuild.ts`），換上時發布
     const drawn = opts.drawnTiles
     if (drawn !== undefined) {
@@ -519,18 +589,30 @@ export function createVegetation(
     lastBuildZ = centerZ
   }
 
-  function update(cx: number, cz: number): void {
+  function update(cx: number, cz: number, time?: number): void {
     // 【傳送】移動超過半徑的話舊的一圈完全用不上了。`evict` 本來就會放掉
     // 它們，這裡只是把它寫明：範圍一換，`fill` 挑的就是新的格
     centerX = cx
     centerZ = cz
     started = true
+    now = time ?? Number.NaN
+    if (!Number.isNaN(fadeStart)) {
+      // 【時間倒退（短片跳段）從頭淡】
+      if (now < fadeStart) fadeStart = now
+      const t = (now - fadeStart) / CROSSFADE_SECONDS
+      if (!(t < 1)) {
+        endFade()
+      } else {
+        setFade(t)
+        opts.drawnTiles?.setFade(t)
+      }
+    }
     // 【重建進行中只往下寫】tile 與級數凍住到寫完，見 `vegetationRebuild.ts`
     if (rebuild.active) {
       if (stepRebuild(rebuildBudget)) sinceRebuild = 0
       return
     }
-    evict()
+    evict(!Number.isNaN(now))
     fill(tilesPerFrame)
     relevel()
     sinceRebuild++
@@ -543,9 +625,10 @@ export function createVegetation(
     // 【補格期間照樣重建】在 `made !== 0` 時禁止重建的話 —— 6 km 圈有 1,812
     // 格，冷啟動與傳送之後那是好幾秒的空白。上傳本身不是同步點，真正的
     // 同步點是別處每幀的空傳，見 `render/debris.ts`
-    if (dirty && sinceRebuild >= REBUILD_EVERY
+    // 【淡化期間不開始】換上時淡化組會被截斷：淡入的格一下子變成一般、淡出的格一下子不見
+    if (dirty && Number.isNaN(fadeStart) && sinceRebuild >= REBUILD_EVERY
       && (moved >= REBUILD_MOVE || sinceRebuild >= REBUILD_IDLE)) {
-      startRebuild()
+      startRebuild(!Number.isNaN(now))
       if (stepRebuild(rebuildBudget)) sinceRebuild = 0
     }
   }
@@ -554,6 +637,8 @@ export function createVegetation(
     if (!started) update(centerX, centerZ)
     // 【進行中的重建先寫完】它寫的是開始那一幀的狀態；之後照常補格、換級
     if (rebuild.active && stepRebuild(Infinity)) sinceRebuild = 0
+    // 【settle 不淡】定格截圖要的是「現在就對」：淡到一半的直接到終點
+    endFade()
     if (force === true) {
       for (const name of POOL_NAMES) poolDirty[name] = true
       dirty = true
@@ -561,11 +646,12 @@ export function createVegetation(
     // 【一次補一整批，不是一格一格】`fill` 是走整條格環的，`fill(1)` 迴圈
     // 會變成 O(格數 × 環長) —— 12 km 是兩千六百萬次
     for (let n = 0; n < 4; n++) if (fill(tileCache) === 0) break
-    evict()
+    // settle 不淡，出了圈的格不必留
+    evict(false)
     relevel()
     // 【settle 不受節流也不分幀】定格截圖要的是「現在就對」
     if (dirty) {
-      startRebuild()
+      startRebuild(false)
       if (stepRebuild(Infinity)) sinceRebuild = 0
     }
   }

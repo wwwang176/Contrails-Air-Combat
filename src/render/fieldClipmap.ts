@@ -777,8 +777,8 @@ ${horizonColour}`)
   bool tex = uBypass < 0.5 && tIn > 0.0${farOutTex};
   vec3 c = vec3(0.0);
   // 算式：旁路、內圈；沒有最外層時還有遠窗外。近窗外、沒有畫樹的地方畫遠處的樣子，
-  // 與遠圖烘的相同；有畫樹的地方與中圖相同
-  fieldFar = eN >= 1.0 && drawn < 0.5 ? 1.0 : 0.0;${tree ? `
+  // 與遠圖烘的相同；有畫樹的地方與中圖相同。照 drawn 連續變（植被換級淡化時它逐幀走）
+  fieldFar = eN >= 1.0 ? 1.0 - drawn : 0.0;${tree ? `
   vec2 s = vec2(0.0);
   if (proc) { c = fieldColorAt(w); s = fieldTree * ${TREE_BAKE_SCALE.toFixed(3)}; }` : `
   if (proc) c = fieldColorAt(w);`}
