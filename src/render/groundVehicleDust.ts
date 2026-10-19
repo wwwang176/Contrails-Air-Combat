@@ -18,10 +18,13 @@ export function createVehicleDustEmission(dust: Pick<Particles, 'emit'>) {
       const remaining = clocks[i]! - dt
       if (remaining > 0) { clocks[i] = remaining; continue }
       clocks[i] = TRACK_DUST_EVERY
-      const yaw = 2 * Math.atan2(t.orientation.y, t.orientation.w)
+      // 車尾在車頭（−Z）的反方向。姿態含俯仰與側傾，車頭要照四元數轉出來
+      const q = t.orientation
+      const fx = -2 * (q.x * q.z + q.w * q.y)
+      const fz = -(1 - 2 * (q.x * q.x + q.y * q.y))
       const back = t.unit.realLength / 2
-      dust.emit(t.position.x + Math.sin(yaw) * back, t.position.y + 0.5,
-        t.position.z + Math.cos(yaw) * back, 0, 0.8, 0, 0.6)
+      dust.emit(t.position.x - fx * back, t.position.y + 0.5,
+        t.position.z - fz * back, 0, 0.8, 0, 0.6)
     }
   }
   return { update, reset: () => { clocks.fill(0) } }

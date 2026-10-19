@@ -1,4 +1,4 @@
-import { Quaternion, Vector3 } from 'three'
+import { Euler, Quaternion, Vector3 } from 'three'
 import { GROUND_GUN_MOUNTS } from '../specs/groundGunMounts'
 import type { GunMount } from '../weapons/gunMount'
 import { boundingRadius, type Box } from './hit'
@@ -157,11 +157,16 @@ export interface GroundTarget extends StrikeTarget {
   readonly armour: number
   /** 世界座標，底面中心。`y` 是地面高度。沿路線移動的車每一步重寫 */
   readonly position: Vector3
-  /** 只有航向（繞 Y）。 */
+  /**
+   * 航向；車輛（`unit.vehicle`）另外隨地面俯仰、側傾（`groundPose`）。命中盒、
+   * 砲塔的瞄準與槍口都照這一份轉
+   */
   readonly orientation: Quaternion
   readonly heading: number
   /** 開局位置。`resetGroundTarget` 抄回去。 */
   readonly spawn: Vector3
+  /** 開局姿態，含坡度。`settleGroundTargets` 填、`resetGroundTarget` 抄回去 */
+  readonly spawnOrientation: Quaternion
   /**
    * 包圍球半徑，m。**是上界** —— 命中盒最遠的角。算小了不會報錯，子彈只在
    * 特定角度穿過去（與 `hit.ts` 的 `boundingRadius` 同一條規則）。
@@ -286,6 +291,7 @@ export function createGroundTarget(
     orientation: new Quaternion().setFromAxisAngle(UP, heading),
     heading,
     spawn: new Vector3(x, 0, z),
+    spawnOrientation: new Quaternion().setFromAxisAngle(UP, heading),
     radius: boundingRadius(unit.hull),
     hull: unit.hull,
     speed: 0,
@@ -327,7 +333,47 @@ export function settleGroundTargets(
     const y = groundAt(t.position.x, t.position.z)
     t.position.y = y
     t.spawn.y = y
+    groundPose(t, t.position.x, t.position.z, t.heading, groundAt)
+    t.spawnOrientation.copy(t.orientation)
   }
+}
+
+/**
+ * 量坡度的半跨距，m：在車身中心的前後、左右各這麼遠取地面高度。
+ *
+ * 【越過折線不跳】地形是三角面，兩面之間的坡度是一步跳過去的。取 12 m 內的平均坡度，
+ * 車身就隨著車開過這 12 m 由這一面的坡度線性過渡到下一面。跨距比車身短的話，
+ * 折線兩側的取樣點各在一面上，過折線時是一頓
+ */
+export const TILT_REACH = 6
+
+const EULER = /* @__PURE__ */ new Euler(0, 0, 0, 'YXZ')
+
+/**
+ * 依地面把 `t.orientation` 寫成航向 × 俯仰 × 側傾。**只有車輛**（`unit.vehicle`）
+ * 會傾斜 —— 人、砲位、建物、停放的飛機維持直立，只寫航向。
+ *
+ * 熱路徑（每一步每一台移動的車）：不配置。
+ */
+export function groundPose(
+  t: GroundTarget, x: number, z: number, heading: number,
+  groundAt: (x: number, z: number) => number,
+): void {
+  if (t.unit.vehicle !== true) {
+    t.orientation.setFromAxisAngle(UP, heading)
+    return
+  }
+  // 車頭（−Z）轉了 heading 之後朝 (−s, 0, −c)；右手（+X）朝 (c, 0, −s)
+  const s = Math.sin(heading)
+  const c = Math.cos(heading)
+  const r = TILT_REACH
+  const front = groundAt(x - s * r, z - c * r)
+  const back = groundAt(x + s * r, z + c * r)
+  const right = groundAt(x + c * r, z - s * r)
+  const left = groundAt(x - c * r, z + s * r)
+  // 繞 X 正轉是抬頭、繞 Z 正轉是右側抬高
+  EULER.set(Math.atan2(front - back, 2 * r), heading, Math.atan2(right - left, 2 * r))
+  t.orientation.setFromEuler(EULER)
 }
 
 /** 回到開局狀態。沒有波次的關重開不重建 World —— 與 `resetShip` 同一個理由。 */
@@ -345,8 +391,8 @@ export function resetGroundTarget(t: GroundTarget): void {
   t.speed = 0
   t.taxi = null
   t.rolling = false
-  // 【航向也要回開局】移動的車整場都在改 orientation；靜止的目標抄回去不變
-  t.orientation.setFromAxisAngle(UP, t.heading)
+  // 【姿態也要回開局】移動的車整場都在改 orientation；靜止的目標抄回去不變
+  t.orientation.copy(t.spawnOrientation)
   // 【砲也要回開局】留著上一場的目標與射速時鐘，重開之後第一步就會對著
   // 一個已經不存在的索引開火
   if (t.guns.length > 0) resetGroundBattery(t)
