@@ -26,8 +26,10 @@ export interface ParticleConfig {
   gravity: number
   /** 指數阻尼，s⁻¹。終端速度是 `gravity / drag` */
   drag: number
-  /** 出生時的不透明度，線性淡到 0 */
+  /** 淡出曲線的起始不透明度，線性淡到 0；有淡入時再乘上淡入比例。 */
   alphaFrom: number
+  /** 出生後由透明平滑淡入的秒數；省略或 0 維持立即出現。 */
+  fadeIn?: number
   /**
    * 壽命的隨機幅度，比例。0.25 就是 0.75×~1.25×。省略等於不抖動。
    *
@@ -170,10 +172,13 @@ export function particleRiseShade(dy: number, span: number, range: number): numb
   return 1 - range * (1 - k)
 }
 
-/** 年齡 → 不透明度。線性淡出；壽命之外是 0。 */
-export function particleAlpha(age: number, life: number, alphaFrom: number): number {
+/** 年齡 → 不透明度。可選的平滑淡入乘上既有線性淡出；壽命之外是 0。 */
+export function particleAlpha(age: number, life: number, alphaFrom: number, fadeIn = 0): number {
   if (age < 0 || age >= life) return 0
-  return alphaFrom * (1 - age / life)
+  const alpha = alphaFrom * (1 - age / life)
+  if (fadeIn <= 0 || age >= fadeIn) return alpha
+  const t = age / fadeIn
+  return alpha * t * t * (3 - 2 * t)
 }
 
 /** 模組私有的暫存。熱路徑：不配置。 */
@@ -476,7 +481,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
         if (riseSpan > 0) shade *= particleRiseShade(ny - birthY[i]!, riseSpan, riseRange)
         if (shade !== 1) TINT.multiplyScalar(shade)
         object.setColorAt(i, TINT)
-        a[i] = particleAlpha(na, lf, cfg.alphaFrom)
+        a[i] = particleAlpha(na, lf, cfg.alphaFrom, cfg.fadeIn)
       }
       // 【沒有任何格子被動到就不必上傳】整池全死時省下一次完整的
       // buffer 上傳

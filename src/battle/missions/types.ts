@@ -642,6 +642,8 @@ export interface MissionBattle {
    * 重播的護欄會被純視覺的改動弄紅
    */
   readonly theater?: MissionTheater
+  /** 環境霧專用池，純視覺；不需要地面交戰，也不改全圖的距離霧。 */
+  readonly ambientFog?: MissionAmbientFog
   /**
    * 開場高度，m。**省略 = `DEFAULT_BATTLE.altitude`（4,000）。**
    *
@@ -876,6 +878,27 @@ export interface MissionMopUp {
   readonly within: readonly [number, number]
 }
 
+/** 環境霧的分布與外觀；尺寸、散布及離地高度均為公尺，間隔為秒。 */
+export interface MissionAmbientFog {
+  /** 霧團來源，世界座標；高度另取當地地表。 */
+  readonly places: readonly { readonly x: number; readonly z: number }[]
+  /** sRGB 底色，渲染時稍混入當關的霧色。 */
+  readonly tint: number
+  /** 混入場景霧色的比例；省略為 0.25。 */
+  readonly skyMix?: number
+  /** 整體亮度倍率；省略為 1。 */
+  readonly shade?: number
+  /** 每團隨機壓暗的幅度；省略為 0.12。 */
+  readonly shadeJitter?: number
+  readonly every: number
+  readonly spread: number
+  readonly sizeFrom: number
+  readonly sizeTo: number
+  readonly alpha: number
+  readonly liftMin: number
+  readonly liftMax: number
+}
+
 /** 地面戰的戲。見 `render/groundBattle.ts` */
 export interface MissionTheater {
   /** 會開火的單位 */
@@ -901,16 +924,11 @@ export interface MissionTheater {
   /** 戰場的高度霧（`render/heightFog.ts`）：圓心與半徑，世界座標，m。省略 = 沒有 */
   readonly haze?: { readonly x: number; readonly z: number; readonly radius: number }
   /**
-   * 高度霧的底色（sRGB 十六進位），再混四成天色（`battleFogTint`）。**省略 = 灰黃的塵煙**。塵團的顏色
-   * 跟著霧（霧色乘 0.85），只在有 `haze` 的戰場有意義。放在 `theater` 底下而不是 `haze` 裡：
+   * 高度霧的底色（sRGB 十六進位），再混四成天色（`battleFogTint`）。**省略 = 灰黃的塵煙**。
+   * 放在 `theater` 底下而不是 `haze` 裡：
    * `battle-haze-wiring.test.ts` 對 `haze` 做整個物件的比對
    */
   readonly fogColor?: number
-  /**
-   * 塵團的出處，世界座標：每一處附近持續冒出慢慢長大、往同一個方向飄散的塵團（`render/groundBattle.ts`）。
-   * 顏色跟著高度霧（`haze`），所以只在有 `haze` 的戰場有意義。省略 = 沒有
-   */
-  readonly dusts?: readonly { readonly x: number; readonly z: number }[]
 }
 
 /**

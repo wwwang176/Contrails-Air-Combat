@@ -535,7 +535,7 @@ export const BATTLE_HAZE = (() => {
 })()
 
 /**
- * 塵團的出處（`render/groundBattle.ts`）：十門反坦克砲，加上沿村的主街等距的五個點。
+ * 環境霧的出處（`render/ambientFog.ts`）：十門反坦克砲，加上沿村的主街等距的五個點。
  * 高度霧只染得到有幾何的像素，側看沒有一團看得見的霧；塵團補這個，只放在有人活動的地方
  */
 export const RZHEV_DUSTS: readonly { x: number; z: number }[] = [

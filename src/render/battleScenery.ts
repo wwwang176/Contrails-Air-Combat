@@ -1,7 +1,7 @@
 /** 戰場模型與地面戰效果的所有權；每幀更新由呼叫端依原本順序直接使用同一批物件。 */
 import type { FogExp2, Scene, Texture } from 'three'
 import type { World } from '../world/World'
-import type { MissionTheater } from '../battle/missions/types'
+import type { MissionAmbientFog, MissionTheater } from '../battle/missions/types'
 import type { GroundLivery, GroundUnitId } from '../specs/ground'
 import type { FirePuffFn } from './shipFires'
 import type { createShipModels, ShipModels } from './ships'
@@ -12,6 +12,7 @@ import type { createGroundBattle, GroundBattle } from './groundBattle'
 import type { createBalloonModels, BalloonModels } from './balloons'
 import { battleFogTint, clearBattleFog, setBattleFog } from './heightFog'
 import { createGroundVehicleDust } from './groundVehicleDust'
+import { createAmbientFog } from './ambientFog'
 
 type SceneryWorld = Pick<World, 'ships' | 'groundTargets' | 'balloons'>
 
@@ -47,9 +48,10 @@ export interface BattleScenery {
   readonly balloonModels: BalloonModels | null
   readonly groundBattle: GroundBattle | null
   readonly vehicleDust: ReturnType<typeof createGroundVehicleDust> | null
+  readonly ambientFog: ReturnType<typeof createAmbientFog> | null
   readonly battleFogOn: boolean
   /** @param groundLivery 地面單位的塗裝（`BattleConfig.groundLivery`）。省略 = 預設配色 */
-  rebuild(world: SceneryWorld, theater: MissionTheater | undefined, groundLivery?: GroundLivery): void
+  rebuild(world: SceneryWorld, theater: MissionTheater | undefined, groundLivery?: GroundLivery, ambientFog?: MissionAmbientFog): void
   /** 模型與地面戰效果分開清理，讓離場流程維持原有順序。 */
   clearModels(): void
   releaseGroundBattle(): void
@@ -69,11 +71,12 @@ export function createBattleScenery(
     balloonModels: null as BalloonModels | null,
     groundBattle: null as GroundBattle | null,
     vehicleDust: null as ReturnType<typeof createGroundVehicleDust> | null,
+    ambientFog: null as ReturnType<typeof createAmbientFog> | null,
     battleFogOn: false,
     rebuild, clearModels, releaseGroundBattle,
   }
 
-  function rebuild(world: SceneryWorld, theater: MissionTheater | undefined, groundLivery?: GroundLivery): void {
+  function rebuild(world: SceneryWorld, theater: MissionTheater | undefined, groundLivery?: GroundLivery, ambientFog?: MissionAmbientFog): void {
     // 【船的模型每一場重建】艦隊是設定的一部分 —— 沿用上一場的話，換一張
     // 沒有艦隊的卡時那幾艘會留在海上。
     clearShips()
@@ -93,6 +96,10 @@ export function createBattleScenery(
     }
     // 地面戰的戲：純畫面，從卡片讀（不進 `BattleConfig`）。每一場重建
     releaseGroundBattle()
+    if (ambientFog !== undefined && ambientFog.places.length > 0) {
+      state.ambientFog = createAmbientFog(ambientFog, (scene.fog as FogExp2).color, assets.smokeTexture)
+      if (state.ambientFog.object !== null) scene.add(state.ambientFog.object)
+    }
     if (theater !== undefined && world.groundTargets.length > 0) {
       const cannon = state.groundModels !== null && assets.gunFired !== undefined
         ? { muzzle: state.groundModels.muzzle, fire: assets.gunFired } : undefined
@@ -117,6 +124,11 @@ export function createBattleScenery(
   }
 
   function releaseGroundBattle(): void {
+    if (state.ambientFog !== null) {
+      if (state.ambientFog.object !== null) scene.remove(state.ambientFog.object)
+      state.ambientFog.dispose()
+      state.ambientFog = null
+    }
     if (state.vehicleDust !== null) {
       scene.remove(state.vehicleDust.object)
       state.vehicleDust.dispose()

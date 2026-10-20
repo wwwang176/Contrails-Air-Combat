@@ -7,6 +7,7 @@ import { A6M5 } from '../../specs/a6m5'
 import { G4M } from '../../specs/g4m'
 import { GROUND_FLAK_SPEC } from '../../world/shipGuns'
 import { A6M5_BOMB_LOADOUT } from '../../weapons/stores'
+import { PLANT_LOW_FOG } from '../../world/leuna'
 import { CONVOY, KILL, LEUNA_GROUND, TF58_GROUP } from './shared'
 import type { MissionCard } from './types'
 
@@ -118,6 +119,11 @@ export const ALLIES: readonly MissionCard[] = [
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       entry: 'headOn',
       terrain: 'leuna',
+      ambientFog: {
+        places: PLANT_LOW_FOG, tint: 0xbab7aa,
+        every: 0.48, spread: 170, sizeFrom: 50, sizeTo: 360,
+        alpha: 0.22, liftMin: 10, liftMax: 28,
+      },
       // 進場走廊加上廠區；最遠的是廠區東南角的重砲（5.4, −12.0 km）
       arena: { x: 0, z: -4000, radius: 13000 },
       // 高過 1,500 m 的投彈高度，不擋攻擊路線
