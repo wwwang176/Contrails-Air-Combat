@@ -14,7 +14,7 @@
 |---|---|---|---|---|
 | `naval5in` | 艦艇 127 mm（`flak` 層） | `gun-5in` | 0 dB | — |
 | `heavyFlak` | 陸上 Flak 18、90 mm M1A1 | `gun-heavy-flak` | 0 dB | — |
-| `tankGun` | T-34、雪曼、IV 號、虎式（地面戰） | `gun-tank` | −3 dB | — |
+| `tankGun` | T-34、雪曼、IV 號、虎式（地面戰） | `gun-tank` | −1.5 dB | — |
 | `atGun` | ZiS-3（地面戰） | `gun-at` | −3 dB | — |
 | `mortar` | 迫擊砲班（地面戰） | `gun-mortar` | −6 dB | — |
 | `naval40` | 艦艇 40 mm（`autocannon` 層） | `gun-40mm` | −6 dB | — |
@@ -31,7 +31,7 @@
 
   | 種類 | naval5in | heavyFlak | tankGun | atGun | mortar | naval40 | naval20 | lightFlak20 | quad50 | roof50 | infantry |
   |---|---|---|---|---|---|---|---|---|---|---|---|
-  | dB | +2.8 | +3.3 | −6.0 | −5.9 | −7.4 | −6.4 | −10.4 | −6.4 | −8.7 | −10.7 | −14.7 |
+  | dB | +2.8 | +3.3 | −4.5 | −5.9 | −7.4 | −6.4 | −10.4 | −6.4 | −8.7 | −10.7 | −14.7 |
 - 每發：播放速度 1 ± 4%、音量 ± 1 dB，均勻亂數
 - 不再用播放速度與低通裝口徑（每種都有自己的檔）
 - 每一座砲位、地面戰每一台各自限頻率，時段長度（`gap`）依種類：艦砲／重高砲 0.12 s、
