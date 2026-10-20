@@ -30,10 +30,17 @@ function setup() {
     pause: vi.fn(),
   }
   const output = { name: 'musicBus' }
-  const music = createMusic(ctx as never, output as never, element as never)
+  const handlers = new Map<string, () => void>()
+  const session = {
+    playbackState: 'none',
+    setActionHandler: vi.fn((action: string, fn: () => void) => { handlers.set(action, fn) }),
+  }
+  const music = createMusic(ctx as never, output as never, element as never, session as never)
+  /** 玩家在系統的媒體控制（通知列）按下按鈕 */
+  const press = (action: 'play' | 'pause'): void => handlers.get(action)!()
   /** 兌現最後一次 `play()` 並讓 then 跑完 */
   const played = async (): Promise<void> => { pending.at(-1)!.resolve(); await Promise.resolve(); await Promise.resolve() }
-  return { ctx, gain, gainNode, source, element, output, music, pending, played }
+  return { ctx, gain, gainNode, source, element, output, music, pending, played, session, press }
 }
 
 const ramps = (gain: ReturnType<typeof fakeParam>) => gain.calls.filter((c) => c[0] === 'ramp')
@@ -161,5 +168,91 @@ describe('選單背景音樂', () => {
     pending[0]!.reject(new Error('NotAllowedError'))
     await Promise.resolve(); await Promise.resolve()
     expect(ramps(gain)).toEqual([])
+  })
+
+  describe('系統的媒體控制（安卓通知列）', () => {
+    it('真的開始播才回報播放中；停止、音訊暫停回報已暫停', async () => {
+      const { music, played, session } = setup()
+      music.setRunning(true)
+      music.start()
+      expect(session.playbackState).toBe('none')
+      await played()
+      expect(session.playbackState).toBe('playing')
+      music.stop()
+      expect(session.playbackState).toBe('paused')
+      music.start()
+      await played()
+      music.setRunning(false)
+      expect(session.playbackState).toBe('paused')
+    })
+
+    it(`按暫停：淡出 ${MUSIC_FADE_SECONDS} s 再暫停元素；按播放：重新播放並淡入`, async () => {
+      const { ctx, gain, element, music, played, session, press } = setup()
+      music.setRunning(true)
+      music.start()
+      await played()
+      gain.value = MENU_MUSIC.level
+      ctx.currentTime = 20
+      press('pause')
+      expect(session.playbackState).toBe('paused')
+      expect(ramps(gain).at(-1)).toEqual(['ramp', 0, 20 + MUSIC_FADE_SECONDS])
+      vi.advanceTimersByTime(MUSIC_FADE_SECONDS * 1000)
+      expect(element.pause).toHaveBeenCalledTimes(1)
+      gain.value = 0
+      ctx.currentTime = 30
+      press('play')
+      expect(element.play).toHaveBeenCalledTimes(2)
+      await played()
+      expect(ramps(gain).at(-1)).toEqual(['ramp', MENU_MUSIC.level, 30 + MUSIC_FADE_SECONDS])
+      expect(session.playbackState).toBe('playing')
+    })
+
+    /** 【按了暫停就一直停著】切分頁回來不能自己響起來 */
+    it('按暫停之後音訊暫停又恢復：不重新播放', async () => {
+      const { element, music, played, press } = setup()
+      music.setRunning(true)
+      music.start()
+      await played()
+      press('pause')
+      music.setRunning(false)
+      music.setRunning(true)
+      expect(element.play).toHaveBeenCalledTimes(1)
+    })
+
+    it('按暫停之後進戰鬥再回選單：照常播放', async () => {
+      const { element, music, played, press } = setup()
+      music.setRunning(true)
+      music.start()
+      await played()
+      press('pause')
+      music.stop()
+      vi.advanceTimersByTime(2000)
+      music.start()
+      expect(element.play).toHaveBeenCalledTimes(2)
+    })
+
+    /** 【戰鬥中按播放】通知列在戰鬥中還留著，選單音樂不能被帶進戰鬥 */
+    it('沒在選單時按播放、按暫停都不播', async () => {
+      const { element, music, played, press } = setup()
+      music.setRunning(true)
+      music.start()
+      await played()
+      music.stop()
+      vi.advanceTimersByTime(2000)
+      press('play')
+      press('pause')
+      press('play')
+      expect(element.play).toHaveBeenCalledTimes(1)
+    })
+
+    it('沒有 mediaSession 也能用', async () => {
+      const element = { loop: false, play: vi.fn(() => Promise.resolve()), pause: vi.fn() }
+      const ctx = { currentTime: 0, createGain: () => ({ gain: fakeParam(), connect: vi.fn() }), createMediaElementSource: () => ({ connect: vi.fn() }) }
+      const music = createMusic(ctx as never, {} as never, element as never)
+      music.setRunning(true)
+      music.start()
+      await Promise.resolve(); await Promise.resolve()
+      expect(() => music.stop()).not.toThrow()
+    })
   })
 })
