@@ -100,6 +100,7 @@ export function updateBattleSceneFrame(
   // 【吃世界秒數】射擊排程是 `world.time` 的純函數；暫停時兩者都不走
   battleScenery.groundBattle?.update(world.groundTargets, world.time, worldSeconds, world.groundAt)
   battleScenery.vehicleDust?.update(world.groundTargets, worldSeconds)
+  battleScenery.ambientFog?.update(worldSeconds, world.groundAt)
   // 【吃世界秒數】暫停時為 0，團塊停在原地
   if (battleScenery.battleFogOn) stepBattleFog(worldSeconds)
   battleScenery.balloonModels?.update(world.balloons, worldSeconds, terrain.collisionHeightAt, burnBalloon)

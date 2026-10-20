@@ -1,4 +1,4 @@
-import type { Vector3 } from 'three'
+import type { Object3D, Vector3 } from 'three'
 import type { GroundModels } from '../render/groundTargets'
 import type { GroundBattle } from '../render/groundBattle'
 import type { GroundTarget } from '../world/groundTargets'
@@ -14,6 +14,7 @@ interface SceneryInspectionDependencies {
     readonly groundModels: Pick<GroundModels, 'object' | 'lodState'> | null
     readonly groundBattle: Pick<GroundBattle, 'objects' | 'shots' | 'arcShots' | 'arcLanded' | 'arcLastLanding'> | null
     readonly battleFogOn: boolean
+    readonly ambientFog: { readonly object: Object3D | null } | null
   }
   readonly visuals: {
     readonly size: number
@@ -89,10 +90,10 @@ export function createSceneryInspection({
     return fog.a.w > 0
   }
 
-  /** **量測出口**：塵團開關（省略參數 = 查現在的狀態）。`null` = 這一場沒有塵團 */
-  const __dustClouds = (on?: boolean) => {
-    const o = battleScenery.groundBattle?.objects.find((x) => x.name === 'groundBattle.dustClouds')
-    if (o === undefined) return null
+  /** **量測出口**：環境霧開關（省略參數 = 查現在的狀態）。`null` = 這一場沒有環境霧 */
+  const __ambientFog = (on?: boolean) => {
+    const o = battleScenery.ambientFog?.object
+    if (o == null) return null
     if (on !== undefined) o.visible = on
     return o.visible
   }
@@ -124,5 +125,6 @@ export function createSceneryInspection({
   }
 
 
-  return { __hideGround, __lod, __theater, __haze, __dustClouds, __mortars, __wreckGround }
+  // 保留舊探針名稱，既有德 M4 截圖與量測腳本仍可操作同一個專用池。
+  return { __hideGround, __lod, __theater, __haze, __ambientFog, __dustClouds: __ambientFog, __mortars, __wreckGround }
 }

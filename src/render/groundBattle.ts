@@ -11,7 +11,6 @@ import { createGroundShellPool } from './groundShellPool'
 import { FIRE_SECONDS, type FirePuffFn } from './shipFires'
 import { solveArc, type ArcShot } from './arc'
 import { createArcTrails } from './arcTrails'
-import { createGroundDustClouds } from './groundDustClouds'
 import { hash01 } from '../core/hash'
 import { burstTimesBetween, shotTimesBetween } from './groundBattleSchedule'
 import { groundCannonScale } from './muzzleBlast'
@@ -21,13 +20,6 @@ export interface GroundCannonEffects {
   fire(x: number, y: number, z: number, dx: number, dy: number, dz: number, scale: number): void
 }
 
-export {
-  DUST_CLOUD_EVERY, DUST_CLOUD_LIFE, DUST_CLOUD_LIFE_JITTER,
-  DUST_CLOUD_SIZE_FROM, DUST_CLOUD_SIZE_TO, DUST_CLOUD_ALPHA,
-  DUST_CLOUD_SHADE, DUST_CLOUD_SPREAD, DUST_CLOUD_LIFT_MIN,
-  DUST_CLOUD_LIFT_MAX, DUST_CLOUD_DRIFT_X, DUST_CLOUD_DRIFT_Z,
-  DUST_CLOUD_RISE, DUST_CLOUD_CAPACITY, dustCloudSpot,
-} from './groundDustClouds'
 export { burstTimesBetween, shotTimesBetween, SHOT_JITTER } from './groundBattleSchedule'
 
 /**
@@ -273,8 +265,6 @@ export function createGroundBattle(
   })
   const dust = createDust(1024, 1, smokeTexture)
   const vehicleDust = createVehicleDustEmission(dust)
-  const clouds = createGroundDustClouds(theater.dusts ?? [], smokeTexture)
-  const stepClouds = clouds.step
   const shells = createGroundShellPool(SHELL_CAPACITY, false, flash, dust, impact, landed)
   const bullets = createGroundShellPool(BULLET_CAPACITY, true, flash, dust, impact)
   const shellTracers = createTracers(SHELL_CAPACITY)
@@ -454,7 +444,6 @@ export function createGroundBattle(
   return {
     objects: [
       flash.object, gunSmoke.object, dust.object, shellTracers.object, bulletTracers.object, arcTrails.object,
-      ...(clouds.object === null ? [] : [clouds.object]),
     ],
     get shots() { return shells.shots + bullets.shots },
     get hitShots() { return shells.hitShots + bullets.hitShots },
@@ -474,11 +463,6 @@ export function createGroundBattle(
       const first = lastTime < 0
       const t0 = first || time < lastTime ? time : lastTime
       lastTime = time
-      // 【開場塵團已經在飄】戰鬥是從中途開始的：把池子推進一個最長壽命，各顆的年齡、大小、位置都
-      // 不同，不是從一片空白慢慢長出來。每一次開場都一樣（出生位置是序號的純函數）
-      if (first) {
-        clouds.warm(groundAt)
-      }
 
       for (let s = 0; s < targets.length; s++) {
         const me = targets[s]!
@@ -578,7 +562,6 @@ export function createGroundBattle(
       flash.step(frameDt)
       gunSmoke.step(frameDt)
       dust.step(frameDt)
-      stepClouds(frameDt, groundAt)
     },
 
     reset() {
@@ -587,7 +570,6 @@ export function createGroundBattle(
       flash.reset()
       gunSmoke.reset()
       dust.reset()
-      clouds.reset()
       lastTime = -1
       arcShots = 0
       arcLanded = 0
@@ -622,7 +604,6 @@ export function createGroundBattle(
       flash.dispose()
       gunSmoke.dispose()
       dust.dispose()
-      clouds.dispose()
       shellTracers.dispose()
       bulletTracers.dispose()
       arcTrails.dispose()

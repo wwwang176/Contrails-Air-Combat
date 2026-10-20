@@ -30,6 +30,15 @@ const CFG: ParticleConfig = {
 }
 
 describe('particleSize / particleAlpha', () => {
+  it('可選的淡入從透明開始，接回原有淡出，生命結束歸零', () => {
+    expect(particleAlpha(0, 40, 0.2, 3)).toBe(0)
+    expect(particleAlpha(0.01, 40, 0.2, 3)).toBeLessThan(0.00001)
+    expect(particleAlpha(1.5, 40, 0.2, 3)).toBeCloseTo(particleAlpha(1.5, 40, 0.2) * 0.5)
+    expect(particleAlpha(3, 40, 0.2, 3)).toBe(particleAlpha(3, 40, 0.2))
+    expect(particleAlpha(20, 40, 0.2, 3)).toBeCloseTo(0.1)
+    expect(particleAlpha(39.99, 40, 0.2, 3)).toBeLessThan(0.0001)
+    expect(particleAlpha(40, 40, 0.2, 3)).toBe(0)
+  })
   it('壽命之外都是 0', () => {
     expect(particleSize(-0.1, 1, 2, 6)).toBe(0)
     expect(particleSize(1, 1, 2, 6)).toBe(0)

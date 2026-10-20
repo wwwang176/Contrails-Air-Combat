@@ -310,7 +310,12 @@ export const GERMANY: readonly MissionCard[] = [
         haze: BATTLE_HAZE,
         // 白霧：雪原的霧是白的，不是砲擊揚起的灰黃塵煙。**起始值，拿眼睛校**
         fogColor: 0xe8edf1,
-        dusts: RZHEV_DUSTS,
+      },
+      // 村莊懸浮塵霧與其他關卡共用環境霧池；配色維持與本關高度霧一致。
+      ambientFog: {
+        places: RZHEV_DUSTS, tint: 0xe8edf1, skyMix: 0.4, shade: 0.85, shadeJitter: 0.3,
+        every: 0.15, spread: 70, sizeFrom: 30, sizeTo: 200,
+        alpha: 0.35, liftMin: 8, liftMax: 40,
       },
       /**
        * 【蘇軍戰鬥機六架】開場就預警、5 秒後兩批各三架 Yak-1B 在村中心南邊 2 km 朝北出現，不等玩家的戰果。

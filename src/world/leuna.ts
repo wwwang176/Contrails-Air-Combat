@@ -42,6 +42,16 @@ export const PLANT_HEADING = (-12.5 * Math.PI) / 180
 const HEAD_COS = /* @__PURE__ */ Math.cos(PLANT_HEADING)
 const HEAD_SIN = /* @__PURE__ */ Math.sin(PLANT_HEADING)
 
+/** 廠區低空薄霧：沿設備間隙與外緣斷續分布，保持主要轟炸目標可辨識。 */
+export const PLANT_LOW_FOG = [
+  at(-540, -1250), at(-80, -1150), at(420, -1300),
+  at(-520, -750), at(80, -700), at(540, -800),
+  at(-580, -250), at(-40, -220), at(500, -200),
+  at(-500, 300), at(120, 300), at(550, 350),
+  at(-540, 800), at(-100, 850), at(480, 900),
+  at(-420, 1250), at(100, 1350), at(500, 1300),
+]
+
 /**
  * 廠區局部座標 → 世界座標。局部的 +X 是廠區的「東」、+Z 是「南」，原點在
  * `PLANT_CENTER`。

@@ -11,7 +11,7 @@ function fixture() {
   let targets: Target[] = []
   const groundTargets = vi.fn(() => targets)
   const battleScenery: Mutable<Dependencies['battleScenery']> = {
-    groundModels: null, groundBattle: null, battleFogOn: false,
+    groundModels: null, groundBattle: null, battleFogOn: false, ambientFog: null,
   }
   const visuals = new Map<number, { lod: object | null; far: boolean; position: Vector3 }>()
   const cameraPosition = new Vector3(), fog = { a: { w: 0 } }
@@ -69,7 +69,8 @@ describe('場景探針', () => {
 
   it('切換霧與塵團的顯示；迫擊砲落點回傳脫鉤的快照', () => {
     const f = fixture(), dust = new Object3D()
-    dust.name = 'groundBattle.dustClouds'
+    dust.name = 'ambientFog'
+    f.battleScenery.ambientFog = { object: dust }
     const landing = { x: 1, y: 2, z: 3 }
     f.battleScenery.groundBattle = { objects: [dust], shots: 4, arcShots: 5, arcLanded: 2, arcLastLanding: landing }
     f.battleScenery.battleFogOn = true
@@ -77,12 +78,14 @@ describe('場景探針', () => {
     expect(f.fog.a.w).toBe(1)
     expect(f.probes.__haze(false)).toBe(false)
     expect(f.probes.__dustClouds(false)).toBe(false)
+    expect(f.probes.__ambientFog()).toBe(false)
     expect(dust.visible).toBe(false)
     expect(f.probes.__theater()).toBe(4)
     const snapshot = f.probes.__mortars()!
     landing.x = 99
     expect(snapshot).toEqual({ shots: 5, landed: 2, last: { x: 1, y: 2, z: 3 } })
     f.battleScenery.groundBattle = null
+    f.battleScenery.ambientFog = null
     expect(f.probes.__mortars()).toBeNull()
     expect(f.probes.__dustClouds()).toBeNull()
   })

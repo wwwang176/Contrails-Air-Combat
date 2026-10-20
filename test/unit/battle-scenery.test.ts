@@ -54,6 +54,33 @@ function fixture() {
 afterEach(clearBattleFog)
 
 describe('戰場佈景的所有權', () => {
+  it('局部低霧獨立於交戰與高度霧，預熱後暫停不飄動，換場會釋放而保留共用貼圖', () => {
+    const { scene, scenery, assets, builders } = fixture()
+    scenery.rebuild(empty(), undefined, undefined, {
+      places: [{ x: 100, z: -200 }], tint: 0xc3cdd2,
+      every: 0.45, spread: 55, sizeFrom: 18, sizeTo: 145,
+      alpha: 0.22, liftMin: 5, liftMax: 14,
+    })
+    const fog = scenery.ambientFog!
+    const object = fog.object!
+    expect(object.parent).toBe(scene)
+    expect(scenery.battleFogOn).toBe(false)
+    expect(builders.createGroundBattle).not.toHaveBeenCalled()
+    fog.update(0, () => 60)
+    const matrices = Float32Array.from(object.instanceMatrix.array)
+    expect(Array.from(matrices).some((v, i) => i % 16 === 13 && v > 60)).toBe(true)
+    fog.update(0, () => 60)
+    expect(object.instanceMatrix.array).toEqual(matrices)
+    const disposed = vi.fn()
+    const textureDisposed = vi.fn()
+    object.geometry.addEventListener('dispose', disposed)
+    assets.smokeTexture.addEventListener('dispose', textureDisposed)
+    scenery.rebuild(empty(), undefined)
+    expect(scenery.ambientFog).toBeNull()
+    expect(object.parent).toBeNull()
+    expect(disposed).toHaveBeenCalledTimes(1)
+    expect(textureDisposed).not.toHaveBeenCalled()
+  })
   it('只有移動車隊也有揚塵，換成地面交戰時釋放獨立粒子池而不重複發射', () => {
     const { scene, scenery, world, assets } = fixture()
     const motion = createGroundMotion([{ x: 0, z: 0 }, { x: 0, z: -1000 }],
