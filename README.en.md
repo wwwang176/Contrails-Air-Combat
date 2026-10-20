@@ -19,20 +19,32 @@ https://wwwang176.github.io/Contrails-Air-Combat/
 - **Living battlefield**: tracers, explosions, smoke, searchlights, splashes, wakes and wreckage keep the fight changing.
 - **Immersive audio**: engines, guns and explosions carry direction and distance; far-off sounds are duller and arrive later.
 
-## Three campaigns
+## Screenshots
 
 <table>
   <tr>
-    <td width="33%" align="center"><img src="public/ui/allies.jpg" alt="USA campaign key art"></td>
-    <td width="33%" align="center"><img src="public/ui/germany.jpg" alt="Germany campaign key art"></td>
-    <td width="33%" align="center"><img src="public/ui/japan.jpg" alt="Japan campaign key art"></td>
+    <td width="50%"><img src="docs/screenshots/leuna-b17-formation.jpg" alt="B-17 formation over the Leuna refinery"><br><sub>The Leuna Refinery: a B-17 formation</sub></td>
+    <td width="50%"><img src="docs/screenshots/rennell-torpedo-run.jpg" alt="G4M torpedo run at dusk off Rennell Island"><br><sub>Rennell Island: a G4M torpedo run at dusk</sub></td>
   </tr>
   <tr>
-    <td valign="top"><strong>USA</strong><br>Escort and strike over Europe, fleet defence off Okinawa.<br><br><small>Over Berlin · The Leuna Refinery · Off Okinawa</small></td>
-    <td valign="top"><strong>Germany</strong><br>Intercept the bomber streams, dive-bomb on the snowfield, raid by night and strafe airfields at low level.<br><br><small>Over Merseburg · Rzhev · Night over Poltava · Operation Bodenplatte</small></td>
-    <td valign="top"><strong>Japan</strong><br>Escort over Guadalcanal, cut the supply lines at Leyte and torpedo the fleet off Rennell Island.<br><br><small>Over Guadalcanal · The Leyte Front · Rennell Island</small></td>
+    <td><img src="docs/screenshots/rzhev-stuka.jpg" alt="Stuka and tanks on the snowfield at Rzhev"><br><sub>Rzhev: a Stuka over the snowfield armour</sub></td>
+    <td><img src="docs/screenshots/poltava-night-raid.jpg" alt="He 111s in the searchlights over Poltava"><br><sub>Night over Poltava: He 111s in the searchlights</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/berlin-escort.jpg" alt="P-51 on a Bf 109's tail over Berlin"><br><sub>Over Berlin: a P-51 on a Bf 109's tail</sub></td>
+    <td><img src="docs/screenshots/okinawa-carrier.jpg" alt="Zero diving on the carrier off Okinawa"><br><sub>Off Okinawa: a Zero diving on the carrier</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/okinawa-dogfight.jpg" alt="F6F chasing a Zero off Okinawa"><br><sub>Off Okinawa: an F6F chasing a Zero</sub></td>
+    <td><img src="docs/screenshots/leyte-beach-strafe.jpg" alt="Ki-84s strafing the beachhead at Leyte"><br><sub>The Leyte Front: Ki-84s strafing the beachhead</sub></td>
   </tr>
 </table>
+
+## Three campaigns
+
+- **USA**: escort and strike over Europe, fleet defence off Okinawa. (Over Berlin · The Leuna Refinery · Off Okinawa)
+- **Germany**: intercept the bomber streams, dive-bomb on the snowfield, raid by night and strafe airfields at low level. (Over Merseburg · Rzhev · Night over Poltava · Operation Bodenplatte)
+- **Japan**: escort over Guadalcanal, cut the supply lines at Leyte and torpedo the fleet off Rennell Island. (Over Guadalcanal · The Leyte Front · Rennell Island)
 
 ## Aircraft
 
