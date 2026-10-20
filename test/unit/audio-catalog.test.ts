@@ -9,7 +9,7 @@ import { SHIP_AA_TIERS } from '../../src/world/shipAA'
  */
 const GUN_TABLE: Record<string, [string, number]> = {
   naval5in: ['gun-5in', 2.8], heavyFlak: ['gun-heavy-flak', 3.3],
-  tankGun: ['gun-tank', -6.0], atGun: ['gun-at', -5.9], mortar: ['gun-mortar', -7.4],
+  tankGun: ['gun-tank', -4.5], atGun: ['gun-at', -5.9], mortar: ['gun-mortar', -7.4],
   naval40: ['gun-40mm', -6.4], naval20: ['gun-20mm', -10.4], lightFlak20: ['gun-20mm', -6.4],
   quad50: ['gun-50cal', -8.7], roof50: ['gun-50cal', -10.7], infantry: ['gun-rifle', -14.7],
 }

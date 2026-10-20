@@ -419,7 +419,7 @@ export interface GunSound {
 const GUN_BY_KIND: Readonly<Record<string, GunSound>> = {
   naval5in: { pool: 'gun-5in', gainDb: 2.8, gap: 0.12 },
   heavyFlak: { pool: 'gun-heavy-flak', gainDb: 3.3, gap: 0.12 },
-  tankGun: { pool: 'gun-tank', gainDb: -6.0, gap: 0.15 },
+  tankGun: { pool: 'gun-tank', gainDb: -4.5, gap: 0.15 },
   atGun: { pool: 'gun-at', gainDb: -5.9, gap: 0.15 },
   mortar: { pool: 'gun-mortar', gainDb: -7.4, gap: 0.3 },
   naval40: { pool: 'gun-40mm', gainDb: -6.4, gap: 0.1 },
