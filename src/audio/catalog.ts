@@ -404,7 +404,8 @@ export function impactSound(material: number): ImpactSound {
  * 音高（`cannon` 類別的 `pitchJitter`）與音量（`cannonAudio.ts` 的 `GUN_GAIN_JITTER_DB`）。
  *
  * 【`gainDb` 含 A 加權校正】檔案照素材慣例都在 −16 LUFS，但人耳聽感（A 加權、最響 0.4 s）各不相同。
- * 這裡的值 = 負責人在試聽頁定的砲種音量 + 把該檔校正到舊砲擊庫平均 −24.1 dB(A) 的差。改檔要重量。
+ * 這裡的值 = 負責人在試聽頁定的砲種音量 + 把該檔（乘上 manifest 的 `makeupDb` 之後）校正到舊砲擊庫
+ * 平均 −24.1 dB(A) 的差。改檔要重量。
  *
  * 【`gap` 是每一座砲位／每一台地面單位各自的時段】一座在 `gap` 秒內只響一聲，防它自己在一瞬間
  * 疊好幾聲；全場的總量交給引擎的每類配額（`VOICE_QUOTA`），被丟的是遠處小聲的。
