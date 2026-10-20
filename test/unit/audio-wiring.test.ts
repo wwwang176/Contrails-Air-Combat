@@ -64,7 +64,9 @@ describe('選單背景音樂的接線', () => {
   it('引擎：第一次開始才建、建在音樂匯流排上、匯流排跟著主音量、播停通知音樂', () => {
     const engine = ENGINE.join('\n')
     const make = body('function menuMusic(', ENGINE)
-    expect(make).toContain("music = createMusic(ctx, output.musicInput, new Audio(assetUrl('/music/menu.mp3')))")
+    expect(make).toContain("music = createMusic(ctx, output.musicInput, new Audio(assetUrl('/music/menu.mp3')), session)")
+    // 【系統媒體控制接到音樂】不接的話通知列按暫停，音樂以為還在播
+    expect(make).toContain("'mediaSession' in navigator ? navigator.mediaSession : null")
     // 【建的時候對齊現在的播停】否則 context 早就在跑，音樂卻以為沒在跑而永遠不播
     expect(make).toContain('music.setRunning(running)')
     expect(body('function applyRunState(', ENGINE)).toContain('music?.setRunning(run)')

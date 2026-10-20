@@ -249,7 +249,8 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
   let music: ReturnType<typeof createMusic> | null = null
   function menuMusic(): ReturnType<typeof createMusic> {
     if (music === null) {
-      music = createMusic(ctx, output.musicInput, new Audio(assetUrl('/music/menu.mp3')))
+      const session = typeof navigator !== 'undefined' && 'mediaSession' in navigator ? navigator.mediaSession : null
+      music = createMusic(ctx, output.musicInput, new Audio(assetUrl('/music/menu.mp3')), session)
       // 【建的時候對齊現在的播停】之後只在變的時候才通知
       music.setRunning(running)
     }
