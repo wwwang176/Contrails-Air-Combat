@@ -19,20 +19,32 @@ https://wwwang176.github.io/Contrails-Air-Combat/
 - **動態戰場**：曳光彈、爆炸、煙霧、探照燈、水花、尾流與殘骸構成持續變化的戰場。
 - **臨場音效**：引擎、槍砲與爆炸聽得出方向與遠近，遠處的聲音較悶、也較晚傳到。
 
-## 三條戰役
+## 遊戲畫面
 
 <table>
   <tr>
-    <td width="33%" align="center"><img src="public/ui/allies.jpg" alt="美軍戰役主視覺"></td>
-    <td width="33%" align="center"><img src="public/ui/germany.jpg" alt="德軍戰役主視覺"></td>
-    <td width="33%" align="center"><img src="public/ui/japan.jpg" alt="日軍戰役主視覺"></td>
+    <td width="50%"><img src="docs/screenshots/leuna-b17-formation.jpg" alt="梅澤堡的油廠上空的 B-17 機群"><br><sub>梅澤堡的油廠：B-17 機群</sub></td>
+    <td width="50%"><img src="docs/screenshots/rennell-torpedo-run.jpg" alt="倫內爾島黃昏的一式陸攻雷擊"><br><sub>倫內爾島：黃昏的一式陸攻雷擊</sub></td>
   </tr>
   <tr>
-    <td valign="top"><strong>美軍</strong><br>歐洲護航與轟炸、沖繩艦隊防空。<br><br><small>柏林上空 · 梅澤堡的油廠 · 沖繩外海</small></td>
-    <td valign="top"><strong>德軍</strong><br>攔截轟炸機流、雪原俯衝轟炸、夜襲與低空機場突擊。<br><br><small>梅澤堡上空 · 勒熱夫 · 波爾塔瓦之夜 · 底板行動</small></td>
-    <td valign="top"><strong>日軍</strong><br>瓜達康納爾護航、雷伊泰截斷補給線與倫內爾島雷擊。<br><br><small>瓜達康納爾上空 · 雷伊泰前線 · 倫內爾島</small></td>
+    <td><img src="docs/screenshots/rzhev-stuka.jpg" alt="勒熱夫雪原上的斯圖卡與戰車"><br><sub>勒熱夫：雪原上的斯圖卡與戰車</sub></td>
+    <td><img src="docs/screenshots/poltava-night-raid.jpg" alt="波爾塔瓦之夜探照燈下的 He 111"><br><sub>波爾塔瓦之夜：探照燈下的 He 111</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/berlin-escort.jpg" alt="柏林上空 P-51 咬住 Bf 109"><br><sub>柏林上空：P-51 咬住 Bf 109</sub></td>
+    <td><img src="docs/screenshots/okinawa-carrier.jpg" alt="沖繩外海零戰俯衝航艦"><br><sub>沖繩外海：零戰俯衝航艦</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/okinawa-dogfight.jpg" alt="沖繩外海 F6F 追擊零戰"><br><sub>沖繩外海：F6F 追擊零戰</sub></td>
+    <td><img src="docs/screenshots/leyte-beach-strafe.jpg" alt="雷伊泰前線疾風掃射灘頭"><br><sub>雷伊泰前線：疾風掃射灘頭</sub></td>
   </tr>
 </table>
+
+## 三條戰役
+
+- **美軍**：歐洲護航與轟炸、沖繩艦隊防空。（柏林上空 · 梅澤堡的油廠 · 沖繩外海）
+- **德軍**：攔截轟炸機流、雪原俯衝轟炸、夜襲與低空機場突擊。（梅澤堡上空 · 勒熱夫 · 波爾塔瓦之夜 · 底板行動）
+- **日軍**：瓜達康納爾護航、雷伊泰截斷補給線與倫內爾島雷擊。（瓜達康納爾上空 · 雷伊泰前線 · 倫內爾島）
 
 ## 可投入作戰的軍機
 
