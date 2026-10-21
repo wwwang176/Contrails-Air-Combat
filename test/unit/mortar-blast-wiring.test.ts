@@ -14,7 +14,7 @@ describe('迫擊砲彈落地的爆炸', () => {
     expect(PRESENTATION).toContain("import { MORTAR_BLAST } from './mortarBlast'")
     expect(MAIN).toContain("import { MORTAR_BLAST_SCALE } from './render/mortarBlast'")
     expect(MAIN).toContain('burn: emitFirePuff, impact: onGroundImpact, fired: noteGroundShot')
-    expect(MAIN).toContain('battleScenery.rebuild(world, pendingMission?.battle.theater, battle.cfg.groundLivery)')
+    expect(MAIN).toContain('battleScenery.rebuild(world, pendingMission?.battle.theater, battle.cfg.groundLivery, pendingMission?.battle.ambientFog)')
     expect(SCENERY).toMatch(/createGroundBattle\(theater, assets\.burn, assets\.smokeTexture,\s*assets\.impact, assets\.fired, assets\.landed, cannon\)/)
     const at = PRESENTATION.indexOf('const emitMortarBlast')
     expect(at).toBeGreaterThan(0)
