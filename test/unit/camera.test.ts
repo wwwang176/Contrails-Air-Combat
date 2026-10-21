@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { PerspectiveCamera, Quaternion, Vector3 } from 'three'
 import {
-  CameraRig, DEFAULT_CAMERA_OPTIONS, REFERENCE_SPAN, ZOOM_LIFT, ZOOM_MAGNIFICATION, thirdPersonFor,
+  CAMERA_GROUND_CLEARANCE, CameraRig, DEFAULT_CAMERA_OPTIONS, REFERENCE_SPAN, ZOOM_LIFT,
+  ZOOM_MAGNIFICATION, thirdPersonFor,
 } from '../../src/camera/CameraRig'
 import { DEG } from '../../src/core/math'
 
@@ -268,6 +269,40 @@ describe('CameraRig', () => {
     expect(maxStep).toBeLessThan(1.7)
     expect(maxTurn).toBeLessThan(10 * DEG)
     expect(Number.isFinite(cam.position.length())).toBe(true)
+  })
+
+  /**
+   * 【鏡頭不鑽進地面】視線往上抬時「沿視線往後退」那一段變成往下：P-51D 機首上仰 45° 時
+   * 鏡頭在機身下方約 5.5 m。低空拉起時沒有地板的話，畫面是地底
+   */
+  it('低空拉起：鏡頭墊在鏡頭底下那一點的地面之上', () => {
+    // 上仰 60°：鏡頭在機身下方 7.4 m、後方 6 m
+    const q = pitched(60)
+    const pos = new Vector3(0, 6, 0)
+    const free = makeRig()
+    free.rig.snapTo(fwd(q))
+    free.rig.update(free.cam, pos, q, fwd(q), 160, 'third', 0, 0, DT)
+    expect(free.cam.position.y).toBeLessThan(0)
+
+    // 地面在機身底下是 0、在鏡頭底下是 50：讀的必須是鏡頭的 x、z
+    const { rig, cam } = makeRig()
+    rig.snapTo(fwd(q))
+    rig.update(cam, pos, q, fwd(q), 160, 'third', 0, 0, DT, null, false, (_x, z) => (z > 4 ? 50 : 0))
+    expect(cam.position.y).toBe(50 + CAMERA_GROUND_CLEARANCE)
+    expect(cam.position.z).toBeCloseTo(free.cam.position.z, 6)
+  })
+
+  it('離地夠高時地面不改動鏡頭', () => {
+    const q = pitched(45)
+    const pos = new Vector3(0, 3000, 0)
+    const a = makeRig()
+    const b = makeRig()
+    a.rig.snapTo(fwd(q))
+    b.rig.snapTo(fwd(q))
+    a.rig.update(a.cam, pos, q, fwd(q), 160, 'third', 0, 0, DT)
+    b.rig.update(b.cam, pos, q, fwd(q), 160, 'third', 0, 0, DT, null, false, () => 0)
+    expect(b.cam.position.equals(a.cam.position)).toBe(true)
+    expect(b.cam.quaternion.equals(a.cam.quaternion)).toBe(true)
   })
 
   it('狀態不產生 NaN', () => {

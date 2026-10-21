@@ -17,8 +17,8 @@ export interface GodCameraOptions {
   moveSpeed: number
   /** 按住 Shift 時的倍率 */
   boostFactor: number
-  /** 高度下限，m */
-  minAltitude: number
+  /** 離腳下地面至少多高，m。海上的地面是平的海面（0） */
+  minHeight: number
   /** 高度上限，m */
   maxAltitude: number
   /** 俯仰的絕對值上限，rad */
@@ -46,7 +46,7 @@ export interface GodCameraOptions {
  * - `moveSpeed` 300 —— 略高於巡航 TAS（`DEFAULT_BATTLE.tas` 200），追得上
  *   一團正在移動的纏鬥。低於它就永遠在後面追。
  * - `boostFactor` 4 —— 1200 m/s，橫越幾公里的戰場約幾秒。
- * - `minAltitude` 20 —— 高於浪，而且貼得近到看得清甲板上在發生什麼。
+ * - `minHeight` 20 —— 高於浪，而且貼得近到看得清甲板上在發生什麼。
  *   撞地判定見 `aircraft/crash.ts`。
  * - `maxAltitude` 12000 —— P-51D 的升限量級。
  * - `pitchLimit` 85° —— 不夾的話鏡頭會翻過天頂，而「上」的定義在那一瞬
@@ -63,7 +63,7 @@ export interface GodCameraOptions {
 export const DEFAULT_GOD_CAMERA: GodCameraOptions = {
   moveSpeed: 300,
   boostFactor: 4,
-  minAltitude: 20,
+  minHeight: 20,
   maxAltitude: 12000,
   pitchLimit: 85 * (Math.PI / 180),
   entryHeight: 800,
@@ -132,7 +132,7 @@ export function enterGodCamera(
   s.position.set(
     from.x,
     // 【進場也要夾】自機在升限附近時 +entryHeight 會超過 maxAltitude
-    clamp(from.y + cfg.entryHeight, cfg.minAltitude, cfg.maxAltitude),
+    clamp(from.y + cfg.entryHeight, cfg.minHeight, cfg.maxAltitude),
     from.z,
   )
   s.yaw = heading
@@ -157,13 +157,19 @@ export function enterGodCamera(
  *
  * 【位移吃 `moveSmooth`，轉動不吃】速度往按鍵的目標指數逼近，見那個欄位的註解。
  *
+ * 【高度下限跟著腳下的地面走】山比 `minHeight` 高的地方，海拔下限擋不住鏡頭鑽進山裡。
+ * 往山坡平移時直接被地面往上推：位置仍是連續的，聲音不會跳（上帝視角不算都卜勒）。
+ *
  * 不配置：整條路徑只有純量運算，最後寫進 `s.velocity` 與 `s.position`。**不改動 `input`。**
+ *
+ * @param groundAt 判定用的地面高度（海面是平的 0）。null = 沒有地形，地面在 0
  */
 export function stepGodCamera(
   s: GodCameraState,
   input: GodCameraInput,
   dt: number,
   cfg: GodCameraOptions = DEFAULT_GOD_CAMERA,
+  groundAt: ((x: number, z: number) => number) | null = null,
 ): void {
   s.yaw += input.lookX * cfg.lookSensitivity
   s.pitch = clamp(
@@ -197,11 +203,15 @@ export function stepGodCamera(
     v.z + (fz * speed - v.z) * k,
   )
 
+  const x = s.position.x + v.x * dt
+  const z = s.position.z + v.z * dt
+  const floor = (groundAt === null ? 0 : groundAt(x, z)) + cfg.minHeight
   const y = s.position.y + v.y * dt
-  const clampedY = clamp(y, cfg.minAltitude, cfg.maxAltitude)
-  // 【頂到上下限就把垂直速度歸零】不然那一段速度一直累積，反向按要先吃掉它才動
-  if (clampedY !== y) v.y = 0
-  s.position.set(s.position.x + v.x * dt, clampedY, s.position.z + v.z * dt)
+  const clampedY = clamp(y, floor, cfg.maxAltitude)
+  // 【頂到上下限就把往那邊的垂直速度歸零】不然那一段速度一直累積，反向按要先吃掉它
+  // 才動。只歸零往那邊的：被山坡往上推時還按著上升，那一段速度要留著
+  if ((clampedY > y && v.y < 0) || (clampedY < y && v.y > 0)) v.y = 0
+  s.position.set(x, clampedY, z)
 }
 
 /**
