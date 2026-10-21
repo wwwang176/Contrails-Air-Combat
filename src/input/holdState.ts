@@ -18,6 +18,8 @@ export function clearInputHolds(state: InputState, hold: ThrottleHold): void {
   hold.down = false
   state.braking = false
   state.zoom = false
+  state.rudderLeft = false
+  state.rudderRight = false
   const g = state.godMove
   g.forward = false
   g.back = false

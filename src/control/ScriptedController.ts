@@ -2,7 +2,7 @@ import { Vector3 } from 'three'
 import { DEG } from '../core/math'
 import { CRUISE_THROTTLE } from '../input/InputState'
 import type { Aircraft } from '../aircraft/Aircraft'
-import type { Command, Controller } from './Controller'
+import { clearStick, type Command, type Controller } from './Controller'
 
 export type Manoeuvre = 'straight' | 'turn' | 'weave' | 'climb'
 
@@ -86,6 +86,7 @@ export class ScriptedController implements Controller {
     out.pull = false
     out.trackTurn = false
     out.releaseFloor = 0
+    clearStick(out)
   }
 
   /** 機首方向的水平航向，rad。0 = −Z，順時針為正（與 HUD 同一套約定）。 */

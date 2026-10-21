@@ -2,6 +2,7 @@ import type { ReadyMissionCard } from '../battle/missions'
 import type { SkirmishSetup } from '../battle/skirmish'
 import { onLangChange, type Lang } from '../i18n'
 import type { AircraftSpec } from '../specs/types'
+import type { ControlMode, StickRecenter } from '../input/InputState'
 import type { Screen, ScreenEvent } from './screens'
 import type { Tutorial } from './tutorials'
 import { createMenuTutorial } from './menuTutorial'
@@ -75,6 +76,8 @@ export interface Menu {
   renderAimAssist(on: boolean): void
   /** 同上，滑鼠靈敏度目前**已生效**的倍率 */
   renderMouseSensitivity(v: number): void
+  /** 同上，操控方式與搖桿回中目前**已生效**的值 */
+  renderControl(mode: ControlMode, recenter: StickRecenter): void
 }
 
 /**
@@ -187,6 +190,8 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     aimAssist: q('set-assist'),
     mouse: q('set-mouse') as HTMLInputElement,
     mouseValue: q('set-mouse-value'),
+    control: q('set-control'),
+    recenter: q('set-recenter'),
     lang: q('set-lang'),
     rack: q('hangar-rack'),
     sheet: q('hangar-sheet'),
@@ -252,6 +257,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   const {
     openSettings, applySettings, resetSettings, commitReload, cancelReload, drawSettingRows,
     renderLang, renderQuality, renderAntialias, renderVolume, renderAimAssist, renderMouseSensitivity,
+    renderControl,
   } = createMenuSettings(el, settings, reloadAsk, hooks, openOverlay, closeOverlay)
 
   renderCampaign()
@@ -309,6 +315,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     renderAntialias,
     renderAimAssist,
     renderMouseSensitivity,
+    renderControl,
     renderVolume,
   }
 }

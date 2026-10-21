@@ -6,10 +6,12 @@ import { HUD_COLORS, hudFont } from '../style'
  * 這一幀要顯示哪一行按鍵提示（文字表的鍵）。
  *
  * 【為什麼要分兩行】上帝視角下 W/S 不是油門。寫著油門就是騙人，而按鍵
- * 提示存在的全部理由就是「除了滑鼠以外的操作全部是不可發現的」。
+ * 提示存在的全部理由就是「除了滑鼠以外的操作全部是不可發現的」。滑鼠搖桿多一項
+ * A/D 方向舵，理由相同。
  */
-export function hintKeys(godView: boolean): MessageKey {
-  return godView ? 'hud.godKeys' : 'hud.keys'
+export function hintKeys(godView: boolean, stick = false): MessageKey {
+  if (godView) return 'hud.godKeys'
+  return stick ? 'hud.keysStick' : 'hud.keys'
 }
 
 /**
@@ -22,7 +24,7 @@ export function drawHints(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFra
     ctx.font = hudFont(11 * L.scale)
     ctx.textAlign = 'left'
     ctx.textBaseline = 'bottom'
-    ctx.fillText(t(hintKeys(f.godView)), 30 * L.scale, L.height - 10 * L.scale)
+    ctx.fillText(t(hintKeys(f.godView, f.stickMode)), 30 * L.scale, L.height - 10 * L.scale)
   }
 
   // 【為什麼一定要有指示燈】接管與否從畫面上看不出來——飛機自己在動，

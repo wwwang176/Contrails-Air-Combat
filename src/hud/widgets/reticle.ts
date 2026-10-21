@@ -43,6 +43,38 @@ const CROSS_GAP = 7
 const CROSS_REACH = 16
 
 /**
+ * 搖桿指示的圓環半徑（＝滿桿）與點的半徑，px（未乘 `L.scale`）。
+ *
+ * 【圓環比十字大一圈】十字的外端在 16 px，圓環 48 px：十字落在圓環裡面、不疊在線上，
+ * 點走到滿桿也不會跟十字攪在一起
+ */
+export const STICK_RING_RADIUS = 48
+export const STICK_DOT_RADIUS = 3.5
+
+/** 迎角接近臨界時的警示色：滑鼠圓圈與搖桿的點共用 */
+function stallColor(f: HudFrame): string {
+  const stallRatio = Math.abs(f.alpha) / f.alphaCrit
+  return stallRatio > 0.95 ? HUD_COLORS.danger : stallRatio > 0.85 ? HUD_COLORS.warn : HUD_COLORS.primary
+}
+
+/**
+ * 滑鼠搖桿的位置：畫面中央一個細圓環（可動範圍）＋一個點（目前位置）。點接手滑鼠圓圈的
+ * 失速警示 —— 搖桿模式下沒有滑鼠圓圈
+ */
+function drawStickGauge(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame): void {
+  const r = STICK_RING_RADIUS * L.scale
+  ctx.strokeStyle = HUD_COLORS.dim
+  ctx.lineWidth = LINK_WIDTH * L.scale
+  ctx.beginPath()
+  ctx.arc(L.cx, L.cy, r, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.fillStyle = stallColor(f)
+  ctx.beginPath()
+  ctx.arc(L.cx + f.stickX * r, L.cy - f.stickY * r, STICK_DOT_RADIUS * L.scale, 0, Math.PI * 2)
+  ctx.fill()
+}
+
+/**
  * 滑鼠準星（圓）與飛機準星（十字）。兩者的分離距離就是「飛機跟不上意圖」的視覺化。
  *
  * 相機跟著瞄準點走，所以圓圈恆在畫面正中央，會漂的是十字。沒有可動範圍的
@@ -53,13 +85,12 @@ export function drawReticle(
   L: HudLayout,
   f: HudFrame,
 ): void {
+  if (f.stickMode) drawStickGauge(ctx, L, f)
   // 滑鼠準星（圓形）。接近失速時轉為警示色
-  const stallRatio = Math.abs(f.alpha) / f.alphaCrit
   const mx = L.cx + f.aimX * L.unit
   const my = L.cy - f.aimY * L.unit
   if (f.aimVisible) {
-    ctx.strokeStyle =
-      stallRatio > 0.95 ? HUD_COLORS.danger : stallRatio > 0.85 ? HUD_COLORS.warn : HUD_COLORS.primary
+    ctx.strokeStyle = stallColor(f)
     ctx.lineWidth = CIRCLE_WIDTH * L.scale
     ctx.beginPath()
     ctx.arc(mx, my, 11 * L.scale, 0, Math.PI * 2)

@@ -1,9 +1,12 @@
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { InputState } from '../input/InputState'
-import type { Command, Controller } from './Controller'
+import { clearStick, type Command, type Controller } from './Controller'
 import { GUN_HEAT_SECONDS, createGunHeat, overheatSeconds, resetGunHeat, stepGunHeat } from './gunHeat'
+import { shapeStick, type ShapedStick } from '../input/mouseStick'
 
-type PlayerInput = Pick<InputState, 'aimWorld' | 'throttle' | 'braking' | 'firing' | 'viewMode' | 'bombTaps'>
+type PlayerInput = Pick<InputState,
+  'aimWorld' | 'throttle' | 'braking' | 'firing' | 'viewMode' | 'bombTaps'
+  | 'stickActive' | 'stickX' | 'stickY' | 'rudderLeft' | 'rudderRight'>
 
 /**
  * 玩家：把 InputState 搬進 Command。
@@ -29,6 +32,8 @@ export class PlayerController implements Controller {
   warmFiring = false
   /** 熱度是哪一架的。換了（接手僚機、新的一場）就歸零 */
   private heatOwner: Aircraft | null = null
+  /** 搖桿曲線的輸出。每步重用，熱路徑不配置 */
+  private readonly shaped: ShapedStick = { roll: 0, pitch: 0 }
 
   constructor(private readonly input: PlayerInput) {}
 
@@ -88,5 +93,15 @@ export class PlayerController implements Controller {
     // 【跟瞄恆開】滑鼠準星是世界固定的，不是由自己的速度導出的 —— 瞄準方向在
     // 轉就是玩家在跟一個轉彎。見 `Command.trackTurn`
     out.trackTurn = true
+    // 【滑鼠搖桿】讀 `stickActive`（這一幀實際用不用）不讀 `controlMode`：觸控一律是滑鼠瞄準
+    if (this.input.stickActive) {
+      shapeStick(this.input.stickX, this.input.stickY, this.shaped)
+      out.manual = true
+      out.stickRoll = this.shaped.roll
+      out.stickPitch = this.shaped.pitch
+      out.stickYaw = (this.input.rudderRight ? 1 : 0) - (this.input.rudderLeft ? 1 : 0)
+    } else {
+      clearStick(out)
+    }
   }
 }

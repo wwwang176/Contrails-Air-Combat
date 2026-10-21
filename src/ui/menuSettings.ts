@@ -6,6 +6,10 @@ import {
 import { DEFAULT_VOLUME_DB, VOLUME_LEVELS } from '../audio/volume'
 import { AIM_ASSIST_LEVELS, DEFAULT_AIM_ASSIST } from '../input/aimAssistPreferences'
 import { DEFAULT_MOUSE_SENSITIVITY, snapMouseSensitivity } from '../input/mouseSensitivity'
+import {
+  CONTROL_MODES, DEFAULT_CONTROL_MODE, DEFAULT_STICK_RECENTER, STICK_RECENTER_LEVELS,
+} from '../input/controlPreferences'
+import type { ControlMode, StickRecenter } from '../input/InputState'
 import { optRow } from './menuOptions'
 
 export interface MenuSettingsHooks {
@@ -28,6 +32,8 @@ export interface MenuSettingsHooks {
   onAimAssist(on: boolean): void
   /** 設定裡按了確定、滑鼠靈敏度有變。呼叫端負責套用與記住 */
   onMouseSensitivity(v: number): void
+  /** 設定裡按了確定、操控方式或搖桿回中有變（兩格一起送）。呼叫端負責套用與記住 */
+  onControl(mode: ControlMode, recenter: StickRecenter): void
   /**
    * 設定裡按了確定、語言有變。呼叫端負責套用（`setLang`）與記住；選單自己訂閱
    * `onLangChange` 重畫
@@ -45,6 +51,8 @@ interface SettingElements {
   readonly mouse: Pick<HTMLInputElement, 'value' | 'addEventListener'>
   /** 拉桿旁的讀數 */
   readonly mouseValue: Pick<HTMLElement, 'textContent'>
+  readonly control: HTMLElement
+  readonly recenter: HTMLElement
 }
 
 /** 設定草稿、套用順序與重新載入確認；不持有其他選單頁面的狀態。 */
@@ -68,12 +76,16 @@ export function createMenuSettings(
   let appliedVolume: number | null = DEFAULT_VOLUME_DB
   let appliedAssist = false
   let appliedMouse = DEFAULT_MOUSE_SENSITIVITY
+  let appliedMode: ControlMode = DEFAULT_CONTROL_MODE
+  let appliedRecenter: StickRecenter = DEFAULT_STICK_RECENTER
   let draftLang: Lang = appliedLang
   let draftQuality = appliedQuality
   let draftAa = appliedAa
   let draftVolume: number | null = appliedVolume
   let draftAssist = appliedAssist
   let draftMouse = appliedMouse
+  let draftMode = appliedMode
+  let draftRecenter = appliedRecenter
 
   // 【拉桿不跟著 `drawSettingRows` 重建】拖曳中換掉元素會讓拖曳斷掉；監聽器只掛一次
   el.mouse.addEventListener('input', () => {
@@ -112,6 +124,15 @@ export function createMenuSettings(
     optRow(el.volume,
       VOLUME_LEVELS.map((lv) => ({ labelKey: lv.labelKey, value: lv.db, sil: '' })),
       draftVolume, (v) => { draftVolume = v; drawSettingRows() })
+    optRow(el.control,
+      CONTROL_MODES.map((m) => ({ labelKey: m.labelKey, value: m.value, sil: '' })),
+      draftMode, (v) => { draftMode = v; drawSettingRows() })
+    // 【回中只對搖桿有意義】草稿是滑鼠瞄準時按不下去
+    optRow(el.recenter,
+      STICK_RECENTER_LEVELS.map((lv) => ({
+        labelKey: lv.labelKey, value: lv.value, sil: '', disabled: draftMode !== 'stick',
+      })),
+      draftRecenter, (v) => { draftRecenter = v; drawSettingRows() })
     el.mouse.value = String(draftMouse)
     el.mouseValue.textContent = `${draftMouse.toFixed(1)}x`
   }
@@ -124,6 +145,8 @@ export function createMenuSettings(
     draftVolume = appliedVolume
     draftAssist = appliedAssist
     draftMouse = appliedMouse
+    draftMode = appliedMode
+    draftRecenter = appliedRecenter
     drawSettingRows()
     closeOverlay(reloadAsk)
     openOverlay(settings)
@@ -139,7 +162,14 @@ export function createMenuSettings(
     draftVolume = DEFAULT_VOLUME_DB
     draftAssist = DEFAULT_AIM_ASSIST
     draftMouse = DEFAULT_MOUSE_SENSITIVITY
+    draftMode = DEFAULT_CONTROL_MODE
+    draftRecenter = DEFAULT_STICK_RECENTER
     drawSettingRows()
+  }
+
+  /** 操控方式或回中有沒有改。兩格一起送：回中是搖桿的一部分 */
+  function controlChanged(): boolean {
+    return draftMode !== appliedMode || draftRecenter !== appliedRecenter
   }
 
   /**
@@ -152,6 +182,7 @@ export function createMenuSettings(
     if (draftVolume !== appliedVolume) hooks.onVolume(draftVolume)
     if (draftAssist !== appliedAssist) hooks.onAimAssist(draftAssist)
     if (draftMouse !== appliedMouse) hooks.onMouseSensitivity(draftMouse)
+    if (controlChanged()) hooks.onControl(draftMode, draftRecenter)
     closeOverlay(settings)
     // 【最後才換語言】換語言會重畫整個選單，放在關設定之後，重畫的是關好的畫面
     if (draftLang !== appliedLang) hooks.onLang(draftLang)
@@ -170,6 +201,7 @@ export function createMenuSettings(
     if (draftVolume !== appliedVolume) hooks.onVolume(draftVolume)
     if (draftAssist !== appliedAssist) hooks.onAimAssist(draftAssist)
     if (draftMouse !== appliedMouse) hooks.onMouseSensitivity(draftMouse)
+    if (controlChanged()) hooks.onControl(draftMode, draftRecenter)
     if (draftLang !== appliedLang) hooks.onLang(draftLang)
     hooks.onAntialias(draftAa)
   }
@@ -210,6 +242,14 @@ export function createMenuSettings(
     drawSettingRows()
   }
 
+  function renderControl(mode: ControlMode, recenter: StickRecenter): void {
+    appliedMode = mode
+    appliedRecenter = recenter
+    draftMode = mode
+    draftRecenter = recenter
+    drawSettingRows()
+  }
+
   function cancelReload(): void {
     closeOverlay(reloadAsk)
     draftAa = appliedAa
@@ -219,5 +259,6 @@ export function createMenuSettings(
   return {
     openSettings, applySettings, resetSettings, commitReload, cancelReload, drawSettingRows,
     renderLang, renderQuality, renderAntialias, renderVolume, renderAimAssist, renderMouseSensitivity,
+    renderControl,
   }
 }

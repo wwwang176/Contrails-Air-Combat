@@ -33,6 +33,7 @@ export function mount() {
     onVolume(value) { events.push(['volume', value]) },
     onAimAssist(value) { events.push(['assist', value]) },
     onMouseSensitivity(value) { events.push(['mouse', value]) },
+    onControl(mode, recenter) { events.push(['control', mode, recenter]) },
     onLang(value) { setLang(value) },
   })
   menu.renderSetup(setup)

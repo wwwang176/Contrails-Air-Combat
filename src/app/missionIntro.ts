@@ -2,6 +2,7 @@ import { Vector3, type Quaternion } from 'three'
 import type { IntroShot, IntroSubject } from '../battle/missions/types'
 import type { GroundTarget } from '../world/groundTargets'
 import type { InputState } from '../input/InputState'
+import { centreStick } from '../input/mouseStick'
 import type { Ship } from '../world/ships'
 import type { Combatant } from '../world/combatant'
 
@@ -157,7 +158,7 @@ function subjectPose(scene: IntroScene, subject: IntroSubject): Pose | null {
 }
 
 /**
- * 導覽期間玩家的飛機不吃操縱：清掉這一幀累積的所有輸入，瞄準點鎖在 `nose`，油門
+ * 導覽期間玩家的飛機不吃操縱：清掉這一幀累積的所有輸入（含滑鼠搖桿與方向舵），瞄準點鎖在 `nose`，油門
  * 固定在 `throttle`。**每幀在 `stepPlayerControl` 之前呼叫** —— 鍵盤滑鼠的事件已經
  * 寫進來了，這裡把它們蓋掉，飛機就直直往前飛。
  *
@@ -178,6 +179,7 @@ export function holdIntroInput(input: InputState, nose: Vector3, throttle: numbe
   input.playerAi = false
   input.bombTaps = 0
   input.throttle = throttle
+  centreStick(input)
 }
 
 /** 離 (x, z) 最近、還在場上的地面單位的序號；沒有就 −1。鏡位用座標指定單位（`IntroFire`） */

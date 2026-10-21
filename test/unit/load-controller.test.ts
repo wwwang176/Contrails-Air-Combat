@@ -16,6 +16,7 @@ describe('效能負載控制器', () => {
       Object.assign(command, {
         throttle: 1.1, brake: 1, firing: !firing, bombing: true,
         upright: true, pull: true, trackTurn: true, releaseFloor: 60,
+        manual: true, stickRoll: 1, stickPitch: 1, stickYaw: 1,
       })
       controller.update(aircraft, 1 / 240, command)
       expect(command).toEqual({ ...createCommand(), throttle: 0.7, firing })

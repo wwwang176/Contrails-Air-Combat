@@ -5,6 +5,7 @@ import { createCommand } from '../../src/control/Controller'
 import { PlayerController } from '../../src/control/PlayerController'
 import { MANOEUVRES, ScriptedController } from '../../src/control/ScriptedController'
 import { createInputState } from '../../src/input/InputState'
+import { shapeStick } from '../../src/input/mouseStick'
 import { P51D } from '../../src/specs/p51d'
 import { RAD } from '../../src/core/math'
 
@@ -67,6 +68,40 @@ describe('PlayerController', () => {
     expect(seq).toEqual([false, true, false, false, false, true])
   })
 
+  /** 【搖桿模式寫桿量】位置過死區與曲線（`shapeStick`）；方向舵 = 右 − 左 */
+  it('滑鼠搖桿：manual = true，三軸是曲線後的桿量與方向舵', () => {
+    const input = createInputState()
+    input.stickActive = true
+    input.stickX = 1
+    input.stickY = -0.5
+    input.rudderRight = true
+    const c = new PlayerController(input)
+    const cmd = createCommand()
+    c.update(new Aircraft(P51D), DT, cmd)
+    const shaped = shapeStick(1, -0.5, { roll: 0, pitch: 0 })
+    expect(cmd.manual).toBe(true)
+    expect(cmd.stickRoll).toBe(shaped.roll)
+    expect(cmd.stickPitch).toBe(shaped.pitch)
+    expect(cmd.stickYaw).toBe(1)
+    input.rudderLeft = true
+    c.update(new Aircraft(P51D), DT, cmd)
+    expect(cmd.stickYaw).toBe(0)
+  })
+
+  /** 【設定是搖桿但這一幀不用】觸控層顯示時 `stickActive` 是 false：桿量與方向舵都不算數 */
+  it('滑鼠瞄準：manual = false、三軸 0，搖桿位置與方向舵留著也不算數', () => {
+    const input = createInputState()
+    input.controlMode = 'stick'
+    input.stickActive = false
+    input.stickX = 1
+    input.rudderRight = true
+    const c = new PlayerController(input)
+    const cmd = createCommand()
+    c.update(new Aircraft(P51D), DT, cmd)
+    expect(cmd.manual).toBe(false)
+    expect([cmd.stickRoll, cmd.stickPitch, cmd.stickYaw]).toEqual([0, 0, 0])
+  })
+
   it('不在投彈視角時左鍵是機槍，不投彈', () => {
     const input = createInputState()
     input.viewMode = 'third'
@@ -94,6 +129,7 @@ describe('ScriptedController', () => {
       Object.assign(reused, {
         throttle: 1.1, brake: 1, firing: true, bombing: true,
         upright: true, pull: true, trackTurn: true, releaseFloor: 60,
+        manual: true, stickRoll: 1, stickPitch: 1, stickYaw: 1,
       })
       controller.update(self, DT, reused)
       reference.update(self, DT, clean)

@@ -82,8 +82,12 @@ describe('Command.releaseFloor', () => {
 
   it('AI 控制器帶著下限；玩家拿回控制（按 I 代飛之後）時歸零', () => {
     const out = createCommand()
+    // 【搖桿那四格也要清】玩家用滑鼠搖桿飛完按 I，座位的指令還留著 `manual`
+    Object.assign(out, { manual: true, stickRoll: 1, stickPitch: 1, stickYaw: 1 })
     new AiController().update(new Aircraft(B17G), 1 / 240, out)
     expect(out.releaseFloor).toBe(AI_RELEASE_FLOOR)
+    expect(out.manual).toBe(false)
+    expect([out.stickRoll, out.stickPitch, out.stickYaw]).toEqual([0, 0, 0])
     expect(AI_RELEASE_FLOOR).toBeGreaterThan(0)
     new PlayerController(createInputState()).update(new Aircraft(B17G), 1 / 240, out)
     expect(out.releaseFloor).toBe(0)

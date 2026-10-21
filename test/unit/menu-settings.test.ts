@@ -35,6 +35,7 @@ function fixture() {
     lang: new Element(), aimAssist: new Element(), quality: new Element(),
     antialias: new Element(), volume: new Element(),
     mouse: new Range(), mouseValue: { textContent: '' },
+    control: new Element(), recenter: new Element(),
   }
   const settings = new Element()
   const reload = new Element()
@@ -47,6 +48,7 @@ function fixture() {
       onVolume: v => { events.push(['volume', v]); view.renderVolume(v) },
       onAimAssist: v => { events.push(['assist', v]); view.renderAimAssist(v) },
       onMouseSensitivity: v => { events.push(['mouse', v]); view.renderMouseSensitivity(v) },
+      onControl: (m, r) => { events.push(['control', m, r]); view.renderControl(m, r) },
       onLang: v => { events.push(['lang', v, settings.hidden]); view.renderLang(v) },
       onAntialias: v => { events.push(['reload', v]); view.renderAntialias(v) },
     },
@@ -148,6 +150,66 @@ describe('設定頁的滑鼠靈敏度拉桿', () => {
     f.view.openSettings()
     f.view.applySettings()
     expect(f.events).toEqual([])
+  })
+})
+
+describe('設定頁的操控方式與搖桿回中', () => {
+  it('點了只改草稿；按確定才把兩格一起送出', () => {
+    const f = fixture()
+    f.view.renderControl('aim', 'off')
+    f.view.openSettings()
+    f.rows.control.children[1]!.click()
+    f.rows.recenter.children[2]!.click()
+    expect(f.events).toEqual([])
+    expect(f.rows.control.children[1]!.className).toBe('on')
+    expect(f.rows.recenter.children[2]!.className).toBe('on')
+    f.view.applySettings()
+    expect(f.events).toEqual([['control', 'stick', 'fast']])
+  })
+
+  /** 【回中只對搖桿有意義】草稿是滑鼠瞄準時那一列按不下去；換成搖桿立刻能按 */
+  it('草稿是滑鼠瞄準時回中列按不下去', () => {
+    const f = fixture()
+    f.view.renderControl('aim', 'off')
+    f.view.openSettings()
+    expect(f.rows.recenter.children.every((e) => e.disabled)).toBe(true)
+    f.rows.control.children[1]!.click()
+    expect(f.rows.recenter.children.every((e) => !e.disabled)).toBe(true)
+  })
+
+  it('取消再打開回到已套用的值；沒改就按確定不送事件', () => {
+    const f = fixture()
+    f.view.renderControl('stick', 'slow')
+    f.view.openSettings()
+    f.rows.control.children[0]!.click()
+    f.settings.hidden = true
+    f.view.openSettings()
+    expect(f.rows.control.children[1]!.className).toBe('on')
+    expect(f.rows.recenter.children[1]!.className).toBe('on')
+    f.view.applySettings()
+    expect(f.events).toEqual([])
+  })
+
+  it('恢復預設：滑鼠瞄準、回中關', () => {
+    const f = fixture()
+    // 其他列先放在預設值，事件裡才只有這兩格
+    f.view.renderAimAssist(true)
+    f.view.renderControl('stick', 'fast')
+    f.view.openSettings()
+    f.view.resetSettings()
+    f.view.applySettings()
+    expect(f.events).toEqual([['control', 'aim', 'off']])
+  })
+
+  it('等重載確認的那一條路也送出', () => {
+    const f = fixture()
+    f.view.renderControl('aim', 'off')
+    f.view.openSettings()
+    f.rows.control.children[1]!.click()
+    f.rows.antialias.children[1]!.click()
+    f.view.applySettings()
+    f.view.commitReload()
+    expect(f.events.map((e) => e[0])).toEqual(['control', 'reload'])
   })
 })
 

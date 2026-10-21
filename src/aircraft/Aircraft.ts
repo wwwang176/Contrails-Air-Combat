@@ -4,7 +4,7 @@ import {
   createDiagnostics, createFlightState, stepDynamics, type StepDiagnostics,
 } from '../physics/dynamics'
 import {
-  FlightDirector, createDirectorDebug, type DirectorDebug,
+  FlightDirector, createDirectorDebug, type DirectorDebug, type ManualStick,
 } from '../control/FlightDirector'
 import { DEFAULT_ACTUATOR_RATES, slewSurfaces, type ActuatorRates } from '../control/actuator'
 import type { AircraftSpec } from '../specs/types'
@@ -166,6 +166,8 @@ export class Aircraft {
    * @param throttle    玩家油門，0 ~ 1.1
    * @param trackTurn   `Command.trackTurn`：機翼改平改到瞄準方向那個轉彎要的坡度
    * @param pull        `Command.pull`：強制翻轉後拉，不推頭
+   * @param manual      滑鼠搖桿的桿量（`Command.manual` 為 true 時的那個 `Command`）。
+   *                    非 null 時舵面由 `FlightDirector.updateManual` 產生，瞄準方向不讀
    *
    * 【不要在這裡轉成機體座標】`FlightDirector.update` 的第五參數就叫
    * `aimDirWorld`，它自己在每一步用當下姿態的逆四元數轉成機體座標
@@ -177,7 +179,7 @@ export class Aircraft {
    */
   update(
     aimDirWorld: Vector3, throttle: number, dt: number, brake = 0, upright = false,
-    trackTurn = false, pull = false,
+    trackTurn = false, pull = false, manual: ManualStick | null = null,
   ): void {
     this.prevPosition.copy(this.state.position)
     this.prevOrientation.copy(this.state.orientation)
@@ -188,10 +190,17 @@ export class Aircraft {
     slewSurfaces(this.surfaces, this.controls, this.actuatorRates, dt)
     stepDynamics(this.spec, this.state, this.surfaces, dt, this.diag)
 
-    this.director.update(
-      this.spec, this.state, this.diag.aero, this.diag.slatsDeployed,
-      aimDirWorld, dt, this.controls, this.dbg, upright, trackTurn, pull,
-    )
+    if (manual !== null) {
+      this.director.updateManual(
+        this.spec, this.state, this.diag.aero, this.diag.slatsDeployed,
+        manual, dt, this.controls, this.dbg,
+      )
+    } else {
+      this.director.update(
+        this.spec, this.state, this.diag.aero, this.diag.slatsDeployed,
+        aimDirWorld, dt, this.controls, this.dbg, upright, trackTurn, pull,
+      )
+    }
 
     const es = this.specificEnergy
     this.psActual = dt > 0 ? (es - this.lastEnergy) / dt : 0

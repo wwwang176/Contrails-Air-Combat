@@ -247,6 +247,127 @@ describe('CameraRig', () => {
     expect(cam.up.dot(new Vector3(0, 1, 0))).toBeGreaterThan(0.999)
   })
 
+  /**
+   * 【滑鼠搖桿：鏡頭跟著滾】上方向量追機體上方，拉桿永遠是「機首往畫面上方走」。
+   * 滑鼠瞄準那條「不隨機體側滾」的理由（滑鼠的螢幕軸跟著坡度轉、正回饋）在這裡不成立 ——
+   * 滑鼠左右就是飛機自己的滾轉軸
+   */
+  it('跟著滾：60° 坡度穩定之後，相機的上方 ≈ 機體上方', () => {
+    const { rig, cam } = makeRig()
+    const pos = new Vector3(0, 3000, 0)
+    const rolled = new Quaternion().setFromAxisAngle(new Vector3(0, 0, -1), 60 * DEG)
+    rig.snapTo(fwd(rolled))
+    for (let i = 0; i < 120; i++) {
+      rig.update(cam, pos, rolled, fwd(rolled), 160, 'third', 0, 0, DT, null, false, null, true)
+    }
+    const bodyUp = new Vector3(0, 1, 0).applyQuaternion(rolled)
+    expect(cam.up.angleTo(bodyUp)).toBeLessThan(1 * DEG)
+  })
+
+  /** 【抬升也沿著相機的上方】倒飛時鏡頭在機腹那一側（世界的下方），機身才留在畫面的同一個位置 */
+  it('跟著滾：倒飛時鏡頭在機體上方那一側', () => {
+    const { rig, cam } = makeRig()
+    const pos = new Vector3(0, 3000, 0)
+    const inverted = new Quaternion().setFromAxisAngle(new Vector3(0, 0, -1), Math.PI)
+    rig.snapTo(fwd(inverted))
+    for (let i = 0; i < 240; i++) {
+      rig.update(cam, pos, inverted, fwd(inverted), 160, 'third', 0, 0, DT, null, false, null, true)
+    }
+    const bodyUp = new Vector3(0, 1, 0).applyQuaternion(inverted)
+    const rel = cam.position.clone().sub(pos)
+    expect(rel.dot(bodyUp)).toBeCloseTo(DEFAULT_CAMERA_OPTIONS.thirdHeight, 1)
+    expect(cam.position.y).toBeLessThan(pos.y)
+  })
+
+  /**
+   * 【目標恰在反方向也照轉】正飛的上方追倒飛的上方：線性混合兩個反向的向量只會縮短不會轉，
+   * 靠捨入誤差慢慢脫離要 1 秒以上。轉角的做法 0.3 秒內就追上
+   */
+  it('跟著滾：瞬間翻到倒飛，0.3 秒內追上', () => {
+    const { rig, cam } = makeRig()
+    const pos = new Vector3(0, 3000, 0)
+    const inverted = new Quaternion().setFromAxisAngle(new Vector3(0, 0, -1), Math.PI)
+    rig.snapTo(fwd(inverted))
+    for (let i = 0; i < 18; i++) {
+      rig.update(cam, pos, inverted, fwd(inverted), 160, 'third', 0, 0, DT, null, false, null, true)
+    }
+    const bodyUp = new Vector3(0, 1, 0).applyQuaternion(inverted)
+    expect(cam.up.angleTo(bodyUp)).toBeLessThan(10 * DEG)
+  })
+
+  /**
+   * 【倒飛時關掉跟滾也要回得來】按 `I` 交給代飛、陣亡，跟滾就關掉；那時上方向量朝下，
+   * 改平的目標（世界上方）恰在反方向，線性混合回不來
+   */
+  it('倒飛時關掉跟滾：一秒內回到水平', () => {
+    const { rig, cam } = makeRig()
+    const pos = new Vector3(0, 3000, 0)
+    const inverted = new Quaternion().setFromAxisAngle(new Vector3(0, 0, -1), Math.PI)
+    rig.snapTo(fwd(inverted))
+    for (let i = 0; i < 120; i++) {
+      rig.update(cam, pos, inverted, fwd(inverted), 160, 'third', 0, 0, DT, null, false, null, true)
+    }
+    expect(cam.up.y).toBeLessThan(-0.9)
+    for (let i = 0; i < 60; i++) {
+      rig.update(cam, pos, inverted, fwd(inverted), 160, 'third', 0, 0, DT)
+    }
+    expect(cam.up.y).toBeGreaterThan(0.9)
+  })
+
+  /** 【望遠的抬升也沿著跟滾的上方】倒飛時往機腹那一側抬，機身才留在畫面下方 */
+  it('跟著滾＋望遠：倒飛時往機體上方那一側抬', () => {
+    const { rig, cam } = makeRig()
+    const pos = new Vector3(0, 3000, 0)
+    const inverted = new Quaternion().setFromAxisAngle(new Vector3(0, 0, -1), Math.PI)
+    rig.snapTo(fwd(inverted))
+    for (let i = 0; i < 240; i++) {
+      rig.update(cam, pos, inverted, fwd(inverted), 160, 'third', 0, 0, DT, null, true, null, true)
+    }
+    const bodyUp = new Vector3(0, 1, 0).applyQuaternion(inverted)
+    const rel = cam.position.clone().sub(pos)
+    expect(rel.dot(bodyUp)).toBeCloseTo(DEFAULT_CAMERA_OPTIONS.thirdHeight + ZOOM_LIFT, 1)
+  })
+
+  /** 【滾轉要跟得上】滾 90°/s 時落後不到 15°；不跟的話（預設）相機上方留在世界上方 */
+  it('跟著滾：持續滾轉時落後不多；預設不跟', () => {
+    const follow = makeRig()
+    const fixed = makeRig()
+    const pos = new Vector3(0, 3000, 0)
+    follow.rig.snapTo(fwd(new Quaternion()))
+    fixed.rig.snapTo(fwd(new Quaternion()))
+    let q = new Quaternion()
+    for (let i = 1; i <= 60; i++) {
+      q = new Quaternion().setFromAxisAngle(new Vector3(0, 0, -1), i * DT * 90 * DEG)
+      follow.rig.update(follow.cam, pos, q, fwd(q), 160, 'third', 0, 0, DT, null, false, null, true)
+      fixed.rig.update(fixed.cam, pos, q, fwd(q), 160, 'third', 0, 0, DT)
+    }
+    const bodyUp = new Vector3(0, 1, 0).applyQuaternion(q)
+    expect(follow.cam.up.angleTo(bodyUp)).toBeLessThan(15 * DEG)
+    expect(fixed.cam.up.dot(new Vector3(0, 1, 0))).toBeGreaterThan(0.999)
+  })
+
+  /** 【垂直時沒有奇點】機體上方恆垂直於機首，跟著滾的目標在天頂也有定義 */
+  it('跟著滾：筋斗翻過天頂時相機連續', () => {
+    const { rig, cam } = makeRig()
+    const pos = new Vector3(0, 3000, 0)
+    rig.snapTo(fwd(pitched(0)))
+    let prevPos: Vector3 | null = null
+    let prevUp: Vector3 | null = null
+    let maxStep = 0
+    let maxTurn = 0
+    for (let i = 0; i <= 240; i++) {
+      const q = pitched(i * 1.5)
+      rig.update(cam, pos, q, fwd(q), 160, 'third', 0, 0, DT, null, false, null, true)
+      if (prevPos) maxStep = Math.max(maxStep, cam.position.distanceTo(prevPos))
+      if (prevUp) maxTurn = Math.max(maxTurn, prevUp.angleTo(cam.up))
+      prevPos = cam.position.clone()
+      prevUp = cam.up.clone()
+    }
+    expect(maxStep).toBeLessThan(1.7)
+    expect(maxTurn).toBeLessThan(5 * DEG)
+    expect(Number.isFinite(cam.position.length())).toBe(true)
+  })
+
   it('筋斗翻過天頂時相機連續移動，不會瞬間甩到另一側', () => {
     const { rig, cam } = makeRig()
     const pos = new Vector3(0, 3000, 0)

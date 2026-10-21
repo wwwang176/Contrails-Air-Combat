@@ -9,6 +9,8 @@ import { enterGodCamera, type GodCameraState, type GodCameraInput } from '../cam
 import { startBlend, type CameraBlend } from '../camera/cameraBlend'
 import { deathCamAim, enterDeathCam } from '../camera/deathCam'
 import { BOMB_AIM_SCALE, levelAimBasis, slewAimWorld } from '../input/aim'
+import { centreStick, stepStick } from '../input/mouseStick'
+import type { TouchControls } from '../input/touch'
 import { headingFromOrientation } from '../core/attitude'
 import { DEG } from '../core/math'
 import { resetGEffect } from '../hud/widgets/gEffect'
@@ -28,12 +30,14 @@ interface PlayerControlDependencies {
   godBlend: CameraBlend
   godInput: Pick<GodCameraInput, 'lookX' | 'lookY'>
   damageMarks: DamageMark[]
+  /** 觸控層。顯示時一律是滑鼠瞄準，設定的滑鼠搖桿不作用 */
+  touch: Pick<TouchControls, 'visible'>
 }
 
 /** 共用的操控只綁一次；戰鬥與玩家在接手之後重新傳入 */
 export function createPlayerControl({
   input, bindings, camera, rig, playerAi, playerController, aimAssist,
-  visuals, godCam, godBlend, godInput, damageMarks,
+  visuals, godCam, godBlend, godInput, damageMarks, touch,
 }: PlayerControlDependencies) {
   let wasGodView = false
   let wasDying = false
@@ -84,6 +88,11 @@ export function createPlayerControl({
       wasGodView = input.godView
     }
     const aiFlying = input.playerAi
+    // 【這一幀用不用滑鼠搖桿】觸控一律是滑鼠瞄準。換了的那一幀搖桿歸零 —— 不歸零的話
+    // 切回搖桿時恢復上一次的桿量
+    const stick = input.controlMode === 'stick' && !touch.visible
+    if (stick !== input.stickActive) centreStick(input)
+    input.stickActive = stick
     // 【死亡鏡頭】玩家陣亡到接手之間的那 2 秒：位置定在死亡點（殘骸化之後
     // `Visual.position` 就不再更新，而相機讀的正是它），視線平滑轉向擊殺者。
     // 這段期間滑鼠不該做任何事 —— 已經沒有飛機可以操縱了。
@@ -95,6 +104,8 @@ export function createPlayerControl({
       resetDamageMarks(damageMarks)
       // 視角退回機外、取消右鍵轉頭 —— 死亡鏡頭只在機外、只看擊殺者
       enterDeathCam(input)
+      // 接手的僚機不該接著上一架壓著的桿量飛
+      centreStick(input)
     }
     // 輸入層靠它擋掉死亡鏡頭期間的右鍵與 B；接手完成的那一幀自動解除
     input.dead = dying
@@ -122,10 +133,18 @@ export function createPlayerControl({
         worldSeconds,
       )
       input.firing = false
+      // 【每一幀都清】接手僚機時座位直接換上玩家控制器（`battleRuntime`），不經過下面的
+      // 交還分支；死亡期間按著的 A／D 會帶到新的一架
+      centreStick(input)
     } else if (aiFlying) {
       input.aimWorld.set(0, 0, -1).applyQuaternion(player.aircraft.state.orientation)
       // 左鍵失效：開火完全由 AI 的開火紀律決定
       input.firing = false
+    } else if (input.stickActive) {
+      // 【滑鼠搖桿】位移推搖桿；投彈視角也一樣。瞄準點放在機首：鏡頭跟著它走，所以鏡頭
+      // 跟著機首（與代飛同一個做法），HUD 的投影也落在機首
+      stepStick(input, input.aimDeltaX, input.aimDeltaY, worldSeconds)
+      input.aimWorld.set(0, 0, -1).applyQuaternion(player.aircraft.state.orientation)
     } else if (input.viewMode === 'bomb') {
       // 【投彈模式只能微調】位移乘 `BOMB_AIM_SCALE`，旋轉軸取瞄準方向自己的
       // 水平座標系，不取相機 —— 投彈相機朝下看，拿它的軸滑鼠的語意就變了
@@ -144,8 +163,11 @@ export function createPlayerControl({
       const playerTurn = Math.hypot(input.aimDeltaX, input.aimDeltaY) * camera.fov * DEG / 2
       aimAssist.step(input.aimWorld, playerTurn, worldSeconds, player, world.combatants, rig.magnification)
     }
-    // 【只在一般飛行時吸】其餘分支的瞄準點不歸玩家管，離開時要放掉目標
-    if (input.godView || dying || aiFlying || input.viewMode === 'bomb') aimAssist.reset()
+    // 【只在一般飛行時吸】其餘分支的瞄準點不歸玩家管，離開時要放掉目標。滑鼠搖桿沒有
+    // 瞄準點可推
+    if (input.godView || dying || aiFlying || input.stickActive || input.viewMode === 'bomb') {
+      aimAssist.reset()
+    }
     input.aimDeltaX = 0
     input.aimDeltaY = 0
     // 【不在上帝視角時要清掉】留著的話，下次進上帝視角的第一幀會吃到一個
@@ -167,6 +189,8 @@ export function createPlayerControl({
       input.aimWorld.set(0, 0, -1).applyQuaternion(player.aircraft.state.orientation)
       // 【跟瞄歷史一起清】瞄準方向剛被一步重設，那一步不是角速度（`resetTrack`）
       player.aircraft.director.resetTrack()
+      // 代飛前壓著的桿量不該接著飛
+      centreStick(input)
     }
     // 【不在座位上照樣冷卻】代飛時 `World.step` 呼叫的是 `playerAi`，玩家控制器的熱度會凍結；
     // 不在這裡冷卻的話，過熱時按 I、等十秒再接回來仍然是鎖住的，空響也停不下來
