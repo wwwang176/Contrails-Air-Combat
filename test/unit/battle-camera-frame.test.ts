@@ -5,7 +5,7 @@ import { P51D } from '../../src/specs/p51d'
 import { createInputState } from '../../src/input/InputState'
 import { createCameraBlend } from '../../src/camera/cameraBlend'
 import { createCameraShake } from '../../src/camera/cameraShake'
-import { createGodCameraState } from '../../src/camera/godCamera'
+import { DEFAULT_GOD_CAMERA, createGodCameraState } from '../../src/camera/godCamera'
 import type { CameraRig } from '../../src/camera/CameraRig'
 import {
   createBattleCameraFrameOutput, createBattleCameraFrameScratch,
@@ -19,7 +19,7 @@ function fixture() {
     ctx: { camera }, rig,
     godCam: createGodCameraState(), godTarget: new Vector3(),
     godBlend: createCameraBlend(), cameraShake: createCameraShake(),
-    scratch: createBattleCameraFrameScratch(),
+    scratch: createBattleCameraFrameScratch(), surfaceAt: () => 0,
   }
   const output = createBattleCameraFrameOutput()
   const input = createInputState()
@@ -100,6 +100,21 @@ describe('戰鬥幀的鏡頭', () => {
     expect(f.deps.cameraShake.sustained).toBe(0)
     expect(f.output.bombState).toBe('off')
     expect(f.output.bombTarget).toBeNull()
+  })
+
+  /**
+   * 【兩種鏡頭各墊各的地面】跟機鏡頭離地只墊幾公尺，要墊在畫出來的浪上；上帝視角墊
+   * 20 m，用判定用的平海面 —— 用浪的話停在海上的鏡頭會跟著浪起伏
+   */
+  it('跟機鏡頭拿畫面上的地面，上帝視角拿判定用的地面', () => {
+    const f = fixture()
+    f.step()
+    expect(f.rig.update.mock.calls[0]![11]).toBe(f.deps.surfaceAt)
+    f.world.groundAt = () => 500
+    f.deps.godCam.position.set(0, 100, 0)
+    f.input.godView = true
+    f.step()
+    expect(f.deps.godCam.position.y).toBe(500 + DEFAULT_GOD_CAMERA.minHeight)
   })
 
   it('瞄準器解不出來時回報無解，不留著上一次的落點', () => {

@@ -157,11 +157,46 @@ describe('stepGodCamera：移動', () => {
 })
 
 describe('stepGodCamera：夾擠', () => {
-  it('y 不會低於 minAltitude', () => {
+  it('沒有地形時 y 不會低於 minHeight', () => {
     const s = createGodCameraState()
-    s.position.set(0, cfg.minAltitude + 1, 0)
+    s.position.set(0, cfg.minHeight + 1, 0)
     for (let i = 0; i < 240; i++) stepGodCamera(s, idle({ down: true }), DT, cfg)
-    expect(s.position.y).toBe(cfg.minAltitude)
+    expect(s.position.y).toBe(cfg.minHeight)
+  })
+
+  /** 【下限是離地高度】海拔下限的話，比它高的山頂上按下降就鑽進地底 */
+  it('山上：停在地面以上 minHeight，垂直速度歸零', () => {
+    const s = createGodCameraState()
+    s.position.set(0, 600, 0)
+    for (let i = 0; i < 240; i++) stepGodCamera(s, idle({ down: true }), DT, DEFAULT_GOD_CAMERA, () => 500)
+    expect(s.position.y).toBe(500 + cfg.minHeight)
+    expect(s.velocity.y).toBe(0)
+  })
+
+  it('往山坡平移：每一幀都在腳下地面以上 minHeight，位置連續', () => {
+    const ground = (_x: number, z: number) => Math.max(0, -z * 0.5)
+    const s = createGodCameraState()
+    s.position.set(0, cfg.minHeight, 0)
+    let maxStep = 0
+    for (let i = 0; i < 120; i++) {
+      const y0 = s.position.y
+      stepGodCamera(s, idle({ forward: true, boost: true }), DT, DEFAULT_GOD_CAMERA, ground)
+      expect(s.position.y).toBeGreaterThanOrEqual(ground(s.position.x, s.position.z) + cfg.minHeight)
+      maxStep = Math.max(maxStep, Math.abs(s.position.y - y0))
+    }
+    // 1200 m/s 爬 50% 的坡：每幀最多升 10 m，不會一下跳上去
+    expect(maxStep).toBeLessThanOrEqual(1200 * DT * 0.5 + 1e-9)
+  })
+
+  it('被地面往上推時，往上按的速度不被吃掉', () => {
+    // 坡比往上按的速率陡：每一幀都被地面推著
+    const ground = (_x: number, z: number) => Math.max(0, -z * 2)
+    const s = createGodCameraState()
+    s.position.set(0, cfg.minHeight, 0)
+    for (let i = 0; i < 30; i++) {
+      stepGodCamera(s, idle({ forward: true, up: true }), DT, DEFAULT_GOD_CAMERA, ground)
+    }
+    expect(s.velocity.y).toBeGreaterThan(0)
   })
 
   it('y 不會高於 maxAltitude', () => {
@@ -352,9 +387,9 @@ describe('stepGodCamera：位移的平滑', () => {
   /** 頂到高度上下限時垂直速度不累積 —— 不然反向按要先把那一段速度吃掉才動 */
   it('碰到高度下限，垂直速度歸零', () => {
     const s = createGodCameraState()
-    s.position.set(0, smooth.minAltitude + 1, 0)
+    s.position.set(0, smooth.minHeight + 1, 0)
     for (let i = 0; i < 60; i++) stepGodCamera(s, idle({ down: true }), DT, smooth)
-    expect(s.position.y).toBe(smooth.minAltitude)
+    expect(s.position.y).toBe(smooth.minHeight)
     expect(s.velocity.y).toBe(0)
   })
 })

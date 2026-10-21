@@ -85,6 +85,13 @@ export const ZOOM_LIFT = 0.3
 /** 望遠拉近、放開拉回的時間常數，s：約 3 倍（0.2 s）到位 */
 export const ZOOM_TIME = 0.07
 
+/**
+ * 機外鏡頭離腳下畫出來的地面（陸地或浪）至少多高，m。
+ *
+ * 近裁面 1 m，預設視野下近裁面的下緣比眼點低約 0.7 m；低於這個值地面就從畫面下緣切進來
+ */
+export const CAMERA_GROUND_CLEARANCE = 2
+
 const CONE_COS = Math.cos(BOMB_CONE_HALF_ANGLE)
 const CONE_SIN = Math.sin(BOMB_CONE_HALF_ANGLE)
 
@@ -288,6 +295,9 @@ export class CameraRig {
    *   準星因此釘在畫面中央，跟不上的是飛機——機身會斜在畫面裡，指揮儀正在
    *   追的誤差角於是直接看得見。傳機首方向則是相反的呈現方式。
    * @param zoom 按住望遠（`InputState.zoom`）。投彈視角下不吃
+   * @param surfaceAt 畫出來的地面高度。機外鏡頭墊在它上方 `CAMERA_GROUND_CLEARANCE`：
+   *   視線往上抬時鏡頭會落到機身下方（上仰 45° 約低 5.5 m），低空拉起就鑽進地面。
+   *   null = 不墊
    */
   update(
     camera: PerspectiveCamera,
@@ -301,6 +311,7 @@ export class CameraRig {
     dt: number,
     bombTarget: Vector3 | null = null,
     zoom = false,
+    surfaceAt: ((x: number, z: number) => number) | null = null,
   ): void {
     const o = this.options
 
@@ -422,6 +433,11 @@ export class CameraRig {
       camera.position.copy(position).add(finalOffset)
       // 【望遠時抬高】自己的飛機跟著放大，抬一點讓它留在畫面下方
       camera.position.y += ZOOM_LIFT * this.zoomK
+      // 【只墊輸出、不動彈簧】偏移照常追；飛機爬高之後鏡頭自然離開地面
+      if (surfaceAt !== null) {
+        const floor = surfaceAt(camera.position.x, camera.position.z) + CAMERA_GROUND_CLEARANCE
+        if (camera.position.y < floor) camera.position.y = floor
+      }
       // 注視機首前方的瞄準點，使準星穩定於畫面中央區
       const target = S.v[0]!.copy(position).addScaledVector(viewForward, o.aimPointDistance)
       camera.up.set(0, 1, 0).applyQuaternion(viewQuat)

@@ -7,7 +7,7 @@ import { CameraRig, DEFAULT_CAMERA_OPTIONS } from '../camera/CameraRig'
 import { applyBlend, type CameraBlend } from '../camera/cameraBlend'
 import { stepCameraShake, type CameraShake } from '../camera/cameraShake'
 import {
-  godCameraTarget, stepGodCamera,
+  DEFAULT_GOD_CAMERA, godCameraTarget, stepGodCamera,
   type GodCameraInput, type GodCameraState,
 } from '../camera/godCamera'
 import type { InputState } from '../input/InputState'
@@ -44,6 +44,12 @@ export interface BattleCameraFrameDependencies {
   readonly godBlend: CameraBlend
   readonly cameraShake: CameraShake
   readonly scratch: BattleCameraFrameScratch
+  /**
+   * 畫出來的地面高度（地形與浪取高的那一個），跟機鏡頭墊在它上面。**一顆固定的函式**，
+   * 每幀傳進去不配置閉包。上帝視角墊的是 `world.groundAt` 的平海面 —— 墊 20 m 用不著浪，
+   * 用浪的話停在海上的鏡頭會跟著浪起伏
+   */
+  readonly surfaceAt: (x: number, z: number) => number
 }
 
 type Terrain = Pick<ReturnType<typeof createTerrain>, 'collisionHeightAt'>
@@ -70,7 +76,7 @@ export function updateBattleCameraFrame(
   output: BattleCameraFrameOutput,
 ): void {
   const {
-    ctx, rig, godCam, godTarget, godBlend, cameraShake,
+    ctx, rig, godCam, godTarget, godBlend, cameraShake, surfaceAt,
     scratch: { bombImpact, bombStart, bombEye, bombPoint: impactPoint, godInput },
   } = deps
   const aircraft = player.aircraft
@@ -110,7 +116,7 @@ export function updateBattleCameraFrame(
     godInput.down = input.godMove.down
     godInput.boost = input.godMove.boost
     input.lookScale = 1
-    stepGodCamera(godCam, godInput, frameSeconds)
+    stepGodCamera(godCam, godInput, frameSeconds, DEFAULT_GOD_CAMERA, world.groundAt)
     ctx.camera.position.copy(godCam.position)
     ctx.camera.up.set(0, 1, 0)
     ctx.camera.lookAt(godCameraTarget(godCam, godTarget))
@@ -143,6 +149,7 @@ export function updateBattleCameraFrame(
     rig.update(
       ctx.camera, renderPos, renderQuat, input.aimWorld, aircraft.diag.aero.tas,
       input.viewMode, input.lookYaw, input.lookPitch, worldSeconds, bombTarget, input.zoom,
+      surfaceAt,
     )
     // 【望遠時自由視角跟著變細】畫面放大幾倍，自由視角每像素轉的角度就除以幾
     input.lookScale = 1 / rig.magnification

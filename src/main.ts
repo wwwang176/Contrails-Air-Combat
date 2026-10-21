@@ -250,8 +250,8 @@ let aiTerrain: TerrainSource = terrain
 let balloonHillSet: BalloonHillSet | null = null
 const sceneWeather = createSceneWeather(ctx.scene, { createStorm, createRain })
 /**
- * 地上水花落在的高度：地形與海面取高的那一個（`Terrain.heightAt`）。**模組層一顆
- * 函式**，每幀傳進去不配置閉包
+ * 畫出來的地面高度：地形與海面取高的那一個（`Terrain.heightAt`）。地上水花落在這裡，
+ * 跟機鏡頭也墊在它上面。**模組層一顆函式**，每幀傳進去不配置閉包
  */
 const rainGroundAt = (x: number, z: number): number => terrain.heightAt(x, z, elapsed)
 
@@ -956,6 +956,7 @@ const battleCameraFrameScratch: BattleCameraFrameScratch = {
 const battleCameraFrameDeps: BattleCameraFrameDependencies = {
   ctx, rig, godCam, godTarget, godBlend, cameraShake,
   scratch: battleCameraFrameScratch,
+  surfaceAt: rainGroundAt,
 }
 const battleCameraFrameOutput: BattleCameraFrameOutput = {
   attitude: hudAttitude,

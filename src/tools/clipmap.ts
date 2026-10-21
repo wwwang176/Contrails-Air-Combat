@@ -39,7 +39,7 @@ const CAM: GodCameraOptions = {
   ...DEFAULT_GOD_CAMERA,
   moveSpeed: 150,
   boostFactor: 6,
-  minAltitude: 5,
+  minHeight: 5,
   // 拖曳一個螢幕半高轉 90°
   lookSensitivity: 90 * DEG,
 }
