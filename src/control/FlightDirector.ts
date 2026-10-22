@@ -4,7 +4,7 @@ import { G0, clamp, lerp, smoothstep } from '../core/math'
 import { makeScratch } from '../core/pool'
 import { Pid, type PidGains } from './pid'
 import {
-  PILOT_G_NEGATIVE, QMAX_FLOOR, createPitchLimit, gLoadFromOrientation, pitchRateLimit,
+  ALPHA_MARGIN, PILOT_G_NEGATIVE, QMAX_FLOOR, createPitchLimit, gLoadFromOrientation, pitchRateLimit,
   type PitchLimit,
 } from './limiters'
 import { controlEffectiveness, redlineEffectiveness } from '../physics/aero'
@@ -96,6 +96,13 @@ const TRACK_JUMP = Math.cos(5 * (Math.PI / 180))
  * 滾轉還在慣性上，收掉之後會被拉回放桿那一點 —— 看起來像彈回去
  */
 const HOLD_CAPTURE_RATE = 0.05
+
+/**
+ * 搖桿置中時，迎角每超過失速前上限 1 rad 就要多少俯仰率把機首壓回去，1/s。置中的 1 G 配平
+ * 假設航跡跟著機首轉；失速之後航跡跟不上，只靠配平的話機首被撐在大迎角，放桿近三秒才脫離
+ * 失速。乘的是置中那一份（`1 − |桿量|`），拉滿時不作用
+ */
+const STICK_STALL_RECOVERY = 2
 
 export interface DirectorGains {
   /** 外環：滾轉角誤差 → 期望滾轉率，(rad/s)/rad */
@@ -832,7 +839,8 @@ export class FlightDirector {
    * 共用，只換掉外環：桿量直接對應期望角速度，不經瞄準方向。
    *
    * - 滾轉：壓桿時副翼直接等於桿量（滿桿 = 副翼打滿）；回中時內環把滾轉率守在 0（坡度保持）
-   * - 俯仰：置中 = 1 G 配平，拉滿 = `qMax`，推滿 = `qMin`。置中若是 q = 0（姿態保持），
+   * - 俯仰：置中 = 1 G 配平，拉滿／推滿 = 結構與飛行員的過載上下限（不擋失速，低速拉過頭就失速；
+   *   高速時與瞄準模式的 `qMax` 同值）。置中若是 q = 0（姿態保持），
    *   帶坡度放開搖桿時機首停在慣性空間裡不跟著轉彎，速度向量被重力往下拉、迎角一路變大
    * - 偏航：自動模式的消側滑項，加上方向舵的偏航率指令；側滑權限照自動模式夾
    *
@@ -897,10 +905,23 @@ export class FlightDirector {
     }
     dbg.wingsLevelIntegral = this.levelIntegral
 
-    // 機身法向過載 = 1 G 的俯仰率：n = q·V/g + gLoad（見 `pitchRateLimit`）
-    const qMax = dbg.limiter.qMax
-    const qMin = dbg.qMin
-    const qTrim = aero.tas > 1 ? clamp((G0 * (1 - gLoad)) / aero.tas, qMin, qMax) : 0
+    // 機身法向過載 = 1 G 的俯仰率：n = q·V/g + gLoad（見 `pitchRateLimit`）。置中夾在失速前的
+    // 上下限裡 —— 1 G 失速速度以下若照樣要 1 G，放著不動就一路拉進失速
+    let qTrim = aero.tas > 1 ? clamp((G0 * (1 - gLoad)) / aero.tas, dbg.qMin, dbg.limiter.qMax) : 0
+    // 超過失速前上限的迎角（以零升迎角為對稱中心，與 `liftCoefficient` 同一套）由置中那一份壓回去
+    const L = spec.lift
+    const alphaRel = aero.alpha - L.alphaZero
+    const alphaLimitRel = L.alphaCrit * ALPHA_MARGIN + (slatsDeployed ? L.slatAlphaBonus : 0) - L.alphaZero
+    if (alphaRel > alphaLimitRel) qTrim -= STICK_STALL_RECOVERY * (alphaRel - alphaLimitRel)
+    else if (alphaRel < -alphaLimitRel) qTrim -= STICK_STALL_RECOVERY * (alphaRel + alphaLimitRel)
+    // 【拉滿只擋結構與飛行員負 G，不擋失速】低速拉過頭就失速，失速的代價由物理層給
+    let qMax = 0
+    let qMin = 0
+    if (aero.tas > 1) {
+      qMax = Math.max((G0 * (spec.limits.gPositive - gLoad)) / aero.tas, QMAX_FLOOR)
+      const nNeg = Math.max(PILOT_G_NEGATIVE, spec.limits.gNegative)
+      qMin = Math.min((G0 * (nNeg - gLoad)) / aero.tas, -QMAX_FLOOR)
+    }
     const s = stick.stickPitch
     // 【寫成兩端加權】滿桿時 `(1 − s)` 恰為 0，結果逐位元等於上下限
     dbg.desiredQ = s >= 0 ? (1 - s) * qTrim + s * qMax : (1 + s) * qTrim - s * qMin

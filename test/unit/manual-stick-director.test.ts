@@ -6,7 +6,7 @@ import {
 } from '../../src/control/FlightDirector'
 import { BF109K4 } from '../../src/specs/bf109k4'
 import { G0 } from '../../src/core/math'
-import { gLoadFromOrientation } from '../../src/control/limiters'
+import { PILOT_G_NEGATIVE, gLoadFromOrientation } from '../../src/control/limiters'
 import { P51D } from '../../src/specs/p51d'
 import type { Controls } from '../../src/physics/types'
 import type { Controller } from '../../src/control/Controller'
@@ -15,9 +15,9 @@ import { World } from '../../src/world/World'
 const DT = 1 / 240
 const DEG = Math.PI / 180
 
-/** 4000 m、160 m/s 平飛的 P-51D，跑一步讓 `diag.aero` 有值 */
-function cruise(bankDeg = 0): Aircraft {
-  const a = new Aircraft(P51D, 4000, 160)
+/** 4000 m 平飛的 P-51D，跑一步讓 `diag.aero` 有值 */
+function cruise(bankDeg = 0, tas = 160): Aircraft {
+  const a = new Aircraft(P51D, 4000, tas)
   // 右坡度＝右翼往下：繞機首方向（−Z）轉正角
   a.state.orientation.setFromAxisAngle(new Vector3(0, 0, -1), bankDeg * DEG)
   a.update(new Vector3(0, 0, -1).applyQuaternion(a.state.orientation), 0.7, DT)
@@ -58,22 +58,50 @@ describe('FlightDirector.updateManual：俯仰', () => {
     expect(q).toBeCloseTo(G0 * (1 - gLoad) / a.diag.aero.tas, 12)
   })
 
-  it('拉滿 = 限制器的上限 qMax；推滿 = 下限 qMin', () => {
-    const a = cruise()
+  /**
+   * 【拉滿只擋結構、不擋失速】低速時結構過載對應的俯仰率遠大於失速前的上限 `limiter.qMax`，
+   * 拉滿就拉得過失速迎角。推滿同理，下限是飛行員與結構的負過載
+   */
+  it('低速拉滿 = 結構過載的俯仰率（超過失速上限）；推滿 = 負過載上限', () => {
+    const a = cruise(0, 90)
+    const gLoad = gLoadFromOrientation(a.state.orientation)
+    const tas = a.diag.aero.tas
     const pull = manual(a, stick(0, 1))
-    expect(pull.desiredQ).toBe(pull.limiter.qMax)
+    expect(pull.limiter.source).toBe('alpha')
+    expect(pull.desiredQ).toBe(G0 * (a.spec.limits.gPositive - gLoad) / tas)
+    expect(pull.desiredQ).toBeGreaterThan(1.5 * pull.limiter.qMax)
     const push = manual(a, stick(0, -1))
-    expect(push.desiredQ).toBe(push.qMin)
-    expect(push.qMin).toBeLessThan(0)
+    expect(push.desiredQ).toBe(G0 * (Math.max(PILOT_G_NEGATIVE, a.spec.limits.gNegative) - gLoad) / tas)
+    expect(push.desiredQ).toBeLessThan(push.qMin)
   })
 
-  it('半桿落在配平與上下限的正中間', () => {
+  /** 結構先夾住的速度，拉滿與瞄準模式的上限是同一個數 */
+  it('高速拉滿 = 限制器的上限（結構）', () => {
+    const pull = manual(cruise(0, 230), stick(0, 1))
+    expect(pull.limiter.source).toBe('structure')
+    expect(pull.desiredQ).toBe(pull.limiter.qMax)
+  })
+
+  /**
+   * 【置中的 1 G 配平照樣擋失速】1 G 失速速度以下，置中要求 1 G 的話放著不動就一路拉進失速。
+   * 配平夾在失速前的上限裡
+   */
+  it('1 G 失速速度以下、搖桿置中：期望俯仰率不超過失速上限', () => {
+    const a = cruise(60, 40)
+    const dbg = manual(a, stick())
+    expect(dbg.limiter.nAero).toBeLessThan(1)
+    expect(dbg.desiredQ).toBeLessThanOrEqual(dbg.limiter.qMax)
+  })
+
+  it('半桿落在配平與拉滿／推滿的正中間', () => {
     const a = cruise(30)
     const trim = manual(a, stick()).desiredQ
+    const full = manual(a, stick(0, 1)).desiredQ
     const half = manual(a, stick(0, 0.5))
-    expect(half.desiredQ).toBeCloseTo((trim + half.limiter.qMax) / 2, 9)
+    expect(half.desiredQ).toBeCloseTo((trim + full) / 2, 9)
+    const fullPush = manual(a, stick(0, -1)).desiredQ
     const halfPush = manual(a, stick(0, -0.5))
-    expect(halfPush.desiredQ).toBeCloseTo((trim + halfPush.qMin) / 2, 9)
+    expect(halfPush.desiredQ).toBeCloseTo((trim + fullPush) / 2, 9)
   })
 })
 
@@ -245,16 +273,32 @@ describe('搖桿飛起來（P-51D，4000 m，160 m/s）', () => {
     expect(a.state.velocity.y).toBeLessThan(0)
   })
 
-  /** 【保護保留】拉滿就是限制器的上限：不失速、不超過結構過載 */
-  it('拉滿 10 秒：迎角不超過臨界、過載不超過結構上限', () => {
-    const a = new Aircraft(P51D, 4000, 160)
+  /**
+   * 【不擋失速】低速拉滿一秒內越過臨界迎角。【放桿就脫離】置中的 1 G 配平會把機首撐在大迎角，
+   * 超過的迎角要由置中那一份壓回去；少了它放桿近三秒才回到臨界以下
+   */
+  it('低速拉滿會失速；放開之後 1.2 秒內回到臨界以下', () => {
+    const a = new Aircraft(P51D, 3000, 110)
+    const crit = a.spec.lift.alphaCrit
     let alphaMax = 0
-    let nMax = 0
-    fly(a, stick(0, 1), 10, () => {
-      alphaMax = Math.max(alphaMax, a.diag.aero.alpha)
-      nMax = Math.max(nMax, a.diag.loadFactor)
+    fly(a, stick(0, 1), 2, () => { alphaMax = Math.max(alphaMax, a.diag.aero.alpha) })
+    expect(alphaMax).toBeGreaterThan(crit + 10 * DEG)
+    let recovered = -1
+    let t = 0
+    fly(a, stick(), 2, () => {
+      t += DT
+      if (recovered < 0 && a.diag.aero.alpha < crit) recovered = t
     })
-    expect(alphaMax).toBeLessThan(a.spec.lift.alphaCrit)
+    expect(recovered).toBeGreaterThan(0)
+    expect(recovered).toBeLessThan(1.2)
+  })
+
+  /** 【結構上限保留】高速拉滿十秒，速度一路掉、過載始終不超過結構上限 */
+  it('高速拉滿 10 秒：過載不超過結構上限', () => {
+    const a = new Aircraft(P51D, 3000, 230)
+    let nMax = 0
+    fly(a, stick(0, 1), 10, () => { nMax = Math.max(nMax, a.diag.loadFactor) })
+    expect(nMax).toBeGreaterThan(6)
     expect(nMax).toBeLessThan(a.spec.limits.gPositive + 0.3)
   })
 

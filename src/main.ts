@@ -2562,6 +2562,9 @@ Object.assign(window, createSceneryInspection({
     roll: +cmd.stickRoll.toFixed(4), pitch: +cmd.stickPitch.toFixed(4), yaw: cmd.stickYaw,
     // 鏡頭上方的世界 y 分量：跟著滾的話帶坡度時小於 1
     camUp: +ctx.camera.up.y.toFixed(3),
+    // 迎角與臨界迎角，度
+    alpha: +((player.aircraft.diag.aero.alpha * 180) / Math.PI).toFixed(1),
+    alphaCrit: +((player.aircraft.spec.lift.alphaCrit * 180) / Math.PI).toFixed(1),
   }
 }
 

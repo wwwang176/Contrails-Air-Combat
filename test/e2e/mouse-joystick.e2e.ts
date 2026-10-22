@@ -23,6 +23,7 @@ interface Probe { t: number; ai: boolean; bk: number; ga: number }
 interface Stick {
   mode: string; active: boolean; x: number; y: number
   manual: boolean; roll: number; pitch: number; yaw: number; camUp: number
+  alpha: number; alphaCrit: number
 }
 
 async function probe(page: Page): Promise<Probe | null> {
@@ -237,6 +238,29 @@ async function main(): Promise<void> {
     await page.screenshot({ path: SHOTS + 'stick-1-gauge.png' })
     await page.screenshot({ path: SHOTS + 'stick-2-gauge-centre.png', clip: { x: 540, y: 260, width: 200, height: 200 } })
     console.log(`[人工看] ${SHOTS}stick-1-gauge.png、stick-2-gauge-centre.png —— 中央的圓環與點、沒有滑鼠圓圈`)
+
+    // 7b. 拉滿 → 迎角越過臨界（失速不擋）；放開 → 回到臨界以下。先改平：帶大坡度拉滿是往下切、
+    // 速度越來越快，結構先夾住永遠到不了失速。正飛拉滿是往上爬，速度掉下來就失速
+    let lv = await probe(page)
+    for (let i = 0; i < 40 && lv !== null && Math.abs(lv.bk) > 15; i++) {
+      await stick(page, lv.bk > 0 ? -1 : 1, 0)
+      lv = await waitPhys(page, 0.1)
+    }
+    if (lv === null || Math.abs(lv.bk) > 15) throw new Error(`改不平：坡度 ${lv?.bk}°`)
+    await stick(page, 0, 1)
+    let stalled = await stick(page)
+    let pulled2 = lv
+    for (let i = 0; i < 30 && !(stalled.alpha > stalled.alphaCrit); i++) {
+      pulled2 = await waitPhys(page, 0.5)
+      stalled = await stick(page)
+    }
+    console.log(`[7b] 改平後拉滿：迎角 ${stalled.alpha}°（臨界 ${stalled.alphaCrit}°），航跡角 ${pulled2.ga}°`)
+    if (!(stalled.alpha > stalled.alphaCrit)) throw new Error('拉滿 15 秒迎角沒有越過臨界')
+    await stick(page, 0, 0)
+    await waitPhys(page, 1.2)
+    const recovered = await stick(page)
+    console.log(`[7b] 放開 1.2 s：迎角 ${recovered.alpha}°`)
+    if (!(recovered.alpha < recovered.alphaCrit)) throw new Error('放開之後沒有脫離失速')
 
     // 8. I 代飛再交還：搖桿歸零
     await stick(page, 0.6, 0.6)
