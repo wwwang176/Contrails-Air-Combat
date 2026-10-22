@@ -1,3 +1,4 @@
+import { clamp } from '../core/math'
 import type { InputState, StickRecenter } from './InputState'
 
 /**
@@ -26,7 +27,10 @@ export const STICK_RECENTER_SECONDS: Readonly<Record<StickRecenter, number>> = {
   fast: 0.12,
 }
 
-/** 徑向死區：滑鼠的微小抖動不讓飛機慢慢滾走 */
+/**
+ * 每軸的死區：滑鼠的微小抖動不讓飛機慢慢滾走。每軸各自算 —— 一軸推滿時另一軸的抖動
+ * 照樣是 0
+ */
 export const STICK_DEADZONE = 0.03
 
 /**
@@ -36,22 +40,18 @@ export const STICK_DEADZONE = 0.03
 export const STICK_EXPO = 0.25
 
 /**
- * 推進一幀：累積這一幀的滑鼠位移、夾進單位圓、回中。
+ * 推進一幀：累積這一幀的滑鼠位移、每軸各自夾在 ±1、回中。
  *
- * 【夾的是圓不是方】方形的話斜推到底比直推到底多 41% 的桿量。
+ * 【夾的是方不是圓】兩軸各自獨立，跟實體搖桿一樣，斜推到底是滿舵加滿桿。夾成圓的話
+ * 右上 45° 推到底兩軸都只有 0.707
  *
  * @param dt 世界時間步長，s。暫停時是 0，不回中
  */
 export function stepStick(
   s: Pick<InputState, 'stickX' | 'stickY' | 'stickRecenter'>, dx: number, dy: number, dt: number,
 ): void {
-  let x = s.stickX + dx * STICK_GAIN
-  let y = s.stickY + dy * STICK_GAIN
-  const r = Math.hypot(x, y)
-  if (r > 1) {
-    x /= r
-    y /= r
-  }
+  let x = clamp(s.stickX + dx * STICK_GAIN, -1, 1)
+  let y = clamp(s.stickY + dy * STICK_GAIN, -1, 1)
   const tau = STICK_RECENTER_SECONDS[s.stickRecenter]
   if (dt > 0 && Number.isFinite(tau)) {
     const k = Math.exp(-dt / tau)
@@ -81,23 +81,18 @@ export interface ShapedStick {
 }
 
 /**
- * 搖桿位置 → 桿量：徑向死區（死區之後把範圍拉回 0…1，滿桿仍是 1），再兩軸各自套
- * 指數曲線。寫進 `out` 並回傳它，不配置
+ * 搖桿位置 → 桿量：每軸各自過死區（死區之後把範圍拉回 0…1，滿桿仍是 1）、套指數曲線。
+ * 寫進 `out` 並回傳它，不配置
  */
 export function shapeStick(x: number, y: number, out: ShapedStick): ShapedStick {
-  const r = Math.hypot(x, y)
-  if (r <= STICK_DEADZONE) {
-    out.roll = 0
-    out.pitch = 0
-    return out
-  }
-  const k = (r - STICK_DEADZONE) / (1 - STICK_DEADZONE) / r
-  out.roll = expo(x * k)
-  out.pitch = expo(y * k)
+  out.roll = shapeAxis(x)
+  out.pitch = shapeAxis(y)
   return out
 }
 
-function expo(v: number): number {
-  const a = Math.abs(v)
+function shapeAxis(v: number): number {
+  const m = Math.abs(v)
+  if (m <= STICK_DEADZONE) return 0
+  const a = (m - STICK_DEADZONE) / (1 - STICK_DEADZONE)
   return Math.sign(v) * (STICK_EXPO * a * a * a + (1 - STICK_EXPO) * a)
 }

@@ -89,7 +89,7 @@ async function waitPhys(page: Page, seconds: number): Promise<Probe> {
 /**
  * HUD 畫布中央左右兩條帶子裡、搖桿點那種顏色（不透明的 `HUD_COLORS.primary`）的像素數。
  *
- * 【帶子從中心外 20 px 開始】機首十字的橫臂在 720 高的畫面上伸到 12.8 px，圓環是半透明的
+ * 【帶子從中心外 20 px 開始】機首十字的橫臂在 720 高的畫面上伸到 12.8 px，方框是半透明的
  * `dim`、被 alpha 門檻擋掉 —— 數到的只會是搖桿的點
  */
 async function dotSides(page: Page): Promise<{ left: number; right: number }> {
@@ -237,7 +237,7 @@ async function main(): Promise<void> {
     await page.waitForTimeout(400)
     await page.screenshot({ path: SHOTS + 'stick-1-gauge.png' })
     await page.screenshot({ path: SHOTS + 'stick-2-gauge-centre.png', clip: { x: 540, y: 260, width: 200, height: 200 } })
-    console.log(`[人工看] ${SHOTS}stick-1-gauge.png、stick-2-gauge-centre.png —— 中央的圓環與點、沒有滑鼠圓圈`)
+    console.log(`[人工看] ${SHOTS}stick-1-gauge.png、stick-2-gauge-centre.png —— 中央的方框與點、沒有滑鼠圓圈`)
 
     // 7b. 拉滿 → 迎角越過臨界（失速不擋）；放開 → 回到臨界以下。先改平：帶大坡度拉滿是往下切、
     // 速度越來越快，結構先夾住永遠到不了失速。正飛拉滿是往上爬，速度掉下來就失速

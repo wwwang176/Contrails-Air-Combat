@@ -22,12 +22,20 @@ describe('stepStick：搖桿位置', () => {
     expect(s.stickX).toBeCloseTo(0.1 * STICK_GAIN, 12)
   })
 
-  /** 【夾的是圓不是方】斜推到底與直推到底一樣長 —— 方形的角落會比邊多 41% 的桿量 */
-  it('夾進單位圓：超出時沿徑向縮回圓上', () => {
+  /** 【夾的是方不是圓】兩軸各自獨立，跟實體搖桿一樣：斜推到底是滿舵加滿桿 */
+  it('每軸各自夾在 ±1：斜推到底是 (1, 1)', () => {
     const s = state()
     stepStick(s, 10, 10, DT)
-    expect(Math.hypot(s.stickX, s.stickY)).toBeCloseTo(1, 12)
-    expect(s.stickX).toBeCloseTo(s.stickY, 12)
+    expect([s.stickX, s.stickY]).toEqual([1, 1])
+    stepStick(s, -30, -30, DT)
+    expect([s.stickX, s.stickY]).toEqual([-1, -1])
+  })
+
+  it('一軸頂到邊，另一軸不被拉回', () => {
+    const s = state()
+    stepStick(s, 10, 0.1, DT)
+    expect(s.stickX).toBe(1)
+    expect(s.stickY).toBeCloseTo(0.1 * STICK_GAIN, 12)
   })
 
   it('回中「關」：放著不動就停在原地', () => {
@@ -80,6 +88,19 @@ describe('shapeStick：死區與指數曲線', () => {
     expect(out.pitch).toBeCloseTo(1, 12)
     shapeStick(0, -1, out)
     expect(out.pitch).toBeCloseTo(-1, 12)
+  })
+
+  it('斜推到底：兩軸都是 1', () => {
+    shapeStick(1, 1, out)
+    expect(out.roll).toBeCloseTo(1, 12)
+    expect(out.pitch).toBeCloseTo(1, 12)
+  })
+
+  /** 【死區每軸各自算】另一軸推滿時，這一軸的微小抖動照樣是 0 */
+  it('一軸推滿、另一軸在死區內：那一軸是 0', () => {
+    shapeStick(1, STICK_DEADZONE * 0.9, out)
+    expect(out.roll).toBeCloseTo(1, 12)
+    expect(out.pitch).toBe(0)
   })
 
   it('單調遞增，中段比線性細', () => {

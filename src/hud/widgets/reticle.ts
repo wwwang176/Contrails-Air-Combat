@@ -43,12 +43,12 @@ const CROSS_GAP = 7
 const CROSS_REACH = 16
 
 /**
- * 搖桿指示的圓環半徑（＝滿桿）與點的半徑，px（未乘 `L.scale`）。
+ * 搖桿指示的方框半寬（＝滿桿）與點的半徑，px（未乘 `L.scale`）。
  *
- * 【圓環比十字大一圈】十字的外端在 16 px，圓環 48 px：十字落在圓環裡面、不疊在線上，
- * 點走到滿桿也不會跟十字攪在一起
+ * 【方框比十字大一圈】十字的外端在 16 px，方框邊在 48 px：十字落在方框裡面、不疊在線上，
+ * 點走到滿桿也不會跟十字攪在一起。方框而不是圓：兩軸各自夾在 ±1，斜推到底的點在角上
  */
-export const STICK_RING_RADIUS = 48
+export const STICK_BOX_HALF = 48
 export const STICK_DOT_RADIUS = 3.5
 
 /** 迎角接近臨界時的警示色：滑鼠圓圈與搖桿的點共用 */
@@ -58,16 +58,14 @@ function stallColor(f: HudFrame): string {
 }
 
 /**
- * 滑鼠搖桿的位置：畫面中央一個細圓環（可動範圍）＋一個點（目前位置）。點接手滑鼠圓圈的
+ * 滑鼠搖桿的位置：畫面中央一個細方框（可動範圍）＋一個點（目前位置）。點接手滑鼠圓圈的
  * 失速警示 —— 搖桿模式下沒有滑鼠圓圈
  */
 function drawStickGauge(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame): void {
-  const r = STICK_RING_RADIUS * L.scale
+  const r = STICK_BOX_HALF * L.scale
   ctx.strokeStyle = HUD_COLORS.dim
   ctx.lineWidth = LINK_WIDTH * L.scale
-  ctx.beginPath()
-  ctx.arc(L.cx, L.cy, r, 0, Math.PI * 2)
-  ctx.stroke()
+  ctx.strokeRect(L.cx - r, L.cy - r, 2 * r, 2 * r)
   ctx.fillStyle = stallColor(f)
   ctx.beginPath()
   ctx.arc(L.cx + f.stickX * r, L.cy - f.stickY * r, STICK_DOT_RADIUS * L.scale, 0, Math.PI * 2)

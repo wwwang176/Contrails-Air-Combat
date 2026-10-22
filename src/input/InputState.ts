@@ -54,7 +54,7 @@ export interface InputState {
   /** 設定頁選的搖桿回中 */
   stickRecenter: StickRecenter
   /**
-   * 滑鼠搖桿的位置，−1…1，右、上為正，夾在單位圓內（`input/mouseStick.ts` 的 `stepStick`）。
+   * 滑鼠搖桿的位置，−1…1，右、上為正，每軸各自夾在 ±1（`input/mouseStick.ts` 的 `stepStick`）。
    * 是位置不是桿量：送進指令之前還要過死區與曲線（`shapeStick`）
    */
   stickX: number
