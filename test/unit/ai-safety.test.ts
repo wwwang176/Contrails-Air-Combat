@@ -389,13 +389,12 @@ describe('applySafety', () => {
   })
 
   /**
-   * 【缺陷複現，spec 2026-08-09 §1】實測 `ai-command-channel` 的
-   * `groundUnderOrder` 護欄紅掉時，六次事件全部長這樣：五公里以上、
-   * TAS 48–58、下沉率約 0.5 m/s。那個高度不可能有撞地風險，飛機只是
-   * 失速了 —— 而撞地分支會命令它爬升，正好是最不該做的事。
+   * 【失速不是撞地】混戰裡會出現五公里以上、TAS 48–58、下沉率約
+   * 0.5 m/s 的飛機。那個高度不可能有撞地風險，飛機只是失速了 —— 而撞地
+   * 分支會命令它爬升，正好是最不該做的事。
    *
-   * 修改前這裡回 `'ground'`：`nMax = 0.71 ≤ 1` → `recoveryAltitude`
-   * 回 Infinity → `margin <= Infinity` 在任何高度都成立。
+   * `nMax = 0.71 ≤ 1` 時 `recoveryAltitude` 回 Infinity，若不先分流到失速
+   * 分支，`margin <= Infinity` 在任何高度都成立、回 `'ground'`。
    */
   it('五公里高空、失速速度、微幅下沉 → 走失速分支而不是撞地分支', () => {
     const a = new Aircraft(P51D, 5038, 50)

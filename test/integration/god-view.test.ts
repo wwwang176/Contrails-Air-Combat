@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { Vector3 } from 'three'
 import {
   createBattle, stepBattle,
   DEFAULT_BATTLE, type Battle,
@@ -9,6 +10,7 @@ import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
 import { AiController } from '../../src/ai/AiController'
 import { commandExemptFlight } from '../../src/battle/commandLayer'
+import type { FlightOrder } from '../../src/ai/commandTypes'
 import {
   createGodCameraState, stepGodCamera, type GodCameraInput,
 } from '../../src/camera/godCamera'
@@ -17,12 +19,9 @@ import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 
 const DT = 1 / 240
-const SECONDS = 120
 /**
- * 中立性那兩場的長度，s。
- *
- * 【為什麼比上面那兩條短這麼多】它比的是逐位元的狀態校驗和，分歧在幾個
- * 物理步內就顯示得出來；上面兩條要等指揮官真的排到命令，那需要整場仗。
+ * 中立性那兩場的長度，s。比的是逐位元的狀態校驗和，分歧在幾個物理步內
+ * 就顯示得出來。
  */
 const NEUTRAL_SECONDS = 20
 
@@ -36,72 +35,65 @@ class Human implements Controller {
 }
 
 /**
- * 玩家那一支分隊當下有沒有命令。
- *
- * 【一定要守 `flightOf < 0`】`compactFlights` 把死者的 `flightOf` 填 −1，
- * 而玩家陣亡到接手之間有整整兩秒（`takeover.ts` 的 `TAKEOVER_DELAY`）。
- * `orders` 是一般陣列，`orders[-1]` 是 `undefined`，而 `undefined !== null`
- * 為**真** —— 少了這個守衛，陣亡的每一格都會被算成「拿到命令」，於是這
- * 一整組測試在實作之前就是綠的。
+ * 藍隊兩支分隊（玩家在第 1 支）、紅隊一支。同一個指揮官底下才分得出
+ * 「玩家那一支被跳過」與「整個指揮官停了」。
  */
-function hasOrder(b: Battle): boolean {
-  const f = b.flights.flightOf[b.flights.pinned]
-  if (f === undefined || f < 0) return false
-  return (b.blueCommand.orders[f] ?? null) !== null
+function twoBlueFlights(player: Controller): Battle {
+  return createBattle(player, {
+    ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 8, BF109K4, 4),
+  })
 }
 
-/** 跑一場，回傳玩家那一支分隊「拿到過命令」的步數 */
-function orderedSteps(playerController: Controller): number {
-  const b = createBattle(playerController)
-  let n = 0
-  for (let s = 0; s < SECONDS * 240; s++) {
-    stepBattle(b, DT)
-    if (hasOrder(b)) n++
+/** 20 km 外的集合令：幾步之內不會判到達 */
+function farRally(from: Vector3): FlightOrder {
+  return {
+    kind: 'rally', point: from.clone().add(new Vector3(0, 0, 20000)), radius: 300,
+    targetFlight: -1, side: 0, focusIndex: -1,
   }
-  return n
 }
 
-describe('指揮權跟著代飛走（20v20、120 秒）', () => {
-  /**
-   * 【為什麼用 `instanceof` 推導而不是加一個旗標】規則本身就是「座位上
-   * 沒有人類，就沒有人會跟指揮官搶操縱」。推導比鏡射安全 —— 鏡射要求
-   * 每一條會改變狀態的路徑都記得更新，漏掉任何一條就留下一個永遠不消失
-   * 的幽靈狀態（`setup.ts` 的既有註解）。
-   */
-  /**
-   * 【斷言打在規則上，不打在排程結果上】原版斷言「120 秒內玩家分隊拿到
-   * 過命令」—— 那是混沌量：空層鎖上線後這一場裡玩家那支整場接戰、指揮官
-   * 從來沒有理由輪到它（`god-order.probe.ts`：其他分隊拿到三萬步的命令，
-   * 玩家那支 0，接線完好）。規則「座位是 AiController → 不豁免」是確定
-   * 的，直接驗 `commandExemptFlight`；「指揮迴路活著」則由「有任何分隊
-   * 拿到命令」守住。
-   */
-  it('玩家座位坐 AiController → 玩家分隊不在豁免名單，命令照發', () => {
-    const b = createBattle(new AiController())
-    let anyOrdered = 0
-    for (let s = 0; s < SECONDS * 240; s++) {
-      stepBattle(b, DT)
-      if (s % 240 === 0) expect(commandExemptFlight(b)).toBe(-1)
-      if (anyOrdered === 0
-        && b.blueCommand.orders.some((o) => o !== null && o !== undefined)) {
-        anyOrdered = s
-      }
-    }
-    console.log(JSON.stringify({ anyOrderedAt: anyOrdered / 240 }))
-    expect(anyOrdered).toBeGreaterThan(0)
-  }, 10 * 60 * 1000)
+/**
+ * 規則：座位上沒有人類，就沒有人會跟指揮官搶操縱，玩家那一支照樣受命
+ * （第一份 spec §2.1）。由 `commandExemptFlight` 以 `instanceof AiController`
+ * 推導。接手後 `flights.pinned` 跟著新座位走，由 `battle-setup.test.ts` 的
+ * 接手與重開那幾條守；`stepCommand` 不對被跳過的分隊發令，由
+ * `ai-command.test.ts` 守。
+ */
+describe('指揮權跟著座位上的控制器走', () => {
+  it('座位坐 AiController → 沒有豁免的分隊', () => {
+    expect(commandExemptFlight(twoBlueFlights(new AiController()))).toBe(-1)
+  })
+
+  it('座位坐人類控制器 → 豁免玩家所在的那一支', () => {
+    const b = twoBlueFlights(new Human())
+    const f = b.flights.flightOf[b.flights.pinned]!
+    expect(f).toBeGreaterThanOrEqual(0)
+    expect(commandExemptFlight(b)).toBe(f)
+  })
 
   /**
-   * 【第一份 spec §2.1】座位上有人類時指揮官永遠不碰那一支。
-   *
-   * 人類替身平飛不還手，120 秒內幾乎一定會被打下來 —— 那不影響這一條：
-   * 接手之後 `playerController` 會被裝到新座位上（`takeover.ts`），
-   * `flights.pinned` 跟著走，所以「座位上是人類」始終成立。中間那兩秒由
-   * `hasOrder` 的 `flightOf < 0` 守衛跳過。
+   * 【守的是 `stepCommandLayer` 把豁免交給指揮官那一段】上面兩條只驗推導；
+   * 推導對了、卻沒傳進 `stepCommand` 的話，人在飛的那一支照樣被指揮官
+   * 拉走。兩支藍隊分隊都塞一張遠方集合令，推一步：人類座位時玩家那一支
+   * 被清掉、另一支留著；AiController 座位時兩支都留著。
    */
-  it('玩家座位坐人類控制器 → 整場一次都拿不到命令', () => {
-    expect(orderedSteps(new Human())).toBe(0)
-  }, 10 * 60 * 1000)
+  it('推一步：人類座位的那一支命令被清掉，同隊另一支與代飛時的那一支照留', () => {
+    for (const human of [true, false]) {
+      const b = twoBlueFlights(human ? new Human() : new AiController())
+      const mine = b.flights.flightOf[b.flights.pinned]!
+      const other = b.flights.flights.findIndex((fl, i) => fl.team === 'blue' && i !== mine)
+      expect(other).toBeGreaterThanOrEqual(0)
+      const lead = (f: number): Vector3 =>
+        b.world.combatants[b.flights.flights[f]!.members[0]!]!.aircraft.state.position
+      const mineOrder = farRally(lead(mine))
+      const otherOrder = farRally(lead(other))
+      b.blueCommand.orders[mine] = mineOrder
+      b.blueCommand.orders[other] = otherOrder
+      stepBattle(b, DT)
+      expect(b.blueCommand.orders[other]).toBe(otherOrder)
+      expect(b.blueCommand.orders[mine]).toBe(human ? null : mineOrder)
+    }
+  })
 })
 
 describe('鏡頭不得改變戰局（4v4、20 秒、兩場）', () => {

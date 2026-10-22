@@ -62,8 +62,7 @@ const NEUTRAL: SideEntry = { along: 0, across: 0, gap: 0, climb: 0, heading: 0, 
  * 另一邊 34%），推導見 `BattleConfig.lateralOffset`。
  *
  * 【動了數字，所有用它的測試與探針會一起換場景】`multi-battle`、
- * `ai-command-channel`、`terrain-in-play` 等照跑照過，只是量的已經不是
- * 原本那一場。
+ * `terrain-in-play` 等照跑照過，只是量的已經不是原本那一場。
  */
 export const HEAD_ON: EntryPlan = {
   id: 'headOn',
