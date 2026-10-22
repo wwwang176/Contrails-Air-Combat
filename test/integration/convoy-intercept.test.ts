@@ -1,23 +1,24 @@
 import { describe, expect, it } from 'vitest'
 import { AiController } from '../../src/ai/AiController'
 import { createBattle, stepBattle, resetBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
+import { stepCommandLayer } from '../../src/battle/commandLayer'
 import { missionConfigFrom } from '../../src/battle/missions'
-import { readyCard } from '../fixtures/mission'
+import { readyCard, KILL_CARD } from '../fixtures/mission'
 
 const DT = 1 / 240
 describe('任務攔截接線', () => {
-  it('德 M1 的我方 AI 攔截轟炸機，擊落第十三架尚未過關、第十四架獲勝', () => {
+  it('德 M1 的我方 AI 攔截轟炸機，擊落到只剩一架尚未過關、全部擊落獲勝', () => {
     const b = createBattle(new AiController(), missionConfigFrom(readyCard('germany-m1')), 20261015)
     for (let i = 0; i < 48; i++) stepBattle(b, DT)
     for (const c of b.world.combatants.filter(c => c.alive)) {
       expect((c.controller as AiController).interceptConvoy).toBe(c.team === 'blue')
     }
     const bombers = b.convoy!.seats.map(s => b.world.combatants[s]!)
-    for (const c of bombers) expect(c.spawnTas * 3.6).toBeCloseTo(250)
-    for (const c of bombers.slice(0, 13)) b.world.destroy(c)
+    const last = bombers.length - 1
+    for (const c of bombers.slice(0, last)) b.world.destroy(c)
     stepBattle(b, DT)
     expect(b.outcome).toBe('fighting')
-    b.world.destroy(bombers[13]!)
+    b.world.destroy(bombers[last]!)
     stepBattle(b, DT)
     expect(b.outcome).toBe('victory')
   })
@@ -35,48 +36,36 @@ describe('任務攔截接線', () => {
   })
 
   /**
-   * 【增援看時鐘，不看全滅】開場 3 架；60、120 秒各來 3 架。開場那一批全滅之後，
-   * 增援前一秒也不補 —— 補了就是整隊重生的舊規則。
+   * 【每步同步，不是生成時設一次】增援、重生與玩家換座位都會換上一顆新的控制器；
+   * 只在建場時設的話，新的那一顆永遠不攔截。
    *
-   * 【時鐘直接撥】節拍只讀 `world.time`；一路模擬到 120 秒要十幾秒，撥到預警（進場前 5 秒）
-   * 之前再走。撥過預警的話，預警落在撥到的那一刻，進場也跟著往後推
+   * 【重開要清攔截狀態】沿用的控制器不清的話，第二場開場就帶著上一場的攔截目標。
    */
-  it('美 M1 只啟用德軍戰鬥機，重開與兩批定時增援也沿用設定', () => {
+  it('美 M1 只有德軍戰鬥機攔截：換上的新控制器下一步就接到，重開清掉攔截狀態', () => {
     const b = createBattle(new AiController(), missionConfigFrom(readyCard('allies-m1')), 20261015)
-    const run = (sec: number): void => { for (let i = 0; i < sec * 240; i++) stepBattle(b, DT) }
-    run(0.2)
+    for (let i = 0; i < 48; i++) stepBattle(b, DT)
     const lead = b.red.find(c => c.alive)!.controller as AiController
     expect(lead.convoyIntercept.phase).not.toBe('none')
     resetBattle(b)
     expect(lead.convoyIntercept.phase).toBe('none')
-    run(0.2)
-    expect(b.red.filter(c => c.alive)).toHaveLength(3)
-    for (const c of b.red.filter(c => c.alive)) {
-      expect((c.controller as AiController).interceptConvoy).toBe(true)
-      expect((c.controller as AiController).convoyIntercept.phase).not.toBe('none')
+
+    const red = b.red.find(c => c.alive)!
+    const blue = b.blue.find(c => c.alive && c !== b.player)!
+    const fresh = { red: new AiController(), blue: new AiController() }
+    red.controller = fresh.red
+    blue.controller = fresh.blue
+    expect(fresh.red.interceptConvoy).toBe(false)
+    stepCommandLayer(b, DT)
+    expect(fresh.red.interceptConvoy).toBe(true)
+    expect(fresh.blue.interceptConvoy).toBe(false)
+    for (const c of b.world.combatants) {
+      if (!c.alive || !(c.controller instanceof AiController)) continue
+      expect(c.controller.interceptConvoy).toBe(c.team === 'red')
     }
-    for (const at of [60, 120]) {
-      for (const c of b.red) b.world.destroy(c)
-      run(1)
-      expect(b.red.filter(c => c.alive), `${at} 秒的前一批全滅後`).toHaveLength(0)
-      b.world.time = at - 6
-      run(5)
-      expect(b.red.filter(c => c.alive), `${at} 秒前`).toHaveLength(0)
-      run(2)
-      expect(b.red.filter(c => c.alive), `${at} 秒`).toHaveLength(3)
-      for (const c of b.world.combatants) {
-        if (!c.alive) continue
-        expect((c.controller as AiController).interceptConvoy).toBe(c.team === 'red')
-      }
-    }
-    for (const c of b.red) b.world.destroy(c)
-    b.world.time = 180
-    run(2)
-    expect(b.red.filter(c => c.alive)).toHaveLength(0)
   })
 
-  it('美 M3 與遭遇戰不啟用攔截任務', () => {
-    for (const cfg of [missionConfigFrom(readyCard('allies-m3')), DEFAULT_BATTLE]) {
+  it('殲滅卡與遭遇戰不啟用攔截任務', () => {
+    for (const cfg of [missionConfigFrom(readyCard(KILL_CARD)), DEFAULT_BATTLE]) {
       const b = createBattle(new AiController(), cfg, 20261015)
       for (let i = 0; i < 48; i++) stepBattle(b, DT)
       for (const c of b.world.combatants) {

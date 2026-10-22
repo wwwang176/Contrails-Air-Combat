@@ -11,10 +11,6 @@ const MARGIN = 1000
 const ready = CAMPAIGNS.flatMap((c) => MISSIONS[c]).filter((m): m is ReadyMissionCard => m.battle !== null)
 
 describe('任務的戰場邊界', () => {
-  it('十張打得起來的卡都有界', () => {
-    expect(ready.length).toBeGreaterThanOrEqual(10)
-  })
-
   for (const card of ready) {
     describe(card.id, () => {
       const a = card.battle.arena

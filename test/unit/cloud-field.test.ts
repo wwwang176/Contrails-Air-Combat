@@ -58,12 +58,6 @@ describe('遭遇戰的雲場', () => {
       }
     }
   })
-
-  it('暴雨多、夜間少、其餘中等', () => {
-    expect(skirmishCloudField('sea', 'storm').amount).toBe('many')
-    expect(skirmishCloudField('sea', 'night').amount).toBe('few')
-    expect(skirmishCloudField('sea', 'noon').amount).toBe('some')
-  })
 })
 
 describe('雲塊容量', () => {

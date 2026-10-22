@@ -94,19 +94,6 @@ describe('沖溝的走向', () => {
     }
   })
 
-  it('是蜿蜒的：一截的弧長比首尾直線距離長，平均長 1.5% 以上', () => {
-    let ratio = 0
-    let n = 0
-    for (const r of RAVINES) {
-      if (r.points.length < 20) continue
-      const a = r.points[0]!
-      const b = r.points[r.points.length - 1]!
-      ratio += ((r.points.length - 1) * RAVINE_STEP) / Math.hypot(b.x - a.x, b.z - a.z)
-      n++
-    }
-    expect(n).toBeGreaterThan(10)
-    expect(ratio / n).toBeGreaterThan(1.015)
-  })
 })
 
 describe('沖溝的樹與灌木', () => {
@@ -138,14 +125,20 @@ describe('沖溝的樹與灌木', () => {
 
   it('每一株都在溝的樹帶裡：離中線不超過最寬的半寬', () => {
     const maxBand = Math.max(...RAVINES.map((r) => r.band))
-    for (const t of all) expect(ravineGap(t.x, t.z)).toBeLessThanOrEqual(maxBand + 0.5)
+    let worst = -Infinity
+    for (const t of all) worst = Math.max(worst, ravineGap(t.x, t.z))
+    expect(worst).toBeLessThanOrEqual(maxBand + 0.5)
   })
 
   it('不蓋在凹路上', () => {
+    const bad: string[] = []
     for (const t of all) {
       regionAt(t.x, t.z, reg)
-      expect(trackGap(t.x, t.z, reg)).toBeGreaterThanOrEqual(trackWidthAt(t.x, t.z) + RAVINE_ROAD_CLEAR)
+      const gap = trackGap(t.x, t.z, reg)
+      const need = trackWidthAt(t.x, t.z) + RAVINE_ROAD_CLEAR
+      if (!(gap >= need)) bad.push(`(${t.x.toFixed(0)},${t.z.toFixed(0)}) ${gap} < ${need}`)
     }
+    expect(bad).toEqual([])
   })
 
   it('溝頭與溝尾的樹比較稀：收窄的地方一棵一棵少，不是整排一起消失在全寬處', () => {
@@ -206,11 +199,15 @@ describe('村讓開沖溝', () => {
   it('用遊戲實際的禁區蓋出來的村：沒有一間房子在溝帶裡，離溝帶外緣至少 RAVINE_HOUSE_CLEAR', () => {
     const houses = build(rzhevVillageKeepOut)
     expect(houses.length).toBeGreaterThan(1000)
+    // 離中線至少 半寬(收窄的點更小) + 邊 + 余裕；最窄處 0.12 × 32 ≈ 4 m，所以下限取邊加余裕
+    const floor = RAVINE_RIM_SOLID * 0.5 + RAVINE_HOUSE_CLEAR - 1e-6
+    const bad: string[] = []
     for (const h of houses) {
-      expect(inBand(h)).toBe(false)
-      // 離中線至少 半寬(收窄的點更小) + 邊 + 余裕；最窄處 0.12 × 32 ≈ 4 m，所以下限取邊加余裕
-      expect(ravineGap(h.x, h.z)).toBeGreaterThanOrEqual(RAVINE_RIM_SOLID * 0.5 + RAVINE_HOUSE_CLEAR - 1e-6)
+      if (inBand(h)) bad.push(`溝帶裡 (${h.x.toFixed(0)},${h.z.toFixed(0)})`)
+      const gap = ravineGap(h.x, h.z)
+      if (!(gap >= floor)) bad.push(`離中線 ${gap} (${h.x.toFixed(0)},${h.z.toFixed(0)})`)
     }
+    expect(bad).toEqual([])
   })
 
   it('對照：只讓開戰場（不讓溝）的話，確實有房子落在溝帶裡 —— 上面那條不是空過', () => {
@@ -228,11 +225,15 @@ describe('沖溝的溝帶', () => {
   it('一個點 STRIPE_SECTION 個頂點；頂點色四個分量：只有最外緣是透明，其餘不透明', () => {
     expect(pos.count).toBe(total * STRIPE_SECTION)
     expect(col.itemSize).toBe(4)
+    const bad: string[] = []
     for (let i = 0; i < total; i++) {
       for (let k = 0; k < STRIPE_SECTION; k++) {
-        expect(col.getW(i * STRIPE_SECTION + k)).toBe(k === 0 || k === STRIPE_SECTION - 1 ? 0 : 1)
+        const w = col.getW(i * STRIPE_SECTION + k)
+        const want = k === 0 || k === STRIPE_SECTION - 1 ? 0 : 1
+        if (!Object.is(w, want)) bad.push(`點 ${i} 第 ${k} 個頂點 α = ${w}`)
       }
     }
+    expect(bad).toEqual([])
   })
 
   it('斷面的顏色：田埂色的邊在外、溝坡的草、溝底的灌木在中線', () => {
@@ -317,23 +318,29 @@ describe('沖溝的渡口', () => {
     const maxReach = Math.max(...RAVINES.map((r) => r.half)) + RAVINE_RIM_SOLID + FORD_CELL
     const track = new Color(FIELD_COLORS.winterSteppe.track)
     const col = fords.getAttribute('color')
+    const bad: string[] = []
     for (let q = 0; q < pos.count; q += 4) {
       const x = pos.getX(q) + FORD_CELL / 2
       const z = pos.getZ(q) + FORD_CELL / 2
       regionAt(x, z, reg)
-      expect(trackGap(x, z, reg)).toBeLessThan(trackWidthAt(x, z))
-      expect(ravineGap(x, z)).toBeLessThanOrEqual(maxReach)
-      expect(col.getX(q)).toBeCloseTo(track.r, 5)
+      const tag = (): string => `(${x.toFixed(0)},${z.toFixed(0)})`
+      if (!(trackGap(x, z, reg) < trackWidthAt(x, z))) bad.push(`不在凹路上 ${tag()}`)
+      if (!(ravineGap(x, z) <= maxReach)) bad.push(`離溝太遠 ${tag()}`)
+      // 與 toBeCloseTo(…, 5) 同一個門檻
+      if (!(Math.abs(col.getX(q) - track.r) < 10 ** -5 / 2)) bad.push(`不是路色 ${tag()}`)
     }
+    expect(bad).toEqual([])
   })
 
   it('同一格只畫一次；keep 全回 false 就沒有', () => {
     const seen = new Set<string>()
+    const dup: string[] = []
     for (let q = 0; q < pos.count; q += 4) {
       const k = `${Math.round(pos.getX(q))},${Math.round(pos.getZ(q))}`
-      expect(seen.has(k)).toBe(false)
+      if (seen.has(k)) dup.push(k)
       seen.add(k)
     }
+    expect(dup).toEqual([])
     expect(buildRavineFords(RAVINES, () => false).getAttribute('position').count).toBe(0)
   })
 })

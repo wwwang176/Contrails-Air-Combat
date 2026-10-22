@@ -218,9 +218,9 @@ const POOLS: readonly PoolName[] = [
  * 那兩條的 overflow 斷言會紅，不會靜靜截斷。
  *
  * 【為什麼不是一個很大的常數】每一格實例是 152 byte，11 池各 40 萬就是
- * 670 MB，而「壓到峰值之下必溢位」那條要建 11 次。全套並行時 worker 會在
- * 這裡把記憶體用光，症狀是 `Array buffer allocation failed` 或整個 worker
- * 消失。
+ * 670 MB，而掃描與「壓到峰值之下必溢位」每一組都要建一次引擎。全套並行時
+ * worker 會在這裡把記憶體用光，症狀是 `Array buffer allocation failed` 或
+ * 整個 worker 消失。
  */
 const SENTINEL = Object.fromEntries(
   POOLS.map((n) => [n, 2 * Math.max(CAPACITY[n], ISLAND_CAPACITY[n])]),
@@ -1006,22 +1006,28 @@ describe('植被引擎', () => {
 
   it('每一池的容量都真的頂著需求：壓到實測最大之下必定溢位', () => {
     expect(Object.keys(SCANNED).length).toBe(POOLS.length)
-    for (const [name, peak] of Object.entries(SCANNED)) {
-      // 【農地用不到的池不壓】石板瓦房與油毛氈穀倉只有真實村鎮撒（洛伊納，
-      // 那裡的容量由 `leuna-features.test.ts` 守著），隨機的村不撒
-      if (peak === 0 && (name === 'houseSlate' || name === 'barnTar')) continue
-      // 【只壓這一池】其他池維持哨兵，才知道溢位是誰造成的。跑產生峰值的那一組
-      const sources = FARM_SOURCE_SETS.find(([set]) => set === PEAK_SET[name])![1]
-      const v = createVegetation(sources, FLAT, { capacity: { ...SENTINEL, [name]: Math.max(0, peak - 1) } })
-      let over = 0
+    // 【每一組跑一次，峰值出自這一組的池全部壓】池與池互不影響（一池滿了只丟它自己的株），
+    // 逐池的溢位數分得出是誰溢位；其他池維持哨兵
+    for (const [set, sources] of FARM_SOURCE_SETS) {
+      const pressed = Object.entries(SCANNED).filter(([name, peak]) =>
+        // 【農地用不到的池不壓】石板瓦房與油毛氈穀倉只有真實村鎮撒（洛伊納，
+        // 那裡的容量由 `leuna-features.test.ts` 守著），隨機的村不撒
+        PEAK_SET[name] === set && !(peak === 0 && (name === 'houseSlate' || name === 'barnTar')))
+      if (pressed.length === 0) continue
+      const capacity = { ...SENTINEL }
+      for (const [name, peak] of pressed) capacity[name as PoolName] = Math.max(0, peak - 1)
+      const v = createVegetation(sources, FLAT, { capacity })
+      const over = new Array<number>(POOL_NAMES.length).fill(0)
       const N = 40
       for (let k = 0; k < N; k++) {
         const t = k / (N - 1)
         v.update(-13000 + t * 26000, -11000 + t * 22000)
         v.settle()
-        over += v.stats.overflow
+        for (let p = 0; p < POOL_NAMES.length; p++) over[p]! += v.stats.overflowPools[p]!
       }
-      expect([name, over > 0]).toEqual([name, true])
+      for (const [name] of pressed) {
+        expect([name, over[POOL_NAMES.indexOf(name as PoolName)]! > 0]).toEqual([name, true])
+      }
       v.dispose()
     }
   }, 600000)

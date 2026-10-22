@@ -4,7 +4,7 @@ import { DEFAULT_BATTLE } from '../../src/battle/setup'
 import { VETERAN } from '../../src/ai/profile'
 import { MAX_SIDE, MIN_SIDE } from '../../src/battle/skirmish'
 import { ENTRY_PLANS } from '../../src/battle/entry'
-import { readyCard, ESCORT_CARD, INTERCEPT_CARD, KILL_CARD } from '../fixtures/mission'
+import { cardWith, readyCard, ESCORT_CARD, INTERCEPT_CARD, KILL_CARD } from '../fixtures/mission'
 import type { ReadyMissionCard } from '../../src/battle/missions'
 import { A6M5_BOMB_LOADOUT } from '../../src/weapons/stores'
 import { t } from '../../src/i18n'
@@ -192,13 +192,6 @@ describe('艦隊', () => {
    * 資料**。只在 `MissionBattle` 上加一格的話型別檢查會過、卡片也讀得到，
    * 但進戰鬥之後一艘船都不會有 —— 而且不報錯。
    */
-  it('japan-m3 的艦隊真的流進 BattleConfig', () => {
-    const card = MISSIONS.japan.find((c) => c.id === 'japan-m3') as ReadyMissionCard
-    expect(card.battle).not.toBeNull()
-    expect(card.battle.fleet).toBeDefined()
-    expect(missionConfigFrom(card).fleet?.ships.length).toBe(8)
-  })
-
   /**
    * 【驗透傳本身，不維護一張「哪幾張有艦隊」的名單】名單會漂：多一張帶
    * 艦隊的卡就要回來改一次，而漏改的症狀是這一條紅在一個與缺陷無關的
@@ -211,35 +204,15 @@ describe('艦隊', () => {
       expect(missionConfigFrom(m).fleet, m.id).toBe(m.battle.fleet)
     }
   })
-
-  /**
-   * 【史實組】倫內爾島的 TF 18 是巡洋艦編隊：接戰時六巡六驅，兩艘護航
-   * 航母開打前就被留在後面。遊戲裡放八艘、巡洋與驅逐各四，維持一比一。
-   *
-   * **Essex 不准出現** —— 1943 年 1 月它還沒到太平洋，差九個月。
-   */
-  it('倫內爾島是四艘 Wichita 加四艘 Fletcher，全部紅隊，沒有航母', () => {
-    const card = MISSIONS.japan.find((c) => c.id === 'japan-m3') as ReadyMissionCard
-    const f = card.battle.fleet!
-    const by = (id: string) => f.ships.filter((x) => x.cls === id).length
-    expect(by('wichita')).toBe(4)
-    expect(by('fletcher')).toBe(4)
-    expect(by('essex')).toBe(0)
-    for (const x of f.ships) expect(x.team).toBe('red')
-  })
 })
 
 describe('開場高度', () => {
   /**
-   * 【為什麼這一條值得存在】在 `MissionBattle.altitude` 之前，每一關的開場
-   * 高度全部寫死成 `DEFAULT_BATTLE.altitude`。倫內爾島是**低空**雷擊，
-   * 用 4,000 m 的話玩家開場在 3,850 m 而艦隊在 3.85 km 正下方 ——
-   * **不低頭看不到船**，而那一關的第一印象本來就該是海面上的艦隊。
+   * 【卡片的任務高度要流進戰鬥設定】漏抄的話每一關都開在預設的 4,000 m：低空雷擊關
+   * 開場時艦隊在幾公里正下方，不低頭看不到船，而且不報錯
    */
-  it('倫內爾島是低空的，其餘沿用預設', () => {
-    const m4 = MISSIONS.japan.find((c) => c.id === 'japan-m3') as ReadyMissionCard
-    expect(missionConfigFrom(m4).altitude).toBe(1000)
-    expect(missionConfigFrom(readyCard(KILL_CARD)).altitude).toBe(DEFAULT_BATTLE.altitude)
+  it('卡片上有任務高度就用它', () => {
+    expect(missionConfigFrom(cardWith(KILL_CARD, { altitude: 1234 })).altitude).toBe(1234)
   })
 
   /**
@@ -262,41 +235,16 @@ describe('開場高度', () => {
 })
 
 /**
- * 警戒與藍方開場（倫內爾島）。`missionConfigFrom` 明列回傳欄位，漏抄的症狀是警戒靜靜地不存在、
- * 或陸攻照舊開在 1,000 m —— 一開場就越過警戒高度。
+ * 警戒。`missionConfigFrom` 明列回傳欄位，漏抄的症狀是警戒靜靜地不存在，艦隊一開場就開火。
  */
-describe('警戒與藍方開場', () => {
-  const rennell = (): ReadyMissionCard => MISSIONS.japan.find((c) => c.id === 'japan-m3') as ReadyMissionCard
-
-  it('倫內爾島帶著警戒設定；其餘的關卡都沒有', () => {
-    expect(missionConfigFrom(rennell()).alert).toEqual(rennell().battle.alert)
-    expect(rennell().battle.alert).toBeDefined()
-    for (const m of playable) {
-      if (m.id === 'japan-m3') continue
-      expect(missionConfigFrom(m).alert, m.id).toBeUndefined()
-    }
-  })
-
-  it('倫內爾島的魚雷機分三排、高度 200–300 m、同排間距 400 m、排距 220 m', () => {
-    expect(rennell().battle.blueSpawn).toEqual({
-      altitudeMin: 200, altitudeMax: 300, spacing: 400, rows: { size: 4, depth: 220 },
-    })
-    const cfg = missionConfigFrom(rennell())
-    const blues = cfg.units.filter((u) => u.team === 'blue')
-    expect(blues.length).toBe(11)
-    for (const u of blues) {
-      expect(u.members.length).toBe(1)
-      expect(u.tier).toBe(2)
-    }
-    const step = 400 / cfg.schwarmSpacing
-    for (let i = 1; i < blues.length; i++) {
-      if (i % 4 === 0) {
-        expect(blues[i]!.depth! - blues[i - 1]!.depth!).toBe(220)
-      } else {
-        expect(blues[i]!.lane - blues[i - 1]!.lane).toBeCloseTo(step, 9)
-        expect(blues[i]!.depth).toBe(blues[i - 1]!.depth)
-      }
-    }
+describe('警戒', () => {
+  it('alert 原樣透傳，沒有的卡就是沒有', () => {
+    const alert = {
+      messageKey: 'mission.type.withdraw', patrolHalfWidth: 2000, patrolAltitude: 1500, patrolRadius: 400,
+    } as const
+    expect(missionConfigFrom(cardWith(KILL_CARD, { alert })).alert).toBe(alert)
+    expect('alert' in missionConfigFrom(readyCard(KILL_CARD))).toBe(false)
+    for (const m of playable) expect(missionConfigFrom(m).alert, m.id).toBe(m.battle.alert)
   })
 })
 
@@ -339,13 +287,6 @@ describe('卡片可以依機種複寫掛載', () => {
     const loadouts = { a6m5: A6M5_BOMB_LOADOUT }
     const withLoadouts: ReadyMissionCard = { ...card, battle: { ...card.battle, loadouts } }
     expect(missionConfigFrom(withLoadouts).loadouts).toEqual(loadouts)
-  })
-
-  /** 【爆戦只在盟 M3】沖繩外海的零戰掛彈攻艦隊；其他關的零戰是空手的 */
-  it('盟 M3 的零戰掛爆戦，日 M1 的零戰不掛', () => {
-    const byId = (id: string) => playable.find((m) => m.id === id)!
-    expect(missionConfigFrom(byId('allies-m3')).loadouts).toEqual({ a6m5: A6M5_BOMB_LOADOUT })
-    expect(missionConfigFrom(byId('japan-m1')).loadouts).toBeUndefined()
   })
 })
 

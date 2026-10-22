@@ -51,18 +51,19 @@ const withdraws = (c: ReturnType<typeof missionConfigFrom>): readonly WithdrawBe
 
 describe('波次的翻譯', () => {
   it('沒有波次、重生、返航、照明彈、縱隊、換目標的卡不產生任何節拍', () => {
-    for (const c of CAMPAIGNS) {
-      for (const m of MISSIONS[c]) {
-        if (m.battle === null) continue
-        const b = m.battle
-        if (
-          b.waves !== undefined || b.recycle !== undefined
-          || b.withdraw !== undefined || b.flares !== undefined
-          || b.columns !== undefined || b.retarget !== undefined
-        ) continue
-        expect(missionConfigFrom(m as ReadyMissionCard).beats, m.id).toBeUndefined()
-      }
-    }
+    const plain = [
+      ...CAMPAIGNS.flatMap((c) => MISSIONS[c]),
+      // 【至少要有一張】出貨的卡全都帶節拍時，上面那一串會一張都不剩、這一條空轉
+      readyCard(KILL_CARD),
+    ].filter((m) => {
+      const b = m.battle
+      return b !== null
+        && b.waves === undefined && b.recycle === undefined
+        && b.withdraw === undefined && b.flares === undefined
+        && b.columns === undefined && b.retarget === undefined
+    })
+    expect(plain.length).toBeGreaterThan(0)
+    for (const m of plain) expect(missionConfigFrom(m as ReadyMissionCard).beats, m.id).toBeUndefined()
   })
 
   it('spec 原樣帶到分隊上 —— 是同一個物件，不是等值的複本', () => {
@@ -161,6 +162,19 @@ describe('波次的翻譯', () => {
     expect(b.gap).toBe(a.gap)
   })
 
+  /** 【卡片寫絕對高度，分隊存的是相對任務高度的加成】換算錯了，增援會生在另一個高度而不報錯 */
+  it('altitude 換算成相對任務高度的 climb；省略就照那一邊的擺法', () => {
+    const wave = {
+      when: { kind: 'clock' as const, at: 1 }, warnKey: WARN, warnLead: 0,
+      side: 'theirs' as const, spec: P51D, count: 1,
+    }
+    const base = reinforces(missionConfigFrom(card({ altitude: 2000, waves: [wave] })))[0]!.flight.entry
+    const low = reinforces(missionConfigFrom(card({ altitude: 2000, waves: [{ ...wave, altitude: 150 }] })))[0]!.flight.entry
+    expect(low.climb).toBeCloseTo(150 - 2000, 6)
+    expect(low.along).toBe(base.along)
+    expect(low.across).toBe(base.across)
+  })
+
   it('同時成立的波次不會生在同一點上', () => {
     // 【為什麼要真的生出來】高度那一軸的鋸齒週期只有 5，所以「tier 不同」
     // 不蘊含「位置不同」。分開的是橫向槽位，那要算過 `unitFrame` 才看得到
@@ -201,7 +215,7 @@ describe('波次的翻譯', () => {
     // 分隊在建構期就綁死了自己的座位與隊伍
     const c = card({
       waves: [
-        { when: { kind: 'clock', at: 100 }, warnKey: WARN, warnLead: 0,
+        { when: { kind: 'clock', at: 2 }, warnKey: WARN, warnLead: 0,
           side: 'theirs', spec: P51D, count: 4 },
         { when: { kind: 'clock', at: 0 }, warnKey: WARN, warnLead: 0,
           side: 'mine', spec: P51D, count: 1 },
@@ -209,11 +223,11 @@ describe('波次的翻譯', () => {
     })
     const b = createBattle(new Idle(), missionConfigFrom(c), 20260903)
     const before = b.world.combatants.length
-    for (let i = 0; i < 240 * 5; i++) stepBattle(b, 1 / 240)
+    for (let i = 0; i < 240; i++) stepBattle(b, 1 / 240)
     expect(b.world.combatants).toHaveLength(before)
     expect(b.beatStates[1]!.phase).toBe('warned')
 
-    while (b.world.time < 101 && b.world.combatants.length < before + 5) stepBattle(b, 1 / 240)
+    while (b.world.time < 3 && b.world.combatants.length < before + 5) stepBattle(b, 1 / 240)
     expect(b.world.combatants).toHaveLength(before + 5)
     const seats = b.world.combatants.slice(before)
     expect(seats.slice(0, 4).every((s) => s.team === 'red')).toBe(true)
@@ -320,23 +334,18 @@ describe('返航的翻譯', () => {
   })
 })
 
-describe('德軍兩張卡的席位', () => {
-  it('加上波次預留後，雙方總席位仍在共用特效池容量內', () => {
-    for (const id of ['germany-m1', 'germany-m3']) {
-      const m = readyCard(id)
+describe('任務卡的席位', () => {
+  /** 【超出不會拋】`createBattle` 照樣建得起來，超出的那幾架共用特效池時互相蓋掉 */
+  it('加上增援預留後，每一張卡的雙方總席位都在共用特效池容量內', () => {
+    const ready = CAMPAIGNS.flatMap((c) => MISSIONS[c])
+      .filter((m): m is ReadyMissionCard => m.battle !== null)
+    expect(ready.length).toBeGreaterThan(0)
+    for (const m of ready) {
       const cfg = missionConfigFrom(m)
-      const extra = (m.battle.waves ?? []).reduce((s, w) => s + w.count, 0)
-      const red = sideCount(cfg.units, 'red') + extra
-      const blue = sideCount(cfg.units, 'blue')
+      const extra = reinforces(cfg).reduce((s, b) => s + b.flight.members.length, 0)
       // MAX_SIDE 限制遭遇戰的編組選單；任務可以兵力不對稱，特效池按雙方總席位配置。
-      expect(red + blue, id).toBeLessThanOrEqual(MAX_COMBATANTS)
+      expect(sideCount(cfg.units, 'red') + sideCount(cfg.units, 'blue') + extra, m.id)
+        .toBeLessThanOrEqual(MAX_COMBATANTS)
     }
-  })
-
-  it('德 M3 的起飛波次把起飛線帶到分隊上', () => {
-    const cfg = missionConfigFrom(readyCard('germany-m3'))
-    const takeoff = reinforces(cfg).filter((b) => b.flight.takeoff !== undefined)
-    expect(takeoff).toHaveLength(4)
-    for (const b of takeoff) expect(b.flight.departs).toBe('parkedP51')
   })
 })

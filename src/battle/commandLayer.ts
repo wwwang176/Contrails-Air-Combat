@@ -113,9 +113,9 @@ export function stepPressure(b: PressureBattle, dt: number): void {
  * 【`pinned < 0` 時】`combatants[-1]` 是 undefined → `human` 為 false
  * → 回 −1。
  *
- * 【為什麼 export】這條規則的整合測試（`god-view.test.ts`）打在這個縫上。
+ * 【為什麼 export】這條規則的測試（`god-view.test.ts`）打在這個縫上。
  * 「玩家分隊終究會拿到命令」是混沌量 —— AI 行為一改，一場 120 秒的對戰
- * 裡那一支可能整場都在接戰、從來輪不到（實測 `god-order.probe.ts`：
+ * 裡那一支可能整場都在接戰、從來輪不到（`god-order.probe.ts` 量得到：
  * 指揮層對其他分隊發了三萬步的命令，玩家那支 0）。規則本身是確定的，
  * 就直接驗規則。
  */

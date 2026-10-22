@@ -19,10 +19,30 @@ beforeAll(() => { installRecoveryWorkerPortForTest(new RecoveryEngineTestPort())
 afterAll(() => { installRecoveryWorkerPortForTest(null) })
 
 const DT = 1 / 240
+/** 飛行時間上限，s。「不誤觸發」那幾條要數滿這麼久的介入步數 */
 const SIM_SECONDS = 20
+/**
+ * 改出完成的判準：爬升中（`velocity.y > 0`）而且安全層沒有接管，連續這麼
+ * 久就停。到這裡俯衝已經改平、安全層也放手了，再飛下去量的是接近目標的
+ * 爬升，不是安全層。實測契約內 302 組：飛滿 `SIM_SECONDS` 的最低高度與
+ * 在這裡停下的逐位元相同。
+ */
+const RECOVERED_SECONDS = 1
+/**
+ * 契約外案例的飛行時間，s。這些案例只驗數值有限：極端姿態下脫離動作的
+ * 頭幾秒不爆。較長飛行的有限性由契約內案例與「不誤觸發」那幾條一併驗。
+ */
+const FINITE_SECONDS = 5
+
+/**
+ * - `'recover'`：契約內，改出完成就停（見 `RECOVERED_SECONDS`），最多 `SIM_SECONDS`
+ * - `'finite'`：契約外，只飛 `FINITE_SECONDS`
+ * - `'full'`：飛滿 `SIM_SECONDS`，介入步數要數全程
+ */
+type FlyMode = 'recover' | 'finite' | 'full'
 
 interface Run {
-  /** 全程的最低高度，m */
+  /** 飛過那一段的最低高度，m */
   minAltitude: number
   /** 安全層介入的總步數 */
   interventions: number
@@ -30,7 +50,7 @@ interface Run {
 }
 
 /**
- * 從指定的初始俯衝狀態跑 AI，回傳全程的最低高度。
+ * 從指定的初始俯衝狀態跑 AI，回傳飛過那一段的最低高度。
  *
  * 【目標放在很遠的地方】這一條測的是**安全層**，不是纏鬥。把目標擺遠，
  * AI 的意圖會落在 approach，轉向不會干擾俯衝恢復的判定；但目標仍然存在，
@@ -38,6 +58,7 @@ interface Run {
  */
 function fly(
   spec: AircraftSpec, altitude: number, tas: number, gammaDeg: number, bankDeg: number,
+  mode: FlyMode,
 ): Run {
   const self = new Aircraft(spec, altitude, tas)
   const g = gammaDeg * DEG
@@ -61,9 +82,12 @@ function fly(
   ai.target = target
   const cmd = createCommand()
 
+  const steps = (mode === 'finite' ? FINITE_SECONDS : SIM_SECONDS) * 240
+  const settled = RECOVERED_SECONDS * 240
+  let calm = 0
   let minAltitude = altitude
   let interventions = 0
-  for (let i = 0; i < SIM_SECONDS * 240; i++) {
+  for (let i = 0; i < steps; i++) {
     ai.update(self, DT, cmd)
     if (ai.safetyActive) interventions++
     self.update(cmd.aimWorld, cmd.throttle, DT, cmd.brake)
@@ -72,6 +96,9 @@ function fly(
     if (!Number.isFinite(self.state.position.y)) {
       return { minAltitude: -Infinity, interventions, finite: false }
     }
+    if (mode !== 'recover') continue
+    calm = self.state.velocity.y > 0 && !ai.safetyActive ? calm + 1 : 0
+    if (calm >= settled) break
   }
   return { minAltitude, interventions, finite: true }
 }
@@ -102,6 +129,24 @@ function fly(
  * 6.5 g。實際轉彎率只有理想值的 65%。
  */
 function withinContract(
+  spec: AircraftSpec, altitude: number, tas: number, gammaDeg: number, bankDeg: number,
+): boolean {
+  const key = `${spec.id}|${altitude}|${tas}|${gammaDeg}|${bankDeg}`
+  let v = CONTRACT.get(key)
+  if (v === undefined) {
+    v = computeWithinContract(spec, altitude, tas, gammaDeg, bankDeg)
+    CONTRACT.set(key, v)
+  }
+  return v
+}
+
+/**
+ * `withinContract` 的結果。收集案例與數量下限那兩條各問一次同一組條件，
+ * 每一次都要跑一趟 rollout 物理。
+ */
+const CONTRACT = new Map<string, boolean>()
+
+function computeWithinContract(
   spec: AircraftSpec, altitude: number, tas: number, gammaDeg: number, bankDeg: number,
 ): boolean {
   const nMax = Math.min(maxLoadFactorAero(spec, altitude, tas), PILOT_G_POSITIVE)
@@ -165,7 +210,7 @@ describe('L4-A 安全矩陣 —— 契約內永不觸海', () => {
             const inContract = withinContract(spec, alt, tas, dive, bank)
             const label = `${name} / ${alt} m / ${tas} m/s / ${dive}° / 坡度 ${bank}°`
             it(`${label}${inContract ? '' : '（契約外：出發時已經來不及）'}`, () => {
-              const r = fly(spec, alt, tas, dive, bank)
+              const r = fly(spec, alt, tas, dive, bank, inContract ? 'recover' : 'finite')
               // 【契約外也要驗有限】極端姿態下數值爆掉是另一類 bug，
               // 與救不救得回來無關，兩邊都必須排除。
               expect(r.finite).toBe(true)
@@ -239,7 +284,7 @@ describe('L4-A 安全矩陣 —— 低速改出（兩段式的新分支）', () 
           const inContract = withinContract(spec, alt, tas, dive, 0)
           const label = `${name} / ${alt} m / nMax≈${load} / ${dive}°`
           it(`${label}${inContract ? '' : '（契約外）'}`, () => {
-            const r = fly(spec, alt, tas, dive, 0)
+            const r = fly(spec, alt, tas, dive, 0, inContract ? 'recover' : 'finite')
             expect(r.finite).toBe(true)
             if (!inContract) return
             expect(r.minAltitude).toBeGreaterThan(0)
@@ -297,12 +342,12 @@ describe('L4-A 安全矩陣 —— 不誤觸發', () => {
   for (const [name, spec] of SPECS) {
     for (const tas of SPEEDS) {
       it(`${name} / 4000 m / ${tas} m/s 平飛 → 安全層一次都不介入`, () => {
-        const r = fly(spec, 4000, tas, 0, 0)
+        const r = fly(spec, 4000, tas, 0, 0, 'full')
         expect(r.interventions).toBe(0)
       })
 
       it(`${name} / 4000 m / ${tas} m/s 陡俯衝 → 高度夠，不介入`, () => {
-        const r = fly(spec, 4000, tas, -60, 0)
+        const r = fly(spec, 4000, tas, -60, 0, 'full')
         expect(r.interventions).toBe(0)
       })
     }

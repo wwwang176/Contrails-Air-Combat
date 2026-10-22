@@ -1,8 +1,16 @@
 import { describe, it, expect } from 'vitest'
-import { briefingOf, missionTypeName, type Briefing, type BriefingFact } from '../../src/ui/briefing'
+import {
+  briefingOf, missionTypeName, shortName, type Briefing, type BriefingFact, type BriefingUnit,
+} from '../../src/ui/briefing'
 import { formatMonth, setLang, t } from '../../src/i18n'
-import { MISSIONS, type MissionCard } from '../../src/battle/missions'
-import { cardWith, readyCard, ESCORT_CARD, KILL_CARD } from '../fixtures/mission'
+import { MISSIONS, missionConfigFrom, type MissionCard, type ReadyMissionCard } from '../../src/battle/missions'
+import type { AircraftSpec } from '../../src/specs/types'
+import { A6M5 } from '../../src/specs/a6m5'
+import { B17G } from '../../src/specs/b17g'
+import { BF109K4 } from '../../src/specs/bf109k4'
+import { G4M } from '../../src/specs/g4m'
+import { P51D } from '../../src/specs/p51d'
+import { cardWith, readyCard, ESCORT_CARD, INTERCEPT_CARD, KILL_CARD } from '../fixtures/mission'
 
 /**
  * 簡報頁右欄的資料（選單重做 spec §2.4）。**純資料，沒有 DOM。**
@@ -39,38 +47,6 @@ describe('briefingOf —— 護送（盟 M1）', () => {
   it('目標照卡', () => {
     expect(b.objective).toBe(t('mission.allies-m1.objective'))
   })
-
-  it('我方兩列：P-51D ×4，加上要護送的 B-17G ×16；敵方 Bf 109 K-4 ×3', () => {
-    // 【沒有「↑ 要護送的」那一列小字】那一列讀起來很怪，移除了
-    // —— 誰是要護送的，目標列已經說了
-    expect(b.mine).toEqual([
-      { id: 'p51d', name: 'P-51D', role: 'fighter', count: 4 },
-      { id: 'b17g', name: 'B-17G', role: 'bomber', count: 16 },
-    ])
-    expect(b.foe).toEqual([{ id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 3 }])
-  })
-
-  it('兩列：空域在前、時期第二，而且沒有任何出擊前不該知道的欄位', () => {
-    expect(b.facts).toEqual([
-      { id: 'place', label: t('brief.place'), value: t('mission.allies-m1.place') },
-      { id: 'period', label: t('brief.period'), value: formatMonth(1944, 3) },
-    ])
-    expect(noSecrets(b)).toEqual([])
-  })
-})
-
-describe('briefingOf —— 擊落（德 M1）', () => {
-  const b = briefingOf(readyCard('germany-m1'))
-
-  it('我方 Bf 109 K-4 ×6，敵方是 B-17G ×14', () => {
-    expect(b.mine).toEqual([{ id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 6 }])
-    expect(b.foe).toEqual([{ id: 'b17g', name: 'B-17G', role: 'bomber', count: 14 }])
-  })
-
-  it('這一關有護航機的波次，但簡報一個字都不提', () => {
-    expect(readyCard('germany-m1').battle.waves?.length).toBeGreaterThan(0)
-    expect(noSecrets(b)).toEqual([])
-  })
 })
 
 describe('briefingOf —— 打擊（德 M3）', () => {
@@ -80,62 +56,87 @@ describe('briefingOf —— 打擊（德 M3）', () => {
     expect(b.objective).toBe(t(readyCard('germany-m3').battle.objectiveKey))
     expect(noSecrets(b)).toEqual([])
   })
-
-  it('空域與時期', () => {
-    expect(fact(b, 'place')).toBe(t('mission.germany-m3.place'))
-    expect(fact(b, 'period')).toBe(formatMonth(1945, 1))
-    expect(b.mine).toEqual([
-      { id: 'fw190', name: 'Fw 190 D-9', role: 'fighter', count: 4 },
-      { id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 6 },
-    ])
-  })
-
-  it('敵方是停在地上的 P-51D ×16：四批都列進來（不只 clock 0 的兩批），等於要擊毀的架數', () => {
-    const card = readyCard('germany-m3')
-    expect(card.battle.waves).toHaveLength(4)
-    expect(card.battle.waves!.filter((w) => w.when.kind === 'clock' && w.when.at === 0)).toHaveLength(2)
-    expect(b.foe).toEqual([{ id: 'p51d', name: 'P-51D', role: 'fighter', count: 16 }])
-    expect(b.foe![0]!.count).toBe(card.battle.destroyCount)
-  })
 })
 
-describe('briefingOf —— 勒熱夫（德 M4）', () => {
-  const b = briefingOf(readyCard('germany-m4'))
+/**
+ * 陣容兩欄怎麼排。每一條用合成卡，期望值從卡片的欄位推。
+ *
+ * 【沒有「↑ 要護送的」那一列小字】誰是要護送的，目標列已經說了；被護送者就是一般的一列
+ */
+describe('briefingOf —— 陣容兩欄', () => {
+  const row = (spec: AircraftSpec, count: number): BriefingUnit =>
+    ({ id: spec.id, name: shortName(spec), role: spec.role, count })
+  const convoyRow = (c: ReadyMissionCard): BriefingUnit => row(c.battle.convoySpec!, c.battle.convoyCount)
 
-  it('開場的陣容都列出來：Ju 87 ×6 加護航 Bf 109 K-4 ×6；敵方 Yak-1B ×6（兩批併成一列）', () => {
-    expect(readyCard('germany-m4').battle.waves).toHaveLength(2)
-    expect(b.mine).toEqual([
-      { id: 'ju87', name: 'Ju 87', role: 'bomber', count: 6 },
-      { id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 6 },
-    ])
-    expect(b.foe).toEqual([{ id: 'yak1b', name: 'Yak-1B', role: 'fighter', count: 6 }])
+  /** 【依規則的 owner 與職務排】與 `missionConfigFrom` 把轟炸機排進哪一隊同一條判準 */
+  it('被護送者：護送列在我方、攔截列在敵方；攻擊隊在我方、轟炸機流在敵方', () => {
+    const escort = readyCard(ESCORT_CARD)
+    expect(briefingOf(escort).mine).toContainEqual(convoyRow(escort))
+    expect(briefingOf(escort).foe).not.toContainEqual(convoyRow(escort))
+    const intercept = readyCard(INTERCEPT_CARD)
+    expect(briefingOf(intercept).foe).toContainEqual(convoyRow(intercept))
+    expect(briefingOf(intercept).mine).not.toContainEqual(convoyRow(intercept))
+    const strike = cardWith(KILL_CARD, { convoySpec: G4M, convoyCount: 2, convoyDuty: 'strike', sinkCount: 1 })
+    expect(briefingOf(strike).mine).toContainEqual(convoyRow(strike))
+    const stream = cardWith(KILL_CARD, { convoySpec: B17G, convoyCount: 2, convoyDuty: 'stream', huntCount: 2 })
+    expect(briefingOf(stream).foe).toContainEqual(convoyRow(stream))
   })
 
-  it('空域與時期，沒有出擊前不該知道的欄位', () => {
-    expect(fact(b, 'place')).toBe(t('mission.germany-m4.place'))
-    expect(fact(b, 'period')).toBe(formatMonth(1942, 11))
-    expect(noSecrets(b)).toEqual([])
+  /** 【玩家那一隊的架數讀編組表】小隊大小由排法決定，卡片上沒有 */
+  it('blueOthers：玩家那一隊一列、其餘藍隊一列，兩列加起來是 blueCount', () => {
+    const c = cardWith(KILL_CARD, { blueOthers: A6M5 })
+    const own = missionConfigFrom(c).units.find((f) => f.player === true)!.members.length
+    expect(briefingOf(c).mine).toEqual([
+      row(c.battle.blueSpec, own), row(A6M5, c.battle.blueCount - own),
+    ])
+  })
+
+  /**
+   * 【開場就在場上的都要列】`briefsOpening` 的卡把第 0 秒的波次與從地上起飛的每一批
+   * （不論幾秒出發）列進敵方，同機種併成一列；之後才來的與我方的波次不列。
+   * 護航編隊列進我方
+   */
+  it('briefsOpening：開場的敵方波次併進同機種那一列，起飛的每一批都算；護航列進我方', () => {
+    const wave = (at: number, side: 'mine' | 'theirs', spec: AircraftSpec, count: number) => ({
+      when: { kind: 'clock' as const, at }, warnKey: 'mission.allies-m1.wave.more' as const, warnLead: 0,
+      side, spec, count,
+    })
+    const waves = [
+      wave(0, 'theirs', P51D, 2), wave(0, 'theirs', P51D, 3), wave(0, 'theirs', BF109K4, 4),
+      { ...wave(60, 'theirs', P51D, 4), departs: 'parkedP51' as const },
+      wave(30, 'theirs', P51D, 4), wave(0, 'mine', P51D, 4),
+    ]
+    const escort = { spec: BF109K4, count: 4, depth: 590, speed: 0.5 }
+    const c = cardWith(KILL_CARD, { briefsOpening: true, waves, blueWaves: { size: 4, depth: 2000, escort } })
+    const b = briefingOf(c)
+    expect(c.battle.redSpec).toBe(P51D)
+    expect(b.foe).toEqual([row(P51D, c.battle.redCount + 2 + 3 + 4), row(BF109K4, 4)])
+    expect(b.mine).toEqual([row(c.battle.blueSpec, c.battle.blueCount), row(BF109K4, escort.count)])
+    // 對照：不開 briefsOpening 只列卡片上的開場架數
+    const plain = briefingOf(cardWith(KILL_CARD, { waves }))
+    expect(plain.foe).toEqual([row(P51D, c.battle.redCount)])
   })
 })
 
 describe('briefingOf —— 其他', () => {
-  it('日 M2 的空域是雷伊泰島', () => {
-    expect(fact(briefingOf(readyCard('japan-m2')), 'place')).toBe(t('mission.japan-m2.place'))
-  })
-
-  it('日 M2 的目標寫出兩段：先炸卡車、再撤離', () => {
-    const b = briefingOf(readyCard('japan-m2'))
-    if (!b.ready) throw new Error('日 M2 應該打得起來')
-    expect(b.objective).toBe(`${t('mission.japan-m2.objective')} → ${t('mission.japan-m2.withdraw')}`)
+  it('有返航的卡，目標寫出兩段：先是任務目標、再是返航', () => {
+    const withdraw = {
+      when: { kind: 'clock' as const, at: 60 }, messageKey: 'mission.type.withdraw' as const,
+      distance: 3000, radius: 600, seconds: 120,
+    }
+    const c = cardWith(KILL_CARD, { withdraw })
+    expect(briefingOf(c).objective).toBe(`${t(c.battle.objectiveKey)} → ${t(withdraw.messageKey)}`)
+    expect(briefingOf(readyCard(KILL_CARD)).objective).toBe(t(c.battle.objectiveKey))
   })
 
   it('換成英文，簡報跟著換', () => {
+    const { year, month } = readyCard(ESCORT_CARD).period
     try {
       setLang('en')
       const b = briefingOf(readyCard(ESCORT_CARD))
       expect(b.title).toBe(t('mission.allies-m1.title'))
       expect(b.facts!.map((f) => f.label)).toEqual([t('brief.place'), t('brief.period')])
-      expect(fact(b, 'period')).toBe(formatMonth(1944, 3))
+      expect(fact(b, 'period')).toBe(formatMonth(year, month))
     } finally {
       setLang('zh')
     }
@@ -150,15 +151,6 @@ describe('briefingOf —— 其他', () => {
     const b = briefingOf(readyCard(KILL_CARD))
     expect(b.mine).toEqual([{ id: 'ki84', name: 'Ki-84', role: 'fighter', count: 8 }])
     expect(b.foe).toEqual([{ id: 'p51d', name: 'P-51D', role: 'fighter', count: 10 }])
-  })
-
-  it('攻擊隊（日 M1）列在我方：零戰之後是要掩護的陸攻', () => {
-    const b = briefingOf(readyCard('japan-m1'))
-    expect(b.mine).toEqual([
-      { id: 'a6m5', name: 'A6M5', role: 'fighter', count: 12 },
-      { id: 'g4m', name: 'G4M', role: 'bomber', count: 8 },
-    ])
-    expect(b.foe).toEqual([{ id: 'f4f4', name: 'F4F-4', role: 'fighter', count: 8 }])
   })
 
   it('沒有敵機的卡，簡報不列敵軍那一列', () => {
@@ -191,11 +183,5 @@ describe('briefingOf —— 其他', () => {
       expect(b.facts!.map((f) => f.id), c.id).toEqual(['place', 'period'])
       for (const f of b.facts!) expect(f.value.length, `${c.id} ${f.id}`).toBeGreaterThan(0)
     }
-  })
-
-  it('每一張卡的空域各不相同 —— 每一關取材自不同的地方', () => {
-    const all = Object.values(MISSIONS).flat()
-    expect(new Set(all.map((c) => c.placeKey)).size).toBe(all.length)
-    expect(new Set(all.map((c) => t(c.placeKey))).size).toBe(all.length)
   })
 })

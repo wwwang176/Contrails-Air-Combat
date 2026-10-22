@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { BATTLE_HAZE, BATTLE_HALF, toLocal } from '../../src/world/rzhev'
-import { MISSIONS, type ReadyMissionCard } from '../../src/battle/missions'
 
 /** 【用 import.meta.glob 而不是 fs】`main.ts` 抓 DOM，載進 vitest 會直接爆；讀原始碼 */
 const SOURCES = import.meta.glob(['../../src/main.ts', '../../src/app/battleSceneFrame.ts', '../../src/render/heightFogInstall.ts', '../../src/render/battleScenery.ts'], {
@@ -18,9 +17,7 @@ const body = (from: string, to: string): string => {
 }
 
 describe('戰場高度霧的接線', () => {
-  it('德 M4 的卡片帶著霧的範圍，圓心在戰場中央，半徑蓋得住整個戰場框的四角', () => {
-    const card = MISSIONS.germany.find((c) => c.id === 'germany-m4') as ReadyMissionCard
-    expect(card.battle.theater!.haze).toEqual(BATTLE_HAZE)
+  it('勒熱夫的霧圈：圓心在戰場中央，半徑蓋得住整個戰場框的四角', () => {
     const c = toLocal(BATTLE_HAZE.x, BATTLE_HAZE.z)
     expect(Math.abs(c.lx)).toBeLessThan(50)
     expect(Math.abs(c.lz)).toBeLessThan(300)

@@ -64,7 +64,7 @@ export function createVegetationRebuild(
   cap: Readonly<Record<PoolName, number>>,
   tiles: Tiles,
   pools: Pools,
-  stats: { overflow: number; rebuilds: number },
+  stats: { overflow: number; rebuilds: number; overflowPools?: Int32Array },
 ): VegetationRebuild {
   const { slotBuf, slotUsed, slotLod, slotBush, slotShownLod, slotShownBush, slotKey } = tiles
   const tileCache = slotUsed.length
@@ -93,6 +93,8 @@ export function createVegetationRebuild(
   let jobPos = 0
   let jobOverflow = 0
   // 【以下都以池在 `POOL_NAMES` 的索引存取】重建的迴圈每筆都要讀，不經過池名
+  /** 這一次各池溢位幾筆。完成時才發布到 `stats.overflowPools` */
+  const jobOverflowOf = new Int32Array(poolCount)
   /** 這一格開始時各池寫到第幾筆 —— 一格寫完，多出來的那一段就是區段表的一筆 */
   const tileFrom = new Int32Array(poolCount)
   /** 這一格在各池的實例包圍盒（minX, minY, minZ, maxX, maxY, maxZ） */
@@ -183,6 +185,7 @@ export function createVegetationRebuild(
     for (let k = 0; k < orderLen; k++) order[k] = orderKey[k]! % SLOT_SPAN
     jobPos = 0
     jobOverflow = 0
+    jobOverflowOf.fill(0)
     state.active = true
   }
 
@@ -224,6 +227,7 @@ export function createVegetationRebuild(
         const at = jobCounts[p]!
         if (at >= capOf[p]!) {
           jobOverflow++
+          jobOverflowOf[p]!++
           continue
         }
         const o = k * FLORA_STRIDE
@@ -375,6 +379,7 @@ export function createVegetationRebuild(
       fadePools[p] = entFadeIn[p]![sd]! < entN[p]![sd]! ? 1 : 0
     }
     stats.overflow = jobOverflow
+    stats.overflowPools?.set(jobOverflowOf)
     state.active = false
     stats.rebuilds++
   }

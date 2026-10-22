@@ -8,11 +8,10 @@ import { HUE, WINTER_PAINT } from '../../src/render/geometry/ground/palette'
 import { GROUND_UNITS, type GroundUnit } from '../../src/specs/ground'
 import { createGroundModels } from '../../src/render/groundTargets'
 import { createGroundTarget } from '../../src/world/groundTargets'
-import { MISSIONS, missionConfigFrom, type ReadyMissionCard } from '../../src/battle/missions'
 
 /**
  * 地面單位的冬季塗裝：烤漆那幾種材質換成雪白，鋼、履帶、輪胎、玻璃不變。純頂點色，不用貼圖。
- * 任務卡的 `groundLivery` 在開局帶入。
+ * 任務卡的 `groundLivery` 在開局帶入（卡片 → 戰鬥設定的透傳見 `livery-variant.test.ts`）。
  */
 beforeAll(async () => {
   await preloadGroundModels(async (url) => {
@@ -90,15 +89,5 @@ describe('開局帶入', () => {
     winter.dispose()
     // 釋放的是冬季那一份，共用的原物還能用
     expect(groundGeometry(unit('panzer4')).getAttribute('color')).toBeDefined()
-  })
-
-  it('德 M4 勒熱夫是冬季；其他關沒有', () => {
-    const cards = Object.values(MISSIONS).flat()
-    expect(cards.some((c) => c.id === 'germany-m4')).toBe(true)
-    for (const card of cards) {
-      if (card.battle === undefined) continue
-      const cfg = missionConfigFrom(card as ReadyMissionCard)
-      expect(cfg.groundLivery, card.id).toBe(card.id === 'germany-m4' ? 'winter' : undefined)
-    }
   })
 })

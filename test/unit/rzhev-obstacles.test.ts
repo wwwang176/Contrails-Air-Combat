@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { BatchedMesh, Color } from 'three'
 import {
   GERMAN_AT_GUNS, GERMAN_DUG_PANZERS, SOVIET_INFANTRY, SOVIET_MORTARS, MINEFIELDS, OBSTACLES, SOVIET_ROUTE_A, SOVIET_ROUTE_B, SOVIET_FLAK,
@@ -53,21 +53,28 @@ describe('障礙物的佈局', () => {
   })
 
   it('離德軍縱隊與預備隊的路線至少 30 m（縱隊有轉彎半徑，會切內角）', () => {
+    const bad: string[] = []
     for (const p of pieces) {
       for (const r of [SOVIET_ROUTE_A, SOVIET_ROUTE_B, GERMAN_RESERVE_WEST, GERMAN_RESERVE_EAST]) {
-        expect(near(p.x, p.z, r), `${p.kind} ${p.x.toFixed(0)},${p.z.toFixed(0)}`).toBeGreaterThanOrEqual(30)
+        if (!(near(p.x, p.z, r) >= 30)) bad.push(`${p.kind} ${p.x.toFixed(0)},${p.z.toFixed(0)}`)
       }
     }
+    expect(bad).toEqual([])
   })
 
   it('不壓在任何一條路上（凹路：西路、斜路、主路都算），也不壓在路邊 6 m 內', () => {
-    for (const p of pieces) {
+    const bad: string[] = []
+    const where = (p: { x: number; z: number }): string => {
       const l = toLocal(p.x, p.z)
-      expect(onRoad(p.x, p.z), `${p.kind} 壓在路上 ${l.lx.toFixed(0)},${l.lz.toFixed(0)}`).toBe(false)
+      return `${l.lx.toFixed(0)},${l.lz.toFixed(0)}`
+    }
+    for (const p of pieces) {
+      if (onRoad(p.x, p.z)) bad.push(`${p.kind} 壓在路上 ${where(p)}`)
       for (const [dx, dz] of [[6, 0], [-6, 0], [0, 6], [0, -6]] as const) {
-        expect(onRoad(p.x + dx, p.z + dz), `${p.kind} 在路邊 ${l.lx.toFixed(0)},${l.lz.toFixed(0)}`).toBe(false)
+        if (onRoad(p.x + dx, p.z + dz)) bad.push(`${p.kind} 在路邊 ${where(p)}`)
       }
     }
+    expect(bad).toEqual([])
   })
 
   it('離所有單位（含殘骸）至少 10 m', () => {
@@ -75,12 +82,15 @@ describe('障礙物的佈局', () => {
       ...GERMAN_AT_GUNS, ...GERMAN_DUG_PANZERS, ...WRECK_SOVIET_TANKS, ...WRECK_GERMAN_PANZERS, ...STALLED_SOVIET_TANKS,
       ...GERMAN_INFANTRY, ...SOVIET_INFANTRY, ...SOVIET_FLAK, ...GERMAN_MORTARS, ...SOVIET_MORTARS, ...GERMAN_TRUCKS,
     ]
+    const bad: string[] = []
     for (const p of pieces) {
       for (const u of units) {
+        if (Math.hypot(p.x - u.x, p.z - u.z) >= 10) continue
         const l = toLocal(u.x, u.z)
-        expect(Math.hypot(p.x - u.x, p.z - u.z), `${p.kind} 對單位 ${l.lx.toFixed(0)},${l.lz.toFixed(0)}`).toBeGreaterThanOrEqual(10)
+        bad.push(`${p.kind} 對單位 ${l.lx.toFixed(0)},${l.lz.toFixed(0)}`)
       }
     }
+    expect(bad).toEqual([])
   })
 
   it('不進雷區內部', () => {
@@ -307,14 +317,17 @@ describe('障礙物的造型', () => {
 })
 
 describe('障礙物的幾何', () => {
-  const geo = buildObstacles(OBSTACLES, flat)
+  let geo: ReturnType<typeof buildObstacles>
+  beforeAll(() => {
+    geo = buildObstacles(OBSTACLES, flat)
+  })
 
   it('非索引、有位置、法線與頂點色，全是有限的數', () => {
     expect(geo.index).toBeNull()
     for (const name of ['position', 'normal', 'color']) {
       const a = geo.getAttribute(name)
       expect(a, name).toBeDefined()
-      for (let i = 0; i < a!.array.length; i++) expect(Number.isFinite(a!.array[i]!)).toBe(true)
+      expect(Array.prototype.findIndex.call(a!.array, (v: number) => !Number.isFinite(v)), name).toBe(-1)
     }
     expect(geo.getAttribute('position').count % 3).toBe(0)
   })
@@ -356,7 +369,18 @@ describe('障礙物的幾何', () => {
 
   it('同一份資料兩次建出同一個幾何', () => {
     const again = buildObstacles(OBSTACLES, flat)
-    expect(Array.from(again.getAttribute('position').array)).toEqual(Array.from(geo.getAttribute('position').array))
+    const a = again.getAttribute('position').array
+    const b = geo.getAttribute('position').array
+    expect(a.length).toBe(b.length)
+    // 逐格以 Object.is 比（與 toEqual 對數字的比法相同），回報第一個不同的位置
+    let first = -1
+    for (let i = 0; i < a.length; i++) {
+      if (!Object.is(a[i], b[i])) {
+        first = i
+        break
+      }
+    }
+    expect(first).toBe(-1)
   })
 
   it('跟著地面高度走', () => {

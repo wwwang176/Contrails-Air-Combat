@@ -11,7 +11,7 @@ import { buildLeunaRivers, preloadLeunaRivers } from '../../src/render/leunaRive
 import {
   buildLeunaDressing, preloadLeunaFeatures, rightOfSaale, type LandDressing,
 } from '../../src/render/leunaFeatures'
-import { motorwayProfiles } from '../../src/render/motorway'
+import { CARRIAGEWAY_HALF, motorwayProfiles } from '../../src/render/motorway'
 import { settlementLayout } from '../../src/render/settlements'
 import { settlementTest } from '../../src/render/settlementSpatial'
 import { BUILDING_DEPTH, BUILDING_WALL, BUILDING_WIDTH } from '../../src/render/floraShapes'
@@ -133,16 +133,28 @@ describe('建築', () => {
     const road = new RiverIndex(F.a9.map((l) => ({ name: 'A9', points: l, level: l.map(() => 0), coarse: true })), 30)
     // 植被緩衝存的是單精度，座標存進去會捨入幾毫米
     const EPS = 0.01
+    // 外接框外加 1 m 的點不可能在環內（交點的 x 落在邊的兩端之間），先擋掉省下逐邊判斷
+    const pits = F.mines.map((m) => {
+      const xs = m.ring.map((p) => p[0])
+      const zs = m.ring.map((p) => p[1])
+      return {
+        m, x0: Math.min(...xs) - 1, x1: Math.max(...xs) + 1, z0: Math.min(...zs) - 1, z1: Math.max(...zs) + 1,
+      }
+    })
+    const bad: string[] = []
     for (const b of B) {
-      const tag = `(${Math.round(b.x)},${Math.round(b.z)})`
-      expect(rivers.index.distance(b.x, b.z), `河 ${tag}`).toBeGreaterThanOrEqual(CHANNEL_HALF + 15 - EPS)
-      expect(road.distance(b.x, b.z), `A9 ${tag}`).toBeGreaterThanOrEqual(20)
-      for (const m of F.mines) expect(insideRing(m.ring, b.x, b.z), `${m.name} ${tag}`).toBe(false)
+      const tag = (): string => `(${Math.round(b.x)},${Math.round(b.z)})`
+      if (!(rivers.index.distance(b.x, b.z) >= CHANNEL_HALF + 15 - EPS)) bad.push(`河 ${tag()}`)
+      if (!(road.distance(b.x, b.z) >= 20)) bad.push(`A9 ${tag()}`)
+      for (const p of pits) {
+        if (b.x < p.x0 || b.x > p.x1 || b.z < p.z0 || b.z > p.z1) continue
+        if (insideRing(p.m.ring, b.x, b.z)) bad.push(`${p.m.name} ${tag()}`)
+      }
     }
     for (const s of FLAK_SITES) {
-      expect(B.some((b) => Math.hypot(b.x - s.x, b.z - s.z) < 70), `砲位 (${Math.round(s.x)},${Math.round(s.z)})`)
-        .toBe(false)
+      if (B.some((b) => Math.hypot(b.x - s.x, b.z - s.z) < 70)) bad.push(`砲位 (${Math.round(s.x)},${Math.round(s.z)})`)
     }
+    expect(bad).toEqual([])
   })
 
   /**
@@ -156,13 +168,39 @@ describe('建築', () => {
       [FloraKind.Barn, 'barn'], [FloraKind.TarBarn, 'barnTar'], [FloraKind.Church, 'church'],
     ] as const
     const peak = new Map<number, number>()
+    // 依 1 km 的格分桶：只看 [c − R − 1, c + R + 1] 蓋到的格，多出來的 1 m 讓捨入擋不掉任何
+    // 一棟；桶裡的每一棟照樣逐一判斷，數出來與掃全部相同
+    const CELL = 1000
+    const cell = (i: number, j: number): number => i * 100_000 + j
+    const grid = new Map<number, typeof B>()
+    // 座標是 NaN 的分不進桶，但逐一判斷時三個比較都是 false、會被數進去：每一點都要看
+    const stray: typeof B = []
+    for (const b of B) {
+      if (Number.isNaN(b.x) || Number.isNaN(b.z)) {
+        stray.push(b)
+        continue
+      }
+      const k = cell(Math.floor(b.x / CELL), Math.floor(b.z / CELL))
+      const list = grid.get(k)
+      if (list === undefined) grid.set(k, [b])
+      else list.push(b)
+    }
     for (let cx = -15000; cx <= 15000; cx += 1000) {
       for (let cz = -15000; cz <= 15000; cz += 1000) {
         const n = new Map<number, number>()
-        for (const b of B) {
-          if (Math.abs(b.x - cx) > FLORA_RADIUS || Math.abs(b.z - cz) > FLORA_RADIUS) continue
-          if (Math.hypot(b.x - cx, b.z - cz) >= FLORA_RADIUS) continue
-          n.set(b.kind, (n.get(b.kind) ?? 0) + 1)
+        for (const b of stray) n.set(b.kind, (n.get(b.kind) ?? 0) + 1)
+        const i0 = Math.floor((cx - FLORA_RADIUS - 1) / CELL)
+        const i1 = Math.floor((cx + FLORA_RADIUS + 1) / CELL)
+        const j0 = Math.floor((cz - FLORA_RADIUS - 1) / CELL)
+        const j1 = Math.floor((cz + FLORA_RADIUS + 1) / CELL)
+        for (let i = i0; i <= i1; i++) {
+          for (let j = j0; j <= j1; j++) {
+            for (const b of grid.get(cell(i, j)) ?? []) {
+              if (Math.abs(b.x - cx) > FLORA_RADIUS || Math.abs(b.z - cz) > FLORA_RADIUS) continue
+              if (Math.hypot(b.x - cx, b.z - cz) >= FLORA_RADIUS) continue
+              n.set(b.kind, (n.get(b.kind) ?? 0) + 1)
+            }
+          }
         }
         for (const [k, v] of n) peak.set(k, Math.max(peak.get(k) ?? 0, v))
       }
@@ -262,6 +300,14 @@ describe('樹籬擋在外面的地方', () => {
     expect(wildOut.test(inside![0], inside![1])).toBe(true)
     const a9 = F.a9[0]![10]!
     expect(wildOut.test(a9[0], a9[1])).toBe(true)
+    // 【路面外的路堤也擋】車道邊再往外 5 m，兩側都要擋。只擋車道本身的話樹籬長在路肩與路堤上
+    const next = F.a9[0]![11]!
+    const len = Math.hypot(next[0] - a9[0], next[1] - a9[1])
+    const nx = -(next[1] - a9[1]) / len
+    const nz = (next[0] - a9[0]) / len
+    const off = CARRIAGEWAY_HALF + 5
+    expect(wildOut.test(a9[0] + nx * off, a9[1] + nz * off), '左側路堤').toBe(true)
+    expect(wildOut.test(a9[0] - nx * off, a9[1] - nz * off), '右側路堤').toBe(true)
     expect(wildOut.test(0, -7000)).toBe(false)
   })
 

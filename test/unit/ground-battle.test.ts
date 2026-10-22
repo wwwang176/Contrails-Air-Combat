@@ -11,7 +11,7 @@ import { BLAST_PACE, FIRE_BLAST } from '../../src/render/blast'
 import { FIRE_CHUNK_CAPACITY, FIRE_CHUNK_LIFE } from '../../src/render/chunks'
 import { createGroundTarget } from '../../src/world/groundTargets'
 import { MISSIONS, missionConfigFrom, type ReadyMissionCard } from '../../src/battle/missions'
-import { createBattle, stepBattle } from '../../src/battle/setup'
+import { createBattle } from '../../src/battle/setup'
 
 /**
  * # 地面戰的戲：射擊排程與挑目標
@@ -172,17 +172,29 @@ describe('勒熱夫的長燒火塊', () => {
 })
 
 describe('用真的卡片開打', () => {
+  /** 【只推地面戰的時鐘】開火排程是時間的純函數，不必跑整場模擬；量的是卡片上的射手與戰場的地面目標接得上 */
   it('德 M4 開場之後雙方都在開火', () => {
     const card = MISSIONS.germany.find((c) => c.id === 'germany-m4') as ReadyMissionCard
     const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
-    const gb = createGroundBattle(card.battle.theater!, () => {})
+    const targets = b.world.groundTargets
+    const teams = new Set<string>()
+    // 【直射另外數】迫擊砲挑目標走自己的一支（`lob`），只看全部的話一隊的直射挑不到目標，
+    // 它的迫擊砲照樣讓這一隊算「有開火」
+    const direct = new Set<string>()
+    const gb = createGroundBattle(card.battle.theater!, () => {}, undefined, undefined,
+      (u, _x, _y, _z, i) => {
+        teams.add(targets[i]!.team)
+        if (u !== 'mortar') direct.add(targets[i]!.team)
+      })
     const flat = (): number => 0
-    for (let f = 0; f < 60 * 20; f++) {
-      for (let k = 0; k < 4; k++) stepBattle(b, 1 / 240)
-      gb.update(b.world.groundTargets, b.world.time, 1 / 60, flat)
+    for (let s = 0; s < 20 * 10; s++) {
+      b.world.time += 0.1
+      gb.update(targets, b.world.time, 0.1, flat)
     }
     // 30 多台射手、平均 7 秒一發，20 秒至少上百發
     expect(gb.shots).toBeGreaterThan(50)
+    expect([...teams].sort()).toEqual(['blue', 'red'])
+    expect([...direct].sort()).toEqual(['blue', 'red'])
     gb.dispose()
   })
 

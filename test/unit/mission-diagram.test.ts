@@ -82,6 +82,5 @@ describe('mission diagram follows the actual objective', () => {
     }
     const rzhev = renderMissionDiagram(card('germany-m4'))
     expect(rzhev).toContain('data-aircraft="yak1b"')
-    expect(rzhev).toContain('Yak-1B × 6')
   })
 })

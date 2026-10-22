@@ -8,6 +8,7 @@ import { MISSIONS, missionConfigFrom, type ReadyMissionCard } from '../../src/ba
 import type { Controller } from '../../src/control/Controller'
 import type { FlareBeat } from '../../src/battle/beats'
 import { FLARE_BURN, FLARE_LANES, FLARE_RELIGHT_DELAY } from '../../src/world/flares'
+import { cardWith, KILL_CARD } from '../fixtures/mission'
 
 const IDLE: Controller = { update() {} }
 const DT = 1 / 240
@@ -83,13 +84,25 @@ describe('照明彈節拍', () => {
     expect(b.world.flares.count).toBe(0)
   })
 
-  it('德 M2 的卡帶照明彈，位置比燈位多；沒有 flares 的卡不產生節拍', () => {
-    const m2 = MISSIONS.germany.find((m) => m.id === 'germany-m2') as ReadyMissionCard
-    const beats = missionConfigFrom(m2).beats ?? []
-    const flare = beats.filter((x) => x.kind === 'flare')
-    expect(flare).toHaveLength(1)
-    expect((flare[0] as FlareBeat).points.length).toBeGreaterThan(FLARE_LANES)
-    const m1 = MISSIONS.germany.find((m) => m.id === 'germany-m1') as ReadyMissionCard
-    expect((missionConfigFrom(m1).beats ?? []).some((x) => x.kind === 'flare')).toBe(false)
+  /** 【明列透傳】`missionConfigFrom` 不透傳未知欄位，漏抄的症狀是夜襲關一枚照明彈都沒有，而且不報錯 */
+  it('卡片帶 flares 就有一個照明彈節拍、點位是卡片上那一份；沒有的卡不產生', () => {
+    const flareOf = (c: ReadyMissionCard) =>
+      (missionConfigFrom(c).beats ?? []).filter((x): x is FlareBeat => x.kind === 'flare')
+    const flares = { when: { kind: 'clock' as const, at: 2 }, points: BEAT.points }
+    const synthetic = flareOf(cardWith(KILL_CARD, { flares }))
+    expect(synthetic).toHaveLength(1)
+    expect(synthetic[0]!.points).toBe(flares.points)
+    expect(synthetic[0]!.when).toEqual({ kind: 'clock', at: 2 })
+    for (const c of Object.values(MISSIONS).flat()) {
+      if (c.battle === null) continue
+      const card = c as ReadyMissionCard
+      const beats = flareOf(card)
+      if (card.battle.flares === undefined) {
+        expect(beats, c.id).toEqual([])
+      } else {
+        expect(beats, c.id).toHaveLength(1)
+        expect(beats[0]!.points, c.id).toBe(card.battle.flares.points)
+      }
+    }
   })
 })

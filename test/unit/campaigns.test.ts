@@ -1,38 +1,45 @@
 import { describe, it, expect } from 'vitest'
-import { Vector3 } from 'three'
 import { MISSIONS, CAMPAIGNS, convoyGround, missionConfigFrom } from '../../src/battle/missions'
-import { LEYTE_JUNCTIONS, LEYTE_ROAD } from '../../src/world/leyte'
-import { FIELD_CENTER, HOLD_ROWS, RUNWAY } from '../../src/world/asch'
+import { LEYTE_ROAD } from '../../src/world/leyte'
 import { ALL_SPECS, MAX_SIDE } from '../../src/battle/skirmish'
 import { createBattle, stepBattle } from '../../src/battle/setup'
-import type { MissionCard, ReadyMissionCard } from '../../src/battle/missions'
+import { stepMissionProgress } from '../../src/battle/missionProgress'
+import { destroyedInPool, inDestroyPool } from '../../src/battle/objectiveQueries'
+import type { MissionRules } from '../../src/battle/mission'
+import type { MissionCard, MissionWithdraw, ReadyMissionCard } from '../../src/battle/missions'
+import { createGroundTarget } from '../../src/world/groundTargets'
+import type { Combatant } from '../../src/world/combatant'
 import { BOMBS_CAPACITY } from '../../src/world/bomb'
 import { TORPEDOES_CAPACITY, TORPEDO_RANGE, TORPEDO_SPEED } from '../../src/world/torpedo'
 import { WAKE_SLOTS } from '../../src/render/wake'
 import { loadoutOf } from '../../src/weapons/stores'
 import { LANGS, setLang, t } from '../../src/i18n'
+import { A6M5 } from '../../src/specs/a6m5'
+import { G4M } from '../../src/specs/g4m'
+import { cardWith, INTERCEPT_CARD, KILL_CARD } from '../fixtures/mission'
 
 /**
  * # 三條戰役與它們的卡
  *
- * 每一條線幾張不由測試鎖：加一關是討論過才加的。這裡守的是結構 —— 前綴、
- * 唯一性、每一張都打得起來。
+ * 每一條線幾張、每一關的內容都不由測試鎖：關卡是討論過才定的。這裡守兩件事：
+ *
+ * - **全部卡片的資料合法性**：前綴、唯一性、數量夠不夠打完、池子裝不裝得下。
+ *   寫錯的症狀是那一關打不完或特效靜靜消失，不會報錯
+ * - **卡片 → 戰鬥設定的翻譯**：用 `cardWith` 改一兩格的合成卡驗，期望值從卡片的
+ *   欄位推，不讀任何一關的內容
  *
  * 卡片拆成兩層：**目錄**（選單畫得出來就靠它）與**戰鬥設定**（`battle`）。
- * `battle === null` 就是「還沒做」——那取代了原本的 `playable` 旗標，
- * 而且把「資料要嘛完整、要嘛全空」從一條測試變成型別保證。
+ * `battle === null` 就是「還沒做」，「資料要嘛完整、要嘛全空」由型別保證。
  */
 
 const ALL: readonly MissionCard[] = CAMPAIGNS.flatMap((c) => MISSIONS[c])
 
 const ready = (m: MissionCard): m is ReadyMissionCard => m.battle !== null
 
-describe('三條戰役', () => {
-  it('三條線，每一條至少一關', () => {
-    expect(CAMPAIGNS).toEqual(['allies', 'germany', 'japan'])
-    for (const c of CAMPAIGNS) expect(MISSIONS[c].length, c).toBeGreaterThan(0)
-  })
+const IDLE = { update() {} }
+const DT = 1 / 240
 
+describe('三條戰役', () => {
   it('id 唯一，而且前綴就是戰役', () => {
     expect(new Set(ALL.map((m) => m.id)).size).toBe(ALL.length)
     for (const c of CAMPAIGNS) {
@@ -50,10 +57,6 @@ describe('三條戰役', () => {
     } finally {
       setLang('zh')
     }
-  })
-
-  it('每一張都打得起來', () => {
-    for (const m of ALL) expect(m.battle, m.id).not.toBeNull()
   })
 })
 
@@ -100,16 +103,6 @@ describe('可玩卡的戰鬥設定', () => {
     }
   })
 
-  it('地形逐關指定，不是全部群島', () => {
-    // 【為什麼要這一條】只加欄位不給值的話，每一關全填 archipelago 一樣通得過
-    // 「地形是合法的一種」，而日 M2 仍然開在群島上
-    const of = (id: string) => playable.find((m) => m.id === id)!.battle.terrain
-    // 日 M2 是雷伊泰（海岸線地形）、德 M3 是底板行動（Y-29）
-    expect(of('japan-m2')).toBe('leyte')
-    expect(of('germany-m3')).toBe('asch')
-    expect(new Set(playable.map((m) => m.battle.terrain)).size).toBeGreaterThan(1)
-  })
-
   it('我方架數是正整數、敵方架數是非負整數', () => {
     for (const m of playable) {
       const b = m.battle
@@ -122,266 +115,6 @@ describe('可玩卡的戰鬥設定', () => {
   })
 })
 
-describe('德 M2 波爾塔瓦', () => {
-  const card = MISSIONS.germany.find((m) => m.id === 'germany-m2') as ReadyMissionCard
-
-  it('沒有敵機、8 架 He 111、夜間、波爾塔瓦地形、1,500 m', () => {
-    const b = card.battle
-    expect(b.redCount).toBe(0)
-    expect(b.blueCount).toBe(8)
-    expect(b.blueSpec.id).toBe('he111')
-    expect(b.timeOfDay).toBe('night')
-    expect(b.terrain).toBe('poltava')
-    expect(b.altitude).toBe(1500)
-  })
-
-  it('24 架停放的 B-17、3 堆、16 輕砲、6 重砲、6 探照燈；B-17 全部炸毀才算', () => {
-    const units = card.battle.ground!.map((e) => e.unit)
-    const count = (id: string) => units.filter((u) => u === id).length
-    expect(count('parkedB17')).toBe(24)
-    expect(count('fuelDump')).toBe(2)
-    expect(count('bombDump')).toBe(1)
-    expect(count('flakLight')).toBe(16)
-    expect(count('flakHeavy')).toBe(6)
-    expect(count('searchlight')).toBe(6)
-    expect(card.battle.ground!.every((e) => e.team === 'red')).toBe(true)
-    expect(card.battle.destroyCount).toBe(count('parkedB17'))
-    expect(card.battle.destroyUnit).toBe('parkedB17')
-  })
-
-  it('照這張卡建得起來、跑一秒不炸', () => {
-    // 【走真正的路】missionConfigFrom → stackedEntry → ground，不是自己組的編組表
-    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
-    for (let i = 0; i < 240; i++) stepBattle(b, 1 / 240)
-    expect(b.mission.outcome).toBe('fighting')
-    // 16 座輕砲 + 6 座重砲都掛了砲
-    expect(b.world.groundTargets.filter((t) => t.guns.length > 0)).toHaveLength(22)
-  })
-})
-
-describe('德 M1 梅澤堡上空', () => {
-  const card = MISSIONS.germany.find((m) => m.id === 'germany-m1') as ReadyMissionCard
-
-  it('六架 K-4 攔截十四架 B-17，全部擊落獲勝、任何一架抵達判敗', () => {
-    const b = card.battle
-    expect(b.need).toBe(1)
-    expect(b.huntCount).toBeUndefined()
-    expect(b.interceptConvoy).toBe('mine')
-    expect(b.convoyCruiseTas).toBe(250 / 3.6)
-    expect(b.blueSpec.id).toBe('bf109k4')
-    expect(b.blueCount).toBe(6)
-    expect(b.convoySpec?.id).toBe('b17g')
-    expect(b.convoyCount).toBe(14)
-    expect(b.convoyRows).toEqual({ size: 6, depth: 600 })
-    expect(b.convoyDuty).toBeUndefined()
-    expect(b.redCount).toBe(0)
-    expect(b.targetDistance).toBeGreaterThan(0)
-    expect(b.targetRadius).toBeGreaterThan(0)
-    // 【不是洛伊納】`leuna` 會把廠區的墊面與佈景烤進地形，這一關地上不該有工廠
-    expect(b.terrain).toBe('autumnFarmland')
-    expect(b.timeOfDay).toBe('noon')
-  })
-
-  it('在路途上攔截：沒有地面目標、沒有整隊重生', () => {
-    expect(card.battle.ground).toBeUndefined()
-    expect(card.battle.recycle).toBeUndefined()
-  })
-
-  it('護航機開場四加二架 P-51，第 45 秒再來四架', () => {
-    const waves = card.battle.waves!
-    expect(waves).toHaveLength(3)
-    expect(waves.map(w => w.count)).toEqual([4, 2, 4])
-    expect(waves.map(w => w.when)).toEqual([
-      { kind: 'clock', at: 0 }, { kind: 'clock', at: 0 }, { kind: 'clock', at: 41 },
-    ])
-    expect(waves.map(w => w.warnLead)).toEqual([0, 0, 4])
-    for (const w of waves) {
-      expect(w.side).toBe('theirs')
-      expect(w.spec.id).toBe('p51d')
-    }
-  })
-
-  it('單趟攔截建得起來、B-17 在紅隊而且是 transit、跑一秒不炸', () => {
-    const cfg = missionConfigFrom(card)
-    const bombers = cfg.units.filter((u) => u.members[0]!.id === 'b17g')
-    expect(bombers).toHaveLength(14)
-    expect(cfg.units.filter(u => u.team === 'blue').map(u => u.members.length)).toEqual([4, 2])
-    for (const u of bombers) {
-      expect(u.team).toBe('red')
-      expect(u.duty).toBe('transit')
-    }
-    const b = createBattle({ update() {} }, cfg, 1)
-    expect(b.cfg.rules).toMatchObject({ kind: 'convoy', owner: 'red', need: 1 })
-    expect(b.cfg.beats?.some(beat => beat.kind === 'conveyor')).toBe(false)
-    for (let i = 0; i < 240; i++) stepBattle(b, 1 / 240)
-    expect(b.mission.outcome).toBe('fighting')
-  })
-})
-
-describe('德 M3 底板行動', () => {
-  const card = MISSIONS.germany.find((m) => m.id === 'germany-m3') as ReadyMissionCard
-
-  it('Y-29、拂曉、玩家開 Fw 190 共 10 架、開場沒有敵機在天上；停機線全部都要打掉', () => {
-    const b = card.battle
-    expect(b.terrain).toBe('asch')
-    expect(b.timeOfDay).toBe('dawn')
-    expect(b.blueSpec.id).toBe('fw190')
-    expect(b.blueOthers?.id).toBe('bf109k4')
-    expect(b.blueCount).toBe(10)
-    expect(b.redSpec.id).toBe('p51d')
-    expect(b.redCount).toBe(0)
-    expect(b.destroyCount).toBe(b.ground!.filter((e) => e.unit === 'parkedP51').length)
-    expect(b.destroyUnit).toBe('parkedP51')
-    expect(b.priorityGroundUnit).toBe('parkedP51')
-    expect(missionConfigFrom(card).tuning.priorityGroundUnit).toBe('parkedP51')
-  })
-
-  /** 【整隊換，不在小隊裡混】玩家那一隊全是 Fw 190，另外兩隊全是 Bf 109 */
-  it('編組：玩家那一隊 4 架 Fw 190，另外兩隊（4 ＋ 2）整隊是 Bf 109', () => {
-    const blue = missionConfigFrom(card).units.filter((f) => f.team === 'blue')
-    const ids = (f: (typeof blue)[number]) => [...new Set(f.members.map((m) => m.id))]
-    expect(blue.filter((f) => f.player === true).map(ids)).toEqual([['fw190']])
-    expect(blue.find((f) => f.player === true)!.members).toHaveLength(4)
-    const others = blue.filter((f) => f.player !== true)
-    expect(others.map(ids)).toEqual([['bf109k4'], ['bf109k4']])
-    expect(others.map((f) => f.members.length).sort()).toEqual([2, 4])
-    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
-    expect(b.player.aircraft.spec.id).toBe('fw190')
-  })
-
-  it('玩家在機場東邊約 7.5 km、朝西飛，橫切跑道', () => {
-    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
-    const s = b.player.aircraft.state
-    const east = s.position.x - FIELD_CENTER.x
-    expect(east).toBeGreaterThan(6000)
-    expect(east).toBeLessThan(9000)
-    expect(Math.abs(s.position.z - FIELD_CENTER.z)).toBeLessThan(RUNWAY.z1)
-    expect(s.velocity.x).toBeLessThan(0)
-    expect(Math.abs(s.velocity.z)).toBeLessThan(Math.abs(s.velocity.x) * 0.05)
-  })
-
-  it('地面優先權只在需要它的卡上：德 M3 打停放的 P-51、日 M2 打卡車', () => {
-    const want: Record<string, string> = { 'germany-m3': 'parkedP51', 'japan-m2': 'usTruck' }
-    for (const campaign of CAMPAIGNS) {
-      for (const mission of MISSIONS[campaign]) {
-        if (!ready(mission)) continue
-        expect(missionConfigFrom(mission).tuning.priorityGroundUnit, mission.id).toBe(want[mission.id])
-      }
-    }
-  })
-
-  it('打掉油桶與砲位不算，P-51 剩一架都不算', () => {
-    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
-    for (const t of b.world.groundTargets) if (t.unit.id !== 'parkedP51') t.alive = false
-    stepBattle(b, 1 / 240)
-    expect(b.mission.outcome).toBe('fighting')
-    // 地上的打掉、滑出去的擊毀，留最後一架
-    const parked = b.world.groundTargets.filter((t) => t.unit.id === 'parkedP51')
-    const kill = (t: typeof parked[number]): void => {
-      if (t.departed) b.world.destroy(b.world.combatants[t.departedAs]!)
-      else t.alive = false
-    }
-    for (const t of parked.slice(0, -1)) kill(t)
-    stepBattle(b, 1 / 240)
-    expect(b.mission.outcome).toBe('fighting')
-    kill(parked[parked.length - 1]!)
-    stepBattle(b, 1 / 240)
-    expect(b.mission.outcome).toBe('victory')
-  })
-
-  it('每一架只算一次、不管死在哪裡：起飛的也要打下來才判勝', () => {
-    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
-    const parked = b.world.groundTargets.filter((t) => t.unit.id === 'parkedP51')
-    // 停機墊上先打掉 5 架（地面目標的前 12 架是停機墊，後 4 架在跑道頭）
-    for (const t of parked.slice(0, 5)) t.alive = false
-    const before = b.world.combatants.length
-    // 第 0 秒兩批一起出發：跑道頭的 4 架，加上停機墊剩下的 7 格裡 4 格
-    const first = card.battle.waves!.filter((w) => w.when.kind === 'clock' && w.when.at === 0)
-    const moving = first.reduce((s, w) => s + w.count, 0)
-    stepBattle(b, 1 / 240)
-    expect(b.world.combatants.slice(before)).toHaveLength(moving)
-    const taxiing = parked.filter((t) => t.taxi !== null)
-    expect(taxiing).toHaveLength(moving)
-    // 【滑行中的不算摧毀】它還活著，只是在滑行道上
-    expect(b.mission.metric).toBe(parked.length - 5)
-    // 還停著的全部打掉：滑出去的還在，不算贏
-    for (const t of parked) if (t.taxi === null) t.alive = false
-    stepBattle(b, 1 / 240)
-    expect(b.mission.metric).toBe(moving)
-    expect(b.mission.outcome).toBe('fighting')
-    // 最先滾行的那一架留著，其餘在滑行道上打掉
-    const last = taxiing.reduce((a, t) => (t.taxi!.delay < a.taxi!.delay ? t : a))
-    for (const t of taxiing) if (t !== last) t.alive = false
-    stepBattle(b, 1 / 240)
-    expect(b.mission.outcome).toBe('fighting')
-    // 最後一架等它離地，在天上打下來
-    while (!last.departed) {
-      stepBattle(b, 1 / 240)
-      expect(b.world.time).toBeLessThan(180)
-    }
-    expect(b.mission.outcome).toBe('fighting')
-    b.world.destroy(b.world.combatants[last.departedAs]!)
-    stepBattle(b, 1 / 240)
-    expect(b.mission.outcome).toBe('victory')
-  })
-
-  it('16 架 P-51（停機墊 12、跑道頭 4）、2 堆油桶、12 輛美軍的 M16 防空車，全部是敵方的', () => {
-    const units = card.battle.ground!.map((e) => e.unit)
-    const count = (id: string) => units.filter((u) => u === id).length
-    expect(count('parkedP51')).toBe(16)
-    expect(count('fuelDump')).toBe(2)
-    expect(count('usFlakTrack')).toBe(12)
-    expect(units).toHaveLength(30)
-    expect(card.battle.ground!.every((e) => e.team === 'red')).toBe(true)
-  })
-
-  /**
-   * 【玩家約 37 秒到場】跑道頭那一批開場就滑上跑道，到場前全部離地。
-   * 【排隊不疊在一起】四架滑到同一個起飛點，後到的要等前一架滾行出去；
-   * 抵達間隔比滾行間隔短的話，兩架會停在同一點
-   */
-  it('跑道頭那 4 架第 0 秒出發，第 36 秒前全部升空，途中任兩架不疊在一起', () => {
-    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
-    const hold = b.world.groundTargets.filter((t) =>
-      t.unit.id === 'parkedP51' && HOLD_ROWS.some((h) => h.x === t.position.x && h.z === t.position.z))
-    expect(hold).toHaveLength(4)
-    let closest = Infinity
-    while (b.world.time < 36) {
-      stepBattle(b, 1 / 240)
-      const onGround = hold.filter((t) => !t.departed)
-      for (let i = 0; i < onGround.length; i++) {
-        for (let j = i + 1; j < onGround.length; j++) {
-          closest = Math.min(closest, onGround[i]!.position.distanceTo(onGround[j]!.position))
-        }
-      }
-    }
-    for (const t of hold) expect(t.departed, `${t.position.x}`).toBe(true)
-    expect(closest).toBeGreaterThanOrEqual(15)
-  })
-
-  it('敵機全部從地上來：每一批是一個小隊從停機墊或跑道頭滑出去，席位加起來等於停機線', () => {
-    const takeoff = card.battle.waves!
-    expect(takeoff).toHaveLength(4)
-    for (const w of takeoff) {
-      expect(w.count).toBe(4)
-      expect(w.side).toBe('theirs')
-      expect(w.takeoff?.route).toBeDefined()
-      expect(w.departs).toBe('parkedP51')
-    }
-    // 【停機線上的每一架最後都起得來】起飛的席位少於停放的架數，剩下的永遠在地上
-    const parked = card.battle.ground!.filter((e) => e.unit === 'parkedP51').length
-    expect(takeoff.reduce((s, w) => s + w.count, 0)).toBe(parked)
-  })
-
-  it('照這張卡建得起來、開場每一架離地 100 m 以上、跑一秒不炸', () => {
-    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
-    for (const c of b.world.combatants) expect(c.aircraft.state.position.y, `${c.index}`).toBeGreaterThan(100)
-    for (let i = 0; i < 240; i++) stepBattle(b, 1 / 240)
-    expect(b.mission.outcome).toBe('fighting')
-    expect(b.world.groundTargets.filter((t) => t.guns.length > 0)).toHaveLength(12)
-  })
-})
-
 describe('missionConfigFrom', () => {
   it('只吃可玩的卡，不再吃陣營', () => {
     for (const m of ALL.filter(ready)) {
@@ -390,273 +123,154 @@ describe('missionConfigFrom', () => {
     }
   })
 
-  it('雙方的機種照卡片，不是照陣營推出來的', () => {
-    // 【這是整輪的本體】日 M2 玩家開 Ki-84 —— 那是「第三架」，
-    // 舊的 `specsFor(f)[0]` 永遠選不到它
-    const m3 = ALL.filter(ready).find((m) => m.id === 'japan-m2')!
-    const blue = missionConfigFrom(m3).units.find((u) => u.team === 'blue')!
-    expect(blue.members[0]!.id).toBe('ki84')
-    const m1 = ALL.filter(ready).find((m) => m.id === 'japan-m1')!
-    const g4m = missionConfigFrom(m1).units.filter((u) => u.members[0]!.id === 'g4m')
-    expect(g4m.length).toBeGreaterThan(0)
-  })
-})
-
-describe('日 M1 瓜達康納爾上空', () => {
-  const card = MISSIONS.japan.find((m) => m.id === 'japan-m1') as ReadyMissionCard
-
-  it('魚雷機實際出生為前後兩排，各四架且橫向交錯，201 m 進場，保留獨立攻擊職務', () => {
-    const cfg = missionConfigFrom(card)
-    const b = createBattle({ update() {} }, cfg, 1)
-    const planes = b.world.combatants.filter((c) => c.aircraft.spec.id === 'g4m')
-    const front = planes.slice(0, 4).map((c) => c.aircraft.state.position)
-    const rear = planes.slice(4).map((c) => c.aircraft.state.position)
-    expect(front).toHaveLength(4)
-    expect(rear).toHaveLength(4)
-    expect(new Set(front.map((p) => p.z)).size).toBe(1)
-    expect(new Set(rear.map((p) => p.z)).size).toBe(1)
-    expect(rear[0]!.z - front[0]!.z).toBe(140)
-    expect(rear[0]!.x - front[0]!.x).toBe(100)
-    for (const p of [...front, ...rear]) expect(p.y).toBe(201)
-    const units = cfg.units.filter((u) => u.members[0]!.id === 'g4m')
-    expect(units).toHaveLength(8)
-    expect(units.every((u) => u.duty === 'combat' && u.members.length === 1)).toBe(true)
-  })
-
-  it('A6M5 ×12 掩護 G4M ×8，對上 F4F-4 ×8；群島；擊沉三艘', () => {
-    const b = card.battle
-    expect(b.blueSpec.id).toBe('a6m5')
-    expect(b.blueCount).toBe(12)
-    expect(b.convoySpec?.id).toBe('g4m')
-    expect(b.convoyCount).toBe(8)
-    expect(b.convoyDuty).toBe('strike')
-    // 【零戰加陸攻都在藍隊】`blueCount` 不含攻擊隊，兩者相加才是藍隊的席位
-    expect(b.blueCount + b.convoyCount).toBeLessThanOrEqual(MAX_SIDE)
-    expect(b.redSpec.id).toBe('f4f4')
-    expect(b.redCount).toBe(8)
-    expect(b.terrain).toBe('archipelago')
-    expect(b.sinkCount).toBe(3)
-    // 【不覆寫掛載】陸攻保留預設的魚雷；覆寫的話藍隊全體（含零戰）一起換
-    expect(b.blueLoadout).toBeUndefined()
-  })
-
-  it('船團全是敵艦、沒有要害艦 —— 否則規則會被判成守住艦隊', () => {
-    const ships = card.battle.fleet!.ships
-    for (const s of ships) {
-      expect(s.team).toBe('red')
-      expect(s.vital).toBeUndefined()
+  /**
+   * 【100 m 是絕對高度，不是離地高】地形高度要建整張高度場才量得到。開場貼地或
+   * 埋進地裡的那一架第一步就墜毀，而且不報錯。只看活著的：預留給增援的席位
+   * 開場不在場上，進場時才擺位
+   */
+  it('每一張卡開場在天上的每一架都高於 100 m', () => {
+    for (const m of ALL.filter(ready)) {
+      const b = createBattle(IDLE, missionConfigFrom(m), 1)
+      const flying = b.world.combatants.filter((c) => c.alive)
+      expect(flying.length, m.id).toBeGreaterThan(0)
+      for (const c of flying) {
+        expect(c.aircraft.state.position.y, `${m.id} ${c.aircraft.spec.id} #${c.index}`).toBeGreaterThan(100)
+      }
     }
-    expect(missionConfigFrom(card).rules).toEqual({ kind: 'sink', count: 3, escorts: true })
   })
 
   /**
-   * 【零戰全滅就是任務失敗】這一關的目標是掩護。走真正的 `stepBattle`，
-   * 守的是 `setup.ts` 真的把「藍隊存活的戰鬥機」填進判定。
+   * 【護衛編制要有護衛】`escorts` 讓「藍隊戰鬥機全滅」判敗。藍隊一架戰鬥機都沒有的
+   * 卡帶著它，開場第一步就判敗。戰鬥機的判準與 `stepMissionProgress` 數
+   * `aliveBlueFighters` 的同一條：角色不是轟炸機
    */
-  it('零戰全滅、陸攻還活著 —— 判敗', () => {
-    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
-    for (const c of b.world.combatants) {
-      if (c.team === 'blue' && c.aircraft.spec.role === 'fighter') c.alive = false
+  it('規則帶護衛編制的卡，開場藍隊一定有戰鬥機', () => {
+    for (const m of ALL.filter(ready)) {
+      const cfg = missionConfigFrom(m)
+      if (cfg.rules.kind !== 'sink' || cfg.rules.escorts !== true) continue
+      const fighters = cfg.units.some((u) => u.team === 'blue' && u.members.some((s) => s.role !== 'bomber'))
+      expect(fighters, m.id).toBe(true)
     }
-    stepBattle(b, 1 / 240)
-    const g4mAlive = b.world.combatants.filter((c) => c.alive && c.aircraft.spec.id === 'g4m')
-    expect(g4mAlive).toHaveLength(8)
-    expect(b.mission.outcome).toBe('defeat')
   })
+})
 
-  it('還剩一架零戰就不判敗', () => {
-    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
-    const fighters = b.world.combatants.filter(
-      (c) => c.team === 'blue' && c.aircraft.spec.role === 'fighter')
-    for (const c of fighters.slice(1)) c.alive = false
-    stepBattle(b, 1 / 240)
-    expect(b.mission.outcome).toBe('fighting')
-  })
-
-  it('F4F 整隊重生，陸攻不重生', () => {
-    const r = card.battle.recycle!
-    expect(r.side).toBe('theirs')
-    expect(r.role).toBe('fighter')
-    expect(r.batches).toBe(3)
-  })
-
-  it('照這張卡建得起來、跑一秒不炸；陸攻是 combat 而且在藍隊', () => {
-    // 【走真正的路】strike 的陸攻若被排成 transit，createBattle 會拋「沒有終點可飛」
+/**
+ * # 卡片 → 編組與規則的翻譯
+ *
+ * 每一條只用 `cardWith` 改合成卡的一兩格，期望值從卡片的欄位推。
+ */
+describe('卡片 → 編組與規則（合成卡）', () => {
+  /**
+   * 【我方攔截】被攔的轟炸機是紅隊、職務 transit（有終點可飛）；規則的 owner 是紅隊，
+   * 抵達就判敗。`interceptConvoy: 'mine'` 翻成 `tuning.interceptConvoy: 'blue'`
+   * —— 藍隊的 AI 以那一隊轟炸機為首要目標，翻錯邊的話我方戰鬥機去纏護航機
+   */
+  it('攔截：轟炸機排進紅隊、職務 transit，規則是紅方的 convoy，攔截方是藍隊', () => {
+    const card = cardWith(INTERCEPT_CARD, { interceptConvoy: 'mine' })
     const cfg = missionConfigFrom(card)
-    const g4m = cfg.units.filter((u) => u.members[0]!.id === 'g4m')
-    expect(g4m).toHaveLength(8)
-    for (const u of g4m) {
+    const bombers = cfg.units.filter((u) => u.members[0] === card.battle.convoySpec)
+    expect(bombers.reduce((n, u) => n + u.members.length, 0)).toBe(card.battle.convoyCount)
+    for (const u of bombers) {
+      expect(u.team).toBe('red')
+      expect(u.duty).toBe('transit')
+    }
+    expect(cfg.rules).toMatchObject({ kind: 'convoy', owner: 'red' })
+    expect(cfg.tuning.interceptConvoy).toBe('blue')
+    expect((cfg.beats ?? []).some((x) => x.kind === 'conveyor')).toBe(false)
+    createBattle(IDLE, cfg, 1)
+  })
+
+  /** 【整隊換，不在小隊裡混】玩家那一隊照 `blueSpec`，其餘藍隊小隊整隊是 `blueOthers` */
+  it('blueOthers：玩家那一隊照 blueSpec，其餘藍隊小隊整隊換機種，總架數不變', () => {
+    const card = cardWith(KILL_CARD, { blueOthers: A6M5 })
+    const cfg = missionConfigFrom(card)
+    const blue = cfg.units.filter((f) => f.team === 'blue')
+    const player = blue.filter((f) => f.player === true)
+    expect(player).toHaveLength(1)
+    for (const s of player[0]!.members) expect(s).toBe(card.battle.blueSpec)
+    const others = blue.filter((f) => f.player !== true)
+    expect(others.length).toBeGreaterThan(0)
+    for (const f of others) for (const s of f.members) expect(s).toBe(A6M5)
+    expect(blue.reduce((n, f) => n + f.members.length, 0)).toBe(card.battle.blueCount)
+    expect(createBattle(IDLE, cfg, 1).player.aircraft.spec.id).toBe(card.battle.blueSpec.id)
+  })
+
+  /**
+   * 【攻擊隊不是被護送者】strike 的轟炸機排進藍隊、職務 combat；排成 transit 的話
+   * `createBattle` 拋「沒有終點可飛」。規則是帶護衛編制的擊沉，同一張卡拿掉
+   * `convoyDuty` 就沒有護衛編制
+   */
+  it('攻擊隊：轟炸機在藍隊、職務 combat，規則帶護衛編制，不建被護送者', () => {
+    const card = cardWith(KILL_CARD, { convoySpec: G4M, convoyCount: 2, convoyDuty: 'strike', sinkCount: 1 })
+    const cfg = missionConfigFrom(card)
+    const strike = cfg.units.filter((u) => u.members[0] === G4M)
+    expect(strike.reduce((n, u) => n + u.members.length, 0)).toBe(card.battle.convoyCount)
+    for (const u of strike) {
       expect(u.team).toBe('blue')
       expect(u.duty).toBe('combat')
     }
-    const b = createBattle({ update() {} }, cfg, 1)
-    for (let i = 0; i < 240; i++) stepBattle(b, 1 / 240)
+    expect(cfg.rules).toStrictEqual({ kind: 'sink', count: 1, escorts: true })
+    expect(missionConfigFrom(cardWith(KILL_CARD, { sinkCount: 1 })).rules).toStrictEqual({ kind: 'sink', count: 1 })
+    expect(createBattle(IDLE, cfg, 1).convoy).toBeNull()
+  })
+
+  /**
+   * 【護衛全滅就判敗，要真的接上】規則本身在 `mission.test.ts`；這一條守的是
+   * `stepMissionProgress` 依角色數出藍隊存活的戰鬥機填進判定。只走那一支函數一步
+   */
+  it('護衛編制：藍隊戰鬥機還剩一架不判敗，全滅就判敗（攻擊隊還活著）', () => {
+    const card = cardWith(KILL_CARD, { convoySpec: G4M, convoyCount: 2, convoyDuty: 'strike', sinkCount: 1 })
+    const b = createBattle(IDLE, missionConfigFrom(card), 1)
+    const fighters = b.blue.filter((c) => c.aircraft.spec.role !== 'bomber')
+    expect(fighters.length).toBeGreaterThan(1)
+    for (const c of fighters.slice(1)) c.alive = false
+    stepMissionProgress(b, DT)
     expect(b.mission.outcome).toBe('fighting')
-    expect(b.convoy).toBeNull()
+    fighters[0]!.alive = false
+    stepMissionProgress(b, DT)
+    expect(b.blue.some((c) => c.alive && c.aircraft.spec.role === 'bomber')).toBe(true)
+    expect(b.mission.outcome).toBe('defeat')
   })
 })
 
-describe('日 M3 倫內爾島不受護衛條件影響', () => {
-  const card = MISSIONS.japan.find((m) => m.id === 'japan-m3') as ReadyMissionCard
+/**
+ * # 炸毀池的計數
+ *
+ * 停機線上的飛機會起飛：地上那一台退場，那一席上天。兩者各自的 `alive` 都會變，
+ * 數錯的症狀是起飛那一刻就算成摧毀，或打下來了也不算。
+ */
+describe('炸毀池的計數', () => {
+  const RULES: MissionRules = { kind: 'destroy', count: 2, unit: 'parkedP51' }
+  const target = (unit: 'parkedP51' | 'fuelDump' | 'usFlakTrack', team: 'red' | 'blue' = 'red') =>
+    createGroundTarget(0, unit, team, 0, 0, 0)
 
-  it('十一架魚雷機分成 4、4、3 三排，維持低空且不重疊', () => {
-    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
-    const planes = b.world.combatants.filter((c) => c.team === 'blue')
-    expect(planes).toHaveLength(11)
-    const positions = planes.map((c) => c.aircraft.state.position)
-    const depths = [...new Set(positions.map((p) => p.z))].sort((a, z) => a - z)
-    expect(depths).toHaveLength(3)
-    expect(depths.map((z) => positions.filter((p) => p.z === z).length)).toEqual([4, 4, 3])
-    expect(depths[1]! - depths[0]!).toBe(220)
-    expect(depths[2]! - depths[1]!).toBe(220)
-    expect(positions[4]!.x - positions[0]!.x).toBe(200)
-    expect(positions[8]!.x - positions[4]!.x).toBe(200)
-    for (const p of positions) {
-      expect(p.y).toBeGreaterThanOrEqual(200)
-      expect(p.y).toBeLessThanOrEqual(300)
-    }
-    for (let i = 0; i < positions.length; i++) {
-      for (const q of positions.slice(i + 1)) expect(positions[i]!.distanceTo(q)).toBeGreaterThan(200)
-    }
-    expect(b.player.aircraft.spec.id).toBe('g4m')
-    expect(b.player.aircraft.state.position.z).toBe(depths[1])
+  it('規則指定單位時只有那一種敵方單位進池：油桶、防空車、我方的同型都不算', () => {
+    expect(inDestroyPool(target('parkedP51'), RULES)).toBe(true)
+    expect(inDestroyPool(target('fuelDump'), RULES)).toBe(false)
+    expect(inDestroyPool(target('usFlakTrack'), RULES)).toBe(false)
+    expect(inDestroyPool(target('parkedP51', 'blue'), RULES)).toBe(false)
+    // 對照：不指定單位時敵方的每一座都進池
+    expect(inDestroyPool(target('fuelDump'), { kind: 'destroy', count: 2 })).toBe(true)
   })
 
-  it('規則沒有護衛編制', () => {
-    expect(missionConfigFrom(card).rules).toEqual({ kind: 'sink', count: 4 })
-  })
-
-  /** 【藍隊一架戰鬥機都沒有】護衛條件若無條件套用，這一關開場第一步就判敗 */
-  it('藍隊全是陸攻，跑一秒仍在打', () => {
-    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
-    expect(b.world.combatants.some((c) => c.team === 'blue' && c.aircraft.spec.role === 'fighter'))
-      .toBe(false)
-    for (let i = 0; i < 240; i++) stepBattle(b, 1 / 240)
-    expect(b.mission.outcome).toBe('fighting')
-  })
-})
-
-describe('日 M2 雷伊泰前線', () => {
-  const card = MISSIONS.japan.find((m) => m.id === 'japan-m2') as ReadyMissionCard
-  const b = card.battle
-
-  it('Ki-84 掛彈、敵方是 F6F、地形 leyte、規則是截斷', () => {
-    expect(b.blueSpec.id).toBe('ki84')
-    expect(b.redSpec.id).toBe('f6f5')
-    expect(b.terrain).toBe('leyte')
-    expect(b.loadouts?.['ki84']?.kind).toBe('bomb')
-    expect(missionConfigFrom(card).rules.kind).toBe('interdict')
-  })
-
-  it('車隊走的就是 LEYTE_ROAD', () => {
-    expect(b.vehicleConvoy?.route).toBe(LEYTE_ROAD)
-  })
-
-  it('撤離點從玩家當下的位置往 +Z（Ki-84 來的方向）3 km、高度等於任務高度', () => {
-    const w = missionConfigFrom(card).beats?.find((x) => x.kind === 'withdraw')
-    expect(w?.kind).toBe('withdraw')
-    if (w?.kind !== 'withdraw') return
-    expect(w.fromPlayer).toBe(true)
-    expect([w.point.x, w.point.y, w.point.z]).toEqual([0, b.altitude, 3000])
-  })
-
-  it('炸毀 20 輛卡車過關', () => {
-    expect(b.interdict?.count).toBe(20)
-  })
-
-  it('玩家從東南方開場、機首朝西北', () => {
-    const battle = createBattle({ update() {} }, missionConfigFrom(card), 1)
-    const s = battle.player.aircraft.state
-    const fwd = new Vector3(0, 0, -1).applyQuaternion(s.orientation)
-    // 東南 = +X、+Z；西北 = −X、−Z
-    expect(s.position.x).toBeGreaterThan(4000)
-    expect(s.position.z).toBeGreaterThan(1500)
-    expect(fwd.x).toBeCloseTo(-Math.SQRT1_2, 6)
-    expect(fwd.z).toBeCloseTo(-Math.SQRT1_2, 6)
-    // 四機小隊離玩家最近的那一架：左前 45°、水平 300 m，開場比玩家高 450 m
-    const right = new Vector3(1, 0, 0).applyQuaternion(s.orientation)
-    const mine = battle.flights.flights[battle.flights.flightOf[battle.player.index]!]!.roster
-    const near = battle.world.combatants
-      .filter((c) => c.team === 'blue' && !mine.includes(c.index))
-      .map((c) => {
-        const d = c.aircraft.state.position.clone().sub(s.position)
-        return { f: d.dot(fwd), r: d.dot(right), y: d.y }
-      })
-      .sort((a, b) => Math.hypot(a.f, a.r) - Math.hypot(b.f, b.r))[0]!
-    expect(Math.hypot(near.f, near.r)).toBeCloseTo(300, -1)
-    expect(near.f).toBeGreaterThan(0)
-    expect(near.r).toBeCloseTo(-near.f, -1)
-    expect(near.y).toBeCloseTo(450, 0)
-  })
-
-  it('F6F 四波的觸發、預警、位置與高度', () => {
-    expect(b.waves).toMatchObject([
-      { when: { kind: 'destroyed', atLeast: 1, unit: 'usTruck', byLatest: 90 }, warnLead: 6, count: 2, starboard: Math.PI, altitude: 2500 },
-      { when: { kind: 'clock', at: 150 }, warnLead: 6, count: 2, altitude: 2000 },
-      { when: { kind: 'clock', at: 240 }, warnLead: 6, count: 2, starboard: Math.PI, altitude: 2500 },
-      { when: { kind: 'destroyed', atLeast: 12, unit: 'usTruck' }, warnLead: 0, count: 2, starboard: Math.PI + 0.4, along: 0.04, altitude: 3000 },
-    ])
-    for (const w of b.waves!) expect(w.spec.id).toBe('f6f5')
-  })
-
-  it('三處路邊據點：每一處有停著的卡車與 M16', () => {
-    const ground = b.ground ?? []
-    for (const j of LEYTE_JUNCTIONS) {
-      expect(j.trucks.length, j.id).toBeGreaterThan(0)
-      expect(j.flak.length, j.id).toBeGreaterThan(0)
-      for (const v of [...j.trucks, ...j.flak]) {
-        expect(ground.some((g) => g.unit === v.unit && g.team === 'red' && g.x === v.x && g.z === v.z
-          && g.heading === v.heading && g.motion === undefined), `${j.id} ${v.unit}`).toBe(true)
-      }
-    }
-    expect(LEYTE_JUNCTIONS.map((j) => j.id)).toEqual(['AB', 'B', 'C'])
-  })
-
-  it('開場就有 F6F 在天上', () => {
-    const cfg = missionConfigFrom(card)
-    expect(cfg.units.some((u) => u.team === 'red' && u.members.length > 0)).toBe(true)
-  })
-
-  it('雪曼帶一挺機槍（mg 那一層）、防空車是輕砲、卡車不還手', () => {
-    const battle = createBattle({ update() {} }, missionConfigFrom(card), 1)
-    const moving = battle.world.groundTargets.filter((t) => t.motion !== null)
-    const seen = new Set<string>()
-    for (const t of moving) {
-      const tier = t.guns[0]?.zone.tier
-      seen.add(t.unit.id)
-      if (t.unit.id === 'usTank') expect(tier, t.unit.id).toBe('mg')
-      if (t.unit.id === 'usFlakTrack') expect(tier).toBe('autocannon')
-      if (t.unit.id === 'usTruck') expect(t.guns.length, t.unit.id).toBe(0)
-    }
-    // 【三種都要出現】代號改了而這裡沒跟上的話，上面兩條一次都不會跑
-    expect([...seen].sort()).toEqual(['usFlakTrack', 'usTank', 'usTruck'])
-  })
-
-  it('車隊是美軍的車：雪曼、CCKW、M16', () => {
-    const units = new Set(b.vehicleConvoy!.batches.flatMap((x) => x.units))
-    expect([...units].sort()).toEqual(['usFlakTrack', 'usTank', 'usTruck'])
-  })
-
-  it('天氣是雷雨', () => {
-    expect(b.timeOfDay).toBe('storm')
-  })
-
-  it('灘頭與前線有固定防空砲位（不動）', () => {
-    const fixed = (missionConfigFrom(card).ground ?? [])
-      .filter((g) => g.motion === undefined && g.unit !== 'usTruck')
-    expect(fixed.length).toBeGreaterThan(0)
-    // 美軍的灘頭：重高砲是 90 mm，不是德軍的 Flak 18
-    for (const g of fixed) expect(['usFlakTrack', 'usFlakHeavy']).toContain(g.unit)
-    expect(fixed.some((g) => g.unit === 'usFlakHeavy')).toBe(true)
+  it('每一架只算一次、不管死在哪裡：停著被打掉算；起飛之後看那一席還活不活著', () => {
+    const t = target('parkedP51')
+    const seat = { alive: true } as unknown as Combatant
+    const cs = [seat]
+    expect(destroyedInPool(t, cs)).toBe(false)
+    t.alive = false
+    expect(destroyedInPool(t, cs)).toBe(true)
+    // 起飛離場：地上那一台退場（alive = false），那一席還在天上 —— 不算
+    t.departed = true
+    t.departedAs = 0
+    expect(destroyedInPool(t, cs)).toBe(false)
+    seat.alive = false
+    expect(destroyedInPool(t, cs)).toBe(true)
   })
 })
 
 describe('有 interdict 的卡一定打得贏', () => {
   const cards = ALL.filter(ready).filter((m) => m.battle.interdict !== undefined)
-
-  it('至少有一張（日 M2）', () => {
-    expect(cards.length).toBeGreaterThan(0)
-  })
 
   for (const card of cards) {
     const b = card.battle
@@ -668,26 +282,6 @@ describe('有 interdict 的卡一定打得贏', () => {
       if (w.when.kind !== 'destroyed') return
       expect(w.when.atLeast).toBe(rule.count)
       expect(w.when.unit).toBe(rule.unit)
-    })
-
-    /**
-     * 走真正的 `stepBattle`：摧毀數由 `setup.ts` 數，停著的與車隊的卡車一起算。
-     * 差一輛還是截斷；炸到 count 輛換成撤離、不判勝；飛進撤離圈才判勝
-     */
-    it(`${card.id}：炸到 count 輛換成撤離，飛進撤離圈才判勝`, () => {
-      const battle = createBattle({ update() {} }, missionConfigFrom(card), 1)
-      const trucks = battle.world.groundTargets.filter((t) => t.unit.id === rule.unit && t.team === 'red')
-      for (const t of trucks.slice(0, rule.count - 1)) t.alive = false
-      stepBattle(battle, 1 / 240)
-      expect(battle.rules.kind).toBe('interdict')
-      trucks[rule.count - 1]!.alive = false
-      stepBattle(battle, 1 / 240)
-      expect(battle.rules.kind).toBe('evacuate')
-      expect(battle.mission.outcome).toBe('fighting')
-      if (battle.rules.kind !== 'evacuate') return
-      battle.player.aircraft.state.position.copy(battle.rules.point)
-      stepBattle(battle, 1 / 240)
-      expect(battle.mission.outcome).toBe('victory')
     })
 
     /** 總數連停著不動的那幾輛一起算（日 M2 灘頭的卡車停放場）：它們一樣算進摧毀數 */
@@ -713,45 +307,64 @@ describe('有 interdict 的卡一定打得贏', () => {
       expect(battle.world.groundTargets.filter((t) => t.motion !== null).length).toBe(n)
     })
   }
+})
 
-  it('同一步炸夠又有卡車抵達：撤離先生效、不判敗（stepBeats 排在勝負判定之前）', () => {
-    const card = cards[0]!
-    const { waves: _w, ...rest } = card.battle
-    const one: ReadyMissionCard = {
-      ...card,
-      battle: {
-        ...rest,
-        interdict: { count: 1, leak: 1, unit: 'usTruck' },
-        withdraw: { ...card.battle.withdraw!, when: { kind: 'destroyed', atLeast: 1, unit: 'usTruck' } },
-      },
-    }
-    const battle = createBattle({ update() {} }, missionConfigFrom(one), 1)
-    const trucks = battle.world.groundTargets.filter((t) => t.unit.id === 'usTruck')
-    trucks[0]!.alive = false
-    trucks[1]!.alive = false
-    trucks[1]!.arrived = true
-    stepBattle(battle, 1 / 240)
-    // 【兩個都要看】返航會重設 `mission`；判敗若先發生，定案的是 `outcome` 那一份
-    expect(battle.outcome).toBe('fighting')
-    expect(battle.mission.outcome).toBe('fighting')
-    expect(battle.rules.kind).toBe('evacuate')
+/**
+ * # 截斷 → 撤離（合成卡）
+ *
+ * 截斷規則只判敗；炸夠了由返航節拍換成撤離，飛進撤離圈才判勝。返航的 `destroyed`
+ * 條件數的是戰場上那一種單位的摧毀數（`stepBeats` 自己數，不借規則的池）。
+ */
+describe('截斷 → 撤離（合成卡）', () => {
+  const TRUCKS = [0, 1, 2].map((i) => ({
+    unit: 'truck' as const, team: 'red' as const, x: i * 60, z: -3000, heading: 0,
+  }))
+  const WITHDRAW: MissionWithdraw = {
+    when: { kind: 'destroyed', atLeast: 1, unit: 'truck' }, messageKey: 'mission.type.withdraw',
+    distance: -3000, from: 'player', radius: 600, seconds: 120,
+  }
+  const ALTITUDE = 1234
+  const card = (): ReadyMissionCard => cardWith(KILL_CARD, {
+    ground: TRUCKS, interdict: { count: 1, leak: 1, unit: 'truck' }, withdraw: WITHDRAW, altitude: ALTITUDE,
   })
 
-  /** 撤離點跟著玩家：在哪裡炸完，就從那裡往 +Z 量 3 km */
-  it('日 M2：撤離點是炸完那一刻玩家的位置往 +Z 3 km', () => {
-    const card = cards.find((c) => c.id === 'japan-m2')!
-    const rule = card.battle.interdict!
-    const battle = createBattle({ update() {} }, missionConfigFrom(card), 1)
-    const trucks = battle.world.groundTargets.filter((t) => t.unit.id === rule.unit && t.team === 'red')
-    for (const t of trucks.slice(0, rule.count)) t.alive = false
-    battle.player.aircraft.state.position.set(2500, 300, -3000)
-    stepBattle(battle, 1 / 240)
-    expect(battle.rules.kind).toBe('evacuate')
-    if (battle.rules.kind !== 'evacuate') return
-    const p = battle.rules.point
-    expect(Math.abs(p.x - 2500)).toBeLessThan(2)
-    expect(Math.abs(p.z - (-3000 + 3000))).toBeLessThan(2)
-    expect(p.y).toBe(card.battle.altitude)
+  /**
+   * 【撤離點的高度跟著卡片】撤離的判定是三維距離。讀預設任務高度的話，低空關的
+   * 圓環浮在玩家頭上幾千公尺、飛不進去
+   */
+  it('返航節拍：從玩家量、縱深是 −distance、高度是卡片的任務高度', () => {
+    const w = missionConfigFrom(card()).beats?.find((x) => x.kind === 'withdraw')
+    if (w?.kind !== 'withdraw') throw new Error('應有返航節拍')
+    expect(w.fromPlayer).toBe(true)
+    expect([w.point.x, w.point.y, w.point.z]).toEqual([0, ALTITUDE, -WITHDRAW.distance])
+  })
+
+  it('炸到 count 輛換成撤離、不判勝；飛進撤離圈才判勝', () => {
+    const b = createBattle(IDLE, missionConfigFrom(card()), 1)
+    stepBattle(b, DT)
+    expect(b.rules.kind).toBe('interdict')
+    b.world.groundTargets[0]!.alive = false
+    stepBattle(b, DT)
+    expect(b.rules.kind).toBe('evacuate')
+    expect(b.mission.outcome).toBe('fighting')
+    if (b.rules.kind !== 'evacuate') return
+    b.player.aircraft.state.position.copy(b.rules.point)
+    stepBattle(b, DT)
+    expect(b.mission.outcome).toBe('victory')
+  })
+
+  /** 【節拍排在勝負判定之前】同一步炸夠又有一輛抵達：先換成撤離，抵達就不再判敗 */
+  it('同一步炸夠又有卡車抵達：撤離先生效、不判敗', () => {
+    const b = createBattle(IDLE, missionConfigFrom(card()), 1)
+    const [hit, leaked] = b.world.groundTargets
+    hit!.alive = false
+    leaked!.alive = false
+    leaked!.arrived = true
+    stepBattle(b, DT)
+    // 【兩個都要看】返航會重設 `mission`；判敗若先發生，定案的是 `outcome` 那一份
+    expect(b.outcome).toBe('fighting')
+    expect(b.mission.outcome).toBe('fighting')
+    expect(b.rules.kind).toBe('evacuate')
   })
 })
 
@@ -918,35 +531,6 @@ describe('炸毀任務', () => {
   })
 })
 
-describe('盟 M2 的卡片', () => {
-  const m2 = ALL.find((m) => m.id === 'allies-m2') as ReadyMissionCard
-
-  /** 【釘住精確的資料】通用的護欄只擋「有廠區才要求炸毀」；這裡釘的是這一關本身 */
-  it('十二座構件、四十八座砲位；炸毀六座；洛伊納、十一月正午、1,500 m', () => {
-    const b = m2.battle
-    const units = b.ground!.map((e) => e.unit)
-    expect(units.filter((u) => u === 'flakHeavy')).toHaveLength(48)
-    const plant = units.filter((u) => u !== 'flakHeavy')
-    expect(plant).toHaveLength(12)
-    expect(b.ground!.every((e) => e.team === 'red')).toBe(true)
-    expect(b.destroyCount).toBe(6)
-    expect(b.terrain).toBe('leuna')
-    expect(b.timeOfDay).toBe('noon')
-    expect(b.blueSpec.id).toBe('b17g')
-    expect(b.blueCount).toBe(12)
-    // 【高度要釘住】它是這一關唯一覆寫預設的飛行參數，掉回 4,000 不會報錯
-    expect(b.altitude).toBe(1500)
-  })
-
-  it('第二批恰好四架 Bf 109，從後方（starboard = π）', () => {
-    const waves = m2.battle.waves!
-    expect(waves).toHaveLength(1)
-    expect(waves[0]!.count).toBe(4)
-    expect(waves[0]!.spec.id).toBe('bf109k4')
-    expect(waves[0]!.starboard).toBe(Math.PI)
-  })
-})
-
 /** 【轟炸機不編隊】每一關的開場編組與增援波次，轟炸機都是一架一個小隊 */
 describe('任務的轟炸機一架一個小隊', () => {
   it('開場與波次都沒有兩架以上的轟炸機小隊', () => {
@@ -992,17 +576,6 @@ describe('炸彈池裝得下每一關同時掛著的炸彈', () => {
       }
       expect(bombs, card.id).toBeLessThanOrEqual(BOMBS_CAPACITY)
     }
-  })
-
-  it('盟 M2 的 B-17 一輪齊投（120 顆）裝得下', () => {
-    const m2 = MISSIONS.allies.find((m) => m.id === 'allies-m2') as ReadyMissionCard
-    const cfg = missionConfigFrom(m2)
-    let bombs = 0
-    for (const f of cfg.units) {
-      for (const m of f.members) if (m.id === 'b17g') bombs += loadoutOf('b17g')!.count
-    }
-    expect(bombs).toBe(120)
-    expect(BOMBS_CAPACITY).toBeGreaterThanOrEqual(bombs)
   })
 })
 

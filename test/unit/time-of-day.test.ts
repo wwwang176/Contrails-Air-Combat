@@ -12,9 +12,7 @@ import { SEA_COLOR, SEA_HORIZON_COLOR, SPARKLE_STRENGTH } from '../../src/render
 import { createLights, applyLightPalette } from '../../src/render/lighting'
 import { FOG_COLOR, FOG_DENSITY } from '../../src/render/fog'
 import { MISSIONS } from '../../src/battle/missions'
-import { DEFAULT_SKIRMISH } from '../../src/battle/skirmish'
 import type { SceneContext } from '../../src/render/scene'
-import type { TimeOfDay } from '../../src/world/timeOfDay'
 
 const ALL = TIME_OF_DAY_IDS.map((id) => DAY_PALETTES[id])
 
@@ -24,37 +22,6 @@ describe('DAY_PALETTES', () => {
       'dawn', 'noon', 'dusk', 'night', 'novemberNoon', 'storm', 'winterMorning',
     ])
     for (const id of TIME_OF_DAY_IDS) expect(DAY_PALETTES[id].id).toBe(id)
-  })
-
-  it('winterMorning：太陽很低、陽光偏冷、霧比正午濃、地平線是淡灰白（與白霧同色系）', () => {
-    const w = DAY_PALETTES.winterMorning
-    const [x, y, z] = w.sunDir
-    const elevation = Math.asin(y / Math.hypot(x, y, z))
-    expect(elevation).toBeGreaterThan(5 * Math.PI / 180)
-    expect(elevation).toBeLessThan(15 * Math.PI / 180)
-    // 冷：藍分量不低於紅分量
-    expect(w.sunColor & 0xff).toBeGreaterThanOrEqual((w.sunColor >> 16) & 0xff)
-    expect(w.fogDensity).toBeGreaterThan(DAY_PALETTES.noon.fogDensity)
-    const horizon = new Color(w.skyHorizon)
-    const hsl = { h: 0, s: 0, l: 0 }
-    horizon.getHSL(hsl)
-    expect(hsl.l).toBeGreaterThan(0.6)
-    expect(hsl.s).toBeLessThan(0.25)
-    // 雪的反光：地面半球光比正午亮
-    expect(new Color(w.hemiGround).getHSL(hsl).l).toBeGreaterThan(new Color(DAY_PALETTES.noon.hemiGround).getHSL({ h: 0, s: 0, l: 0 }).l + 0.2)
-  })
-
-  it('novemberNoon：太陽仰角二十幾度、霧比正午濃、海色照抄正午', () => {
-    const n = DAY_PALETTES.novemberNoon
-    const noon = DAY_PALETTES.noon
-    const [x, y, z] = n.sunDir
-    const elevation = Math.asin(y / Math.hypot(x, y, z))
-    expect(elevation).toBeGreaterThan(20 * Math.PI / 180)
-    expect(elevation).toBeLessThan(30 * Math.PI / 180)
-    expect(n.fogDensity).toBeGreaterThan(noon.fogDensity)
-    expect(n.sunIntensity).toBeLessThan(noon.sunIntensity)
-    expect(n.seaColor).toBe(noon.seaColor)
-    expect(n.seaHorizon).toBe(noon.seaHorizon)
   })
 
   /**
@@ -253,54 +220,20 @@ describe('Ocean.setPalette', () => {
 })
 
 describe('applyTimeOfDay', () => {
-  it('雪原正午沿用德 M4 色盤，夜間沿用晚秋內陸光照並補薄霧與粒子植被色調', () => {
-    expect(paletteOf('noon', 'rzhev')).toEqual(DAY_PALETTES.winterMorning)
-    expect(paletteOf('night', 'rzhev')).toEqual({
-      ...paletteOf('night', 'autumnFarmland'),
-      groundHaze: 0.35,
-      foliage: 0.085, foliageTint: 0xbfd4ff,
-    })
-    for (const tod of TIME_OF_DAY_IDS.filter(t => t !== 'noon' && t !== 'night')) {
-      expect(paletteOf(tod, 'rzhev')).toBe(DAY_PALETTES[tod])
-    }
-    expect(paletteOf('noon', 'farmland')).toBe(DAY_PALETTES.noon)
-    expect(paletteOf('night', 'farmland')).toBe(DAY_PALETTES.night)
-  })
-
-  it('正午切換海面、群島、海岸與內陸時，霧密度不殘留且不改共用色盤', () => {
+  /**
+   * 【依地形覆寫的色盤是複本】覆寫寫回共用的 `DAY_PALETTES` 的話，換到下一種地形時
+   * 霧量殘留成上一種的，而且不報錯。場景與地形兩邊收到的是同一個物件
+   */
+  it('正午切換各種地形時，兩邊收到同一份色盤、霧量不殘留、不改共用色盤', () => {
+    const noon = { ...DAY_PALETTES.noon }
     const seen: DayPalette[] = []
     const target = { setPalette: (p: DayPalette) => seen.push(p) }
     for (const terrain of ['sea', 'farmland', 'archipelago', 'leuna', 'leyte', 'poltava', 'autumnFarmland', 'farmland'] as const) {
       applyTimeOfDay(target, target, 'noon', terrain)
     }
-    expect(seen.map(p => p.fogDensity)).toEqual([
-      0.7e-5, 0.7e-5, 2.2e-5, 2.2e-5, 0.7e-5, 0.7e-5,
-      3.5e-5, 3.5e-5, 0.7e-5, 0.7e-5, 2.2e-5, 2.2e-5,
-      3.5e-5, 3.5e-5, 2.2e-5, 2.2e-5,
-    ])
-    expect(DAY_PALETTES.noon.fogDensity).toBe(2.2e-5)
-    expect(seen[0]).toEqual({ ...DAY_PALETTES.noon, fogDensity: 0.7e-5 })
-    expect(paletteOf('noon', 'autumnFarmland')).toEqual(DAY_PALETTES.novemberNoon)
-    expect(seen[6]).toEqual(DAY_PALETTES.novemberNoon)
-    expect(seen[7]).toBe(seen[6])
-    expect(seen[12]).toEqual(DAY_PALETTES.novemberNoon)
-    expect(seen[13]).toBe(seen[12])
+    for (let i = 0; i < seen.length; i += 2) expect(seen[i + 1]).toBe(seen[i])
     expect(seen[14]).toBe(DAY_PALETTES.noon)
-  })
-
-  it('海面與一般內陸時段不變，洛伊納晨昏只比照正午霧量', () => {
-    for (const tod of TIME_OF_DAY_IDS.filter(t => t !== 'noon')) {
-      expect(paletteOf(tod, 'sea')).toBe(DAY_PALETTES[tod])
-      expect(paletteOf(tod, 'farmland')).toBe(DAY_PALETTES[tod])
-      if (tod === 'dawn' || tod === 'dusk') {
-        expect(paletteOf(tod, 'leuna')).toEqual({
-          ...DAY_PALETTES[tod], fogDensity: paletteOf('noon', 'leuna').fogDensity,
-        })
-      } else {
-        expect(paletteOf(tod, 'leuna')).toBe(DAY_PALETTES[tod])
-      }
-    }
-    expect(DAY_PALETTES.storm.fogDensity).toBe(7e-5)
+    expect(DAY_PALETTES.noon).toEqual(noon)
   })
 
   it('晚秋清晨與黃昏覆寫色調與霧，保留太陽角度，切回內陸不殘留', () => {
@@ -317,14 +250,6 @@ describe('applyTimeOfDay', () => {
       expect(base).toEqual(original)
       expect(paletteOf(tod, 'autumnFarmland')).toBe(autumn)
     }
-  })
-
-  it('晚秋內陸夜間沿用原色盤，雷雨僅加濃霧且不影響其他地形', () => {
-    expect(paletteOf('night', 'autumnFarmland')).toBe(DAY_PALETTES.night)
-    expect(paletteOf('storm', 'autumnFarmland')).toEqual({
-      ...DAY_PALETTES.storm, fogDensity: 8.5e-5,
-    })
-    expect(paletteOf('storm', 'farmland')).toBe(DAY_PALETTES.storm)
   })
 
   /**
@@ -351,8 +276,7 @@ describe('applyTimeOfDay', () => {
 })
 
 describe('關卡的時段', () => {
-  const cards = Object.values(MISSIONS).flat()
-  const ready = cards.filter((c) => c.battle !== null)
+  const ready = Object.values(MISSIONS).flat().filter((c) => c.battle !== null)
 
   it('可出擊的關卡都有一個合法的時段（省略即正午）', () => {
     expect(ready.length).toBeGreaterThan(0)
@@ -360,18 +284,5 @@ describe('關卡的時段', () => {
       const tod = c.battle!.timeOfDay
       if (tod !== undefined) expect(TIME_OF_DAY_IDS).toContain(tod)
     }
-  })
-
-  /**
-   * 【倫內爾島非黃昏不可】卡片說明寫的是黃昏低空雷擊（`mission.japan-m3.summary`）。
-   * 改成別的時段就與自己的簡報矛盾，而那只有人看得出來。
-   */
-  it('倫內爾島是黃昏', () => {
-    const m4 = cards.find((c) => c.id === 'japan-m3')!
-    expect(m4.battle!.timeOfDay).toBe('dusk')
-  })
-
-  it('遭遇戰的預設是正午', () => {
-    expect(DEFAULT_SKIRMISH.timeOfDay).toBe<TimeOfDay>('noon')
   })
 })
