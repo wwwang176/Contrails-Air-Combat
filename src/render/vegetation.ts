@@ -86,6 +86,11 @@ export interface Vegetation {
     dropped: number
     /** 池溢位幾筆 */
     overflow: number
+    /**
+     * 逐池溢位幾筆，以池在 `POOL_NAMES` 的索引存取；與 `overflow` 同樣是最後一次重建的數字。
+     * 容量測試靠它分辨是哪一池溢位
+     */
+    readonly overflowPools: Int32Array
     /** 重建過幾次。節流有沒有生效看它 */
     rebuilds: number
     /**
@@ -233,7 +238,8 @@ export function createVegetation(
   const bySlot = new Map<number, number>()
 
   const stats = {
-    tiles: 0, dropped: 0, overflow: 0, rebuilds: 0, generated: 0, scanned: 0,
+    tiles: 0, dropped: 0, overflow: 0, overflowPools: new Int32Array(POOL_NAMES.length),
+    rebuilds: 0, generated: 0, scanned: 0,
     buffers: bufIdentity as readonly Float32Array[], keyType: 'number',
   }
 

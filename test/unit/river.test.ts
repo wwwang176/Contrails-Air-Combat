@@ -161,17 +161,19 @@ describe('地圖外的延伸', () => {
       const u = ((c[0]! - a[0]!) * rz - (c[1]! - a[1]!) * rx) / den
       return t > 0 && t < 1 && u > 0 && u < 1
     }
+    const bad: string[] = []
     for (let i = 0; i < EXT.length; i++) {
       for (let j = i + 1; j < EXT.length; j++) {
         const A = EXT[i]!.points
         const B = EXT[j]!.points
         for (let p = 0; p + 1 < A.length; p++) {
           for (let q = 0; q + 1 < B.length; q++) {
-            expect(cross(A[p]!, A[p + 1]!, B[q]!, B[q + 1]!), `${i} × ${j}`).toBe(false)
+            if (cross(A[p]!, A[p + 1]!, B[q]!, B[q + 1]!)) bad.push(`${i} × ${j}`)
           }
         }
       }
     }
+    expect(bad).toEqual([])
   })
 
   it('每次進場一模一樣', () => {

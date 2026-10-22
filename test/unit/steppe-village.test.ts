@@ -34,6 +34,16 @@ function placements(): { x: number; z: number; kind: number }[] {
   return out
 }
 
+/**
+ * 只讀的測試共用一份：同一份輸入建出同一份結果（「同一個種子兩次」那一條逐株比對守著），
+ * 各自重建只是把同一件事做好幾遍
+ */
+let placementsOnce: ReturnType<typeof placements> | undefined
+const sharedPlacements = (): ReturnType<typeof placements> => (placementsOnce ??= placements())
+let winterOnce: ReturnType<typeof farmSettlements> | undefined
+const winterSettlements = (): ReturnType<typeof farmSettlements> =>
+  (winterOnce ??= farmSettlements(HALF, 'winterSteppe'))
+
 describe('草原街村', () => {
   it('每個村有站址與凹路的走向，走向是單位圓上的角度', () => {
     expect(villages.length).toBeGreaterThan(5)
@@ -44,13 +54,13 @@ describe('草原街村', () => {
   })
 
   it('房子沿街排，長出來不少', () => {
-    const houses = placements().filter((p) => p.kind === FloraKind.House)
+    const houses = sharedPlacements().filter((p) => p.kind === FloraKind.House)
     // 40 個村、每村兩列幾十戶
     expect(houses.length).toBeGreaterThan(300)
   })
 
   it('菜園都是垂直於街的長條，四個角繞成矩形', () => {
-    const { gardens } = farmSettlements(HALF, 'winterSteppe')
+    const { gardens } = winterSettlements()
     expect(gardens.length).toBeGreaterThan(100)
     for (const g of gardens.slice(0, 200)) {
       const [a, b, , d] = g.ring
@@ -64,7 +74,7 @@ describe('草原街村', () => {
   })
 
   it('菜園不是一排整齊的條紋：長短、顏色、兩種作物都有變化，不是每一戶都有', () => {
-    const { gardens } = farmSettlements(HALF, 'winterSteppe')
+    const { gardens } = winterSettlements()
     const lens = gardens.map((g) => Math.hypot(g.ring[3]![0] - g.ring[0]![0], g.ring[3]![1] - g.ring[0]![1]))
     const mean = lens.reduce((a, b) => a + b, 0) / lens.length
     const sd = Math.sqrt(lens.reduce((a, b) => a + (b - mean) ** 2, 0) / lens.length)
@@ -80,7 +90,7 @@ describe('草原街村', () => {
     const joined = gardens.filter((g) => starts.has(key(g.ring[2]!, g.ring[3]!))).length
     expect(joined / gardens.length).toBeGreaterThan(0.1)
     // 有的戶沒有菜園：菜園數遠少於房子數
-    const houses = placements().filter((p) => p.kind === FloraKind.House || p.kind === FloraKind.SlateHouse).length
+    const houses = sharedPlacements().filter((p) => p.kind === FloraKind.House || p.kind === FloraKind.SlateHouse).length
     expect(gardens.length).toBeLessThan(houses * 0.95)
   })
 
@@ -118,7 +128,7 @@ describe('草原街村', () => {
   })
 
   it('同一個種子兩次跑得到同一批房子', () => {
-    expect(placements()).toEqual(placements())
+    expect(placements()).toEqual(sharedPlacements())
   })
 })
 
@@ -393,7 +403,15 @@ describe('戰場上的村', () => {
     a.flora(-HALF - 3000, -HALF - 3000, HALF + 3000, HALF + 3000, () => 0, fa)
     b.flora(-HALF - 3000, -HALF - 3000, HALF + 3000, HALF + 3000, () => 0, fb)
     expect(fb.count).toBe(fa.count)
-    for (let i = 0; i < fa.count * 6; i++) expect(fb.data[i]).toBe(fa.data[i])
+    // 逐格以 Object.is 比（與 toBe 相同），回報第一個不同的位置
+    let first = -1
+    for (let i = 0; i < fa.count * 6; i++) {
+      if (!Object.is(fb.data[i], fa.data[i])) {
+        first = i
+        break
+      }
+    }
+    expect(first).toBe(-1)
   })
 
   it('支路不沿著田埂走：每一步的五個取樣點至多三個貼著田埂線', () => {
@@ -417,7 +435,7 @@ describe('戰場上的村', () => {
   })
 
   it('不給戰場時每個村只零星燒毀；給了戰場就與直接呼叫生成器的結果相同', () => {
-    const plain = farmSettlements(HALF, 'winterSteppe')
+    const plain = winterSettlements()
     const plainBuf = createFloraBuffer(200000)
     plain.flora(-HALF - 3000, -HALF - 3000, HALF + 3000, HALF + 3000, () => 0, plainBuf)
     let houses = 0
@@ -523,12 +541,12 @@ describe('草原街村避開凹路', () => {
   }
 
   it('房子與棚子的中心都不在凹路上', () => {
-    const bad = placements().filter((p) => p.kind !== FloraKind.BroadTree && onRoad(p.x, p.z))
+    const bad = sharedPlacements().filter((p) => p.kind !== FloraKind.BroadTree && onRoad(p.x, p.z))
     expect(bad).toHaveLength(0)
   })
 
   it('菜園的中心與四個角都不在凹路上', () => {
-    const { gardens } = farmSettlements(HALF, 'winterSteppe')
+    const { gardens } = winterSettlements()
     let bad = 0
     for (const g of gardens) {
       if (onRoad(g.x, g.z) || g.ring.some(([x, z]) => onRoad(x, z))) bad++
