@@ -128,6 +128,9 @@ export function attachInput(
     switch (e.code) {
       case 'KeyW': hold.up = true; break
       case 'KeyS': hold.down = true; state.braking = true; break
+      // 方向舵。只有滑鼠搖桿讀它（`PlayerController`）
+      case 'KeyA': state.rudderLeft = true; break
+      case 'KeyD': state.rudderRight = true; break
       case 'KeyB': pressBomb(state, e.repeat); break
       // 按住望遠；陣亡時鏡頭在看殘骸，不望遠
       case 'KeyV': if (!state.dead) state.zoom = true; break
@@ -144,8 +147,8 @@ export function attachInput(
     switch (e.code) {
       case 'KeyW': hold.up = false; state.godMove.forward = false; break
       case 'KeyS': hold.down = false; state.braking = false; state.godMove.back = false; break
-      case 'KeyA': state.godMove.left = false; break
-      case 'KeyD': state.godMove.right = false; break
+      case 'KeyA': state.godMove.left = false; state.rudderLeft = false; break
+      case 'KeyD': state.godMove.right = false; state.rudderRight = false; break
       case 'KeyR': state.godMove.up = false; break
       case 'KeyF': state.godMove.down = false; break
       case 'ShiftLeft': case 'ShiftRight': state.godMove.boost = false; break

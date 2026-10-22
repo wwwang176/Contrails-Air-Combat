@@ -3,6 +3,12 @@ import { Vector3 } from 'three'
 /** 油門初始值：巡航設定（spec 中的「預設 1 倍速」）。 */
 export const CRUISE_THROTTLE = 0.7
 
+/** 操控方式：滑鼠瞄準（指方向，指揮儀飛過去）／滑鼠搖桿（滑鼠是一支搖桿） */
+export type ControlMode = 'aim' | 'stick'
+
+/** 搖桿自動回中的三檔。時間常數見 `input/mouseStick.ts` 的 `STICK_RECENTER_SECONDS` */
+export type StickRecenter = 'off' | 'slow' | 'fast'
+
 /**
  * 上帝視角的六個方向與加速。與 `camera/godCamera.ts` 的 `GodCameraInput`
  * 的前七個欄位**同名**，所以 `main.ts` 抄過去是一對一的，不需要換算。
@@ -38,6 +44,27 @@ export interface InputState {
   aimDeltaX: number
   /** 本幀累積的滑鼠垂直位移，單位螢幕半高，上為正。消費後由呼叫端歸零 */
   aimDeltaY: number
+  /** 設定頁選的操控方式。由 `main.ts` 開場讀存檔、設定確定時寫入 */
+  controlMode: ControlMode
+  /**
+   * 這一幀實際用不用滑鼠搖桿。**由 `playerControl` 每幀寫入**：`controlMode` 是搖桿而且
+   * 觸控層沒有顯示。`PlayerController` 讀這一格，不讀 `controlMode` —— 觸控一律是滑鼠瞄準
+   */
+  stickActive: boolean
+  /** 設定頁選的搖桿回中 */
+  stickRecenter: StickRecenter
+  /**
+   * 滑鼠搖桿的位置，−1…1，右、上為正，夾在單位圓內（`input/mouseStick.ts` 的 `stepStick`）。
+   * 是位置不是桿量：送進指令之前還要過死區與曲線（`shapeStick`）
+   */
+  stickX: number
+  stickY: number
+  /**
+   * 方向舵左右（A、D 按住）。飛行中（非上帝視角）寫；只有滑鼠搖桿讀它。
+   * 放開一律清、`clearInputHolds` 清
+   */
+  rudderLeft: boolean
+  rudderRight: boolean
   /** 0 ~ 1.1，1.1 為 WEP */
   throttle: number
   /** 右鍵是否按住 */
@@ -181,6 +208,13 @@ export function createInputState(): InputState {
     aimWorld: new Vector3(0, 0, -1),
     aimDeltaX: 0,
     aimDeltaY: 0,
+    controlMode: 'aim',
+    stickActive: false,
+    stickRecenter: 'off',
+    stickX: 0,
+    stickY: 0,
+    rudderLeft: false,
+    rudderRight: false,
     throttle: CRUISE_THROTTLE,
     lookActive: false,
     lookYaw: 0,

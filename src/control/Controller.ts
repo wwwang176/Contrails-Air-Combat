@@ -71,13 +71,35 @@ export interface Command {
    * 低空時剩下的彈會照投，把自己炸下來。
    */
   releaseFloor: number
+  /**
+   * 這一步由搖桿直接給角速度，不經瞄準方向（`FlightDirector.updateManual`）。
+   *
+   * 【只有玩家的滑鼠搖桿寫 true】AI 與其他控制器每步寫 false 與三軸 0 —— 玩家用搖桿飛完
+   * 按 `I`，座位的指令物件沿用，不清的話 AI 接手後飛機還照著搖桿飛。
+   */
+  manual: boolean
+  /** 滾轉桿量，−1…1，右滾為正。已過死區與曲線（`input/mouseStick.ts` 的 `shapeStick`） */
+  stickRoll: number
+  /** 俯仰桿量，−1…1，拉桿（機首往上）為正 */
+  stickPitch: number
+  /** 方向舵，−1…1，機首往右為正 */
+  stickYaw: number
 }
 
 export function createCommand(): Command {
   return {
     aimWorld: new Vector3(0, 0, -1), throttle: 0, brake: 0, firing: false, bombing: false,
     upright: false, pull: false, trackTurn: false, releaseFloor: 0,
+    manual: false, stickRoll: 0, stickPitch: 0, stickYaw: 0,
   }
+}
+
+/** 不用搖桿的控制器每步呼叫：清掉 `manual` 與三軸 */
+export function clearStick(out: Command): void {
+  out.manual = false
+  out.stickRoll = 0
+  out.stickPitch = 0
+  out.stickYaw = 0
 }
 
 export interface Controller {

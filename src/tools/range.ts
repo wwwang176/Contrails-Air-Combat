@@ -34,7 +34,7 @@ import { Aircraft } from '../aircraft/Aircraft'
 import { P51D } from '../specs/p51d'
 import { BF109K4 } from '../specs/bf109k4'
 import type { AircraftSpec } from '../specs/types'
-import type { Command, Controller } from '../control/Controller'
+import { clearStick, type Command, type Controller } from '../control/Controller'
 import { assetUrl } from '../core/asset'
 
 /**
@@ -81,6 +81,7 @@ class LevelFlight implements Controller {
     out.pull = false
     out.trackTurn = false
     out.releaseFloor = 0
+    clearStick(out)
   }
 }
 

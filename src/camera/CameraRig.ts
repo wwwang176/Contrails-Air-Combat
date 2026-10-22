@@ -8,7 +8,7 @@ import { BOMB_CONE_HALF_ANGLE, coneClamp, sightUp } from './bombsight'
  * `S.v[5]` 與 `S.v[6]` 屬於 `baseOrientation` 內部。共用一格的症狀是
  * 「視線偶爾抽一下、而且只在特定姿態下出現」—— 找不回源頭的那一種。
  */
-const S = makeScratch(15, 4)
+const S = makeScratch(16, 4)
 const BASIS = new Matrix4()
 const ORIGIN = new Vector3()
 const WORLD_UP = new Vector3(0, 1, 0)
@@ -92,6 +92,12 @@ export const ZOOM_TIME = 0.07
  */
 export const CAMERA_GROUND_CLEARANCE = 2
 
+/**
+ * 跟著滾（滑鼠搖桿）時上方向量追機體上方的時間常數，s。滾 90°/s 時落後約 7°：
+ * 看得出在滾，又不會慢半拍
+ */
+export const ROLL_FOLLOW_TIME = 0.08
+
 const CONE_COS = Math.cos(BOMB_CONE_HALF_ANGLE)
 const CONE_SIN = Math.sin(BOMB_CONE_HALF_ANGLE)
 
@@ -170,7 +176,8 @@ export function thirdPersonFor(span: number): { distance: number; height: number
  * 【相機不隨機體側滾】瞄準點是世界固定的，滑鼠位移繞相機的右／上軸旋轉它
  * （見 input/aim.ts）。相機若跟著機體滾，「螢幕右」就會跟著坡度轉——持續右移
  * 滑鼠 → 飛機加坡度 → 螢幕右軸再轉 → 更多坡度，正回饋成螺旋。坡度靠機體模型
- * 與姿態儀呈現，不靠相機。
+ * 與姿態儀呈現，不靠相機。這一條只屬於滑鼠瞄準：滑鼠搖桿的左右就是機體自己的滾轉軸，
+ * 沒有這個回饋，相機跟著滾（`update` 的 `followRoll`）。
  */
 export class CameraRig {
   readonly options: CameraRigOptions
@@ -186,6 +193,8 @@ export class CameraRig {
   private readonly offsetVel = new Vector3()
   /** 相機的上方向量。逐幀正交化並緩慢靠回世界上方，見 baseOrientation */
   private readonly up = new Vector3(0, 1, 0)
+  /** 跟滾剛關掉、上方向量還沒轉回水平附近。這段期間改平用轉的，見 `baseOrientation` */
+  private unrolling = false
   private initialised = false
   private appliedYaw = 0
   private appliedPitch = 0
@@ -250,8 +259,8 @@ export class CameraRig {
    * 甩去哪一側取決於方位角，正好是接近垂直時最不穩定的量。世界上方沒有這個
    * 問題：整條式子只依賴視線方向，筋斗翻過天頂時相機位置是連續的。
    */
-  private chaseOffset(forward: Vector3, out: Vector3): Vector3 {
-    return out.copy(WORLD_UP).multiplyScalar(this.options.thirdHeight)
+  private chaseOffset(forward: Vector3, out: Vector3, up: Vector3 = WORLD_UP): Vector3 {
+    return out.copy(up).multiplyScalar(this.options.thirdHeight)
       .addScaledVector(forward, -this.options.thirdDistance)
   }
 
@@ -265,15 +274,30 @@ export class CameraRig {
    * 垂直時那個投影退化，於是**不更新目標**，只靠正交化把上一幀的值帶過去，
    * 相機因此平順地翻過天頂。
    */
-  private baseOrientation(viewDir: Vector3, dt: number, out: Quaternion): Quaternion {
+  private baseOrientation(
+    viewDir: Vector3, dt: number, out: Quaternion, rollRef: Quaternion | null = null,
+  ): Quaternion {
     const f = S.v[5]!.copy(viewDir).normalize()
 
-    const level = S.v[6]!.copy(WORLD_UP).addScaledVector(f, -WORLD_UP.dot(f))
-    // 0.02 ≈ 距垂直 8° 以內就凍結目標，避免在天頂附近追一個亂跳的方向
-    const lenSq = level.lengthSq()
-    if (lenSq > 0.02) {
-      const k = dt > 0 ? 1 - Math.exp(-dt / this.options.levelTime) : 1
-      this.up.lerp(level.multiplyScalar(1 / Math.sqrt(lenSq)), k)
+    if (rollRef !== null) {
+      this.followRoll(f, rollRef, dt)
+      this.unrolling = true
+    } else {
+      const level = S.v[6]!.copy(WORLD_UP).addScaledVector(f, -WORLD_UP.dot(f))
+      // 0.02 ≈ 距垂直 8° 以內就凍結目標，避免在天頂附近追一個亂跳的方向
+      const lenSq = level.lengthSq()
+      if (lenSq > 0.02) {
+        const k = dt > 0 ? 1 - Math.exp(-dt / this.options.levelTime) : 1
+        level.multiplyScalar(1 / Math.sqrt(lenSq))
+        // 【剛關掉跟滾時用轉的】倒飛時關掉跟滾（代飛、陣亡），上方向量朝下、目標恰在反方向，
+        // 線性混合只會縮短不會轉。轉回接近水平就換回混合 —— 滑鼠瞄準從來沒有跟滾過，
+        // 筋斗翻過天頂照舊走混合，不受影響
+        if (this.unrolling && this.up.dot(level) < 0.9) this.rotateUpToward(f, level, k)
+        else {
+          this.unrolling = false
+          this.up.lerp(level, k)
+        }
+      }
     }
 
     this.up.addScaledVector(f, -this.up.dot(f))
@@ -290,6 +314,38 @@ export class CameraRig {
   }
 
   /**
+   * 跟著滾：上方向量繞視線轉向機體上方（投影到垂直於視線的平面上），每步轉掉差角的一部分
+   * （`ROLL_FOLLOW_TIME`）。
+   *
+   * 【用轉角不用 lerp】從正飛滾到倒飛時目標恰在反方向，兩個反向的向量線性混合只會縮短、
+   * 不會轉 —— 上方向量卡在原地。`atan2` 在 180° 時給 π，照轉。
+   *
+   * 【垂直時沒有奇點】視線就是機首時機體上方恆垂直於視線，投影不會退化；自由視角把視線
+   * 轉到接近機體上方時（投影 < 0.02）這一步不追
+   */
+  private followRoll(f: Vector3, orientation: Quaternion, dt: number): void {
+    const target = S.v[6]!.copy(WORLD_UP).applyQuaternion(orientation)
+    target.addScaledVector(f, -target.dot(f))
+    const lenSq = target.lengthSq()
+    if (lenSq <= 0.02) return
+    target.multiplyScalar(1 / Math.sqrt(lenSq))
+    this.rotateUpToward(f, target, dt > 0 ? 1 - Math.exp(-dt / ROLL_FOLLOW_TIME) : 1)
+  }
+
+  /**
+   * 上方向量繞視線 `f` 轉向 `target`（單位、垂直於 `f`），轉掉差角的 `k`。目標恰在反方向時
+   * `atan2` 給 π，照轉
+   */
+  private rotateUpToward(f: Vector3, target: Vector3, k: number): void {
+    this.up.addScaledVector(f, -this.up.dot(f))
+    // 退化的話交給 `baseOrientation` 後面那一段重新起算
+    if (this.up.lengthSq() < 1e-6) return
+    this.up.normalize()
+    const sin = S.v[15]!.crossVectors(this.up, target).dot(f)
+    this.up.applyAxisAngle(f, Math.atan2(sin, this.up.dot(target)) * k)
+  }
+
+  /**
    * @param orientation 機體姿態。**只**用來擺放投彈瞄具的眼點（固定在機腹上）
    * @param viewDir 相機要看的世界方向。傳的是**滑鼠瞄準方向**而不是機首方向：
    *   準星因此釘在畫面中央，跟不上的是飛機——機身會斜在畫面裡，指揮儀正在
@@ -298,6 +354,8 @@ export class CameraRig {
    * @param surfaceAt 畫出來的地面高度。機外鏡頭墊在它上方 `CAMERA_GROUND_CLEARANCE`：
    *   視線往上抬時鏡頭會落到機身下方（上仰 45° 約低 5.5 m），低空拉起就鑽進地面。
    *   null = 不墊
+   * @param followRoll 機外鏡頭跟著機體滾轉（滑鼠搖桿）：上方向量追機體上方（`followRoll`），
+   *   抬升也沿著它，倒飛時鏡頭在機腹那一側、機身留在畫面的同一個位置
    */
   update(
     camera: PerspectiveCamera,
@@ -312,6 +370,7 @@ export class CameraRig {
     bombTarget: Vector3 | null = null,
     zoom = false,
     surfaceAt: ((x: number, z: number) => number) | null = null,
+    followRoll = false,
   ): void {
     const o = this.options
 
@@ -325,7 +384,7 @@ export class CameraRig {
     // 視角偏移施加於視角座標，因此不影響飛行指令
     const lookQuat = S.q[0]!.setFromAxisAngle(S.v[1]!.set(0, 1, 0), this.appliedYaw)
     const pitchQuat = S.q[1]!.setFromAxisAngle(S.v[2]!.set(1, 0, 0), this.appliedPitch)
-    const viewQuat = this.baseOrientation(viewDir, dt, S.q[2]!)
+    const viewQuat = this.baseOrientation(viewDir, dt, S.q[2]!, followRoll ? orientation : null)
     this.viewBase.copy(viewQuat)   // 疊上自由視角**之前**，見 viewBase 的說明
     const baseForward = S.v[7]!.set(0, 0, -1).applyQuaternion(viewQuat)
     viewQuat.multiply(lookQuat).multiply(pitchQuat)
@@ -409,7 +468,8 @@ export class CameraRig {
     {
       const viewForward = S.v[8]!.set(0, 0, -1).applyQuaternion(viewQuat)
       // 彈簧只吃**機身轉向**造成的偏移變化，所以目標用不含自由視角的 baseForward
-      const desired = this.chaseOffset(baseForward, S.v[0]!)
+      const lift = followRoll ? this.up : WORLD_UP
+      const desired = this.chaseOffset(baseForward, S.v[0]!, lift)
 
       if (!this.initialised) {
         this.offset.copy(desired)
@@ -429,10 +489,11 @@ export class CameraRig {
       // 這裡把彈簧的**落後量**（offset − desired，機動造成的那一份）加到
       // 「已經轉過去的理想偏移」上：不轉頭時 viewForward === baseForward，
       // 整條式子退化成 this.offset，也就是不轉頭時的純彈簧行為。
-      const finalOffset = this.chaseOffset(viewForward, S.v[4]!).add(this.offset).sub(desired)
+      const finalOffset = this.chaseOffset(viewForward, S.v[4]!, lift).add(this.offset).sub(desired)
       camera.position.copy(position).add(finalOffset)
-      // 【望遠時抬高】自己的飛機跟著放大，抬一點讓它留在畫面下方
-      camera.position.y += ZOOM_LIFT * this.zoomK
+      // 【望遠時抬高】自己的飛機跟著放大，抬一點讓它留在畫面下方。跟著滾的時候沿著
+      // 相機的上方抬，倒飛時才是往機腹那一側
+      camera.position.addScaledVector(lift, ZOOM_LIFT * this.zoomK)
       // 【只墊輸出、不動彈簧】偏移照常追；飛機爬高之後鏡頭自然離開地面
       if (surfaceAt !== null) {
         const floor = surfaceAt(camera.position.x, camera.position.z) + CAMERA_GROUND_CLEARANCE

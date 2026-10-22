@@ -140,10 +140,15 @@ import { enterFullscreen } from './input/fullscreen'
 import { AimAssist } from './input/aimAssist'
 import { readAimAssist, saveAimAssist } from './input/aimAssistPreferences'
 import { readMouseSensitivity, saveMouseSensitivity } from './input/mouseSensitivity'
+import { centreStick } from './input/mouseStick'
+import {
+  readControlMode, readStickRecenter, saveControlMode, saveStickRecenter,
+} from './input/controlPreferences'
 import { teamSlot } from './world/team'
 import type { Combatant } from './world/combatant'
 import type { World } from './world/World'
 import { PlayerController } from './control/PlayerController'
+import { clearStick } from './control/Controller'
 import { AiController } from './ai/AiController'
 import { recoveryWorkerFailure } from './ai/recoveryWorkerClient'
 import { blockForRecoveryWorker } from './ui/recoveryBlocker'
@@ -295,6 +300,8 @@ const glareTexture = makeGlareTexture()
 
 const input = createInputState()
 input.mouseSensitivity = readMouseSensitivity()
+input.controlMode = readControlMode()
+input.stickRecenter = readStickRecenter()
 const bindings = attachInput(canvas, input)
 const touch = attachTouch(document.getElementById('touch') as HTMLElement, input)
 
@@ -942,7 +949,7 @@ const godInput: GodCameraInput = {
 }
 const { stepPlayerControl, leaveGodView, resetDeathState } = createPlayerControl({
   input, bindings, camera: ctx.camera, rig, playerAi, playerController, aimAssist,
-  visuals, godCam, godBlend, godInput, damageMarks: hudFrame.damageMarks,
+  visuals, godCam, godBlend, godInput, damageMarks: hudFrame.damageMarks, touch,
 })
 /** 上帝視角的注視點。重用，理由同上 */
 const godTarget = new Vector3()
@@ -1088,6 +1095,9 @@ function respawnPlayer() {
   // 德 M4 朝南）少了這一步，玩家開場就背對目標。瞄準點跟著機首
   settleAtSpawn(battle, p)
   input.aimWorld.set(0, 0, -1).applyQuaternion(p.aircraft.state.orientation)
+  // 【搖桿放回中心】新的一場與兩條重開路徑都經過這裡，而它們直接把玩家控制器裝上座位，
+  // 不經過 `playerControl` 的交還分支 —— 上一場最後壓著的桿量會接著飛
+  centreStick(input)
   p.hp = p.aircraft.spec.hp
   p.alive = true
   p.cooldowns.fill(0)
@@ -2197,6 +2207,14 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     saveMouseSensitivity(v)
     menu.renderMouseSensitivity(v)
   },
+  // 【戰鬥中換也成立】`playerControl` 下一幀看到有效模式換了，搖桿歸零、改走另一條分支
+  onControl(mode, recenter) {
+    input.controlMode = mode
+    input.stickRecenter = recenter
+    saveControlMode(mode)
+    saveStickRecenter(recenter)
+    menu.renderControl(mode, recenter)
+  },
   onLang(lang) {
     saveLang(lang)
     setLang(lang)
@@ -2212,6 +2230,7 @@ menu.renderAntialias(readAntialias())
 menu.renderVolume(readVolume())
 menu.renderAimAssist(aimAssist.enabled)
 menu.renderMouseSensitivity(input.mouseSensitivity)
+menu.renderControl(input.controlMode, input.stickRecenter)
 menu.renderLang(getLang())
 menu.renderSetup(setup)
 menu.show(screen)
@@ -2524,6 +2543,31 @@ Object.assign(window, createSceneryInspection({
   return audioMeter !== null
 }
 
+/**
+ * **量測出口**：滑鼠搖桿。給 `(x, y)` 時直接放搖桿位置（−1…1）。
+ *
+ * 【為什麼要能直接放】無頭瀏覽器取得指標鎖的那一下會補送一個很大的 `movementX/Y`，
+ * 搖桿一下被推到底；e2e 先把它放回中心再開始量。回傳的三軸是玩家座位這一步的指令
+ */
+;(window as unknown as Record<string, unknown>)['__stick'] = (x?: number, y?: number) => {
+  if (x !== undefined && y !== undefined) {
+    input.stickX = x
+    input.stickY = y
+  }
+  const cmd = player.command
+  return {
+    mode: input.controlMode, active: input.stickActive,
+    x: +input.stickX.toFixed(4), y: +input.stickY.toFixed(4),
+    manual: cmd.manual,
+    roll: +cmd.stickRoll.toFixed(4), pitch: +cmd.stickPitch.toFixed(4), yaw: cmd.stickYaw,
+    // 鏡頭上方的世界 y 分量：跟著滾的話帶坡度時小於 1
+    camUp: +ctx.camera.up.y.toFixed(3),
+    // 迎角與臨界迎角，度
+    alpha: +((player.aircraft.diag.aero.alpha * 180) / Math.PI).toFixed(1),
+    alphaCrit: +((player.aircraft.spec.lift.alphaCrit * 180) / Math.PI).toFixed(1),
+  }
+}
+
 ;(window as unknown as Record<string, unknown>)['__godcam'] = (
   x: number, y: number, z: number, yawDeg = 0, pitchDeg = 0,
 ) => {
@@ -2662,6 +2706,7 @@ Object.assign(window, createSceneryInspection({
         out2.pull = false
         out2.trackTurn = false
         out2.releaseFloor = 0
+        clearStick(out2)
       },
     }
   }

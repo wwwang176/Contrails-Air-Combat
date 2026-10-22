@@ -4,7 +4,7 @@ import { G0, clamp, lerp, smoothstep } from '../core/math'
 import { makeScratch } from '../core/pool'
 import { Pid, type PidGains } from './pid'
 import {
-  PILOT_G_NEGATIVE, QMAX_FLOOR, createPitchLimit, gLoadFromOrientation, pitchRateLimit,
+  ALPHA_MARGIN, PILOT_G_NEGATIVE, QMAX_FLOOR, createPitchLimit, gLoadFromOrientation, pitchRateLimit,
   type PitchLimit,
 } from './limiters'
 import { controlEffectiveness, redlineEffectiveness } from '../physics/aero'
@@ -90,6 +90,19 @@ const TRACK_RATE_TAU = 0.2
  * 誤差大、改平不出力，歸零無害）。
  */
 const TRACK_JUMP = Math.cos(5 * (Math.PI / 180))
+
+/**
+ * 搖桿回中之後，滾轉率低於這個值才記下要守的坡度，rad/s（約 3°/s）。放桿那一刻就記的話，
+ * 滾轉還在慣性上，收掉之後會被拉回放桿那一點 —— 看起來像彈回去
+ */
+const HOLD_CAPTURE_RATE = 0.05
+
+/**
+ * 搖桿置中時，迎角每超過失速前上限 1 rad 就要多少俯仰率把機首壓回去，1/s。置中的 1 G 配平
+ * 假設航跡跟著機首轉；失速之後航跡跟不上，只靠配平的話機首被撐在大迎角，放桿近三秒才脫離
+ * 失速。乘的是置中那一份（`1 − |桿量|`），拉滿時不作用
+ */
+const STICK_STALL_RECOVERY = 2
 
 export interface DirectorGains {
   /** 外環：滾轉角誤差 → 期望滾轉率，(rad/s)/rad */
@@ -452,6 +465,8 @@ export interface DirectorDebug {
    */
   yawAimIntegral: number
   limiter: PitchLimit
+  /** 推桿那一側的俯仰率下限，rad/s（負值）。與 `limiter.qMax` 對稱，推導見 `limits` */
+  qMin: number
 }
 
 export function createDirectorDebug(): DirectorDebug {
@@ -460,8 +475,15 @@ export function createDirectorDebug(): DirectorDebug {
     desiredP: 0, desiredQ: 0, desiredR: 0,
     actualP: 0, actualQ: 0, actualR: 0,
     bankAngle: 0, wingsLevelBlend: 0, pushMode: false, betaAuthority: 1, wingsLevelIntegral: 0, yawAimIntegral: 0,
-    limiter: createPitchLimit(),
+    limiter: createPitchLimit(), qMin: 0,
   }
+}
+
+/** 滑鼠搖桿的三軸桿量（`Command` 的那三格），−1…1。右滾、拉桿、機首往右為正 */
+export interface ManualStick {
+  readonly stickRoll: number
+  readonly stickPitch: number
+  readonly stickYaw: number
 }
 
 /**
@@ -507,6 +529,10 @@ export class FlightDirector {
   private readonly aimNow = new Vector3()
   private readonly liftRef = new Vector3()
   private readonly levelBank: BankAttitude = createBankAttitude()
+  /** 上一步是搖桿模式（`updateManual`）。換模式的那一步清外環（`resetOuter`） */
+  private manualPrev = false
+  /** 搖桿回中之後守住的坡度角，rad。NaN = 還在壓桿或滾轉還沒收掉 */
+  private heldBank = Number.NaN
 
   constructor(gains: DirectorGains = DEFAULT_DIRECTOR_GAINS) {
     this.gains = structuredClone(gains)
@@ -519,6 +545,19 @@ export class FlightDirector {
     this.rollPid.reset()
     this.pitchPid.reset()
     this.yawPid.reset()
+    this.resetOuter()
+    this.manualPrev = false
+  }
+
+  /**
+   * 清掉外環的狀態：滾轉指令、推頭遲滯、三個外環積分、跟瞄歷史。內環 PID 不動 ——
+   * 它們追的是角速度，自動與搖桿兩種模式意義相同。
+   *
+   * 【換模式的那一步要清】搖桿飛一陣子按 `I`，AI 接手的第一步會帶著上一次自動模式
+   * 留下的積分，飛機往那個早就不存在的誤差補一下
+   */
+  private resetOuter(): void {
+    this.heldBank = Number.NaN
     this.lastRollCommand = 0
     this.pushMode = false
     this.pitchIntegral = 0
@@ -603,6 +642,12 @@ export class FlightDirector {
     trackTurn = false,
     pull = false,
   ): void {
+    if (this.manualPrev) {
+      this.resetOuter()
+      // 搖桿模式下這一軸的 PID 守的是滾轉率 0，不是自動模式要的那個
+      this.rollPid.reset()
+      this.manualPrev = false
+    }
     // 【跟瞄的瞄準角速度】關到開的第一步、以及一步跳超過 `TRACK_JUMP` 的那一步
     // 只記方向、不微分，角速度歸零 —— 拿舊方向算會暴衝。關著的時候整段不跑
     if (trackTurn) {
@@ -634,40 +679,11 @@ export class FlightDirector {
 
     const g = this.gains
 
-    // 限制器：只擋失速與過載，不擋能量流失。
-    // 硬拉時速度該掉就得掉——指揮儀不替玩家吸收機動的代價。
-    //
-    // 【為什麼在滾轉指令之前算】qMax / qMin 是「拉桿」與「推桿」各自的俯仰率
+    // 【限制器在滾轉指令之前算】qMax / qMin 是「拉桿」與「推桿」各自的俯仰率
     // 配額，而下方的推桿／翻轉抉擇正是在比較這兩個配額誰划算。順序上必須
     // 先有配額才能比。限制器本身不讀滾轉指令，移前無副作用。
-    const gLoad = gLoadFromOrientation(state.orientation)
-    pitchRateLimit(spec, aero, slatsDeployed, gLoad, dbg.limiter)
-
-    // 負向（推桿）上限與正向同一套推導：n = q·V/g + gLoad ⇒ q = g(n − gLoad)/V。
-    // 【公式修正】brief 原稿寫 qMaxNeg = PILOT_G_NEGATIVE·g/V，漏了重力
-    // 支持項——這正是 Task 17 在正向 qMax 上抓到並修掉的同一個錯誤。
-    // 倒飛時 gLoad = −1，原式會指令 q = −3g/V，實際達成
-    // n = q·V/g + gLoad = −3 + (−1) = −4，直接吃穿 −3 的飛行員負 G 上限
-    // 並觸及 P-51D 的 gNegative = −4 結構極限。修正後為 g(−3−(−1))/V。
-    // nNeg 取飛行員、結構、氣動三者中最先夾住的那個（即最大者），
-    // 與 pitchRateLimit 正向分支取 min(nAero, gPositive, PILOT_G_POSITIVE)
-    // 的邏輯完全對稱。
-    //
-    // 【−nAero 這一項是 brief 完全沒有的】brief 的負向上限只看飛行員 G 值，
-    // 從不問「機翼在這個速度下做不做得出這麼多負升力」。低速時做不出來：
-    // 200 km/h 海平面的 P-51D 氣動可達過載只有 ±1.47 G，指令 −3 G 等於
-    // 要求一個倒飛失速。實測（r135° 方位315° 200 km/h 海平面）α 被推到
-    // −18.2°，而負向失速臨界是 alphaZero − (alphaCrit − alphaZero) = −22°，
-    // 但 |α| 已越過 α_crit = 17°——矩陣的失速斷言用的是 |α|，這是唯一一個
-    // 在整個矩陣裡越界的案例。
-    // 用 −nAero 作鏡像界限在本升力模型下是精確的：liftCoefficient 以
-    // alphaZero 為對稱中心，正負兩側的失速 |CL| 相同，故負向氣動上限的
-    // 量值就等於 nAero。
-    const nNeg = Math.max(PILOT_G_NEGATIVE, spec.limits.gNegative, -dbg.limiter.nAero)
-    // 與 QMAX_FLOOR 對稱的負向地板：確保任何姿態下都保有最小的推桿權限。
-    const qMin = aero.tas > 1
-      ? Math.min((G0 * (nNeg - gLoad)) / aero.tas, -QMAX_FLOOR)
-      : 0
+    this.limits(spec, state, aero, slatsDeployed, dbg)
+    const qMin = dbg.qMin
 
     // 滾轉指令：把誤差轉進俯仰面。
     //   目標在正上方 (x=0, y>0) → atan2(0, y) = 0     不需滾轉
@@ -815,6 +831,146 @@ export class FlightDirector {
     dbg.betaAuthority = 1 - smoothstep(g.betaFadeStart, g.betaMax, betaToward)
     dbg.desiredR = g.yawOuter * aero.beta + rAim * dbg.betaAuthority
 
+    this.inner(state, dt, out, dbg)
+  }
+
+  /**
+   * 由滑鼠搖桿的桿量產生舵面指令（`Command.manual`）。限制器與三個內環與 `update`
+   * 共用，只換掉外環：桿量直接對應期望角速度，不經瞄準方向。
+   *
+   * - 滾轉：壓桿時副翼直接等於桿量（滿桿 = 副翼打滿）；回中時內環把滾轉率守在 0（坡度保持）
+   * - 俯仰：置中 = 1 G 配平，拉滿／推滿 = 結構與飛行員的過載上下限（不擋失速，低速拉過頭就失速；
+   *   高速時與瞄準模式的 `qMax` 同值）。置中若是 q = 0（姿態保持），
+   *   帶坡度放開搖桿時機首停在慣性空間裡不跟著轉彎，速度向量被重力往下拉、迎角一路變大
+   * - 偏航：自動模式的消側滑項，加上方向舵的偏航率指令；側滑權限照自動模式夾
+   *
+   * 熱路徑，不配置。
+   */
+  updateManual(
+    spec: FlightSpec,
+    state: FlightState,
+    aero: AeroState,
+    slatsDeployed: boolean,
+    stick: ManualStick,
+    dt: number,
+    out: Controls,
+    dbg: DirectorDebug,
+  ): void {
+    if (!this.manualPrev) {
+      this.resetOuter()
+      this.rollPid.reset()
+      this.manualPrev = true
+    }
+    const g = this.gains
+    const gLoad = this.limits(spec, state, aero, slatsDeployed, dbg)
+    dbg.errorAngle = 0
+    dbg.verticalError = 0
+    dbg.lateralError = 0
+    dbg.rollCommand = 0
+    dbg.wingsLevelBlend = 0
+    dbg.pushMode = false
+    dbg.yawAimIntegral = 0
+
+    // 【壓桿時副翼直接等於桿量】穩態滾轉率本來就正比於副翼，滿桿就是副翼打滿、這架飛機這個
+    // 速度下的物理極限。拿估計的滾轉率當目標再用內環追的話，估計偏低、內環又追不上，滿桿只有
+    // 瞄準模式的六七成。
+    // 【回中時守住坡度】副翼單純回中的話，機體自己的螺旋傾向會把坡度帶走（P-51D 五秒三十幾度），
+    // 只把滾轉率壓在 0 也一樣會慢慢漂（積分追不上螺旋力矩）。放桿之後先把滾轉收掉，滾轉率低於
+    // `HOLD_CAPTURE_RATE` 的那一刻記下坡度，之後用改平那一組增益守住它。坡度角在機首垂直時沒有
+    // 意義，守的力道乘上它的權限
+    const direct = stick.stickRoll !== 0
+    const p = -state.angularVelocity.z
+    const bank = bankAttitude(state.orientation, this.bank)
+    dbg.bankAngle = bank.angle
+    if (direct) {
+      this.heldBank = Number.NaN
+      this.levelIntegral = 0
+      dbg.desiredP = p
+    } else {
+      if (Number.isNaN(this.heldBank) && Math.abs(p) < HOLD_CAPTURE_RATE) this.heldBank = bank.angle
+      if (Number.isNaN(this.heldBank)) {
+        dbg.desiredP = 0
+      } else {
+        // 坡度角正值是左坡度，正的滾轉率讓它變小（與改平同一個符號）
+        let err = bank.angle - this.heldBank
+        if (err > Math.PI) err -= 2 * Math.PI
+        else if (err < -Math.PI) err += 2 * Math.PI
+        this.levelIntegral = clamp(
+          this.levelIntegral + g.wingsLevelI * err * dt, -g.wingsLevelILimit, g.wingsLevelILimit,
+        )
+        dbg.desiredP = bank.authority * clamp(
+          g.wingsLevelGain * err + this.levelIntegral, -g.maxRollRateCommand, g.maxRollRateCommand,
+        )
+      }
+    }
+    dbg.wingsLevelIntegral = this.levelIntegral
+
+    // 機身法向過載 = 1 G 的俯仰率：n = q·V/g + gLoad（見 `pitchRateLimit`）。置中夾在失速前的
+    // 上下限裡 —— 1 G 失速速度以下若照樣要 1 G，放著不動就一路拉進失速
+    let qTrim = aero.tas > 1 ? clamp((G0 * (1 - gLoad)) / aero.tas, dbg.qMin, dbg.limiter.qMax) : 0
+    // 超過失速前上限的迎角（以零升迎角為對稱中心，與 `liftCoefficient` 同一套）由置中那一份壓回去
+    const L = spec.lift
+    const alphaRel = aero.alpha - L.alphaZero
+    const alphaLimitRel = L.alphaCrit * ALPHA_MARGIN + (slatsDeployed ? L.slatAlphaBonus : 0) - L.alphaZero
+    if (alphaRel > alphaLimitRel) qTrim -= STICK_STALL_RECOVERY * (alphaRel - alphaLimitRel)
+    else if (alphaRel < -alphaLimitRel) qTrim -= STICK_STALL_RECOVERY * (alphaRel + alphaLimitRel)
+    // 【拉滿只擋結構與飛行員負 G，不擋失速】低速拉過頭就失速，失速的代價由物理層給
+    let qMax = 0
+    let qMin = 0
+    if (aero.tas > 1) {
+      qMax = Math.max((G0 * (spec.limits.gPositive - gLoad)) / aero.tas, QMAX_FLOOR)
+      const nNeg = Math.max(PILOT_G_NEGATIVE, spec.limits.gNegative)
+      qMin = Math.min((G0 * (nNeg - gLoad)) / aero.tas, -QMAX_FLOOR)
+    }
+    const s = stick.stickPitch
+    // 【寫成兩端加權】滿桿時 `(1 − s)` 恰為 0，結果逐位元等於上下限
+    dbg.desiredQ = s >= 0 ? (1 - s) * qTrim + s * qMax : (1 + s) * qTrim - s * qMin
+
+    const rAim = stick.stickYaw * g.maxYawRateCommand
+    const betaToward = rAim > 0 ? -aero.beta : aero.beta
+    dbg.betaAuthority = 1 - smoothstep(g.betaFadeStart, g.betaMax, betaToward)
+    dbg.desiredR = g.yawOuter * aero.beta + rAim * dbg.betaAuthority
+
+    this.inner(state, dt, out, dbg)
+    if (direct) {
+      out.aileron = stick.stickRoll
+      // 壓桿期間不累積；回中那一步從乾淨的狀態開始守
+      this.rollPid.reset()
+    }
+  }
+
+  /**
+   * 俯仰率的上下限，寫進 `dbg.limiter`（`qMax`）與 `dbg.qMin`，回傳 `gLoad`。
+   *
+   * 限制器只擋失速與過載，不擋能量流失：硬拉時速度該掉就得掉——指揮儀不替
+   * 玩家吸收機動的代價。
+   *
+   * 負向（推桿）上限與正向同一套推導：n = q·V/g + gLoad ⇒ q = g(n − gLoad)/V。
+   * 少了重力支持項的話，倒飛時 gLoad = −1，指令 q = −3g/V 實際達成
+   * n = q·V/g + gLoad = −3 + (−1) = −4，直接吃穿 −3 的飛行員負 G 上限
+   * 並觸及 P-51D 的 gNegative = −4 結構極限。nNeg 取飛行員、結構、氣動三者中
+   * 最先夾住的那個（即最大者），與 pitchRateLimit 正向分支的邏輯對稱。
+   *
+   * 【−nAero 這一項】低速時機翼做不出那麼多負升力：200 km/h 海平面的 P-51D
+   * 氣動可達過載只有 ±1.47 G，指令 −3 G 等於要求一個倒飛失速（實測 α 被推到
+   * −18.2°，|α| 越過 α_crit = 17°）。用 −nAero 作鏡像界限在本升力模型下是精確的：
+   * liftCoefficient 以 alphaZero 為對稱中心，正負兩側的失速 |CL| 相同。
+   */
+  private limits(
+    spec: FlightSpec, state: FlightState, aero: AeroState, slatsDeployed: boolean, dbg: DirectorDebug,
+  ): number {
+    const gLoad = gLoadFromOrientation(state.orientation)
+    pitchRateLimit(spec, aero, slatsDeployed, gLoad, dbg.limiter)
+    const nNeg = Math.max(PILOT_G_NEGATIVE, spec.limits.gNegative, -dbg.limiter.nAero)
+    // 與 QMAX_FLOOR 對稱的負向地板：確保任何姿態下都保有最小的推桿權限。
+    dbg.qMin = aero.tas > 1
+      ? Math.min((G0 * (nNeg - gLoad)) / aero.tas, -QMAX_FLOOR)
+      : 0
+    return gLoad
+  }
+
+  /** 內環：期望角速度 → 舵面。兩種模式共用同一組 PID */
+  private inner(state: FlightState, dt: number, out: Controls, dbg: DirectorDebug): void {
     // 實際角速度轉標準軸：p = −ω.z、q = ω.x、r = −ω.y
     const w = state.angularVelocity
     dbg.actualP = -w.z

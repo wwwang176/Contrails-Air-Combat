@@ -190,6 +190,14 @@ export interface HudFrame {
   aimX: number
   aimY: number
   aimVisible: boolean
+  /**
+   * 畫搖桿指示（`reticle.ts` 的 `drawStickGauge`）：滑鼠搖桿、而且是玩家自己在飛
+   * （不是代飛、不是上帝視角）。由 `fillStickHud` 寫
+   */
+  stickMode: boolean
+  /** 搖桿位置，−1…1，右、上為正（`InputState.stickX/stickY`） */
+  stickX: number
+  stickY: number
   /** 機首方向投影至螢幕的正規化座標（NDC），visible 為 false 時位於背後 */
   noseX: number
   noseY: number
@@ -503,6 +511,7 @@ export function createHudFrame(): HudFrame {
     loadFactor: 1, alpha: 0, alphaCrit: 1,
     ps: 0, es: 0, throttle: 0, powerW: 0,
     aimX: 0, aimY: 0, aimVisible: true,
+    stickMode: false, stickX: 0, stickY: 0,
     noseX: 0, noseY: 0, noseVisible: true,
     bombX: 0, bombY: 0, bombVisible: false, bombState: 'off',
     bombing: false, bombCapable: false, ordnance: null, releaseOk: false,

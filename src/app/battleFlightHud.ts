@@ -45,11 +45,27 @@ export function fillGunHeatHud(
   hudFrame.gunHeatBlink = Math.floor(time * 2 * GUN_HEAT_BLINK_HZ) % 2 === 0
 }
 
+/**
+ * 滑鼠搖桿 → HUD 幀。搖桿模式下不畫滑鼠圓圈（它表示瞄準方向，這個模式沒有；瞄準點被放在
+ * 機首，畫出來會是一個疊在十字上、沒有意義的圈），改畫搖桿指示。代飛與上帝視角不畫搖桿 ——
+ * 那時搖桿不在飛這架飛機
+ */
+export function fillStickHud(
+  hudFrame: Pick<HudFrame, 'stickMode' | 'stickX' | 'stickY' | 'aimVisible'>,
+  input: Pick<InputState, 'stickActive' | 'stickX' | 'stickY' | 'godView' | 'playerAi'>,
+): void {
+  hudFrame.stickMode = input.stickActive && !input.godView && !input.playerAi
+  hudFrame.stickX = input.stickX
+  hudFrame.stickY = input.stickY
+  if (input.stickActive) hudFrame.aimVisible = false
+}
+
 /** 把飛行數據與操控狀態寫進已經配置好的 HUD 幀 */
 export function updateBattleFlightHud(
   deps: BattleFlightHudDependencies,
   hudFrame: HudFrame,
-  input: Pick<InputState, 'aimWorld' | 'godView' | 'playerAi' | 'flightReadouts'>,
+  input: Pick<InputState,
+    'aimWorld' | 'godView' | 'playerAi' | 'flightReadouts' | 'stickActive' | 'stickX' | 'stickY'>,
   battle: Battle,
   player: Combatant,
   aircraft: Aircraft,
@@ -67,6 +83,7 @@ export function updateBattleFlightHud(
   hudFrame.aimX = probe.x * ctx.camera.aspect
   hudFrame.aimY = probe.y
   hudFrame.aimVisible = probe.z < 1
+  fillStickHud(hudFrame, input)
 
   hudFrame.tas = aircraft.diag.aero.tas
   hudFrame.ias = indicatedAirspeed(aircraft.diag.aero.tas, aircraft.diag.air.sigma)

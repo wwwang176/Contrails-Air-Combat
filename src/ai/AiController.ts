@@ -87,7 +87,7 @@ const FLOOR_BUFFER = 100
  */
 const CHASE_FLOOR_BUFFER = 300
 import type { Aircraft } from '../aircraft/Aircraft'
-import { createCommand, type Command, type Controller } from '../control/Controller'
+import { clearStick, createCommand, type Command, type Controller } from '../control/Controller'
 
 /** 意圖仲裁與包絡查詢的頻率，Hz。 */
 export const AI_DECISION_HZ = 10
@@ -597,6 +597,7 @@ export class AiController implements Controller {
     raw.trackTurn = false
     // 【投彈高度下限直接寫進輸出】不走延遲緩衝；每一條路徑都一樣，沒有要延遲的東西
     out.releaseFloor = AI_RELEASE_FLOOR
+    clearStick(out)
 
     // 【點放每步恰好推進一次，而且要在早退路徑之前】下面有三條 `return`
     // （飛站位、飛集合點、平飛）。只在交戰那條路徑推進的話，扳機的時鐘會

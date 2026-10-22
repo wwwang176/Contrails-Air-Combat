@@ -66,7 +66,7 @@ function snapshotDbg(d: DirectorDebug): DirectorDebug {
     desiredP: d.desiredP, desiredQ: d.desiredQ, desiredR: d.desiredR,
     actualP: d.actualP, actualQ: d.actualQ, actualR: d.actualR,
     bankAngle: d.bankAngle, wingsLevelBlend: d.wingsLevelBlend, pushMode: d.pushMode, betaAuthority: d.betaAuthority, wingsLevelIntegral: d.wingsLevelIntegral, yawAimIntegral: d.yawAimIntegral,
-    limiter: { ...d.limiter },
+    limiter: { ...d.limiter }, qMin: d.qMin,
   }
 }
 

@@ -8,6 +8,7 @@ import { createDamageMarks } from '../../src/hud/damageMarks'
 import { World } from '../../src/world/World'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
+import { STICK_GAIN } from '../../src/input/mouseStick'
 
 function setup() {
   const world = new World()
@@ -23,6 +24,7 @@ function setup() {
     visuals: { get: () => ({ position: new Vector3(10, 20, 30) }) },
     godCam: createGodCameraState(), godBlend: createCameraBlend(),
     godInput: { lookX: 0, lookY: 0 }, damageMarks: createDamageMarks(),
+    touch: { visible: false },
   }
   const control = createPlayerControl(deps)
   const battle = { takeoverSeat: -1, takeoverKiller: -1 }
@@ -117,6 +119,87 @@ describe('玩家操控的切換', () => {
     step()
     expect(deps.aimAssist.step).toHaveBeenCalledTimes(1)
     expect(deps.aimAssist.reset).toHaveBeenCalledTimes(2)
+  })
+
+  /**
+   * 【滑鼠搖桿】滑鼠位移推搖桿而不是轉瞄準點；瞄準點每幀放在機首，鏡頭因此跟著機首。
+   * 瞄準輔助推的是瞄準點，這個模式沒有，放掉
+   */
+  it('滑鼠搖桿：位移進搖桿、瞄準點在機首、不套瞄準輔助', () => {
+    const { player, input, deps, step } = setup()
+    player.aircraft.state.orientation.setFromAxisAngle(new Vector3(0, 1, 0), 0.5)
+    const nose = new Vector3(0, 0, -1).applyQuaternion(player.aircraft.state.orientation)
+    input.controlMode = 'stick'
+    input.aimWorld.set(1, 0, 0)
+    input.aimDeltaX = 0.1
+    input.aimDeltaY = -0.04
+    step()
+    expect(input.stickActive).toBe(true)
+    expect(input.stickX).toBeCloseTo(0.1 * STICK_GAIN, 12)
+    expect(input.stickY).toBeCloseTo(-0.04 * STICK_GAIN, 12)
+    expect(input.aimDeltaX).toBe(0)
+    expect(input.aimWorld.distanceTo(nose)).toBeLessThan(1e-12)
+    expect(deps.aimAssist.step).not.toHaveBeenCalled()
+    expect(deps.aimAssist.reset).toHaveBeenCalled()
+  })
+
+  it('滑鼠搖桿＋投彈視角：照樣推搖桿，瞄準點在機首', () => {
+    const { input, step } = setup()
+    input.controlMode = 'stick'
+    input.viewMode = 'bomb'
+    input.aimWorld.set(1, 0, 0)
+    input.aimDeltaX = 0.1
+    step()
+    expect(input.stickX).toBeCloseTo(0.1 * STICK_GAIN, 12)
+    expect(input.aimWorld.toArray()).toEqual([0, 0, -1])
+  })
+
+  /** 【觸控一律是滑鼠瞄準】設定是搖桿，觸控層一出現就換回瞄準；換的那一幀搖桿歸零 */
+  it('觸控層顯示時退回滑鼠瞄準，換模式時桿量與方向舵歸零', () => {
+    const { input, deps, step } = setup()
+    input.controlMode = 'stick'
+    step()
+    input.stickX = 0.5
+    input.rudderLeft = true
+    deps.touch.visible = true
+    input.aimDeltaX = 0.1
+    step()
+    expect(input.stickActive).toBe(false)
+    expect(input.stickX).toBe(0)
+    expect(input.rudderLeft).toBe(false)
+    expect(deps.aimAssist.step).toHaveBeenCalledTimes(1)
+  })
+
+  /** 【交還時歸零】`I` 交還、離開上帝視角：代飛前壓著的桿量不該接著飛 */
+  it('交還操縱時桿量與方向舵歸零', () => {
+    const { input, step } = setup()
+    input.controlMode = 'stick'
+    step()
+    input.stickX = 0.7
+    input.rudderRight = true
+    input.playerAi = true
+    step()
+    input.playerAi = false
+    step()
+    expect(input.stickX).toBe(0)
+    expect(input.rudderRight).toBe(false)
+  })
+
+  /**
+   * 【死亡鏡頭的每一幀都清】接手僚機時座位直接換上玩家控制器（`battleRuntime`），不經過這裡的
+   * 交還分支；死亡期間按著的 A／D 會帶到新的一架
+   */
+  it('陣亡期間每一幀桿量與方向舵歸零', () => {
+    const { input, battle, step } = setup()
+    input.controlMode = 'stick'
+    step()
+    input.stickY = 0.9
+    battle.takeoverSeat = 1
+    step()
+    expect(input.stickY).toBe(0)
+    input.rudderRight = true
+    step()
+    expect(input.rudderRight).toBe(false)
   })
 
   it('換場時清掉按住的操控與過渡狀態，不留下過期的離開邊緣', () => {

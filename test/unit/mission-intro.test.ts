@@ -105,6 +105,7 @@ describe('導覽期間玩家的輸入', () => {
       aimDeltaX: 0.3, aimDeltaY: -0.2, firing: true, braking: true, zoom: true,
       lookActive: true, lookYaw: 0.4, lookPitch: 0.1, godView: true, playerAi: true,
       bombTaps: 2, throttle: 0.2,
+      stickX: 0.5, stickY: -0.3, rudderLeft: true, rudderRight: true,
     })
     holdIntroInput(input, nose, 0.8)
     expect(input.aimWorld.toArray()).toEqual(nose.toArray())
@@ -112,6 +113,7 @@ describe('導覽期間玩家的輸入', () => {
       aimDeltaX: 0, aimDeltaY: 0, firing: false, braking: false, zoom: false,
       lookActive: false, lookYaw: 0, lookPitch: 0, godView: false, playerAi: false,
       bombTaps: 0, throttle: 0.8,
+      stickX: 0, stickY: 0, rudderLeft: false, rudderRight: false,
     })
   })
 })

@@ -150,6 +150,8 @@ export function updateBattleCameraFrame(
       ctx.camera, renderPos, renderQuat, input.aimWorld, aircraft.diag.aero.tas,
       input.viewMode, input.lookYaw, input.lookPitch, worldSeconds, bombTarget, input.zoom,
       surfaceAt,
+      // 【只有自己用搖桿飛的時候跟著滾】代飛與死亡鏡頭不是玩家在飛，維持水平
+      input.stickActive && !input.playerAi && !input.dead,
     )
     // 【望遠時自由視角跟著變細】畫面放大幾倍，自由視角每像素轉的角度就除以幾
     input.lookScale = 1 / rig.magnification

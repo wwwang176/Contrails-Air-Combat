@@ -552,6 +552,43 @@ describe('attachInput：上帝視角', () => {
     expect(state.throttle).toBe(CRUISE_THROTTLE)
   })
 
+  /** 【A／D 在飛行中是方向舵】只有滑鼠搖桿讀它（`PlayerController`）；上帝視角下照舊平移 */
+  it('飛行中 A／D 寫方向舵，上帝視角下寫平移不寫方向舵', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    dom.win.fire('keydown', key('KeyA'))
+    dom.win.fire('keydown', key('KeyD'))
+    expect([state.rudderLeft, state.rudderRight]).toEqual([true, true])
+    expect([state.godMove.left, state.godMove.right]).toEqual([false, false])
+    dom.win.fire('keyup', key('KeyA'))
+    dom.win.fire('keyup', key('KeyD'))
+    dom.win.fire('keydown', key('KeyG'))
+    dom.win.fire('keydown', key('KeyA'))
+    expect(state.rudderLeft).toBe(false)
+    expect(state.godMove.left).toBe(true)
+  })
+
+  /** 【放開兩邊都清】按下時在飛行、放開時已經在上帝視角是做得到的順序 */
+  it('按著 D 進上帝視角再放開：方向舵不卡住', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    dom.win.fire('keydown', key('KeyD'))
+    state.godView = true
+    dom.win.fire('keyup', key('KeyD'))
+    expect(state.rudderRight).toBe(false)
+  })
+
+  it('clearHolds 清掉方向舵', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    const b = attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    dom.win.fire('keydown', key('KeyA'))
+    b.clearHolds()
+    expect(state.rudderLeft).toBe(false)
+  })
+
   /** 【`clearHolds` 是給 `main.ts` 用的】重開一場時它直接改 `godView` */
   it('clearHolds 清掉上帝側的 hold', () => {
     const dom = setupDom()

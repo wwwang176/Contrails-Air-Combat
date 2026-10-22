@@ -117,6 +117,24 @@ describe('戰鬥幀的鏡頭', () => {
     expect(f.deps.godCam.position.y).toBe(500 + DEFAULT_GOD_CAMERA.minHeight)
   })
 
+  /** 【只有自己用搖桿飛的時候跟著滾】代飛、死亡鏡頭、滑鼠瞄準都維持水平 */
+  it('鏡頭跟著滾：滑鼠搖桿而且是玩家自己在飛', () => {
+    const f = fixture()
+    const follow = () => f.rig.update.mock.calls.at(-1)![12]
+    f.step()
+    expect(follow()).toBe(false)
+    f.input.stickActive = true
+    f.step()
+    expect(follow()).toBe(true)
+    f.input.playerAi = true
+    f.step()
+    expect(follow()).toBe(false)
+    f.input.playerAi = false
+    f.input.dead = true
+    f.step()
+    expect(follow()).toBe(false)
+  })
+
   it('瞄準器解不出來時回報無解，不留著上一次的落點', () => {
     const f = fixture()
     f.input.viewMode = 'bomb'
