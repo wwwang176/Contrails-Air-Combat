@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fillStickHud } from '../../src/app/battleFlightHud'
-import { STICK_DOT_RADIUS, STICK_RING_RADIUS, drawReticle } from '../../src/hud/widgets/reticle'
+import { STICK_BOX_HALF, STICK_DOT_RADIUS, drawReticle } from '../../src/hud/widgets/reticle'
 import { hintKeys } from '../../src/hud/widgets/hints'
 import { createHudFrame, HUD_COLORS, type HudLayout } from '../../src/hud/types'
 import { createInputState } from '../../src/input/InputState'
@@ -10,19 +10,21 @@ import { en } from '../../src/i18n/en'
 
 const LAYOUT: HudLayout = { width: 1280, height: 720, cx: 640, cy: 360, unit: 360, scale: 1.5 }
 
-/** 記下每一個圓（中心、半徑）與它是描邊還是填滿、用什麼顏色 */
+/** 記下每一個圓（中心、半徑）與它是描邊還是填滿、用什麼顏色，以及描邊的方框 */
 function fakeCtx() {
   const arcs: { x: number; y: number; r: number; how: 'stroke' | 'fill' | '?'; color: string }[] = []
+  const rects: { x: number; y: number; w: number; h: number }[] = []
   let pending: { x: number; y: number; r: number }[] = []
   const ctx = {
     strokeStyle: '', fillStyle: '', lineWidth: 0, globalAlpha: 1,
     beginPath(): void { pending = [] },
     moveTo(): void {}, lineTo(): void {}, closePath(): void {}, setLineDash(): void {},
     arc(x: number, y: number, r: number): void { pending.push({ x, y, r }) },
+    strokeRect(x: number, y: number, w: number, h: number): void { rects.push({ x, y, w, h }) },
     stroke(): void { for (const a of pending) arcs.push({ ...a, how: 'stroke', color: String(ctx.strokeStyle) }) },
     fill(): void { for (const a of pending) arcs.push({ ...a, how: 'fill', color: String(ctx.fillStyle) }) },
   } as unknown as CanvasRenderingContext2D & { strokeStyle: string; fillStyle: string }
-  return { ctx, arcs }
+  return { ctx, arcs, rects }
 }
 
 function stickFrame(x: number, y: number, alpha = 0) {
@@ -81,17 +83,24 @@ describe('fillStickHud：搖桿寫進 HUD 幀', () => {
 })
 
 describe('搖桿指示', () => {
-  it('中央一個圓環；點在搖桿位置（上為正，畫面 y 往下）', () => {
+  it('中央一個方框；點在搖桿位置（上為正，畫面 y 往下）', () => {
     const c = fakeCtx()
     drawReticle(c.ctx, LAYOUT, stickFrame(0.5, -0.5))
-    const R = STICK_RING_RADIUS * LAYOUT.scale
-    const ring = c.arcs.find((a) => a.how === 'stroke' && a.r === R)
-    expect(ring).toBeDefined()
-    expect([ring!.x, ring!.y]).toEqual([LAYOUT.cx, LAYOUT.cy])
+    const H = STICK_BOX_HALF * LAYOUT.scale
+    expect(c.rects).toEqual([{ x: LAYOUT.cx - H, y: LAYOUT.cy - H, w: 2 * H, h: 2 * H }])
     const dot = c.arcs.find((a) => a.how === 'fill' && a.r === STICK_DOT_RADIUS * LAYOUT.scale)
     expect(dot).toBeDefined()
-    expect(dot!.x).toBeCloseTo(LAYOUT.cx + 0.5 * R, 9)
-    expect(dot!.y).toBeCloseTo(LAYOUT.cy + 0.5 * R, 9)
+    expect(dot!.x).toBeCloseTo(LAYOUT.cx + 0.5 * H, 9)
+    expect(dot!.y).toBeCloseTo(LAYOUT.cy + 0.5 * H, 9)
+  })
+
+  /** 斜推到底的點落在方框的角上，不跑出框外 */
+  it('滿桿斜推：點在方框右上角', () => {
+    const c = fakeCtx()
+    drawReticle(c.ctx, LAYOUT, stickFrame(1, 1))
+    const H = STICK_BOX_HALF * LAYOUT.scale
+    const dot = c.arcs.find((a) => a.how === 'fill')!
+    expect([dot.x, dot.y]).toEqual([LAYOUT.cx + H, LAYOUT.cy - H])
   })
 
   it('不畫滑鼠圓圈（半徑 11 的那一個）', () => {
@@ -117,7 +126,7 @@ describe('搖桿指示', () => {
     const f = createHudFrame()
     f.alphaCrit = 1
     drawReticle(c.ctx, LAYOUT, f)
-    expect(c.arcs.some((a) => a.r === STICK_RING_RADIUS * LAYOUT.scale)).toBe(false)
+    expect(c.rects).toEqual([])
     expect(c.arcs.some((a) => a.how === 'fill')).toBe(false)
   })
 })
