@@ -111,7 +111,7 @@ interface SurfaceColors {
  * 剛翻起的濕土，比較深。兩者同色的話分不出哪一團是剛打的。
  */
 export const DIRT_COLORS: Record<DirtSurface, SurfaceColors> = {
-  soil: { clod: 0x3b2a1b, spout: 0x5a4532, dust: 0xb3a38c, mix: 0x3b2a1b },
+  soil: { clod: 0x7b6855, spout: 0x78634f, dust: 0x917b65, mix: 0x7b6855 },
   snow: { clod: 0xeef1f4, spout: 0xe6eaee, dust: 0xf2f4f6, mix: 0x3b2a1b },
 }
 
