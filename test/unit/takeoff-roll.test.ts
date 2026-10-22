@@ -6,6 +6,7 @@ import { PARKED_TAIL_DOWN } from '../../src/specs/ground'
 import {
   CLIMB_SECONDS, createTakeoffRoll, GEAR_CLEARANCE, LIFTOFF_SPEED, ROLL_SECONDS, stepTakeoff,
   TAKEOFF_ROLL_GAP, TAKEOFF_STAGGER, TAKEOFF_TRAIL, TAXI_SPEED, TAXI_TURN_RADIUS, TAXI_TURN_RATE, taxiSeconds,
+  type TakeoffRoll,
 } from '../../src/control/takeoffRoll'
 import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
 import { countDestroyed } from '../../src/battle/objectiveQueries'
@@ -95,9 +96,22 @@ class Idle implements Controller {
   }
 }
 
+/**
+ * 殲滅卡只留玩家一架、沒有開場的紅機：場上的飛機就是起飛的那幾架，每一步只模擬
+ * 它們。紅方存活為 0 時殲滅規則開場就判勝，但 `World.step`、節拍與戰績照常推進
+ * （`stepBattle` 只在勝負之後略過任務進度），這一支不讀勝負。
+ */
 function card(patch: Partial<MissionBattle>): ReadyMissionCard {
   const base = readyCard(KILL_CARD)
-  return { ...base, id: 'test-card', battle: { ...base.battle, ...patch } }
+  return { ...base, id: 'test-card', battle: { ...base.battle, blueCount: 1, redCount: 0, ...patch } }
+}
+
+/**
+ * 把滾行腳本撥到離地前 `steps` 步。腳本的姿態在滾行段只由 `elapsed` 決定，
+ * 撥過去之後再走一步，位置與速度就是那一刻真的會有的值。
+ */
+function toLiftoff(roll: TakeoffRoll, steps: number): void {
+  roll.elapsed = roll.delay + ROLL_SECONDS - steps * DT
 }
 
 /** 開場 0.5 秒，兩架 P-51 在 (0, −3000) 起飛線上滾行 */
@@ -120,7 +134,9 @@ function rollingBattle(
   // 遊戲裡的撞地判定：地面 + 2 m。滾行段那 1.5 m 在這條線之下
   b.world.crashPolicy = flatSeaCrashPolicy(() => 0)
   const before = b.world.combatants.length
-  while (b.world.combatants.length === before) stepBattle(b, DT)
+  // 【等有上限】節拍沒跑的話那一波永遠不進場，沒有上限會卡死整個 worker 而不是轉紅
+  while (b.world.combatants.length === before && b.world.time < 5) stepBattle(b, DT)
+  expect(b.world.combatants.length, '起飛的那一波沒有進場').toBeGreaterThan(before)
   return { b, seats: Array.from({ length: count }, (_, k) => before + k) }
 }
 
@@ -246,7 +262,9 @@ describe('從停機墊滑到跑道', () => {
     const b = createBattle(new Idle(), missionConfigFrom(c), 20260913)
     b.world.crashPolicy = flatSeaCrashPolicy(() => 0)
     const before = b.world.combatants.length
-    while (b.world.combatants.length === before) stepBattle(b, DT)
+    // 【等有上限】理由同 `rollingBattle`
+    while (b.world.combatants.length === before && b.world.time < 5) stepBattle(b, DT)
+    expect(b.world.combatants.length, '滑行的那一波沒有進場').toBeGreaterThan(before)
     return { b, seats: [before, before + 1] }
   }
 
@@ -292,13 +310,16 @@ describe('從停機墊滑到跑道', () => {
     const t = b.world.groundTargets[0]!
     const c = b.world.combatants[t.departedAs]!
     t.hp = 640
+    toLiftoff(t.taxi!, 2)
+    stepBattle(b, DT)
+    expect(c.alive).toBe(false)
     const lastPos = new Vector3()
     let lastSpeed = 0
-    while (!c.alive) {
+    for (let i = 0; !c.alive; i++) {
       lastPos.copy(t.position)
       lastSpeed = t.speed
       stepBattle(b, DT)
-      expect(b.world.time).toBeLessThan(120)
+      expect(i).toBeLessThan(3)
     }
     expect(t.departed).toBe(true)
     expect(t.alive).toBe(false)
@@ -322,6 +343,7 @@ describe('從停機墊滑到跑道', () => {
     const seat = t.departedAs
     const roll = t.taxi!
     // 停在交接的前一步
+    toLiftoff(roll, 3)
     while (roll.elapsed + DT < roll.delay + ROLL_SECONDS) {
       stepBattle(b, DT)
     }
@@ -357,7 +379,8 @@ describe('從停機墊滑到跑道', () => {
     expect(t.alive).toBe(false)
     expect(t.taxi).toBeNull()
     expect(countDestroyed(b.world.groundTargets, b.world.combatants, 'parkedP51')).toBe(1)
-    while (b.world.time < 60) stepBattle(b, DT)
+    // 【腳本跟著那一台一起拿掉】`taxi` 為 null 之後就沒有東西能把它交給那一席
+    stepBattle(b, DT)
     expect(b.world.combatants[seat]!.alive).toBe(false)
     expect(b.roster.pilots[seat]!.alive).toBe(false)
     expect(b.world.killEvents.total).toBe(0)
@@ -456,7 +479,9 @@ describe('滾行中的那一架', () => {
     const { b, seats } = rollingBattle({ ground }, 'parkedP51', 4)
     const cs = seats.map((s) => b.world.combatants[s]!)
     expect(b.world.groundTargets.map((t) => t.departedAs).sort()).toEqual(seats.slice(0, 2).sort())
-    while (b.world.time < 30) stepBattle(b, DT)
+    // 兩台都撥到離地那一步：有地上那一台的兩席上場，另外兩席沒有東西可以交給它們
+    for (const t of b.world.groundTargets) toLiftoff(t.taxi!, 0)
+    stepBattle(b, DT)
     expect(cs.map((c) => c.alive)).toEqual([true, true, false, false])
     expect(b.roster.pilots[seats[3]!]!.alive).toBe(false)
     expect(b.world.killEvents.total).toBe(0)
@@ -491,18 +516,20 @@ describe('滾行中的那一架', () => {
     const ground = [0, 1, 2].map((i) => ({
       unit: 'parkedP51' as const, team: 'red' as const, x: -100, z: -3000 + i * 50, heading: 0,
     }))
-    const { b } = rollingBattle({ ground, destroyCount: 1, destroyUnit: 'parkedP51' }, 'parkedP51')
+    const { b } = rollingBattle({ ground }, 'parkedP51')
     const gt = b.world.groundTargets
     expect(gt.map((t) => t.taxi !== null)).toEqual([true, true, false])
     expect(gt.map((t) => t.alive)).toEqual([true, true, true])
-    while (b.world.time < 30) stepBattle(b, DT)
+    for (const t of gt) if (t.taxi !== null) toLiftoff(t.taxi, 0)
+    stepBattle(b, DT)
     expect(gt.map((t) => t.departed)).toEqual([true, true, false])
-    expect(b.mission.outcome).toBe('fighting')
+    // 【地上那一台退場時 alive 變 false】數的是它起飛的那一席還活不活著，不是它自己
+    expect(countDestroyed(gt, b.world.combatants, 'parkedP51')).toBe(0)
   })
 
   it('滑行與滾行期間 AI 照常可以選它當目標', () => {
-    // 【場上的紅機只有這兩架】藍隊的自由獵手選得到的就只有它們
-    const { b, seats } = rollingBattle({ redCount: 0 })
+    // 【場上的紅機只有這兩架】選得到的就只有它們
+    const { b, seats } = rollingBattle()
     stepBattle(b, DT)
     for (const s of seats) expect(b.board.priority[s]).toBe(1)
     const got = selectTarget(createTargetState(), b.board, b.player.index, 0.1, DEFAULT_TARGET)
@@ -512,6 +539,8 @@ describe('滾行中的那一架', () => {
   it('交還時速度是連續的，不是歸零也不是開局速度', () => {
     const { b, seats } = rollingBattle()
     const c = b.world.combatants[seats[0]!]!
+    // 爬升段的位置是逐步積分的，只能撥到離地之前
+    toLiftoff(c.takeoff!, 2)
     const last = new Vector3()
     while (c.takeoff !== null) {
       last.copy(c.aircraft.state.velocity)

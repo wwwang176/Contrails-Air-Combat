@@ -1,13 +1,14 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { buildAircraft, GLB_MODELS, liveryUrlFor } from '../../src/render/geometry/buildAircraft'
 import { glbTemplate, registerGlbTemplate } from '../../src/render/geometry/glb'
-import { missionConfigFrom } from '../../src/battle/missions'
+import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
 import { battleConfigFrom, DEFAULT_SKIRMISH } from '../../src/battle/skirmish'
 import { BF109K4 } from '../../src/specs/bf109k4'
 import { JU87 } from '../../src/specs/ju87'
 import { YAK1B } from '../../src/specs/yak1b'
+import { A6M5_BOMB_LOADOUT } from '../../src/weapons/stores'
 import { loadGlbTemplatesForNode } from '../fixtures/glb'
-import { readyCard } from '../fixtures/mission'
+import { cardWith, readyCard, KILL_CARD } from '../fixtures/mission'
 
 /**
  * # 任務卡帶入的塗裝複寫
@@ -18,19 +19,20 @@ import { readyCard } from '../fixtures/mission'
 
 beforeAll(loadGlbTemplatesForNode)
 
-const WINTER_TYPES = ['ju87', 'yak1b', 'bf109k4'] as const
-
 describe('塗裝複寫：任務卡 → 戰鬥設定', () => {
-  it('德 M4 卡片指定 Ju 87、Yak-1B、Bf 109 K-4 三型用冬季塗裝，帶進戰鬥設定', () => {
-    const cfg = missionConfigFrom(readyCard('germany-m4'))
-    expect(cfg.liveries).toEqual({ ju87: 'winter', yak1b: 'winter', bf109k4: 'winter' })
-  })
-
-  it('沒有 liveries 的卡片，戰鬥設定也沒有這個鍵（其他任務逐位元不變）', () => {
-    for (const id of ['germany-m1', 'germany-m2', 'germany-m3']) {
-      const cfg = missionConfigFrom(readyCard(id))
-      expect('liveries' in cfg, id).toBe(false)
-    }
+  /**
+   * 【明列透傳】`missionConfigFrom` 不透傳未知欄位。漏抄的症狀是雪地上一架綠飛機、一台沙黃的
+   * 戰車、零戰空手起飛，都不報錯。沒寫的卡連鍵都不放：其他任務的戰鬥設定逐位元不變
+   */
+  it('卡片的 liveries／groundLivery／loadouts：有就原樣帶進戰鬥設定，沒有就連鍵都沒有', () => {
+    const plain = missionConfigFrom(readyCard(KILL_CARD))
+    for (const key of ['liveries', 'groundLivery', 'loadouts'] as const) expect(key in plain, key).toBe(false)
+    const liveries = { ju87: 'winter' }
+    const loadouts = { a6m5: A6M5_BOMB_LOADOUT }
+    const cfg = missionConfigFrom(cardWith(KILL_CARD, { liveries, groundLivery: 'winter', loadouts }))
+    expect(cfg.liveries).toBe(liveries)
+    expect(cfg.groundLivery).toBe('winter')
+    expect(cfg.loadouts).toBe(loadouts)
   })
 
   /** 遭遇戰用同一批機種（Bf 109 K-4）：不受德 M4 的冬季覆寫影響，也沒有地方可以選 */
@@ -40,11 +42,12 @@ describe('塗裝複寫：任務卡 → 戰鬥設定', () => {
 })
 
 describe('塗裝複寫：機型定義與貼圖路徑', () => {
-  it('三型都登記了 winter 變體，路徑與預設的不同', () => {
-    for (const id of WINTER_TYPES) {
-      const def = GLB_MODELS[id]!
-      expect(def.liveryVariants?.['winter'], id).toBeDefined()
-      expect(def.liveryVariants!['winter'], id).not.toBe(def.livery!.url)
+  /** 卡片指名的變體沒登記的話，那一關一載入就拋錯 */
+  it('每一張卡指名的塗裝變體都有登記，路徑與預設的不同', () => {
+    for (const c of Object.values(MISSIONS).flat()) {
+      for (const [id, variant] of Object.entries(c.battle?.liveries ?? {})) {
+        expect(liveryUrlFor(id, variant), `${c.id} ${id}`).not.toBe(liveryUrlFor(id))
+      }
     }
   })
 

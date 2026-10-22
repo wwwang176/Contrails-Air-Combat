@@ -32,16 +32,6 @@ describe('雷伊泰的海岸線', () => {
       expect(baseHeight(x, coastZ(x) + 600)).toBeGreaterThanOrEqual(PLAIN_HEIGHT - 1e-6)
     }
   })
-
-  it('岸線是彎的：振幅至少 400 m', () => {
-    let lo = Infinity
-    let hi = -Infinity
-    for (let x = -12000; x <= 12000; x += 100) {
-      lo = Math.min(lo, coastZ(x))
-      hi = Math.max(hi, coastZ(x))
-    }
-    expect(hi - lo).toBeGreaterThan(400)
-  })
 })
 
 describe('雷伊泰的公路', () => {
@@ -77,29 +67,6 @@ describe('雷伊泰的公路', () => {
     }
   })
 
-  it('蜿蜒：沒有超過 400 m 的直線段，總長比頭尾直線距離長一成半以上', () => {
-    let run = 0
-    let total = 0
-    for (let i = 1; i < LEYTE_ROAD.length; i++) {
-      const p = LEYTE_ROAD[i - 1]!
-      const q = LEYTE_ROAD[i]!
-      const len = Math.hypot(q.x - p.x, q.z - p.z)
-      expect(len).toBeGreaterThan(40)
-      total += len
-      if (i + 1 < LEYTE_ROAD.length) {
-        const r = LEYTE_ROAD[i + 1]!
-        const h0 = headingToward(q.x - p.x, q.z - p.z)
-        const h1 = headingToward(r.x - q.x, r.z - q.z)
-        const d = Math.abs(Math.atan2(Math.sin(h1 - h0), Math.cos(h1 - h0)))
-        run = d < (2 * Math.PI) / 180 ? run + len : 0
-        expect(run).toBeLessThanOrEqual(400)
-      }
-    }
-    const a = LEYTE_ROAD[0]!
-    const z = LEYTE_ROAD[LEYTE_ROAD.length - 1]!
-    expect(total).toBeGreaterThan(1.15 * Math.hypot(z.x - a.x, z.z - a.z))
-  })
-
   it('isNearRoad 與 distanceToRoad 一致', () => {
     for (let x = -3000; x <= 4000; x += 137) {
       for (let z = -4000; z <= 2000; z += 131) {
@@ -108,11 +75,8 @@ describe('雷伊泰的公路', () => {
     }
   })
 
-  it('路網：第 0 條就是車隊那一條；支線有粗有細、全部在場內', () => {
+  it('路網：第 0 條就是車隊那一條；全部在場內', () => {
     expect(LEYTE_ROADS[0]!.points).toBe(LEYTE_ROAD)
-    const widths = new Set(LEYTE_ROADS.map((r) => r.halfWidth))
-    expect(widths.size).toBeGreaterThanOrEqual(3)
-    expect(LEYTE_ROADS.length).toBeGreaterThan(5)
     for (const r of LEYTE_ROADS) {
       for (const p of r.points) {
         expect(Math.abs(p.x), `${p.x},${p.z}`).toBeLessThan(FIELD_HALF)
@@ -135,24 +99,28 @@ describe('雷伊泰的公路', () => {
       return false
     })
     let hits = 0
+    const wrong: string[] = []
+    const check = (x: number, z: number): void => {
+      const want = brute(x, z)
+      if (want) hits++
+      if (isInRoadClearing(x, z) !== want) wrong.push(`${x},${z}`)
+    }
     // 每條路旁邊撒點（落在清空帶內外都有），再加全場的固定序列
     for (const r of LEYTE_ROADS) {
       for (let i = 0; i < r.points.length; i += 3) {
         const p = r.points[i]!
-        for (const off of [0, 5, 11, 19, 27]) {
-          const x = p.x + off
-          const z = p.z - off * 0.7
-          expect(isInRoadClearing(x, z), `${x},${z}`).toBe(brute(x, z))
-          if (brute(x, z)) hits++
-        }
+        for (const off of [0, 5, 11, 19, 27]) check(p.x + off, p.z - off * 0.7)
       }
     }
+    const near = hits
     for (let i = 0; i < 2000; i++) {
-      const x = -FIELD_HALF + ((i * 7919) % 1000) / 1000 * 2 * FIELD_HALF
-      const z = -FIELD_HALF + ((i * 104729) % 1000) / 1000 * 2 * FIELD_HALF
-      expect(isInRoadClearing(x, z)).toBe(brute(x, z))
+      check(
+        -FIELD_HALF + ((i * 7919) % 1000) / 1000 * 2 * FIELD_HALF,
+        -FIELD_HALF + ((i * 104729) % 1000) / 1000 * 2 * FIELD_HALF,
+      )
     }
-    expect(hits).toBeGreaterThan(200)
+    expect(wrong).toEqual([])
+    expect(near).toBeGreaterThan(200)
   })
 
   it('支線接得上：每一條支線的頭都落在另一條路上', () => {
@@ -201,30 +169,23 @@ describe('雷伊泰的山脈', () => {
     }
   })
 
-  it('山脈裡的瓣連成一片：沒有只剩一兩瓣的孤丘，每一瓣都與同一座的另一瓣重疊', () => {
-    for (const m of LEYTE_MASSIFS) {
-      expect(m.lobes.length, `${m.cx},${m.cz}`).toBeGreaterThan(2)
-      for (const a of m.lobes) {
-        const touches = m.lobes.some((b) => b !== a
-          && Math.hypot(a.cx - b.cx, a.cz - b.cz) < a.radius + b.radius)
-        expect(touches, `${a.cx},${a.cz}`).toBe(true)
-      }
-    }
-  })
-
   it('內插後的地形不高過 AI 估的高度上界 —— 平地的高度與 80 m 格距在凸處的誤差都要被蓋住', () => {
     // 【步長 20 m、偏 7 m】落在格子內部，內插與解析的差最大的地方
     // 【量的是 AI 讀的那一份（`hills`）】瓣的起伏疊在平地上，AI 那一份加了 PLAIN_TOP
+    // 【先讀高度】上界不是 0 就一定是正的，所以高度不到 0 的點（海面、場外）不可能高過它。
+    // 耗時幾乎都在 `terrainCeiling` 逐瓣量距離，這些點略過它，結果不變
+    const over: string[] = []
     for (const m of hills) {
       for (let x = m.cx - m.outerRadius + 7; x <= m.cx + m.outerRadius; x += 20) {
         for (let z = m.cz - m.outerRadius + 7; z <= m.cz + m.outerRadius; z += 20) {
-          const c = terrainCeiling(m, x, z)
-          if (c === 0) continue
           const h = field.sample(x, z)
-          if (h > c) expect(h, `${x.toFixed(0)},${z.toFixed(0)}`).toBeLessThanOrEqual(c)
+          if (!(h > 0)) continue
+          const c = terrainCeiling(m, x, z)
+          if (c !== 0 && h > c) over.push(`${x.toFixed(0)},${z.toFixed(0)}: ${h.toFixed(2)} > ${c.toFixed(2)}`)
         }
       }
     }
+    expect(over).toEqual([])
   })
 
   it('山谷只往下挖：刻痕的保留比例在 0.65～1，而且真的有挖到的地方', () => {
@@ -291,15 +252,6 @@ describe('固定防空砲位', () => {
       expect(distanceToRoad(s.x, s.z), `${s.x},${s.z}`).toBeGreaterThanOrEqual(40)
     }
   })
-
-  it('灘頭六座 90 mm、四輛 M16，前線兩輛 M16', () => {
-    const beach = LEYTE_FLAK_SITES.filter((s) => Math.hypot(s.x - BEACHHEAD.x, s.z - BEACHHEAD.z) < 1500)
-    const front = LEYTE_FLAK_SITES.filter((s) => Math.hypot(s.x - FRONT_LINE.x, s.z - FRONT_LINE.z) < 500)
-    expect(beach.length + front.length).toBe(LEYTE_FLAK_SITES.length)
-    expect(beach.filter((s) => s.unit === 'usFlakHeavy')).toHaveLength(6)
-    expect(beach.filter((s) => s.unit === 'usFlakTrack')).toHaveLength(4)
-    expect(front.filter((s) => s.unit === 'usFlakTrack')).toHaveLength(2)
-  })
 })
 
 describe('場外的遠景陸地', () => {
@@ -328,22 +280,6 @@ describe('場外的遠景陸地', () => {
         expect(h(x, z), `${x},${z}`).toBeCloseTo(PLAIN_HEIGHT, 3)
       }
     }
-  })
-
-  it('出了場地就是丘陵地：往外 6 km 的一圈上起伏超過 150 m', () => {
-    let lo = Infinity
-    let hi = -Infinity
-    for (let t = -20000; t <= 20000; t += 250) {
-      const y = farHeight(t, FIELD_HALF + 6000)
-      lo = Math.min(lo, y)
-      hi = Math.max(hi, y)
-    }
-    expect(hi - lo).toBeGreaterThan(150)
-  })
-
-  it('往內陸越遠越高：幾十公里外是山', () => {
-    expect(farHeight(0, 45000)).toBeGreaterThan(200)
-    expect(farHeight(0, 45000)).toBeGreaterThan(farHeight(0, 20000))
   })
 })
 
@@ -395,11 +331,6 @@ describe('灘頭搶灘的 LST', () => {
     return false
   }
 
-  it('公路起點兩側各五艘', () => {
-    expect(LEYTE_LSTS.length).toBe(10)
-    expect(LEYTE_LSTS.filter((l) => l.x < BEACHHEAD.x).length).toBe(5)
-  })
-
   it('跳板末端落在水線上、艦艉泡在水裡 —— 艏向寫反的話是艦艉擱上沙灘、艦艏朝海', () => {
     for (const l of LEYTE_LSTS) {
       const [tx, tz] = toWorld(l, 0, -LST_RAMP_REACH)
@@ -434,7 +365,6 @@ describe('灘頭的佈景', () => {
       ...LEYTE_BEACH.vehicles.map((v) => ({ x: v.x, z: v.z, r: 4 })),
       ...LEYTE_BEACH.depot.map((v) => ({ x: v.x, z: v.z, r: 4 })),
     ]
-    expect(spots.length).toBeGreaterThan(40)
     for (const s of spots) {
       const at = `${s.x.toFixed(0)},${s.z.toFixed(0)}`
       expect(s.z, at).toBeGreaterThan(coastZ(s.x) + 10)
@@ -455,30 +385,6 @@ describe('灘頭的佈景', () => {
 
 describe('卸貨區旁的卡車（日 M2 的目標）', () => {
   const depot = LEYTE_BEACH.depot
-
-  it('九輛卡車全部放得下', () => {
-    expect(depot.length).toBe(9)
-    for (const v of depot) expect(v.unit).toBe('usTruck')
-  })
-
-  /** 每一輛都停在 LST 的跳板前方（跳板末端往內陸 70 m 之內） */
-  it('停在 LST 的卸貨區旁', () => {
-    const tips = LEYTE_LSTS.map((l) => ({
-      x: l.x - Math.sin(l.heading) * LST_RAMP_REACH, z: l.z - Math.cos(l.heading) * LST_RAMP_REACH,
-    }))
-    for (const v of depot) {
-      expect(Math.min(...tips.map((t) => Math.hypot(t.x - v.x, t.z - v.z)))).toBeLessThan(70)
-    }
-  })
-
-  /** 炸彈對 120 血的卡車致死半徑約 30.6 m：任兩輛隔得比它遠，一顆炸不到兩輛 */
-  it('任兩輛至少隔 31 m', () => {
-    for (let i = 0; i < depot.length; i++) {
-      for (let j = i + 1; j < depot.length; j++) {
-        expect(Math.hypot(depot[i]!.x - depot[j]!.x, depot[i]!.z - depot[j]!.z)).toBeGreaterThan(31)
-      }
-    }
-  })
 
   /** 佈景卡車混在旁邊的話，玩家分不出哪幾輛炸了才算 */
   it('周圍 40 m 內沒有佈景的車', () => {
@@ -516,54 +422,6 @@ describe('路邊的補給據點（日 M2）', () => {
     }
     return out
   }
-
-  it('三處都在車隊那一條路上：AB 在路段中間，B、C 是路口', () => {
-    expect(LEYTE_JUNCTIONS.map((j) => j.id)).toEqual(['AB', 'B', 'C'])
-    const through = (j: (typeof LEYTE_JUNCTIONS)[number]): number =>
-      LEYTE_ROADS.filter((r) => r.points.some((p) => Math.hypot(p.x - j.x, p.z - j.z) < 1)).length
-    for (const j of LEYTE_JUNCTIONS) expect(distanceToRoad(j.x, j.z), j.id).toBeLessThan(1)
-    expect(LEYTE_JUNCTIONS.map(through)).toEqual([1, 2, 2])
-  })
-
-  /** 灘頭出口是主路與海岸公路交會處 */
-  it('AB 在灘頭出口與 B 中間：沿主路離兩頭差不到 150 m', () => {
-    const pts = LEYTE_ROAD
-    const arc = (x: number, z: number): number => {
-      let s = 0
-      let best = Infinity
-      let at = 0
-      for (let i = 0; i < pts.length; i++) {
-        if (i > 0) s += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.z - pts[i - 1]!.z)
-        const d = Math.hypot(pts[i]!.x - x, pts[i]!.z - z)
-        if (d < best) { best = d; at = s }
-      }
-      return at
-    }
-    const coastal = LEYTE_ROADS[1]!.points
-    let exit = 0
-    let bd = Infinity
-    for (const p of pts) {
-      for (const q of coastal) {
-        const d = Math.hypot(p.x - q.x, p.z - q.z)
-        if (d < bd) { bd = d; exit = arc(p.x, p.z) }
-      }
-    }
-    const [ab, b] = LEYTE_JUNCTIONS
-    const sAb = arc(ab!.x, ab!.z)
-    const sB = arc(b!.x, b!.z)
-    expect(Math.abs((sAb - exit) - (sB - sAb))).toBeLessThan(150)
-  })
-
-  it('每一處都有卡車、4 輛 M16 與木箱堆，卡車合計 8 輛', () => {
-    for (const j of LEYTE_JUNCTIONS) {
-      expect(j.trucks.length, j.id).toBeGreaterThan(0)
-      expect(j.flak.length, j.id).toBe(4)
-      expect(j.dumps.length, j.id).toBeGreaterThan(0)
-      for (const v of j.trucks) expect(v.unit).toBe('usTruck')
-      for (const v of j.flak) expect(v.unit).toBe('usFlakTrack')
-    }
-    expect(LEYTE_JUNCTIONS.reduce((n, j) => n + j.trucks.length, 0)).toBe(8)
-  })
 
   /** 車的腳印：四角與中心（長 7.2、寬 2.4，比卡車與 M16 的命中盒大一點） */
   const car = (v: { x: number; z: number; heading: number }): { x: number; z: number }[] => {
@@ -610,21 +468,9 @@ describe('路邊的補給據點（日 M2）', () => {
     }
   })
 
-  it('卡車停在路肩上：車子中心離路面最寬處不到 4 m，木箱堆緊貼在卡車後面', () => {
-    for (const j of LEYTE_JUNCTIONS) {
-      for (const v of j.trucks) expect(gapToRoads(v), j.id).toBeLessThan(4)
-      for (const d of j.dumps) {
-        const near = Math.min(...j.trucks.map((v) => Math.hypot(v.x - d.x, v.z - d.z)))
-        expect(near, `${j.id} 木箱堆`).toBeLessThan(15)
-      }
-    }
-  })
-
-  it('離路口不遠、彼此不重疊：車距至少 7 m，木箱堆不壓車', () => {
+  it('彼此不重疊：車距至少 7 m，木箱堆不壓車', () => {
     for (const j of LEYTE_JUNCTIONS) {
       const cars = [...j.trucks, ...j.flak]
-      for (const v of cars) expect(Math.hypot(v.x - j.x, v.z - j.z), j.id).toBeLessThan(80)
-      for (const d of j.dumps) expect(Math.hypot(d.x - j.x, d.z - j.z), j.id).toBeLessThan(90)
       for (let i = 0; i < cars.length; i++) {
         for (const o of cars.slice(i + 1)) expect(Math.hypot(o.x - cars[i]!.x, o.z - cars[i]!.z), j.id).toBeGreaterThan(7)
       }

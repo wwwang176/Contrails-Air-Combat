@@ -1,21 +1,46 @@
 import { describe, expect, it } from 'vitest'
+import { Vector3 } from 'three'
 import { AiController } from '../../src/ai/AiController'
 import { wireBattleAi } from '../../src/app/wireBattleAi'
 import { createBattle, resetBattle } from '../../src/battle/setup'
 import { reinforce } from '../../src/battle/reinforcements'
-import { MISSIONS, missionConfigFrom, type ReadyMissionCard } from '../../src/battle/missions'
+import { missionConfigFrom } from '../../src/battle/missions'
 import type { ReinforceBeat } from '../../src/battle/beats'
 import { createGroundTarget } from '../../src/world/groundTargets'
+import { A6M5 } from '../../src/specs/a6m5'
+import { G4M } from '../../src/specs/g4m'
+import { A6M5_BOMB_LOADOUT } from '../../src/weapons/stores'
+import { cardWith, KILL_CARD } from '../fixtures/mission'
 
-const card = (id: string) => Object.values(MISSIONS).flat().find(c => c.id === id) as ReadyMissionCard
+/**
+ * 卡片的 `shipPriority` 指定紅隊攻哪一級艦。巡洋艦擺在紅隊來的方向、比航母近，
+ * 優先權沒接上的話紅隊會先打巡洋艦，而且不報錯。
+ */
+const card = () => cardWith(KILL_CARD, {
+  redSpec: A6M5,
+  loadouts: { a6m5: A6M5_BOMB_LOADOUT },
+  shipPriority: { theirs: 'essex' },
+  fleet: {
+    center: new Vector3(0, 0, 0), heading: 0, speed: 8,
+    ships: [
+      { cls: 'essex', team: 'blue', offset: new Vector3(0, 0, 0) },
+      { cls: 'wichita', team: 'blue', offset: new Vector3(0, 0, -1500) },
+    ],
+  },
+  waves: [{
+    when: { kind: 'clock', at: 999 }, warnKey: 'mission.allies-m1.wave.more', warnLead: 0,
+    side: 'theirs', spec: G4M, count: 1,
+  }],
+})
 
 describe('任務指定攻擊艦級', () => {
-  it('美 M3 零戰優先航母，重開與魚雷機增援都保留設定', () => {
-    const cfg = missionConfigFrom(card('allies-m3'))
+  it('紅隊優先航母，重開與魚雷機增援都保留設定', () => {
+    const cfg = missionConfigFrom(card())
     const battle = createBattle({ update() {} }, cfg, 1)
     const playerAi = new AiController()
     const wire = () => wireBattleAi(battle.world, cfg.tuning, battle.player, playerAi, { islands: [] })
     wire()
+    expect(battle.red.length).toBeGreaterThan(0)
     for (const c of battle.red) {
       const ai = c.controller as AiController
       expect(ai.priorityShipClass).toBe('essex')
@@ -28,6 +53,7 @@ describe('任務指定攻擊艦級', () => {
     expect((battle.red[0]!.controller as AiController).priorityShipClass).toBe('essex')
     const beat = cfg.beats!.find(b => b.kind === 'reinforce') as ReinforceBeat
     const seats = reinforce(battle, beat.flight)
+    expect(seats.length).toBeGreaterThan(0)
     wire()
     for (const seat of seats) {
       const c = battle.world.combatants[seat]!
@@ -42,17 +68,12 @@ describe('任務指定攻擊艦級', () => {
     }
   })
 
-  it('小隊可覆寫為巡洋艦，日 M2 維持卡車任務且沒有優先艦級', () => {
-    const cfg = missionConfigFrom(card('allies-m3'))
+  /** 【小隊的覆寫在出生時帶上那幾架】編組表上的 `priorityShipClass` 蓋過整隊的設定 */
+  it('編組表的小隊覆寫蓋過卡片的艦級', () => {
+    const cfg = missionConfigFrom(card())
     const units = cfg.units.map(unit => unit.team === 'red'
       ? { ...unit, priorityShipClass: 'wichita' as const } : unit)
     const battle = createBattle({ update() {} }, { ...cfg, units }, 1)
     for (const c of battle.red) expect((c.controller as AiController).priorityShipClass).toBe('wichita')
-    const japan = createBattle({ update() {} }, missionConfigFrom(card('japan-m2')), 1)
-    for (const c of japan.blue) {
-      if (!(c.controller instanceof AiController)) continue
-      expect(c.controller.priorityShipClass).toBeNull()
-      expect(c.controller.priorityGroundUnit).toBe('usTruck')
-    }
   })
 })

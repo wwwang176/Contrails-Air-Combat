@@ -9,9 +9,12 @@ import { NO_PENETRATION_DAMAGE } from '../../src/weapons/armour'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
 import { G4M } from '../../src/specs/g4m'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { AiController } from '../../src/ai/AiController'
 import { createTargetBoard } from '../../src/ai/target'
-import { createBattle, resetBattle, stepBattle } from '../../src/battle/setup'
+import { createBattle, resetBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
+import { lineAbreast } from '../../src/battle/order'
+import { HEAD_ON } from '../../src/battle/entry'
 import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
 import type { ReadyMissionCard } from '../../src/battle/missions'
 import type { Controller } from '../../src/control/Controller'
@@ -365,24 +368,37 @@ const card = MISSIONS.japan.find((c) => c.id === 'japan-m3') as ReadyMissionCard
 describe('resetBattle 要把船一起重設', () => {
 
   /**
-   * 【為什麼這一條非有不可】`japan-m3` 沒有 waves，所以「再打一場」走的是
+   * 【為什麼這一條非有不可】沒有波次的關（如 `japan-m3`）「再打一場」走的是
    * 就地 `resetBattle`，**不重建 World**。少了重設，第二局會是船停在上一局
    * 結束的位置、被打掉的砲位仍然是死的、上一局的高砲彈還在空中而且會引爆
    * —— 全程不報錯。
+   *
+   * 【上一局的殘局直接擺出來】把船挪開、砲位打死、塞一發還在飛的高砲彈，
+   * 不跑模擬去等它們自然發生
    */
   it('船回到起點、砲位滿血、flak 池清空', () => {
-    const b = createBattle(IDLE, missionConfigFrom(card), 1)
-    expect(b.world.ships.length).toBe(8)
+    const b = createBattle(IDLE, {
+      ...DEFAULT_BATTLE,
+      units: lineAbreast(HEAD_ON, P51D, 4, BF109K4, 4),
+      fleet: {
+        center: new Vector3(0, 0, 0), heading: 0, speed: 8,
+        ships: [{ cls: 'fletcher', team: 'red', offset: new Vector3(0, 0, 0) }],
+      },
+    }, 1)
     const s = b.world.ships[0]!
     const spawn = s.position.clone()
 
-    // 【先解除停火】這一關警戒前艦砲不開火（`battle/alert.ts`）；這一條要的是空中有高砲彈
-    b.world.holdFire.fill(0)
-    for (let i = 0; i < 30 * 240; i++) b.world.step(DT)
+    s.position.x += 500
     s.guns[0]!.hp = 0
     s.guns[0]!.alive = false
-    expect(s.position.distanceTo(spawn)).toBeGreaterThan(100)
-    expect(b.world.flak.live).toBeGreaterThan(0)
+    const f = b.world.flak
+    f.x[0] = 0; f.y[0] = 1000; f.z[0] = 0
+    f.vx[0] = 0; f.vy[0] = 300; f.vz[0] = 0
+    f.fuse[0] = 5
+    f.team[0] = 1
+    f.radius[0] = FLAK_RADIUS
+    f.damage[0] = FLAK_DAMAGE
+    f.live = 1
 
     resetBattle(b, 1)
 
@@ -392,10 +408,10 @@ describe('resetBattle 要把船一起重設', () => {
     expect(b.world.flak.live).toBe(0)
   })
 
-  it('八艘船照艦隊座標擺開，不是全部疊在中心', () => {
+  it('船照艦隊座標擺開，不是全部疊在中心', () => {
     const b = createBattle(IDLE, missionConfigFrom(card), 1)
     const key = (s: { position: { x: number; z: number } }) => `${s.position.x},${s.position.z}`
-    expect(new Set(b.world.ships.map(key)).size).toBe(8)
+    expect(new Set(b.world.ships.map(key)).size).toBe(card.battle.fleet!.ships.length)
     for (const s of b.world.ships) expect(s.team).toBe('red')
   })
 })
@@ -485,17 +501,12 @@ describe('擊沉', () => {
     for (const g of s.guns) expect(g.alive).toBe(true)
   })
 
-  /** 【任務規則】japan-m3 的目標是擊沉任意四艘。 */
-  it('japan-m3 的規則是擊沉四艘', () => {
-    const r = missionConfigFrom(card).rules
-    expect(r.kind).toBe('sink')
-    if (r.kind === 'sink') expect(r.count).toBe(4)
-  })
-
-  it('打沉四艘就判勝', () => {
-    const b = createBattle(IDLE, missionConfigFrom(card), 1)
+  it('打沉規則要求的艘數就判勝', () => {
+    const cfg = missionConfigFrom(card)
+    if (cfg.rules.kind !== 'sink') throw new Error('japan-m3 應為 sink 規則')
+    const b = createBattle(IDLE, cfg, 1)
     expect(b.mission.outcome).toBe('fighting')
-    for (const s of b.world.ships.slice(0, 4)) {
+    for (const s of b.world.ships.slice(0, cfg.rules.count)) {
       s.hp = 0
       s.alive = false
       for (const g of s.guns) g.alive = false

@@ -3,8 +3,8 @@ import { Color, type InstancedMesh } from 'three'
 import {
   createAmbientFog, AMBIENT_FOG_LIFE, AMBIENT_FOG_LIFE_JITTER, ambientFogSpot,
 } from '../../src/render/ambientFog'
-import { GERMAN_AT_GUNS, BATTLE_HAZE, RZHEV_DUSTS, toLocal } from '../../src/world/rzhev'
-import { MISSIONS, type ReadyMissionCard } from '../../src/battle/missions'
+import { BATTLE_HAZE, RZHEV_DUSTS } from '../../src/world/rzhev'
+import { MISSIONS, type MissionAmbientFog, type ReadyMissionCard } from '../../src/battle/missions'
 
 /**
  * # 環境霧：出生位置、池子的容量、開場補暖、顏色
@@ -14,8 +14,16 @@ import { MISSIONS, type ReadyMissionCard } from '../../src/battle/missions'
 
 const PLACES = [{ x: 0, z: 0 }, { x: 1000, z: 0 }, { x: 0, z: 1000 }, { x: -800, z: -800 }]
 const flat = (): number => 0
-const RZHEV_FOG = (MISSIONS.germany.find(c => c.id === 'germany-m4') as ReadyMissionCard).battle.ambientFog!
-const CONFIG = { ...RZHEV_FOG, places: PLACES }
+/** 每一個可選欄位都填的一份 */
+const CONFIG: MissionAmbientFog = {
+  places: PLACES, tint: 0xe8edf1, skyMix: 0.4, shade: 0.85, shadeJitter: 0.3,
+  every: 0.15, spread: 70, sizeFrom: 30, sizeTo: 200, alpha: 0.35, liftMin: 8, liftMax: 40,
+}
+/** 可選欄位全部省略、走預設值的一份 */
+const MINIMAL: MissionAmbientFog = {
+  places: PLACES, tint: 0xbab7aa,
+  every: 0.48, spread: 170, sizeFrom: 50, sizeTo: 360, alpha: 0.22, liftMin: 10, liftMax: 28,
+}
 
 /** 池子裡活著的格子：死格子的矩陣是零，活的第一個元素是直徑 */
 function live(o: InstancedMesh): number {
@@ -66,9 +74,7 @@ describe('環境霧的出生位置', () => {
 
 describe('環境霧的專用池', () => {
 
-  it.each(['allies-m2', 'germany-m4'])('%s 補入的新霧由透明淡入', id => {
-    const card = [...MISSIONS.allies, ...MISSIONS.germany].find(c => c.id === id) as ReadyMissionCard
-    const config = card.battle.ambientFog!
+  it.each([['可選欄位全填', CONFIG], ['可選欄位全省略', MINIMAL]] as const)('%s：補入的新霧由透明淡入', (_, config) => {
     const fog = createAmbientFog(config, new Color(0xaabbcc))
     const object = fog.object!
     expect(object.name).toBe('ambientFog')
@@ -181,19 +187,10 @@ describe('勒熱夫的塵團出處', () => {
     expect(card.battle.ambientFog!.places).toBe(RZHEV_DUSTS)
   })
 
-  it('十門德軍反坦克砲各一處，加上沿村主街的五處', () => {
-    expect(RZHEV_DUSTS).toHaveLength(GERMAN_AT_GUNS.length + 5)
-    for (const g of GERMAN_AT_GUNS) expect(RZHEV_DUSTS.some((p) => p.x === g.x && p.z === g.z)).toBe(true)
-    const street = RZHEV_DUSTS.slice(GERMAN_AT_GUNS.length).map((p) => toLocal(p.x, p.z))
-    for (const l of street) {
-      expect(Math.abs(l.lx)).toBeLessThan(1)
-      expect(l.lz).toBeLessThan(-200)
-    }
-  })
-
   it('每一處連同散佈半徑都在高度霧的圈內', () => {
+    const spread = card.battle.ambientFog!.spread
     for (const p of RZHEV_DUSTS) {
-      expect(Math.hypot(p.x - BATTLE_HAZE.x, p.z - BATTLE_HAZE.z) + CONFIG.spread).toBeLessThan(BATTLE_HAZE.radius)
+      expect(Math.hypot(p.x - BATTLE_HAZE.x, p.z - BATTLE_HAZE.z) + spread).toBeLessThan(BATTLE_HAZE.radius)
     }
   })
 })

@@ -8,9 +8,9 @@ import type { AircraftSpec } from '../../src/specs/types'
 import { createGroundTarget, type GroundTarget } from '../../src/world/groundTargets'
 import { airframePose } from '../../src/world/groundAirframe'
 import { SHIP_CLASSES, createShip } from '../../src/world/ships'
-import { createBattle } from '../../src/battle/setup'
-import { missionConfigFrom } from '../../src/battle/missions'
-import { readyCard } from '../fixtures/mission'
+import { createBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
+import { lineAbreast } from '../../src/battle/order'
+import { HEAD_ON } from '../../src/battle/entry'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { HitPart } from '../../src/world/hit'
 import { MATERIAL } from '../../src/world/material'
@@ -71,20 +71,18 @@ describe('地面飛機的命中聲', () => {
 })
 
 describe('停在地上的 P-51', () => {
-  it('德 M3 的停機線：血量與天上那一架相同（1,000）', () => {
-    const b = createBattle(new Idle(), missionConfigFrom(readyCard('germany-m3')), 1)
-    const parked = b.world.groundTargets.filter((t) => t.unit.id === 'parkedP51')
-    expect(parked.length).toBeGreaterThan(0)
-    for (const t of parked) {
-      expect(t.airframe).not.toBeNull()
-      expect(t.airframe!.id).toBe('p51d')
-      expect(t.hp).toBe(1000)
-      expect(t.hp).toBe(t.airframe!.hp)
-    }
-    // 不是飛機的地面目標不掛
-    for (const t of b.world.groundTargets) {
-      if (t.unit.id !== 'parkedP51') expect(t.airframe).toBeNull()
-    }
+  it('建場時停放的 P-51 掛上機體、血量與天上那一架相同；不是飛機的地面目標不掛', () => {
+    const b = createBattle(new Idle(), {
+      ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, B17G, 1, P51D, 1),
+      ground: [
+        { unit: 'parkedP51', team: 'red', x: 0, z: -6000, heading: 0 },
+        { unit: 'truck', team: 'red', x: 100, z: -6000, heading: 0 },
+      ],
+    }, 1)
+    const [parked, truck] = b.world.groundTargets
+    expect(parked!.airframe?.id).toBe(P51D.id)
+    expect(parked!.hp).toBe(P51D.hp)
+    expect(truck!.airframe).toBeNull()
   })
 
   it('打座艙比打翼傷得多（部位倍率生效），而且命中 X 亮', () => {

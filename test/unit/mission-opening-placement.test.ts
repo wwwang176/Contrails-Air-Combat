@@ -1,21 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import { MISSIONS, missionConfigFrom, type ReadyMissionCard } from '../../src/battle/missions'
+import { missionConfigFrom, type ReadyMissionCard } from '../../src/battle/missions'
 import { createBattle, resetBattle } from '../../src/battle/setup'
+import { G4M } from '../../src/specs/g4m'
+import { cardWith, readyCard, KILL_CARD } from '../fixtures/mission'
 
-const card = (id: string) => Object.values(MISSIONS).flat().find(c => c.id === id) as ReadyMissionCard
 const create = (c: ReadyMissionCard) => createBattle({ update() {} }, missionConfigFrom(c), 1)
 
 describe('任務開場擺位', () => {
-  it('美 M1 只平移玩家小隊，轟炸機與敵機維持原位；重開使用相同擺位', () => {
-    const c = card('allies-m1')
-    const { playerFlightOffset: offset, ...battle } = c.battle
-    const before = create({ ...c, battle })
-    const after = create(c)
+  it('playerFlightOffset 只平移玩家小隊，其餘飛機維持原位；重開使用相同擺位', () => {
+    const offset = { x: 40, y: -200, z: 300 }
+    const before = create(readyCard(KILL_CARD))
+    const after = create(cardWith(KILL_CARD, { playerFlightOffset: offset }))
     const playerFlight = after.flights.flights[after.flights.flightOf[after.player.index]!]!
+    expect(playerFlight.roster.length).toBeLessThan(after.world.combatants.length)
     for (const plane of after.world.combatants) {
       const delta = plane.aircraft.state.position.clone().sub(before.world.combatants[plane.index]!.aircraft.state.position)
-      expect(delta.toArray()).toEqual(playerFlight.roster.includes(plane.index)
-        ? [offset!.x, offset!.y, offset!.z] : [0, 0, 0])
+      const want = playerFlight.roster.includes(plane.index) ? offset : { x: 0, y: 0, z: 0 }
+      expect(delta.x, `#${plane.index}`).toBeCloseTo(want.x, 6)
+      expect(delta.y, `#${plane.index}`).toBeCloseTo(want.y, 6)
+      expect(delta.z, `#${plane.index}`).toBeCloseTo(want.z, 6)
     }
     const start = after.player.aircraft.state.position.clone()
     after.player.aircraft.state.position.set(0, 100, 0)
@@ -23,22 +26,28 @@ describe('任務開場擺位', () => {
     expect(after.player.aircraft.state.position).toEqual(start)
   })
 
-  it('日 M1 八架 G4M 均由 201 m 出生，零戰與敵機位置不變', () => {
-    const c = card('japan-m1')
-    const { convoySpawnAltitude: _, ...battle } = c.battle
-    const before = create({ ...c, battle })
-    const after = create(c)
-    const bombers = after.world.combatants.filter(p => p.aircraft.spec.id === 'g4m')
-    expect(bombers).toHaveLength(8)
+  /**
+   * 【用攻擊隊】護送的轟炸機有判定圈，圈的高度是任務高度；壓低出生高度的話
+   * `createBattle` 擋下「永遠判不到」的編隊
+   */
+  it('convoySpawnAltitude：攻擊隊出生在那個高度、水平位置不變，其餘飛機不動', () => {
+    const altitude = 321
+    const strike = { convoySpec: G4M, convoyCount: 2, convoyDuty: 'strike', sinkCount: 1 } as const
+    const before = create(cardWith(KILL_CARD, strike))
+    const card = cardWith(KILL_CARD, { ...strike, convoySpawnAltitude: altitude })
+    const after = create(card)
+    const isBomber = (id: string) => id === card.battle.convoySpec!.id
+    const bombers = after.world.combatants.filter(p => isBomber(p.aircraft.spec.id))
+    expect(bombers.length).toBe(card.battle.convoyCount)
     for (const plane of after.world.combatants) {
       const pos = plane.aircraft.state.position
       const old = before.world.combatants[plane.index]!.aircraft.state.position
-      if (plane.aircraft.spec.id === 'g4m') {
-        expect(pos.y).toBe(201)
+      if (isBomber(plane.aircraft.spec.id)) {
+        expect(pos.y).toBeCloseTo(altitude, 6)
         expect([pos.x, pos.z]).toEqual([old.x, old.z])
       } else expect(pos).toEqual(old)
     }
     resetBattle(after)
-    expect(bombers.every(p => p.aircraft.state.position.y === 201)).toBe(true)
+    for (const p of bombers) expect(p.aircraft.state.position.y).toBeCloseTo(altitude, 6)
   })
 })
