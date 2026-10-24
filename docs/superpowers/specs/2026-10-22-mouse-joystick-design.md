@@ -315,14 +315,20 @@ R = TOUCH_STICK_RADIUS × 視窗高度                      TOUCH_STICK_RADIUS =
 ### 10.3 接法
 
 - `input/touchStick.ts`：`touchStickPosition(dxPx, dyPx, radiusPx, out)` 換算，寫進 `out`、不配置
-- `input/touch.ts`：按下時 `state.controlMode === 'stick'` 的話握點是 `stick`（不是 `aim`），
-  記下按下點；移動時用相對按下點的位移換算，寫進 `TouchControls.stick`（`{ x, y }`）；不累加
-  `aimDeltaX/Y`。放開時 `stick` 歸零、藏方框（`releaseTouchGrip`）
+- `input/touch.ts`：按下時 `state.controlMode === 'stick'` 而且不在上帝視角，握點是 `stick`
+  （不是 `aim`），記下按下點；移動時用相對按下點的位移換算，寫進 `TouchControls.stick`
+  （`{ x, y }`）；不累加 `aimDeltaX/Y`。放開時 `stick` 歸零、藏方框（`releaseTouchGrip`）
+  - **上帝視角下左半邊照舊是瞄準**：上帝鏡頭吃的是 `aimDeltaX/Y`，推搖桿的話鏡頭轉不動
+  - **只認一根手指**：已經有手指在推時，左半邊再按下去的手指整段不算數。兩根一起寫同一份位置
+    的話，放開任一根都會把另一根的桿量清掉、方框也跟著藏起來
+  - `TouchControls.recentre()`：還按著的那根手指，它現在的位置變成新的中心，位置歸零
 - `app/playerControl.ts`：
   - `stickActive` = `controlMode === 'stick'`（拿掉「觸控層沒顯示」那個條件）
-  - 搖桿來源 = 觸控層顯示時是觸控、否則是滑鼠；來源或有效模式換了的那一幀 `centreStick`
+  - 搖桿來源 = 觸控層顯示時是觸控、否則是滑鼠；來源或有效模式換了的那一幀歸零
   - 搖桿分支：來源是觸控時 `stickX/Y` 照抄 `touch.stick`、清掉這一幀的 `aimDeltaX/Y`；
     是滑鼠時照舊 `stepStick`
+  - **歸零一律連觸控一起**（`centreStick` 加 `touch.recentre()`）：只清 `stickX/Y` 的話，下一幀
+    照抄觸控又把按著的手指的位移灌回來，代飛交還、陣亡接手都會帶著舊桿量飛
 - 代飛、上帝視角、死亡鏡頭、開場導覽：照 §3.2 走既有的分支，觸控的位置不進搖桿
 
 ### 10.4 護欄
@@ -334,7 +340,9 @@ R = TOUCH_STICK_RADIUS × 視窗高度                      TOUCH_STICK_RADIUS =
    - 手指不動、回中「快」：多步之後位置不變
    - 觸控層出現或消失的那一幀桿量歸零
    - 設定是滑鼠瞄準＋觸控：照舊走瞄準（`stickActive` 為假）
-4. 觸控層原始碼：按下時依 `controlMode` 分 `stick` 與 `aim`
+   - 交還、陣亡接手之後，按著不動的手指不把舊桿量灌回來
+4. 觸控層（假的視窗與事件）：依設定分搖桿與瞄準、方框位置與大小、不累加瞄準位移、上帝視角下是瞄準、
+   第二根手指不搶、`recentre` 之後從手指現在的位置重新算
 
 ### 10.5 E2E（`test/e2e/touch-stick.e2e.ts`）
 

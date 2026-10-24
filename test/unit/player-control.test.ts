@@ -10,6 +10,16 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
 import { STICK_GAIN } from '../../src/input/mouseStick'
 
+/** 觸控層：`recentre` 照真的那一份，把手指現在的位置當成新的中心，位置歸零 */
+function fakeTouch() {
+  const touch = {
+    visible: false,
+    stick: { x: 0, y: 0 },
+    recentre: vi.fn(() => { touch.stick.x = 0; touch.stick.y = 0 }),
+  }
+  return touch
+}
+
 function setup() {
   const world = new World()
   const playerController = { update() {}, coolWhileAway: vi.fn() }
@@ -24,7 +34,7 @@ function setup() {
     visuals: { get: () => ({ position: new Vector3(10, 20, 30) }) },
     godCam: createGodCameraState(), godBlend: createCameraBlend(),
     godInput: { lookX: 0, lookY: 0 }, damageMarks: createDamageMarks(),
-    touch: { visible: false },
+    touch: fakeTouch(),
   }
   const control = createPlayerControl(deps)
   const battle = { takeoverSeat: -1, takeoverKiller: -1 }
@@ -154,20 +164,109 @@ describe('玩家操控的切換', () => {
     expect(input.aimWorld.toArray()).toEqual([0, 0, -1])
   })
 
-  /** 【觸控一律是滑鼠瞄準】設定是搖桿，觸控層一出現就換回瞄準；換的那一幀搖桿歸零 */
-  it('觸控層顯示時退回滑鼠瞄準，換模式時桿量與方向舵歸零', () => {
+  /**
+   * 【觸控搖桿】位置照抄觸控給的值，不經過滑鼠的累積；這一幀的滑鼠位移清掉。
+   * 瞄準點在機首、不套瞄準輔助，與滑鼠搖桿一樣
+   */
+  it('觸控層顯示＋設定搖桿：搖桿位置照抄觸控', () => {
+    const { player, input, deps, step } = setup()
+    player.aircraft.state.orientation.setFromAxisAngle(new Vector3(0, 1, 0), 0.5)
+    const nose = new Vector3(0, 0, -1).applyQuaternion(player.aircraft.state.orientation)
+    input.controlMode = 'stick'
+    deps.touch.visible = true
+    step()
+    deps.touch.stick.x = 0.6
+    deps.touch.stick.y = -0.3
+    input.aimDeltaX = 0.1
+    step()
+    expect(input.stickActive).toBe(true)
+    expect([input.stickX, input.stickY]).toEqual([0.6, -0.3])
+    expect(input.aimDeltaX).toBe(0)
+    expect(input.aimWorld.distanceTo(nose)).toBeLessThan(1e-12)
+    expect(deps.aimAssist.step).not.toHaveBeenCalled()
+  })
+
+  /** 【不吃回中設定】手指按住不動，「回中：快」也不能把桿量吃掉 */
+  it('觸控搖桿：手指不動，回中「快」多步之後位置不變', () => {
+    const { input, deps, step } = setup()
+    input.controlMode = 'stick'
+    input.stickRecenter = 'fast'
+    deps.touch.visible = true
+    step()
+    deps.touch.stick.x = 0.8
+    for (let i = 0; i < 60; i++) step()
+    expect(input.stickX).toBe(0.8)
+  })
+
+  /**
+   * 【搖桿來源換了就歸零】觸控層出現：滑鼠累積的桿量不帶進觸控；觸控層消失：觸控最後的位置
+   * 不交給滑鼠接著累積
+   */
+  it('觸控層出現或消失的那一幀桿量與方向舵歸零', () => {
     const { input, deps, step } = setup()
     input.controlMode = 'stick'
     step()
     input.stickX = 0.5
     input.rudderLeft = true
     deps.touch.visible = true
+    step()
+    expect(input.stickX).toBe(0)
+    expect(input.rudderLeft).toBe(false)
+    deps.touch.stick.x = 0.7
+    step()
+    expect(input.stickX).toBe(0.7)
+    deps.touch.visible = false
+    step()
+    expect(input.stickX).toBe(0)
+  })
+
+  it('設定是滑鼠瞄準：觸控照舊走瞄準', () => {
+    const { input, deps, step } = setup()
+    deps.touch.visible = true
+    deps.touch.stick.x = 0.6
     input.aimDeltaX = 0.1
     step()
     expect(input.stickActive).toBe(false)
     expect(input.stickX).toBe(0)
-    expect(input.rudderLeft).toBe(false)
     expect(deps.aimAssist.step).toHaveBeenCalledTimes(1)
+  })
+
+  /**
+   * 【歸零要連觸控一起】只清 `stickX/Y` 的話，下一幀照抄觸控又把按著的手指的位移灌回來：
+   * 代飛交還、陣亡後接手僚機都會帶著舊桿量飛
+   */
+  it('觸控搖桿：交還與陣亡時觸控的中心一起重設，下一幀不灌回舊桿量', () => {
+    const { input, deps, battle, step } = setup()
+    input.controlMode = 'stick'
+    deps.touch.visible = true
+    step()
+    deps.touch.stick.x = 0.8
+    step()
+    expect(input.stickX).toBe(0.8)
+    input.playerAi = true
+    step()
+    input.playerAi = false
+    step()
+    step()
+    expect(input.stickX).toBe(0)
+    deps.touch.stick.x = 0.8
+    battle.takeoverSeat = 1
+    step()
+    battle.takeoverSeat = -1
+    step()
+    expect(input.stickX).toBe(0)
+  })
+
+  /** 【代飛期間觸控不進搖桿】交還時歸零，代飛中按著的手指不能直接推飛機 */
+  it('觸控搖桿＋代飛：位置不照抄', () => {
+    const { input, deps, step } = setup()
+    input.controlMode = 'stick'
+    deps.touch.visible = true
+    step()
+    input.playerAi = true
+    deps.touch.stick.x = 0.6
+    step()
+    expect(input.stickX).toBe(0)
   })
 
   /** 【交還時歸零】`I` 交還、離開上帝視角：代飛前壓著的桿量不該接著飛 */
