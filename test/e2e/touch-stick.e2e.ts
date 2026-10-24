@@ -192,13 +192,13 @@ async function main(): Promise<void> {
     await page.screenshot({ path: SHOTS + 'touch-stick-1.png' })
     console.log(`[人工看] ${SHOTS}touch-stick-1.png —— 左邊按下點的方框、中央的搖桿指示`)
 
-    // 6. 放開 → 回中、方框藏起來
+    // 6. 放開（回中「快」）→ 方框藏起來，照時間常數 0.12 s 滑回中間
     await f.up()
-    await waitPhys(page, 0.1)
+    await waitPhys(page, 0.5)
     const sz = await stick(page)
     const hidden = await page.evaluate(() => document.querySelector<HTMLElement>('#touch .t-ring.stick')!.hidden)
-    console.log(`[6] 放開：搖桿 (${sz.x}, ${sz.y})，方框 hidden ${hidden}`)
-    if (sz.x !== 0 || sz.y !== 0) throw new Error('放開之後沒有回中')
+    console.log(`[6] 放開 0.5 s：搖桿 (${sz.x}, ${sz.y})，方框 hidden ${hidden}`)
+    if (Math.abs(sz.x) > 0.05 || Math.abs(sz.y) > 0.05) throw new Error('放開之後沒有回中')
     if (!hidden) throw new Error('放開之後方框還在')
 
     console.log(`[7] console 錯誤 ${errors.length} 則`)

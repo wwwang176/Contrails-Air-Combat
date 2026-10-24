@@ -6,8 +6,8 @@ export const CRUISE_THROTTLE = 0.7
 /** 操控方式：滑鼠瞄準（指方向，指揮儀飛過去）／滑鼠搖桿（滑鼠是一支搖桿） */
 export type ControlMode = 'aim' | 'stick'
 
-/** 搖桿自動回中的三檔。時間常數見 `input/mouseStick.ts` 的 `STICK_RECENTER_SECONDS` */
-export type StickRecenter = 'off' | 'slow' | 'fast'
+/** 搖桿自動回中的四檔。時間常數見 `input/mouseStick.ts` 的 `STICK_RECENTER_SECONDS` */
+export type StickRecenter = 'off' | 'slow' | 'fast' | 'instant'
 
 /**
  * 上帝視角的六個方向與加速。與 `camera/godCamera.ts` 的 `GodCameraInput`

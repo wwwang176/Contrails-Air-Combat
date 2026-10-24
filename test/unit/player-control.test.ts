@@ -232,6 +232,21 @@ describe('玩家操控的切換', () => {
     expect(slow).toBeLessThan(0.8)
   })
 
+  /** 【瞬間：放開就歸零】不等時間常數，下一幀就是 0 */
+  it('觸控搖桿＋回中「瞬間」：放開的下一幀就是 0', () => {
+    const { input, deps, step } = setup()
+    input.controlMode = 'stick'
+    input.stickRecenter = 'instant'
+    deps.touch.visible = true
+    step()
+    deps.touch.stick.x = 0.8
+    deps.touch.stick.y = -0.5
+    step()
+    deps.touch.held = false
+    step()
+    expect([input.stickX, input.stickY]).toEqual([0, 0])
+  })
+
   it('觸控層出現或消失的那一幀桿量與方向舵歸零', () => {
     const { input, deps, step } = setup()
     input.controlMode = 'stick'

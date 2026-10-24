@@ -256,6 +256,7 @@ export const en: Record<MessageKey, string> = {
   'settings.recenter': 'Stick re-centering',
   'settings.recenter.slow': 'Slow',
   'settings.recenter.fast': 'Fast',
+  'settings.recenter.instant': 'Instant',
   'settings.reset': 'Restore defaults',
   'intro.skip': 'Space  Skip',
   'intro.skipTouch': 'Tap to skip',

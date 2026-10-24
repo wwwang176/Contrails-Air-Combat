@@ -152,11 +152,14 @@ export function createPlayerControl({
       // 【滑鼠搖桿】位移推搖桿；投彈視角也一樣。瞄準點放在機首：鏡頭跟著它走，所以鏡頭
       // 跟著機首（與代飛同一個做法），HUD 的投影也落在機首。
       // 【觸控：按著照抄、放開才回中】手指按著時位置是手指給的絕對值，套回中衰減的話按住不動的
-      // 手指會被吃掉；放開之後從放開那一刻的桿量照回中設定走（不吃位移）。這一幀的滑鼠位移由
-      // 下面統一清掉
+      // 手指會被吃掉；放開之後從放開那一刻的桿量照回中設定走（不吃位移），「瞬間」直接歸零。
+      // 這一幀的滑鼠位移由下面統一清掉
       if (touch.visible && touch.held) {
         input.stickX = touch.stick.x
         input.stickY = touch.stick.y
+      } else if (touch.visible && input.stickRecenter === 'instant') {
+        input.stickX = 0
+        input.stickY = 0
       } else if (touch.visible) {
         stepStick(input, 0, 0, worldSeconds)
       } else {
