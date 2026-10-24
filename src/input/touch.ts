@@ -27,7 +27,7 @@ export interface TouchControls {
   readonly active: boolean
   /** 有手指在推搖桿。為真時 `playerControl` 照抄 `stick`；放開之後桿量照回中設定走 */
   readonly held: boolean
-  /** 觸控搖桿的位置（`touchStickPosition`）；沒有手指在推時是 0 */
+  /** 觸控搖桿的位置（`touchStickPosition`）。放開之後留著放開那一刻的位置，`recentre` 歸零 */
   readonly stick: Readonly<TouchStick>
   /**
    * 搖桿歸零：還按著的那根手指，它現在的位置變成新的中心。`playerControl` 歸零搖桿時一起呼叫 ——
@@ -97,7 +97,7 @@ export function attachTouch(root: HTMLElement, state: InputState): TouchControls
     if (g === undefined) return
     grips.delete(id)
     if (g === stickGrip) stickGrip = null
-    releaseTouchGrip(g, state, hold, rings, stick)
+    releaseTouchGrip(g, state, hold, rings)
   }
 
   const releaseAll = (): void => {

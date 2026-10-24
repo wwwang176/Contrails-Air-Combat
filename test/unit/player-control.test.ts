@@ -220,7 +220,6 @@ describe('玩家操控的切換', () => {
       step()
       expect(input.stickX).toBe(0.8)
       deps.touch.held = false
-      deps.touch.stick.x = 0
       for (let i = 0; i < 30; i++) step()
       return input.stickX
     }
@@ -230,6 +229,26 @@ describe('玩家操控的切換', () => {
     expect(fast).toBeLessThan(0.8 * 0.05)
     expect(slow).toBeGreaterThan(fast)
     expect(slow).toBeLessThan(0.8)
+  })
+
+  /**
+   * 【放開那一幀先抄放開的位置】手指在兩幀之間移動再放開，那一下移動不能丟：「關」會把上一幀的
+   * 桿量永久留著，飛機一直滾
+   */
+  it('觸控搖桿：兩幀之間移動再放開，從放開的位置開始照回中設定走', () => {
+    const { input, deps, step } = setup()
+    input.controlMode = 'stick'
+    deps.touch.visible = true
+    step()
+    deps.touch.stick.x = 0.8
+    step()
+    deps.touch.stick.x = 0.3
+    deps.touch.held = false
+    step()
+    expect(input.stickX).toBe(0.3)
+    deps.touch.stick.x = 0.9
+    step()
+    expect(input.stickX).toBe(0.3)
   })
 
   /** 【瞬間：放開就歸零】不等時間常數，下一幀就是 0 */

@@ -319,8 +319,11 @@ R = TOUCH_STICK_RADIUS × 視窗高度                      TOUCH_STICK_RADIUS =
 
 - **從留著的桿量接著推**：按下時搖桿中心放在「手指減掉留著的桿量 × R」那裡，桿量不先跳回 0；
   方框跟著搖桿中心
-- 切到背景、轉直放、觸控層收起來（暫停）都會放掉所有手指（既有的 `releaseAll`），觸控層出現或消失
-  的那一幀搖桿歸零（§3.2）
+- 放開那一幀先抄觸控層留著的放開位置，再照設定走：手指在兩幀之間移動再放開，那一下移動只在
+  `TouchControls.stick` 裡，不抄的話「關」會把上一幀的桿量永久留著
+- 切到背景、轉直放、觸控層收起來（暫停）都會放掉所有手指（既有的 `releaseAll`）。**暫停不歸零**，
+  與滑鼠一樣：「關」的配平在繼續之後還在。暫停期間 `playerControl` 不跑，看不到觸控層消失又出現；
+  §3.2 的「搖桿來源換了」指的是滑鼠與觸控之間換手（筆電的觸控螢幕）
 - 不吃靈敏度設定：R 固定，畫面上的框（§10.2）恰好是滿桿的位置
 - 之後一樣過 §3.4 的死區與曲線
 - `TOUCH_STICK_RADIUS` 是起始值，由試玩裁定
@@ -337,7 +340,7 @@ R = TOUCH_STICK_RADIUS × 視窗高度                      TOUCH_STICK_RADIUS =
 - `input/touch.ts`：按下時 `state.controlMode === 'stick'` 而且不在上帝視角，握點是 `stick`
   （不是 `aim`），搖桿中心取「手指減掉 `state.stickX/Y` × R」；移動時用相對搖桿中心的位移換算，
   寫進 `TouchControls.stick`（`{ x, y }`）；不累加 `aimDeltaX/Y`。`TouchControls.held` 是「有手指在推」。
-  放開時 `stick` 歸零、藏方框（`releaseTouchGrip`）
+  放開時藏方框（`releaseTouchGrip`），`stick` 留著放開那一刻的位置
   - **上帝視角下左半邊照舊是瞄準**：上帝鏡頭吃的是 `aimDeltaX/Y`，推搖桿的話鏡頭轉不動
   - **只認一根手指**：已經有手指在推時，左半邊再按下去的手指整段不算數。兩根一起寫同一份位置
     的話，放開任一根都會把另一根的桿量清掉、方框也跟著藏起來
@@ -345,8 +348,8 @@ R = TOUCH_STICK_RADIUS × 視窗高度                      TOUCH_STICK_RADIUS =
 - `app/playerControl.ts`：
   - `stickActive` = `controlMode === 'stick'`（拿掉「觸控層沒顯示」那個條件）
   - 搖桿來源 = 觸控層顯示時是觸控、否則是滑鼠；來源或有效模式換了的那一幀歸零
-  - 搖桿分支：來源是觸控而且手指按著時 `stickX/Y` 照抄 `touch.stick`；放開時「瞬間」直接歸零、
-    其餘 `stepStick(input, 0, 0, dt)`；兩者都清掉這一幀的 `aimDeltaX/Y`。是滑鼠時照舊 `stepStick`
+  - 搖桿分支：來源是觸控而且手指按著（或上一幀還按著）時 `stickX/Y` 照抄 `touch.stick`；沒按著時
+    「瞬間」直接歸零、其餘 `stepStick(input, 0, 0, dt)`；兩者都清掉這一幀的 `aimDeltaX/Y`。是滑鼠時照舊 `stepStick`
   - **歸零一律連觸控一起**（`centreStick` 加 `touch.recentre()`）：只清 `stickX/Y` 的話，下一幀
     照抄觸控又把按著的手指的位移灌回來，代飛交還、陣亡接手都會帶著舊桿量飛
 - 代飛、上帝視角、死亡鏡頭、開場導覽：照 §3.2 走既有的分支，觸控的位置不進搖桿
@@ -354,11 +357,12 @@ R = TOUCH_STICK_RADIUS × 視窗高度                      TOUCH_STICK_RADIUS =
 ### 10.4 護欄
 
 1. `touchStickPosition`：原點 0、位移 R 是 ±1、超過 R 仍夾在 ±1、斜拖到底 (1, 1)、畫面往上拖是正、寫進 `out`
-2. `releaseTouchGrip`：放開 `stick` 握點時位置歸零、方框藏起來
+2. `releaseTouchGrip`：放開 `stick` 握點時方框藏起來；觸控層放開之後 `stick` 留著放開的位置
 3. `playerControl`：
    - 觸控層顯示＋設定搖桿：`stickActive` 為真、`stickX/Y` 照抄觸控、`aimWorld` = 機首、不呼叫瞄準輔助
    - 手指不動、回中「快」：多步之後位置不變
    - 放開之後：「關」留著、「快」很快回中、「慢」比快慢、「瞬間」下一幀是 0
+   - 兩幀之間移動再放開：從放開的位置開始照回中設定走
    - 觸控層出現或消失的那一幀桿量歸零
    - 設定是滑鼠瞄準＋觸控：照舊走瞄準（`stickActive` 為假）
    - 交還、陣亡接手之後，按著不動的手指不把舊桿量灌回來

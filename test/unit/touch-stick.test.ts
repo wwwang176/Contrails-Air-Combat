@@ -93,7 +93,11 @@ describe('觸控層：左半邊拖曳推搖桿', () => {
     expect([t.state.aimDeltaX, t.state.aimDeltaY]).toEqual([0, 0])
   })
 
-  it('放開：方框藏起來、不再有手指在推', () => {
+  /**
+   * 【放開的位置留著】`playerControl` 在放開那一幀從這裡抄，再照回中設定走；清掉的話兩幀之間
+   * 最後那一下移動就丟了
+   */
+  it('放開：方框藏起來、不再有手指在推，放開的位置留著', () => {
     const t = layer()
     expect(t.touch.held).toBe(false)
     t.down(1, 200, 300)
@@ -102,6 +106,7 @@ describe('觸控層：左半邊拖曳推搖桿', () => {
     t.up(1, 260, 300)
     expect(t.touch.held).toBe(false)
     expect(t.box.hidden).toBe(true)
+    expect(at(t.touch.stick)).toEqual([1, 0])
   })
 
   /**
