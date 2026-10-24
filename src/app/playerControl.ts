@@ -31,7 +31,7 @@ interface PlayerControlDependencies {
   godInput: Pick<GodCameraInput, 'lookX' | 'lookY'>
   damageMarks: DamageMark[]
   /** 觸控層。顯示而且設定是滑鼠搖桿時，搖桿位置照抄它的 `stick` */
-  touch: Pick<TouchControls, 'visible' | 'stick' | 'recentre'>
+  touch: Pick<TouchControls, 'visible' | 'held' | 'stick' | 'recentre'>
 }
 
 /** 共用的操控只綁一次；戰鬥與玩家在接手之後重新傳入 */
@@ -151,11 +151,14 @@ export function createPlayerControl({
     } else if (input.stickActive) {
       // 【滑鼠搖桿】位移推搖桿；投彈視角也一樣。瞄準點放在機首：鏡頭跟著它走，所以鏡頭
       // 跟著機首（與代飛同一個做法），HUD 的投影也落在機首。
-      // 【觸控照抄、不經過累積與回中】觸控的位置是手指給的絕對值；套回中衰減的話按住不動的
-      // 手指會被吃掉。這一幀的滑鼠位移由下面統一清掉
-      if (touch.visible) {
+      // 【觸控：按著照抄、放開才回中】手指按著時位置是手指給的絕對值，套回中衰減的話按住不動的
+      // 手指會被吃掉；放開之後從放開那一刻的桿量照回中設定走（不吃位移）。這一幀的滑鼠位移由
+      // 下面統一清掉
+      if (touch.visible && touch.held) {
         input.stickX = touch.stick.x
         input.stickY = touch.stick.y
+      } else if (touch.visible) {
+        stepStick(input, 0, 0, worldSeconds)
       } else {
         stepStick(input, input.aimDeltaX, input.aimDeltaY, worldSeconds)
       }

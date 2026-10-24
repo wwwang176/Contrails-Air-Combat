@@ -25,6 +25,8 @@ export interface TouchControls {
   readonly visible: boolean
   /** 最近一次輸入來自觸控。為真時出擊不要求指標鎖 */
   readonly active: boolean
+  /** 有手指在推搖桿。為真時 `playerControl` 照抄 `stick`；放開之後桿量照回中設定走 */
+  readonly held: boolean
   /** 觸控搖桿的位置（`touchStickPosition`）；沒有手指在推時是 0 */
   readonly stick: Readonly<TouchStick>
   /**
@@ -42,7 +44,10 @@ export interface TouchControls {
  *
  * 寫的是與鍵鼠同一份 `InputState`：瞄準累加到 `aimDeltaX/Y`（與滑鼠同一個
  * 單位），自由視角走 `slewLook`，投彈鈕走 `pressBomb`，望遠鈕按住時 `zoom`。
- * 搖桿位置寫進 `stick`，由 `playerControl` 照抄進 `InputState.stickX/Y`。
+ * 搖桿位置寫進 `stick`，手指按著時由 `playerControl` 照抄進 `InputState.stickX/Y`。
+ *
+ * 【從留著的桿量接著推】放開之後桿量照回中設定走，「關」「慢」時還留著；按下時搖桿中心放在
+ * 「手指減掉留著的桿量」那裡，不先跳回 0。
  *
  * 【按下的那一刻決定歸屬】手指落在按鈕上，整段都算按鈕；落在空白處，依左右
  * 半邊算瞄準或視角。右拇指從視角區滑過開火鈕不會誤觸，反過來也一樣。
@@ -131,12 +136,14 @@ export function attachTouch(root: HTMLElement, state: InputState): TouchControls
         stickRadius = TOUCH_STICK_RADIUS * window.innerHeight
         rings.stick.style.width = rings.stick.style.height = `${2 * stickRadius}px`
         rings.stick.hidden = false
-        ringAt(rings.stick, e.clientX - stickRadius, e.clientY - stickRadius)
+        stick.x = state.stickX
+        stick.y = state.stickY
+        grip.x = e.clientX - stick.x * stickRadius
+        grip.y = e.clientY + stick.y * stickRadius
+        ringAt(rings.stick, grip.x - stickRadius, grip.y - stickRadius)
         stickGrip = grip
         fingerX = e.clientX
         fingerY = e.clientY
-        stick.x = 0
-        stick.y = 0
         break
       }
       case 'look': rings.look.hidden = false; ringAt(rings.look, e.clientX, e.clientY); state.lookActive = true; break
@@ -192,6 +199,7 @@ export function attachTouch(root: HTMLElement, state: InputState): TouchControls
     hold,
     get visible() { return visible },
     get active() { return active },
+    get held() { return stickGrip !== null },
     stick,
     recentre,
     sync(show) {
