@@ -144,4 +144,14 @@ describe('觸控層：左半邊拖曳推搖桿', () => {
     t.move(1, 260 + RPX / 2, 300)
     expect(at(t.touch.stick)).toEqual([0.5, 0])
   })
+
+  /** 【每幀歸零不寫 DOM】死亡鏡頭期間每幀呼叫；手指不動時中心沒變，不重寫方框位置 */
+  it('recentre：中心沒變就不寫方框', () => {
+    const t = layer()
+    t.down(1, 200, 300)
+    t.box.style['transform'] = 'untouched'
+    t.touch.recentre()
+    t.touch.recentre()
+    expect(t.box.style['transform']).toBe('untouched')
+  })
 })

@@ -102,7 +102,8 @@ export function attachTouch(root: HTMLElement, state: InputState): TouchControls
   function recentre(): void {
     stick.x = 0
     stick.y = 0
-    if (stickGrip === null) return
+    // 【中心沒變就不寫】死亡鏡頭期間每幀都歸零，手指不動時不重組字串、不寫 DOM
+    if (stickGrip === null || (stickGrip.x === fingerX && stickGrip.y === fingerY)) return
     stickGrip.x = fingerX
     stickGrip.y = fingerY
     ringAt(rings.stick, fingerX - stickRadius, fingerY - stickRadius)
@@ -130,10 +131,12 @@ export function attachTouch(root: HTMLElement, state: InputState): TouchControls
         stickRadius = TOUCH_STICK_RADIUS * window.innerHeight
         rings.stick.style.width = rings.stick.style.height = `${2 * stickRadius}px`
         rings.stick.hidden = false
+        ringAt(rings.stick, e.clientX - stickRadius, e.clientY - stickRadius)
         stickGrip = grip
         fingerX = e.clientX
         fingerY = e.clientY
-        recentre()
+        stick.x = 0
+        stick.y = 0
         break
       }
       case 'look': rings.look.hidden = false; ringAt(rings.look, e.clientX, e.clientY); state.lookActive = true; break
