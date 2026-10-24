@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
-  STICK_DEADZONE, STICK_GAIN, STICK_RECENTER_SECONDS, shapeStick, stepStick,
+  STICK_DEADZONE, STICK_GAIN, STICK_RECENTER_GAIN, STICK_RECENTER_SECONDS, shapeStick, stepStick,
 } from '../../src/input/mouseStick'
 import { createInputState } from '../../src/input/InputState'
 
 const DT = 1 / 60
 
-function state(recenter: 'off' | 'slow' | 'fast' = 'off') {
+function state(recenter: 'off' | 'slow' | 'fast' | 'instant' = 'off') {
   const s = createInputState()
   s.stickRecenter = recenter
   return s
@@ -46,8 +46,8 @@ describe('stepStick：搖桿位置', () => {
     expect(s.stickX).toBe(x)
   })
 
-  it('回中「慢」「快」：照時間常數衰減，快的比慢的快', () => {
-    for (const lv of ['slow', 'fast'] as const) {
+  it('回中「慢」「快」「瞬間」：照時間常數衰減，越後面越快', () => {
+    for (const lv of ['slow', 'fast', 'instant'] as const) {
       const s = state(lv)
       stepStick(s, 0.2, 0, 0)
       const x0 = s.stickX
@@ -58,7 +58,41 @@ describe('stepStick：搖桿位置', () => {
       expect(s.stickX / x0).toBeCloseTo(Math.exp(-steps * DT / tau), 9)
     }
     expect(STICK_RECENTER_SECONDS.fast).toBeLessThan(STICK_RECENTER_SECONDS.slow)
+    expect(STICK_RECENTER_SECONDS.instant).toBeLessThan(STICK_RECENTER_SECONDS.fast)
     expect(STICK_RECENTER_SECONDS.off).toBe(Infinity)
+  })
+
+  /** 等速移動 `seconds` 秒之後的桿量；`fps` 是每秒幾幀 */
+  function steady(lv: 'slow' | 'fast' | 'instant', speed: number, fps: number, seconds = 1) {
+    const s = state(lv)
+    const dt = 1 / fps
+    for (let i = 0; i < seconds * fps; i++) stepStick(s, speed * dt, 0, dt)
+    return s
+  }
+
+  /**
+   * 【穩態桿量與幀率無關】等速移動時桿量 = 滑鼠速度 × STICK_GAIN × 倍率 × 時間常數。
+   * 60 與 240 FPS 推出來要一樣，否則換一台螢幕手感就變
+   */
+  it('等速移動：穩態桿量與幀率無關', () => {
+    for (const lv of ['slow', 'fast', 'instant'] as const) {
+      const speed = 0.1
+      const want = speed * STICK_GAIN * STICK_RECENTER_GAIN[lv] * STICK_RECENTER_SECONDS[lv]
+      expect(steady(lv, speed, 60, 16).stickX, lv).toBeCloseTo(want, 6)
+      expect(steady(lv, speed, 240, 16).stickX, lv).toBeCloseTo(want, 6)
+    }
+  })
+
+  /** 【瞬間的靈敏度與快一樣】時間常數短，位移的倍率乘回來；只縮短回中，不改推桿要多快 */
+  it('瞬間：同一個滑鼠速度推出的桿量與「快」一樣，停手之後 0.1 s 內回中', () => {
+    const fast = steady('fast', 0.2, 60, 3)
+    const instant = steady('instant', 0.2, 60, 3)
+    expect(instant.stickX).toBeCloseTo(fast.stickX, 6)
+    const x0 = instant.stickX
+    for (let i = 0; i < 6; i++) stepStick(instant, 0, 0, DT)
+    expect(instant.stickX / x0).toBeLessThan(0.05)
+    for (let i = 0; i < 6; i++) stepStick(fast, 0, 0, DT)
+    expect(fast.stickX / x0).toBeGreaterThan(0.3)
   })
 
   it('暫停（dt = 0）不回中', () => {

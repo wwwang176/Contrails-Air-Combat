@@ -7,11 +7,12 @@ export const CONTROL_MODES: readonly { labelKey: MessageKey; value: ControlMode 
   { labelKey: 'settings.control.stick', value: 'stick' },
 ]
 
-/** 設定頁「搖桿回中」的三檔 */
+/** 設定頁「搖桿回中」的四檔 */
 export const STICK_RECENTER_LEVELS: readonly { labelKey: MessageKey; value: StickRecenter }[] = [
   { labelKey: 'common.off', value: 'off' },
   { labelKey: 'settings.recenter.slow', value: 'slow' },
   { labelKey: 'settings.recenter.fast', value: 'fast' },
+  { labelKey: 'settings.recenter.instant', value: 'instant' },
 ]
 
 export const DEFAULT_CONTROL_MODE: ControlMode = 'aim'

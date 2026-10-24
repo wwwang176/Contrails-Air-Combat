@@ -93,13 +93,38 @@ describe('觸控層：左半邊拖曳推搖桿', () => {
     expect([t.state.aimDeltaX, t.state.aimDeltaY]).toEqual([0, 0])
   })
 
-  it('放開：位置歸零、方框藏起來', () => {
+  /**
+   * 【放開的位置留著】`playerControl` 在放開那一幀從這裡抄，再照回中設定走；清掉的話兩幀之間
+   * 最後那一下移動就丟了
+   */
+  it('放開：方框藏起來、不再有手指在推，放開的位置留著', () => {
     const t = layer()
+    expect(t.touch.held).toBe(false)
     t.down(1, 200, 300)
+    expect(t.touch.held).toBe(true)
     t.move(1, 260, 300)
     t.up(1, 260, 300)
-    expect(at(t.touch.stick)).toEqual([0, 0])
+    expect(t.touch.held).toBe(false)
     expect(t.box.hidden).toBe(true)
+    expect(at(t.touch.stick)).toEqual([1, 0])
+  })
+
+  /**
+   * 【從留著的桿量接著推】回中「關」或「慢」時放開後桿量還在；再按下去不能先跳回 0。
+   * 搖桿中心放在「手指減掉留著的桿量」那裡，方框跟著中心
+   */
+  it('按下時從留著的桿量接著推，方框以搖桿中心為準', () => {
+    const t = layer()
+    t.state.stickX = 0.5
+    t.state.stickY = -0.25
+    t.down(1, 200, 300)
+    expect(at(t.touch.stick)).toEqual([0.5, -0.25])
+    // 桿量往右、往下推：手指在中心的右下，中心在手指的左上
+    const cx = 200 - 0.5 * RPX
+    const cy = 300 - 0.25 * RPX
+    expect(t.box.style['transform']).toBe(`translate(${cx - RPX}px, ${cy - RPX}px)`)
+    t.move(1, 200 + RPX / 4, 300)
+    expect(at(t.touch.stick)).toEqual([0.75, -0.25])
   })
 
   it('設定是滑鼠瞄準：照舊累加瞄準位移，不推搖桿', () => {

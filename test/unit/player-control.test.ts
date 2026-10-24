@@ -10,10 +10,13 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
 import { STICK_GAIN } from '../../src/input/mouseStick'
 
-/** 觸控層：`recentre` 照真的那一份，把手指現在的位置當成新的中心，位置歸零 */
+/**
+ * 觸控層：預設有一根手指按著。`recentre` 照真的那一份，把手指現在的位置當成新的中心，位置歸零
+ */
 function fakeTouch() {
   const touch = {
     visible: false,
+    held: true,
     stick: { x: 0, y: 0 },
     recentre: vi.fn(() => { touch.stick.x = 0; touch.stick.y = 0 }),
   }
@@ -202,6 +205,67 @@ describe('玩家操控的切換', () => {
    * 【搖桿來源換了就歸零】觸控層出現：滑鼠累積的桿量不帶進觸控；觸控層消失：觸控最後的位置
    * 不交給滑鼠接著累積
    */
+  /**
+   * 【放開之後照回中設定】手指按著時不衰減（照抄）；放開之後桿量從放開那一刻起照設定走：
+   * 「關」留著、「慢」「快」照時間常數衰減，與滑鼠同一個 `stepStick`
+   */
+  it('觸控搖桿：放開之後依回中設定——關留著、快很快回中、慢比快慢', () => {
+    const after = (lv: 'off' | 'slow' | 'fast') => {
+      const { input, deps, step } = setup()
+      input.controlMode = 'stick'
+      input.stickRecenter = lv
+      deps.touch.visible = true
+      step()
+      deps.touch.stick.x = 0.8
+      step()
+      expect(input.stickX).toBe(0.8)
+      deps.touch.held = false
+      for (let i = 0; i < 30; i++) step()
+      return input.stickX
+    }
+    expect(after('off')).toBe(0.8)
+    const fast = after('fast')
+    const slow = after('slow')
+    expect(fast).toBeLessThan(0.8 * 0.05)
+    expect(slow).toBeGreaterThan(fast)
+    expect(slow).toBeLessThan(0.8)
+  })
+
+  /**
+   * 【放開那一幀先抄放開的位置】手指在兩幀之間移動再放開，那一下移動不能丟：「關」會把上一幀的
+   * 桿量永久留著，飛機一直滾
+   */
+  it('觸控搖桿：兩幀之間移動再放開，從放開的位置開始照回中設定走', () => {
+    const { input, deps, step } = setup()
+    input.controlMode = 'stick'
+    deps.touch.visible = true
+    step()
+    deps.touch.stick.x = 0.8
+    step()
+    deps.touch.stick.x = 0.3
+    deps.touch.held = false
+    step()
+    expect(input.stickX).toBe(0.3)
+    deps.touch.stick.x = 0.9
+    step()
+    expect(input.stickX).toBe(0.3)
+  })
+
+  /** 【瞬間：放開就歸零】不等時間常數，下一幀就是 0 */
+  it('觸控搖桿＋回中「瞬間」：放開的下一幀就是 0', () => {
+    const { input, deps, step } = setup()
+    input.controlMode = 'stick'
+    input.stickRecenter = 'instant'
+    deps.touch.visible = true
+    step()
+    deps.touch.stick.x = 0.8
+    deps.touch.stick.y = -0.5
+    step()
+    deps.touch.held = false
+    step()
+    expect([input.stickX, input.stickY]).toEqual([0, 0])
+  })
+
   it('觸控層出現或消失的那一幀桿量與方向舵歸零', () => {
     const { input, deps, step } = setup()
     input.controlMode = 'stick'

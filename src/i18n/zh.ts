@@ -258,6 +258,7 @@ export const zh = {
   'settings.recenter': '搖桿回中',
   'settings.recenter.slow': '慢',
   'settings.recenter.fast': '快',
+  'settings.recenter.instant': '瞬間',
   'settings.reset': '恢復預設值',
   'intro.skip': '空白鍵　跳過',
   'intro.skipTouch': '點一下跳過',

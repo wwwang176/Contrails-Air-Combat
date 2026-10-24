@@ -47,8 +47,13 @@ describe('操控方式與搖桿回中的設定', () => {
     expect(() => saveStickRecenter('slow')).not.toThrow()
   })
 
-  it('設定頁的選項：兩種操控方式、三檔回中，順序固定', () => {
+  it('設定頁的選項：兩種操控方式、四檔回中，順序固定', () => {
     expect(CONTROL_MODES.map((m) => m.value)).toEqual(['aim', 'stick'])
-    expect(STICK_RECENTER_LEVELS.map((m) => m.value)).toEqual(['off', 'slow', 'fast'])
+    expect(STICK_RECENTER_LEVELS.map((m) => m.value)).toEqual(['off', 'slow', 'fast', 'instant'])
+  })
+
+  it('「瞬間」存了讀得回來', () => {
+    saveStickRecenter('instant')
+    expect(readStickRecenter()).toBe('instant')
   })
 })
