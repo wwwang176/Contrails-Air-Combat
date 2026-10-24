@@ -683,6 +683,8 @@
       .t-ring { position: absolute; left: -6vh; top: -6vh; width: 12vh; height: 12vh;
         box-sizing: border-box; border-radius: 50%; border: 2px solid rgba(227, 217, 192, .4);
         pointer-events: none; }
+      /* 觸控搖桿：框邊是滿桿。大小與位置由 input/touch.ts 依滿桿位移寫成像素 */
+      .t-ring.stick { left: 0; top: 0; border-radius: 0; }
     </style>
     <link rel="stylesheet" href="/src/ui/frontMenu.css">
     <link rel="stylesheet" href="/src/ui/campaignMenu.css">
@@ -708,6 +710,7 @@
     <div id="touch" hidden>
       <i class="t-ring aim" hidden></i>
       <i class="t-ring look" hidden></i>
+      <i class="t-ring stick" hidden></i>
       <div class="t-btn t-pause" data-t="pause">Ⅱ</div>
       <div class="t-btn t-score" data-t="score" data-i18n="touch.score">戰績</div>
       <div class="t-btn t-view" data-t="view" data-i18n="touch.view">視角</div>

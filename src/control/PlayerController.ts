@@ -93,7 +93,7 @@ export class PlayerController implements Controller {
     // 【跟瞄恆開】滑鼠準星是世界固定的，不是由自己的速度導出的 —— 瞄準方向在
     // 轉就是玩家在跟一個轉彎。見 `Command.trackTurn`
     out.trackTurn = true
-    // 【滑鼠搖桿】讀 `stickActive`（這一幀實際用不用）不讀 `controlMode`：觸控一律是滑鼠瞄準
+    // 【搖桿】讀 `stickActive`（`playerControl` 這一幀套用的）不讀 `controlMode`
     if (this.input.stickActive) {
       shapeStick(this.input.stickX, this.input.stickY, this.shaped)
       out.manual = true

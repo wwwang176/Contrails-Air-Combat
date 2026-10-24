@@ -47,8 +47,9 @@ export interface InputState {
   /** 設定頁選的操控方式。由 `main.ts` 開場讀存檔、設定確定時寫入 */
   controlMode: ControlMode
   /**
-   * 這一幀實際用不用滑鼠搖桿。**由 `playerControl` 每幀寫入**：`controlMode` 是搖桿而且
-   * 觸控層沒有顯示。`PlayerController` 讀這一格，不讀 `controlMode` —— 觸控一律是滑鼠瞄準
+   * 這一幀實際用不用搖桿（滑鼠或觸控）。**由 `playerControl` 每幀寫入**，與搖桿位置同一幀
+   * 更新。`PlayerController` 讀這一格，不讀 `controlMode` —— 設定在幀中途改了，位置與模式
+   * 仍是同一幀的
    */
   stickActive: boolean
   /** 設定頁選的搖桿回中 */
