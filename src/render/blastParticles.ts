@@ -120,8 +120,16 @@ export const EMBER_SIZE_FROM = 1
 export const EMBER_SIZE_TO = 2.2
 export const EMBER_CAPACITY = 1024
 
+/** 可選的交接煙調校；遊戲未指定時保留原本的濃度、尺寸與立即生成行為。 */
+export interface EmberSmokeTuning {
+  readonly opacity: number
+  readonly sizeScale: number
+  readonly fadeIn: number
+}
+
 export function createEmberSmoke(
   capacity = EMBER_CAPACITY, pace = 1, alphaMap?: Texture,
+  tuning?: EmberSmokeTuning,
 ): Particles {
   return createParticles({
     capacity,
@@ -131,11 +139,12 @@ export function createEmberSmoke(
     life: EMBER_LIFE * pace,
     cameraSmoke: true,
     lifeJitter: SMOKE_LIFE_JITTER,
-    sizeFrom: EMBER_SIZE_FROM,
-    sizeTo: EMBER_SIZE_TO,
+    sizeFrom: EMBER_SIZE_FROM * (tuning?.sizeScale ?? 1),
+    sizeTo: EMBER_SIZE_TO * (tuning?.sizeScale ?? 1),
     gravity: SMOKE_GRAVITY,
     drag: SMOKE_DRAG,
-    alphaFrom: SMOKE_ALPHA,
+    alphaFrom: tuning?.opacity ?? SMOKE_ALPHA,
+    fadeIn: tuning?.fadeIn ?? 0,
     shadeJitter: BLAST_SMOKE_SHADE,
     riseSpan: BLAST_SMOKE_RISE_SPAN,
     riseRange: BLAST_RISE_RANGE,

@@ -52,7 +52,7 @@ import { createBlastSparks } from './render/blastSparks'
 import { createSplashes } from './render/splash'
 import { TextureLoader } from 'three'
 import { createBombs, createTorpedoes } from './render/bombs'
-import { createFireChunks } from './render/chunks'
+import { createTexturedFireChunks } from './render/fireSurface'
 import { createMuzzleBlast } from './render/muzzleBlast'
 import { createFirePuff } from './render/firePuff'
 import { JET_RISE, createWaterJets } from './render/waterJets'
@@ -713,7 +713,7 @@ const debris = createDebris()
 //
 // 【七個池一組】球塊火球、光暈、交棒煙、爆炸煙柱、揚塵、水冠、水霧。
 // 配方在 `render/blast.ts`，`/tools/blast.html` 是它的調校台。
-const blastChunks = createFireChunks(undefined, BLAST_PACE, (x, y, z, vx, vy, vz, d, slot) => {
+const blastChunks = createTexturedFireChunks(BLAST_PACE, (x, y, z, vx, vy, vz, d, slot) => {
   emitEmber(blastEmber, slot, x, y, z, vx, vy, vz, d)
 })
 ctx.scene.add(blastChunks.object)

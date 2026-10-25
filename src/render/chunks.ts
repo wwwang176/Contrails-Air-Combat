@@ -172,10 +172,12 @@ export interface ChunkConfig {
    *             `chunkSpin`、`chunkColorRate` 同一條紀律
    */
   color(t: number, out: Color, slot: number): void
+  /** 交棒時的生命比例；省略時與淡出起點相同，不改變火球本身的淡出。 */
+  handoffAt?: number | undefined
   /**
-   * 一塊**開始淡出**時呼叫一次，帶著它當下的位置、速度與直徑。
+   * 一塊**抵達交棒門檻**時呼叫一次，帶著它當下的位置、速度與直徑。
    *
-   * 【時機是開始淡出，不是死亡】煙生在還不透明的火球**裡面**，被火擋著看
+   * 【預設在開始淡出時，也可提早交棒】煙生在還不透明的火球**裡面**，被火擋著看
    * 不見；火一淡就從同一個位置露出來。等火死透才生的話，中間有一格是空的。
    *
    * @param d    這一刻的直徑，m。煙接手時用它當尺寸倍率
@@ -218,6 +220,7 @@ const ANCHOR_QUAT = new Quaternion()
 
 export function createChunks(cfg: ChunkConfig): Particles {
   const { capacity, life } = cfg
+  const handoffAt = cfg.handoffAt ?? CHUNK_FADE
   const px = new Float32Array(capacity)
   const py = new Float32Array(capacity)
   const pz = new Float32Array(capacity)
@@ -332,16 +335,16 @@ export function createChunks(cfg: ChunkConfig): Particles {
         const na = old + dt
         age[i] = na
         if (na >= life) {
-          // 短命火焰可能一幀跨過淡出區間，仍在淡出門檻的位置與尺寸交棒一次。
+          // 短命火焰可能一幀跨過交棒區間，仍在交棒門檻的位置與尺寸交棒一次。
           if (cfg.onFade !== undefined && faded[i] === 0) {
             faded[i] = 1
-            const fadeDt = Math.max(0, life * CHUNK_FADE - old)
+            const fadeDt = Math.max(0, life * handoffAt - old)
             const fadeDamp = Math.exp(-cfg.drag * fadeDt)
             const fx = vx[i]! * fadeDamp
             const fy = vy[i]! * fadeDamp + cfg.gravity * fadeDt
             const fz = vz[i]! * fadeDamp
             cfg.onFade(px[i]! + fx * fadeDt, py[i]! + fy * fadeDt, pz[i]! + fz * fadeDt,
-              fx, fy, fz, cfg.size * sizeMul[i]! * chunkScale(CHUNK_FADE), i)
+              fx, fy, fz, cfg.size * sizeMul[i]! * chunkScale(handoffAt), i)
           }
           M.compose(ZERO, ROT.identity(), ZERO)
           object.setMatrixAt(i, M)
@@ -382,7 +385,7 @@ export function createChunks(cfg: ChunkConfig): Particles {
         object.setColorAt(i, TINT)
         a[i] = chunkAlpha(t)
 
-        if (cfg.onFade !== undefined && faded[i] === 0 && t >= CHUNK_FADE) {
+        if (cfg.onFade !== undefined && faded[i] === 0 && t >= handoffAt) {
           faded[i] = 1
           cfg.onFade(nx, ny, nz, nvx, nvy, nvz, s, i)
         }
@@ -470,6 +473,7 @@ export function blastFireColor(t: number, out: Color): void {
 export function createFireChunks(
   capacity: number = FIRE_CHUNK_CAPACITY, pace = 1,
   onFade?: ChunkConfig['onFade'],
+  handoffAt?: number,
 ): Particles {
   return createChunks({
     capacity,
@@ -479,5 +483,6 @@ export function createFireChunks(
     drag: FIRE_CHUNK_DRAG,
     color: blastFireColor,
     onFade,
+    handoffAt,
   })
 }
