@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createScene } from '../render/scene'
 import { createTerrain, preloadTerrainScenery, type Terrain } from '../render/terrain'
 import { createFireball } from '../render/fireball'
-import { createFireChunks } from '../render/chunks'
+import { createTexturedFireChunks, FIRE_SURFACE } from '../render/fireSurface'
 import { createSpray, WATER_COLOR } from '../render/spray'
 import { createSplashes } from '../render/splash'
 import { JET_RISE, createWaterJets } from '../render/waterJets'
@@ -32,8 +32,8 @@ import { createCameraSmoke } from '../render/cameraSmoke'
  * 與 `main.ts` 相同，粒子池也是同一批建構函數。工具自己抄一份的話，看到的就
  * 不是遊戲裡的東西。
  *
- * 【爆炸還沒接進遊戲】`World.onBombImpact` 目前只推水柱。這裡調出來的配方
- * 之後才會接上去。
+ * 表面紋理與遊戲共用；提早接煙仍是本頁限定試作。
+ * 本頁沒有完整接上遊戲的爆炸光源、火星與附加縮放。
  *
  * 進入方式：`npm run dev` 之後開 /tools/blast.html。
  */
@@ -85,7 +85,15 @@ const tex = (): Texture | undefined => (textured ? smokeTex : undefined)
 let glowOn = true
 let glow = createFireGlow(undefined, paced())
 let mist = createWaterMist(undefined, paced(), tex())
-let ember = createEmberSmoke(undefined, paced(), tex())
+/** 只由展示區啟用；火球的淡出起點與壽命保持原樣。 */
+let improvedHandoff = false
+const EARLY_HANDOFF = 0.55
+function createPreviewEmber(): ReturnType<typeof createEmberSmoke> {
+  return createEmberSmoke(undefined, paced(), tex(), improvedHandoff ? {
+    opacity: 0.92, sizeScale: 1.18, fadeIn: 0.05 * paced(),
+  } : undefined)
+}
+let ember = createPreviewEmber()
 /**
  * 【水柱交棒給水霧】一根柱子開始塌時，沿著柱身留下幾團往外下沉的白霧 ——
  * 與火球交棒給黑煙同一個手法。
@@ -100,15 +108,22 @@ let jets = createWaterJets({
   onFade: jetHandoff,
 })
 /**
- * 【火交棒給煙】每一塊火球開始淡出時，在**同一個位置、同一個尺寸**留下一顆
- * 煙。`EMBER_SIZE_FROM` 是 1，所以直徑直接就是倍率。
+ * 【火交棒給煙】依每塊火球的當下位置與尺寸生成重疊煙團；
+ * 試作可提早交棒，讓更濃、稍大的煙先展開。
  */
 const handoff = (
   x: number, y: number, z: number,
   vx: number, vy: number, vz: number, d: number, slot: number,
 ): void => { emitEmber(ember, slot, x, y, z, vx, vy, vz, d) }
 
-let chunks = createFireChunks(undefined, paced(), handoff)
+// 表面預設與遊戲共用，滑桿只改本頁的 uniform。
+const surfaceStrength: { value: number } = { value: FIRE_SURFACE.strength }
+/** 1 倍維持原試作的斑紋大小；越高越細密。 */
+const surfaceDensity: { value: number } = { value: FIRE_SURFACE.density }
+let surfaceEnabled = true
+let surfaceAmount = surfaceStrength.value
+let chunks = createTexturedFireChunks(paced(), handoff, surfaceStrength, surfaceDensity,
+  improvedHandoff ? EARLY_HANDOFF : undefined)
 let smoke = createBlastSmoke(undefined, paced(), tex())
 let dust = createDust(undefined, paced(), tex())
 for (const p of [glow, chunks, ember, smoke, dust, mist, jets]) ctx.scene.add(p.object)
@@ -124,8 +139,9 @@ function rebuildPaced(): void {
     capacity: 256, life: 1.5 * paced(), rise: JET_RISE, alphaFrom: 0.8,
     onFade: jetHandoff,
   })
-  ember = createEmberSmoke(undefined, paced(), tex())
-  chunks = createFireChunks(undefined, paced(), handoff)
+  ember = createPreviewEmber()
+  chunks = createTexturedFireChunks(paced(), handoff, surfaceStrength, surfaceDensity,
+    improvedHandoff ? EARLY_HANDOFF : undefined)
   smoke = createBlastSmoke(undefined, paced(), tex())
   dust = createDust(undefined, paced(), tex())
   for (const p of [glow, chunks, ember, smoke, dust, mist, jets]) ctx.scene.add(p.object)
@@ -136,7 +152,7 @@ function rebuildPaced(): void {
  * `BlastPools.fireball` 指向哪一個池 —— `emitBlast` 一行都不用改。
  */
 type FireStyle = 'billboard' | 'chunks'
-let fireStyle: FireStyle = 'billboard'
+let fireStyle: FireStyle = 'chunks'
 /** 每幀要步進、重播前要清的全部。水柱不是 `Particles`，但這兩支都有 */
 interface Steppable {
   step(dt: number): void
@@ -171,9 +187,9 @@ let kind: Kind = 'land'
 const live = (): Mutable => LIVE[kind]
 
 /** 時間縮放。爆炸只有 2.5 秒，慢動作是唯一看得清結構的方式 */
-let timeScale = 1
+let timeScale = 0.3
 /** 自動重播的間隔，s。0 = 關 */
-let autoEvery = 0
+let autoEvery = 3
 /** 重播前清場 */
 let clearFirst = true
 /** 固定亂數 —— 這才是「重播」；關掉則每一發都是新的一組方向 */
@@ -204,6 +220,7 @@ function fire(): void {
 
 const rows = document.getElementById('rows') as HTMLElement
 const sceneRows = document.getElementById('scene-rows') as HTMLElement
+const surfaceRows = document.getElementById('surface-rows') as HTMLElement
 const out = document.getElementById('out') as HTMLElement
 const liveOut = document.getElementById('live') as HTMLElement
 
@@ -282,6 +299,23 @@ numRow(sceneRows, '播放速度', 0.05, 1, 0.05, () => timeScale, (v) => { timeS
 numRow(sceneRows, '自動重播', 0, 8, 0.5,
   () => autoEvery, (v) => { autoEvery = v }, (v) => (v === 0 ? '關' : v.toFixed(1) + 's'))
 chkRow(sceneRows, '光暈', () => glowOn, (v) => { glowOn = v; fire() })
+chkRow(surfaceRows, '火焰表面紋理（僅球塊）', () => surfaceEnabled, (v) => {
+  surfaceEnabled = v
+  surfaceStrength.value = v ? surfaceAmount : 0
+  fire()
+})
+numRow(surfaceRows, '紋理強度', 0, 1, 0.05, () => surfaceAmount, (v) => {
+  surfaceAmount = v
+  surfaceStrength.value = surfaceEnabled ? v : 0
+}, (v) => v.toFixed(2))
+numRow(surfaceRows, '紋理密度', 0.5, 3, 0.1, () => surfaceDensity.value, (v) => {
+  surfaceDensity.value = v
+}, (v) => v.toFixed(1) + '×')
+chkRow(surfaceRows, '提早接煙＋加濃（試作）', () => improvedHandoff, (v) => {
+  improvedHandoff = v
+  rebuildPaced()
+  fire()
+})
 chkRow(sceneRows, '近鏡頭煙霧／水霧混合', () => cameraSmokeActive,
   (v) => { cameraSmokeActive = v; cameraSmoke.reset() })
 chkRow(sceneRows, '煙用貼圖', () => textured,
@@ -424,6 +458,12 @@ function setTerrain(k: TerrainKind): void {
 
 const fireBtn = document.getElementById('fire') as HTMLButtonElement
 fireBtn.addEventListener('click', () => fire())
+const toggleUi = document.getElementById('toggle-ui') as HTMLButtonElement
+toggleUi.addEventListener('click', () => {
+  const hidden = document.body.classList.toggle('clean-preview')
+  toggleUi.textContent = hidden ? '顯示設定' : '隱藏設定'
+  toggleUi.setAttribute('aria-expanded', String(!hidden))
+})
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Space') {
     e.preventDefault()
@@ -449,7 +489,7 @@ for (const el of Array.from(kindTabs.children)) {
   el.classList.toggle('on', (el as HTMLElement).dataset.id === 'land')
 }
 for (const el of Array.from(styleTabs.children)) {
-  el.classList.toggle('on', (el as HTMLElement).dataset.id === 'billboard')
+  el.classList.toggle('on', (el as HTMLElement).dataset.id === 'chunks')
 }
 for (const el of Array.from(terrainTabs.children)) {
   el.classList.toggle('on', (el as HTMLElement).dataset.id === 'sea')
@@ -472,6 +512,10 @@ fire()
  * 但 `render()` 之後的**同一個同步區塊**內仍然讀得到。
  */
 interface Probe {
+  /** 固定畫面供展示區截圖驗收，不影響遊戲。 */
+  freeze(): void
+  /** 表面試作的固定時刻比較。0 = 原版；1 = 完整強度。 */
+  setSurface(v: number): void
   fire(k: Kind, style: FireStyle): void
   /** 截圖前設定當量。會重建池 */
   setYield(v: number): void
@@ -483,6 +527,12 @@ interface Probe {
     cols: number, cellW: number, cellH: number): string
 }
 const probe: Probe = {
+  freeze() { timeScale = 0; autoEvery = 0 },
+  setSurface(v) {
+    surfaceAmount = Math.max(0, Math.min(1, v))
+    surfaceEnabled = surfaceAmount > 0
+    surfaceStrength.value = surfaceAmount
+  },
   fire(k, style) {
     kind = k
     fireStyle = style
@@ -511,8 +561,14 @@ const probe: Probe = {
 
     this.fire(k, style)
     for (let f = 0; f < frames; f++) {
-      for (const p of ALL()) p.step(dt)
-      renderBlastFrame(dt, dt)
+      // 截圖間隔可能很長；用小步進保留火轉煙的實際先後順序。
+      for (let remaining = dt; remaining > 1e-8;) {
+        const step = Math.min(1 / 120, remaining)
+        for (const p of ALL()) p.step(step)
+        if (cameraSmokeActive) cameraSmoke.update(ctx.scene, ctx.camera, step, step)
+        remaining -= step
+      }
+      renderBlastFrame(0, 0)
       const col = f % cols
       const rowI = Math.floor(f / cols)
       g.drawImage(canvas, col * cellW, rowI * cellH, cellW, cellH)
@@ -554,7 +610,7 @@ function frame(now: number): void {
   renderBlastFrame(wall, dt)
 
   liveOut.textContent =
-    `火 ${fireball.live}　煙 ${smoke.live}　塵 ${dust.live}\n` +
+    `火 ${fireStyle === 'chunks' ? chunks.live : fireball.live}　煙 ${smoke.live}　塵 ${dust.live}\n` +
     `水霧 ${spray.live}　水柱 ${splashes.live}\n` +
     `距上一發 ${sinceFire.toFixed(1)}s`
   requestAnimationFrame(frame)

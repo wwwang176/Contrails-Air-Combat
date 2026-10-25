@@ -6,6 +6,35 @@ import {
 } from '../../src/render/chunks'
 
 describe('火球跨幀交棒', () => {
+  it('提早交棒時火球仍不透明，跨過淡出與死亡也不重複生成煙', () => {
+    const onFade = vi.fn()
+    const chunks = createChunks({ capacity: 1, life: 1, size: 2,
+      gravity: 0, drag: 0, color: blastFireColor, onFade, handoffAt: 0.55 })
+    chunks.emit(0, 0, 0, 2, 0, 0)
+    chunks.step(0.5)
+    expect(onFade).not.toHaveBeenCalled()
+    chunks.step(0.1)
+    expect(onFade).toHaveBeenCalledTimes(1)
+    expect(onFade.mock.calls[0]![0]).toBeCloseTo(1.2)
+    expect(chunks.object.geometry.getAttribute('aAlpha').getX(0)).toBe(1)
+    chunks.step(0.2)
+    chunks.step(0.3)
+    expect(onFade).toHaveBeenCalledTimes(1)
+    chunks.dispose()
+  })
+
+  it('一幀跨過壽命時仍使用自訂交棒門檻的位置和尺寸', () => {
+    const onFade = vi.fn()
+    const chunks = createChunks({ capacity: 1, life: 0.12, size: 2,
+      gravity: 0, drag: 0, color: blastFireColor, onFade, handoffAt: 0.55 })
+    chunks.emit(10, 20, 30, 5, 0, 0)
+    chunks.step(0.2)
+    expect(onFade).toHaveBeenCalledTimes(1)
+    expect(onFade.mock.calls[0]![0]).toBeCloseTo(10 + 5 * 0.12 * 0.55)
+    expect(onFade.mock.calls[0]![6]).toBeCloseTo(2 * chunkScale(0.55))
+    chunks.dispose()
+  })
+
   it('一幀跨過壽命仍只交棒一次，reset 不補煙', () => {
     const onFade = vi.fn()
     const chunks = createChunks({ capacity: 4, life: 0.12, size: 2,

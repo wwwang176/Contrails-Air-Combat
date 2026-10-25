@@ -41,6 +41,8 @@
         white-space: pre; overflow-x: auto; max-height: 46vh; overflow-y: auto; }
       #hint { position: fixed; bottom: 12px; left: 12px; color: #5f7e99; }
       #live { position: fixed; top: 12px; right: 12px; color: #5f7e99; text-align: right; }
+      #toggle-ui { position: fixed; top: 58px; right: 12px; }
+      .clean-preview #panel, .clean-preview #dump, .clean-preview #hint { display: none; }
     </style>
   </head>
   <body>
@@ -51,6 +53,7 @@
       <div id="kind"></div>
       <h2>火球畫法</h2>
       <div id="style"></div>
+      <div id="surface-rows"></div>
       <h2>場景</h2>
       <div id="terrain"></div>
       <div id="tod"></div>
@@ -63,6 +66,7 @@
       <pre id="out"></pre>
     </div>
     <div id="live"></div>
+    <button id="toggle-ui" aria-expanded="true" aria-controls="panel dump">隱藏設定</button>
     <div id="hint">左鍵拖曳旋轉　滾輪縮放　右鍵平移　空白鍵重播</div>
     <script type="module" src="/src/tools/blast.ts"></script>
   </body>
