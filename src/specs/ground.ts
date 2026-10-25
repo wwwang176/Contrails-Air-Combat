@@ -58,10 +58,7 @@ export interface GroundUnit {
    * 擊毀事件照推（計數與通報照常），只有畫面與音效略過。
    */
   personnel?: true
-  /**
-   * 這一種是車輛（含反坦克砲、火車）。子彈打上去是金屬撞擊聲（`MATERIAL.vehicle`），
-   * 不是建物那一種碎屑聲
-   */
+  /** 這一種是車輛（含反坦克砲、火車）：隨地面俯仰、側傾 */
   vehicle?: true
   /** 命中盒，遊戲座標。 */
   hull: readonly Box[]

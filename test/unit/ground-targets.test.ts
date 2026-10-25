@@ -8,7 +8,7 @@ import { NO_PENETRATION_DAMAGE } from '../../src/weapons/armour'
 import { GROUND_UNITS } from '../../src/specs/ground'
 import { boundingRadius } from '../../src/world/hit'
 import { BOMB_BLAST_DAMAGE } from '../../src/weapons/bomb'
-import { MATERIAL } from '../../src/world/material'
+import { MATERIAL, groundTargetMaterial } from '../../src/world/material'
 
 /**
  * 地面目標接進 World 的護欄。
@@ -62,7 +62,7 @@ describe('地面目標的資料', () => {
     }
   })
 
-  /** 【車輛打起來是金屬聲】戰車、卡車、半履帶車、反坦克砲、火車；建物、砲位、人不是 */
+  /** 【車輛隨地面俯仰、側傾】戰車、卡車、半履帶車、反坦克砲、火車；建物、砲位、人不是 */
   it('車輛的登記', () => {
     expect(GROUND_UNITS.filter((u) => u.vehicle === true).map((u) => u.id).sort()).toEqual([
       'atGun', 'boxcar', 'flatcar', 'locomotive', 'panzer4', 'tank', 'tankDug', 'tender', 'tiger', 'truck',
@@ -87,19 +87,28 @@ describe('子彈打地面目標', () => {
     expect(world.hitEvents.count).toBeGreaterThan(0)
   })
 
-  /** 撞擊聲看材質：車輛記 `vehicle`，其餘地面目標記 `ground` */
-  it('打中車輛記車輛材質，打中建物記地面材質', () => {
-    const { world } = fieldWith('truck')
-    shoot(world, 0)
-    expect(world.materialHits.count).toBe(1)
-    expect(world.materialHits.data[3]).toBe(MATERIAL.vehicle)
-    const dump = new World()
-    dump.groundAt = () => 0
-    dump.waterAt = () => -Infinity
-    dump.groundTargets.push(createGroundTarget(0, 'fuelDump', 'red', 0, 0, 0))
-    shoot(dump, 0)
-    expect(dump.materialHits.count).toBe(1)
-    expect(dump.materialHits.data[3]).toBe(MATERIAL.ground)
+  /** 撞擊聲看材質：人記 `ground`（打在腳邊的土），其餘地面目標記 `metal` */
+  it('打中車輛、堆放記金屬材質，打中步兵班、迫擊砲班記地面材質', () => {
+    for (const [id, material] of [
+      ['truck', MATERIAL.metal], ['fuelDump', MATERIAL.metal], ['infantry', MATERIAL.ground], ['mortar', MATERIAL.ground],
+    ] as const) {
+      const world = new World()
+      world.groundAt = () => 0
+      world.waterAt = () => -Infinity
+      world.groundTargets.push(createGroundTarget(0, id, 'red', 0, 0, 0))
+      shoot(world, 0)
+      expect(world.materialHits.count, id).toBe(1)
+      expect(world.materialHits.data[3], id).toBe(material)
+    }
+  })
+
+  /** 【只有人不是金屬】油廠建物、防空砲位、探照燈、露天堆放都跟車輛同一種命中聲 */
+  it('地面目標的材質：步兵班、迫擊砲班是地面，其餘都是金屬', () => {
+    const ground = GROUND_UNITS.filter((u) => groundTargetMaterial(u) === MATERIAL.ground).map((u) => u.id)
+    expect(ground).toEqual(['infantry', 'mortar'])
+    for (const id of ['chimney', 'oilTank', 'flakHeavy', 'flakLight', 'usFlakHeavy', 'searchlight', 'bombDump', 'parkedB17']) {
+      expect(groundTargetMaterial(GROUND_UNITS.find((u) => u.id === id)!), id).toBe(MATERIAL.metal)
+    }
   })
 
   it('同隊的子彈穿過去', () => {

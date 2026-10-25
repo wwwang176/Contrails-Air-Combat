@@ -10,10 +10,15 @@
 export const MATERIAL = {
   /** 艦體：厚鋼板 */
   ship: 0,
-  /** 地表與地面目標：建築、砲位，以及其他不是金屬機體的 */
+  /** 地表，以及打在人身上（步兵班、迫擊砲班：打中的是他們腳邊的土） */
   ground: 1,
-  /** 金屬機體：車輛（`GroundUnit.vehicle`）及地面飛機（`GroundTarget.airframe`） */
-  vehicle: 2,
+  /** 金屬：車輛、地面飛機、油廠建物、防空砲位、探照燈、露天堆放的油桶與炸彈 */
+  metal: 2,
 } as const
 
 export type ImpactMaterial = typeof MATERIAL[keyof typeof MATERIAL]
+
+/** 地面目標的材質：人是地面，其餘都是金屬 */
+export function groundTargetMaterial(unit: { readonly personnel?: boolean }): ImpactMaterial {
+  return unit.personnel === true ? MATERIAL.ground : MATERIAL.metal
+}
