@@ -83,25 +83,42 @@ describe('撞擊材質', () => {
   })
 
   /**
-   * 【鋼板與地面是兩種聲音】船是金屬悶響、地面是撞擊加碎屑。
+   * 【鋼板與地面是兩種聲音】船是金屬悶響、地面是子彈鑽進土裡。
    *
    * 【悶響靠低通】降音高會把每一下拉長，連續掃射時疊成一片轟隆；低通只切掉
    * 高頻的殘響，長度與節奏維持原樣。
    */
-  it('船用命中庫且只留低頻，地面目標用碎屑庫', () => {
+  it('船用命中庫且只留低頻，地表與人用泥土庫、不過低通', () => {
     expect(impactSound(MATERIAL.ship).pool).toBe('hit')
     expect(impactSound(MATERIAL.ship).cutoffHz).toBeLessThan(1000)
-    expect(impactSound(MATERIAL.ship).cutoffHz)
-      .toBeLessThan(impactSound(MATERIAL.ground).cutoffHz)
-    expect(impactSound(MATERIAL.ground).pool).toBe('debris')
+    expect(impactSound(MATERIAL.ground)).toEqual({ pool: 'dirt', gainDb: 0, rate: 1, cutoffHz: 22000 })
   })
 
   /**
-   * 【車輛是命中庫，比船清脆】試聽定案：一級低通 5350 Hz、0 dB、原速。遊戲的定位聲道是兩級低通，
+   * 【金屬是命中庫，比船清脆】試聽定案：一級低通 5350 Hz、0 dB、原速。遊戲的定位聲道是兩級低通，
    * A 加權大 0.58 dB，所以是 −0.6 dB
    */
-  it('車輛用命中庫，低通 5350 Hz、−0.6 dB', () => {
-    expect(impactSound(MATERIAL.vehicle)).toEqual({ pool: 'hit', gainDb: -0.6, rate: 1, cutoffHz: 5350 })
+  it('金屬（車輛、建物、砲位、堆放）用命中庫，低通 5350 Hz、−0.6 dB', () => {
+    expect(impactSound(MATERIAL.metal)).toEqual({ pool: 'hit', gainDb: -0.6, rate: 1, cutoffHz: 5350 })
+  })
+
+  /**
+   * 【泥土庫 19 支一起抽】單發 4、連發切出的單下 10、跳彈 5。每支的 A 加權響度（加上補償）
+   * 對齊碎屑庫，換過去不會突然變大變小
+   */
+  it('泥土庫是 19 支，每支都有檔、在清單裡、帶包絡', () => {
+    expect(POOLS.dirt).toEqual(Array.from({ length: 19 }, (_, i) => `dirt-${i + 1}`))
+    for (const id of POOLS.dirt) {
+      expect(existsSync(`public/audio/${id}.mp3`), id).toBe(true)
+      const entry = manifest[id] as { envelopeDb?: number[] } | undefined
+      expect(entry?.envelopeDb?.length, id).toBeGreaterThan(0)
+    }
+  })
+
+  /** 【碎屑庫只剩水面用】打到水面的第一層還是它，檔案不能拿掉 */
+  it('碎屑庫留著給打到水面', () => {
+    expect(POOLS.debris).toHaveLength(4)
+    for (const id of POOLS.debris) expect(manifest[id], id).toBeDefined()
   })
 
   /**
@@ -120,7 +137,7 @@ describe('撞擊材質', () => {
   /** 【預設跟著地面走】沒定材質的東西多半不是鋼板 */
   it('沒定義的材質走預設，不是沒聲音', () => {
     for (const bad of [99, -1, 1.5, NaN]) {
-      expect(impactSound(bad).pool, String(bad)).toBe('debris')
+      expect(impactSound(bad).pool, String(bad)).toBe('dirt')
       expect(impactSound(bad).rate, String(bad)).toBe(1)
     }
   })

@@ -124,7 +124,7 @@ export const CATEGORY: Record<Category, CategorySpec> = {
   warn: { gainDb: -10, ref: 0, max: 0 },
   wind: { gainDb: -6, ref: 0, max: 0 },
   /**
-   * 子彈打在船殼、建築上。**定位音源** —— 掃射時聽得出打在哪裡。
+   * 子彈打在地表、地面目標、船殼上（`IMPACT_BY_MATERIAL`）。**定位音源** —— 掃射時聽得出打在哪裡。
    *
    * 【射程比擦過遠、比爆炸近】它是一連串小撞擊，1.2 km 之外就只是雜訊了
    */
@@ -173,8 +173,13 @@ export const POOLS = {
   damage: range('damage', 10),
   rattle: range('rattle', 15),
   radio: range('radio', 4),
-  /** 子彈打在地面、建築上：一下撞擊加碎屑散落 */
+  /** 一下撞擊加碎屑散落。只用在打到水面的第一層（`WATER_HIT`） */
   debris: range('debris', 4),
+  /**
+   * 子彈打進泥土：單發命中 4 支（1–4）、從一段連發切出的單下 10 支（5–14）、帶呼嘯的跳彈 5 支（15–19），
+   * 19 支一起平均抽。每支的 A 加權響度（加上補償）對齊碎屑庫
+   */
+  dirt: range('dirt', 19),
   /** 打到水面的第二層：1.5 s 的落水聲，最後 1 s 淡出（`WATER_HIT`） */
   waterHit: ['water-hit-1'],
   // 自己的槍：一次擊發一個 one-shot。命名與砲塔同一套（武器 id ×挺數）
@@ -330,9 +335,8 @@ export function turretCutoffHz(file: string): number | undefined {
  * 【為什麼有預設】新加的目標忘了定材質、或材質新增了而這張表沒跟上時，
  * 走 `IMPACT_DEFAULT` —— 會有聲音，只是不特別。整個沒聲音才是難查的那種壞法。
  *
- * 【艦體用命中庫、其餘用碎屑庫】打在厚鋼板上是金屬悶響（命中庫，切掉高頻）；
- * 打在地面、建築上會濺起碎屑，那是另一種聲音。**預設也是碎屑庫** —— 沒定
- * 材質的東西多半不是鋼板。
+ * 【三種聲音】艦體是厚鋼板的悶響（命中庫，切掉高頻）；車輛、建物、砲位是薄一些的鋼板
+ * （命中庫，留得比較亮）；地表與打在人身上是子彈鑽進土裡（泥土庫）。預設走泥土庫。
  */
 export interface ImpactSound {
   pool: Pool
@@ -342,7 +346,7 @@ export interface ImpactSound {
   cutoffHz: number
 }
 
-const IMPACT_DEFAULT: ImpactSound = { pool: 'debris', gainDb: 0, rate: 1, cutoffHz: 22000 }
+const IMPACT_DEFAULT: ImpactSound = { pool: 'dirt', gainDb: 0, rate: 1, cutoffHz: 22000 }
 
 const IMPACT_BY_MATERIAL: readonly ImpactSound[] = [
   /**
@@ -352,10 +356,10 @@ const IMPACT_BY_MATERIAL: readonly ImpactSound[] = [
    * 連續掃射時會疊成一片轟隆。低通只切掉高頻的殘響，長度與節奏維持原樣。
    */
   { pool: 'hit', gainDb: 6, rate: 1, cutoffHz: 550 },
-  /** 地面目標：建築、砲位 */
-  { pool: 'debris', gainDb: 0, rate: 1, cutoffHz: 22000 },
+  /** 地表、人 */
+  { pool: 'dirt', gainDb: 0, rate: 1, cutoffHz: 22000 },
   /**
-   * 車輛：命中庫，比艦體亮 —— 薄得多的鋼板。
+   * 金屬（車輛、地面飛機、建物、砲位、堆放）：命中庫，比艦體亮 —— 薄得多的鋼板。
    *
    * 【−0.6 dB】試聽定的是一級低通 5350 Hz、0 dB；遊戲的定位聲道是兩級串接，截止頻率附近的
    * 共振疊起來，A 加權（最響 0.4 s 窗的 RMS）平均大 0.58 dB，這裡扣回來

@@ -60,12 +60,12 @@ describe('地面飛機的命中聲', () => {
   it.each([
     ['parkedP51', P51D],
     ['parkedB17', B17G],
-  ] as const)('%s 被子彈擊中時使用車輛材質，保留飛機的部位傷害', (unit, spec) => {
+  ] as const)('%s 被子彈擊中時使用金屬材質，保留飛機的部位傷害', (unit, spec) => {
     const { w, t, shooter } = setup(unit, spec)
     expect(shootDown(w, shooter, partCenter(t, 'cockpit'))).toBe(1)
     expect(t.hp).toBeLessThan(spec.hp)
     expect(w.materialHits.count).toBe(1)
-    expect(w.materialHits.data[3]).toBe(MATERIAL.vehicle)
+    expect(w.materialHits.data[3]).toBe(MATERIAL.metal)
     expect(t.unit.vehicle).toBeUndefined()
   })
 })
