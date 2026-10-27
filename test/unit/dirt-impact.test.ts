@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   DIRT_CULL, DIRT_IMPACT, createDirtImpacts, dirtSurfaceOf, type DirtImpacts,
 } from '../../src/render/dirtImpact'
-import { clearImpacts, createImpacts, pushImpact, type ImpactEvents } from '../../src/world/events'
+import { IMPACT_STRIDE, clearImpacts, createImpacts, pushImpact, type ImpactEvents } from '../../src/world/events'
 import type { TerrainKind } from '../../src/world/terrainKind'
 
 /**
@@ -174,6 +174,16 @@ describe('剔除與河面', () => {
     expect(river.count).toBe(1)
     expect(river.data[1]).toBe(1.25)
     expect(d.pools.clods.live + d.pools.mixClods.live + d.pools.spout.live + d.pools.dust.live).toBe(0)
+  })
+
+  /** 【射手跟著走】打進河裡的水柱還是那一架打的 —— 音效靠它分出自己的命中 */
+  it('河面水柱帶著原本那一發的射手', () => {
+    const d = createDirtImpacts()
+    const ev = createImpacts()
+    const river = createImpacts()
+    pushImpact(ev, 10, 0, 0, 0, 1, 0, 3)
+    d.emit(ev, 0, 0, 0, () => 1, river)
+    expect(river.data[IMPACT_STRIDE - 1]).toBe(3)
   })
 })
 

@@ -269,7 +269,7 @@ export function createDirtImpacts(
         // 【剛好在水面也算】地面戰的砲彈落點取地面與河面高的那一個，落在河裡時就等於水面
         const w = waterAt(x, z)
         if (w >= y) {
-          pushImpact(riverSplashes, x, w, z, 0, 1, 0)
+          pushImpact(riverSplashes, x, w, z, 0, 1, 0, d[o + 6]!)
           continue
         }
         emitDirtImpact(pools, params, surface === 'snow', x, y, z, seed++, scale)

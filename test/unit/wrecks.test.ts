@@ -8,6 +8,7 @@ import {
 import type { AircraftModel } from '../../src/render/geometry/buildAircraft'
 import { P51D } from '../../src/specs/p51d'
 import { B17G } from '../../src/specs/b17g'
+import { IMPACT_STRIDE } from '../../src/world/events'
 
 /**
  * 「這裡處處都是水」。**既有的每一條都建立在那個前提上**
@@ -224,8 +225,8 @@ describe('殘骸入水（M8 spec §9）', () => {
     let maxR = 0
     const seen = new Set<string>()
     for (let k = 0; k < w.splashEvents.count; k++) {
-      const x = d[k * 6]!
-      const z = d[k * 6 + 2]!
+      const x = d[k * IMPACT_STRIDE]!
+      const z = d[k * IMPACT_STRIDE + 2]!
       seen.add(`${x.toFixed(3)},${z.toFixed(3)}`)
       maxR = Math.max(maxR, Math.hypot(x - 100, z + 200))
     }

@@ -13,9 +13,10 @@ import { LAYER_DB, randomRate } from './pick'
 import { CUE, CUE_STRIDE, clearCues, createCueQueue, pushCue } from './queue'
 import { buildVolleyGroups } from './volleyGroups'
 import { warmJamGainDb } from '../control/gunHeat'
+import { MATERIAL } from '../world/material'
 
 type CueWorld = Pick<World, 'killEvents' | 'groundKillEvents' | 'bombEvents' | 'torpedoEvents'
-  | 'groundTargets' | 'burstEvents' | 'materialHits' | 'damageEvents' | 'time'>
+  | 'groundTargets' | 'burstEvents' | 'materialHits' | 'damageEvents' | 'time' | 'combatants'>
 
 /** 固定容量的戰鬥單次音效：物理子步收集，鏡頭更新後集中播放。 */
 /**
@@ -68,6 +69,31 @@ export function createBattleAudioCues(
 
   /** 上一次播打到水面的 `elapsed` */
   let lastWaterHit = -Infinity
+
+  /**
+   * 自己打中東西的回饋比原本的命中聲小多少，dB。−10 dB 聽起來約一半大聲。
+   * 照樣定位、照樣隨距離衰減（`CATEGORY.impact` 的 1,200 m 外不播），只是不等音速
+   */
+  const OWN_HIT_DB = -10
+
+  /** 自己打中東西最密多久一次，s。與別人打在船殼、建築上同一個間隔 */
+  const OWN_HIT_GAP = MATERIAL_HIT_GAP
+
+  /** `ownKind` 裡代表打到水面的值；其餘是 `MATERIAL` 的材質 */
+  const OWN_WATER = -1
+
+  /** 這一子步誰是「自己」：玩家的座位；上帝視角時 −2，沒有一發算自己的 */
+  let ownIndex = -2
+
+  /** 上一次播自己命中的 `elapsed` */
+  let lastOwnHit = -Infinity
+
+  /** 這一幀聽得到的範圍內離鏡頭最近的那一發自己的命中；`ownDist2` 是 Infinity 時沒有 */
+  let ownDist2 = Infinity
+  let ownX = 0
+  let ownY = 0
+  let ownZ = 0
+  let ownKind = 0
 
   /** 這一幀聽得到的範圍內離鏡頭最近的那一發打到水面；`waterDist2` 是 Infinity 時沒有 */
   let waterDist2 = Infinity
@@ -160,6 +186,10 @@ export function createBattleAudioCues(
     for (let e = 0; e < events.count; e++) {
       const o = e * IMPACT_STRIDE
       const x = events.data[o]!, y = events.data[o + 1]!, z = events.data[o + 2]!
+      if (events.data[o + 6]! === ownIndex) {
+        noteOwnHit(x, y, z, OWN_WATER, CATEGORY.waterHit.max)
+        continue
+      }
       const dx = x - cam.x, dy = y - cam.y, dz = z - cam.z
       const d2 = dx * dx + dy * dy + dz * dz
       if (d2 > max2 || d2 >= waterDist2) continue
@@ -183,6 +213,44 @@ export function createBattleAudioCues(
     audio.playPool('debris', 'waterHit', waterX, waterY, waterZ, true, WATER_HIT.debrisDb, false, rate,
       WATER_HIT.debrisCutoffHz)
     audio.playPool('waterHit', 'waterHit', waterX, waterY, waterZ, true, WATER_HIT.splashDb, false, rate)
+  }
+
+  /**
+   * 記下一發自己的命中：聽得到的範圍內離鏡頭最近的那一發留下，`playFrame` 播。熱路徑：不配置
+   *
+   * @param kind `MATERIAL` 的材質，或 `OWN_WATER`
+   * @param max 那一類聲音的可聽距離，m；更遠的不記
+   */
+  function noteOwnHit(x: number, y: number, z: number, kind: number, max: number): void {
+    const dx = x - cam.x, dy = y - cam.y, dz = z - cam.z
+    const d2 = dx * dx + dy * dy + dz * dz
+    if (d2 > max * max || d2 >= ownDist2) return
+    ownDist2 = d2
+    ownX = x
+    ownY = y
+    ownZ = z
+    ownKind = kind
+  }
+
+  /**
+   * 播 `noteOwnHit` 記下的那一發：與別人的同一個聲音，定位、隨距離衰減，但**不等音速**、
+   * 小 `OWN_HIT_DB`。【被時段擋下的不留】與打到水面同一個理由
+   */
+  function playOwnHit(elapsed: number): void {
+    if (ownDist2 === Infinity) return
+    ownDist2 = Infinity
+    if (elapsed - lastOwnHit < OWN_HIT_GAP) return
+    lastOwnHit = elapsed
+    if (ownKind === OWN_WATER) {
+      const rate = randomRate(Math.random)
+      audio.playPool('debris', 'waterHit', ownX, ownY, ownZ, true, WATER_HIT.debrisDb + OWN_HIT_DB, false, rate,
+        WATER_HIT.debrisCutoffHz, true)
+      audio.playPool('waterHit', 'waterHit', ownX, ownY, ownZ, true, WATER_HIT.splashDb + OWN_HIT_DB, false, rate,
+        undefined, true)
+      return
+    }
+    const m = impactSound(ownKind)
+    audio.playPool(m.pool, 'impact', ownX, ownY, ownZ, true, m.gainDb + OWN_HIT_DB, false, m.rate, m.cutoffHz, true)
   }
 
   /** 記下這一幀有一架被打中：已經記過就只更新部位。熱路徑：不配置 */
@@ -232,22 +300,29 @@ export function createBattleAudioCues(
     // 子彈打在船殼、建築上。【要限頻率】對船掃射時六挺每秒命中幾十發，
     // 不限的話光這一項就把事件佇列灌滿，爆炸與擊落會被擠掉。一個時段播一聲：這一子步裡挑
     // 聽得到的範圍內最近的那一發。【先濾距離再佔時段】聽不到的遠處命中佔掉時段的話，旁邊那一發就被擋掉
+    //
+    // 【自己打的另走 `noteOwnHit`】不等音速、小一截；這裡就不再排定位那一聲，否則同一發響兩次
+    ownIndex = godView ? -2 : player.index
     const mh = world.materialHits
-    if (world.time - lastMaterialHit >= MATERIAL_HIT_GAP) {
-      let best = -1
-      let bestD2 = CATEGORY.impact.max * CATEGORY.impact.max
-      for (let e = 0; e < mh.count; e++) {
-        const o = e * IMPACT_STRIDE
-        const dx = mh.data[o]! - cam.x, dy = mh.data[o + 1]! - cam.y, dz = mh.data[o + 2]! - cam.z
-        const d2 = dx * dx + dy * dy + dz * dz
-        if (d2 > bestD2) continue
-        best = o
-        bestD2 = d2
+    const others = world.time - lastMaterialHit >= MATERIAL_HIT_GAP
+    let best = -1
+    let bestD2 = CATEGORY.impact.max * CATEGORY.impact.max
+    for (let e = 0; e < mh.count; e++) {
+      const o = e * IMPACT_STRIDE
+      if (mh.data[o + 6]! === ownIndex) {
+        noteOwnHit(mh.data[o]!, mh.data[o + 1]!, mh.data[o + 2]!, mh.data[o + 3]!, CATEGORY.impact.max)
+        continue
       }
-      if (best >= 0) {
-        lastMaterialHit = world.time
-        pushCue(cues, CUE.MaterialHit, mh.data[best]!, mh.data[best + 1]!, mh.data[best + 2]!, mh.data[best + 3]!)
-      }
+      if (!others) continue
+      const dx = mh.data[o]! - cam.x, dy = mh.data[o + 1]! - cam.y, dz = mh.data[o + 2]! - cam.z
+      const d2 = dx * dx + dy * dy + dz * dz
+      if (d2 > bestD2) continue
+      best = o
+      bestD2 = d2
+    }
+    if (best >= 0) {
+      lastMaterialHit = world.time
+      pushCue(cues, CUE.MaterialHit, mh.data[best]!, mh.data[best + 1]!, mh.data[best + 2]!, mh.data[best + 3]!)
     }
     clearImpacts(mh)
     const dmg = world.damageEvents
@@ -256,7 +331,14 @@ export function createBattleAudioCues(
       // 【誰打中誰都算】不分射手 —— 僚機打中的也聽得到。太遠的由距離衰減擋掉，
       // 而距離要量**真正被打中的那一架**，所以這裡記下是誰
       if (dmg.data[o]! !== player.index) {
-        noteDealt(dmg.data[o]!, dmg.data[o + 4]!)
+        // 【自己打中的是一聲定位的金屬命中】在被打中的那一架身上，不走不定位的打中回饋
+        const victim = world.combatants[dmg.data[o]!]
+        if (dmg.data[o + 5]! === ownIndex && victim !== undefined) {
+          const p = victim.aircraft.state.position
+          noteOwnHit(p.x, p.y, p.z, MATERIAL.metal, CATEGORY.impact.max)
+        } else {
+          noteDealt(dmg.data[o]!, dmg.data[o + 4]!)
+        }
         continue
       }
       // 【x 帶的是被打中的部位序號】不是座標；護甲厚的部位聽起來比較低沉
@@ -336,6 +418,7 @@ export function createBattleAudioCues(
     playCues(player)
     clearCues(cues)
     playWaterHit(elapsed)
+    playOwnHit(elapsed)
     // 【誰打中誰都播】僚機打中的也算。太遠的由距離衰減擋掉
     if (dealtCount > 0 && flying) playHitDealt(world, elapsed)
     dealtCount = 0
@@ -355,6 +438,8 @@ export function createBattleAudioCues(
     dealtCount = 0
     lastWaterHit = -Infinity
     waterDist2 = Infinity
+    lastOwnHit = -Infinity
+    ownDist2 = Infinity
   }
 
   return state as Readonly<typeof state>

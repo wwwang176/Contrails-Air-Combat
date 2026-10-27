@@ -12,13 +12,14 @@ import { IMPACT_CAPACITY } from './events'
  *
  * 與 `hitEvents` 一樣由**呼叫端**排空。
  */
-export const DAMAGE_STRIDE = 5
+export const DAMAGE_STRIDE = 6
 
 export interface DamageEvents {
   readonly capacity: number
   /**
    * 每筆 `DAMAGE_STRIDE` 個 float：受害者索引, dx, dy, dz（來彈方向，世界座標
-   * 單位向量）, 部位序號（`HIT_PARTS` 的索引）。
+   * 單位向量）, 部位序號（`HIT_PARTS` 的索引）, 射手（開火那一架的
+   * `Combatant.index`；不是飛機打的是 −1）。
    *
    * 【部位是給音效用的】打在大台的飛機、護甲厚的部位要比較低沉，見
    * `audio/curves.ts` 的 `hitRate`。受擊方向指示器只讀方向那三個。
@@ -50,7 +51,7 @@ export function createDamageEvents(capacity: number = IMPACT_CAPACITY): DamageEv
 
 /** 追加一筆。滿了就丟棄並計數。熱路徑：不配置。 */
 export function pushDamage(
-  e: DamageEvents, victim: number, dx: number, dy: number, dz: number, part: number,
+  e: DamageEvents, victim: number, dx: number, dy: number, dz: number, part: number, shooter = -1,
 ): void {
   if (e.count >= e.capacity) {
     e.dropped++
@@ -63,6 +64,7 @@ export function pushDamage(
   d[o + 2] = dy
   d[o + 3] = dz
   d[o + 4] = part
+  d[o + 5] = shooter
   e.count++
 }
 

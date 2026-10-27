@@ -628,6 +628,14 @@ describe('單次音效的聲道池', () => {
     expect(update).toContain('v.audio.play(v.waitDelay)')
   })
 
+  /** 【自己的命中不等音速】定位與距離衰減照舊，只是跳過等音波那一段；疊的那一層也一樣 */
+  it('instant 的定位音效跳過等音波，playPool 兩層都帶下去', () => {
+    const play = ENGINE.slice(ENGINE.indexOf('function playFile('), ENGINE.indexOf('function playPool('))
+    expect(play).toContain('if (loc && d > 0 && !instant) {')
+    const pool = ENGINE.slice(ENGINE.indexOf('function playPool('), ENGINE.indexOf('function playPool(') + 900)
+    expect(pool.match(/cutoffHz, instant\)/g)).toHaveLength(2)
+  })
+
   /**
    * 【起播時左右立刻到位】播放中的左右是平滑過去的；起播那一下也平滑的話，
    * 起音會從上一個聲音的方向與距離滑過來。

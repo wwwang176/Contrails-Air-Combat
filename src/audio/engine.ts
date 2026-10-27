@@ -70,14 +70,15 @@ export interface AudioEngine {
    * 晚 0–30 ms），同一庫幾個檔就疊得出好幾倍的組合
    */
   playPool(pool: Pool, cat: Category, x: number, y: number, z: number, positioned: boolean,
-    extraDb?: number, layered?: boolean, rate?: number, cutoffHz?: number): void
+    extraDb?: number, layered?: boolean, rate?: number, cutoffHz?: number, instant?: boolean): void
   /**
    * `extraDelay` 加在音速延遲之上，s；`cutoffHz` 是這個聲音自己的音色上限，
    * 與大氣吸收獨立；例如鋼板的悶響不應取代距離的吸收。
    * `rate` 是播放速度的倍率，疊在每次播放的隨機之上（±8%，類別的 `pitchJitter` 可以改）—— 慢的同時變低沉、變長。
+   * `instant` 為真時定位的聲音不等音速、立刻響；方位、距離衰減與空氣吸收照舊。
    */
   playFile(file: string, cat: Category, x: number, y: number, z: number, positioned: boolean,
-    extraDb?: number, extraDelay?: number, rate?: number, cutoffHz?: number): void
+    extraDb?: number, extraDelay?: number, rate?: number, cutoffHz?: number, instant?: boolean): void
   /**
    * 選單按鈕。**不吃暫停，也不吃結算的慢動作** —— 暫停選單上那幾顆按鈕
    * 本來就是暫停時唯一還能按的東西，跟著一起靜音等於它們沒有聲音。
@@ -429,7 +430,7 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
   }
 
   function playFile(file: string, cat: Category, x: number, y: number, z: number, positioned: boolean,
-    extraDb = 0, extraDelay = 0, rateScale = 1, cutoffHz = FULL_BAND): void {
+    extraDb = 0, extraDelay = 0, rateScale = 1, cutoffHz = FULL_BAND, instant = false): void {
     const buffer = buffers.get(file)
     if (buffer === undefined || playback.muted || ctx.state !== 'running') return
     const spec = CATEGORY[cat]
@@ -502,7 +503,7 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
     const rate = randomRate(Math.random, CATEGORY[cat].pitchJitter) * rateScale
     a.setPlaybackRate(rate * playback.timeScale)
     // 【定位的先等音波】`start()` 排下去就改不了了，等待期間要能依聽者移動提前或延後
-    if (loc && d > 0) {
+    if (loc && d > 0 && !instant) {
       pick.waitingSince = ctx.currentTime
       pick.waitDelay = delay
       pick.waitRate = rate
@@ -514,14 +515,14 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
   }
 
   function playPool(pool: Pool, cat: Category, x: number, y: number, z: number, positioned: boolean,
-    extraDb = 0, layered = false, rate = 1, cutoffHz = FULL_BAND): void {
+    extraDb = 0, layered = false, rate = 1, cutoffHz = FULL_BAND, instant = false): void {
     const members = POOLS[pool]
     const k = pickNoRepeat(members.length, lastPick[pool] ?? -1, Math.random)
     lastPick[pool] = k
-    playFile(members[k]!, cat, x, y, z, positioned, extraDb, 0, rate, cutoffHz)
+    playFile(members[k]!, cat, x, y, z, positioned, extraDb, 0, rate, cutoffHz, instant)
     if (!layered || members.length < 2 || lastFreeVoices < LAYER_MIN_FREE) return
     const k2 = pickNoRepeat(members.length, k, Math.random)
-    playFile(members[k2]!, cat, x, y, z, positioned, extraDb + LAYER_DB, layerDelay(Math.random), rate, cutoffHz)
+    playFile(members[k2]!, cat, x, y, z, positioned, extraDb + LAYER_DB, layerDelay(Math.random), rate, cutoffHz, instant)
   }
 
   /**

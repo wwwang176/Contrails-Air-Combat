@@ -13,7 +13,7 @@
  * 【為什麼命中與入海共用一個型別】水柱就是「法線朝上的撞擊」。為了省三個
  * float 寫兩份長得很像的結構，就是只有一份會被修好的那種危險。
  */
-export const IMPACT_STRIDE = 6
+export const IMPACT_STRIDE = 7
 
 /**
  * 每個子步的事件容量。
@@ -26,7 +26,10 @@ export const IMPACT_CAPACITY = 64
 
 export interface ImpactEvents {
   readonly capacity: number
-  /** 每筆 `IMPACT_STRIDE` 個 float：x, y, z, nx, ny, nz */
+  /**
+   * 每筆 `IMPACT_STRIDE` 個 float：x, y, z, nx, ny, nz, 射手。
+   * 射手是開火那一架的 `Combatant.index`；不是飛機打的（船砲、地面砲、爆炸）是 −1
+   */
   readonly data: Float32Array
   /** 這一個子步累積了幾筆。`clearImpacts` 歸零 */
   count: number
@@ -72,6 +75,7 @@ export function pushImpact(
   e: ImpactEvents,
   x: number, y: number, z: number,
   nx: number, ny: number, nz: number,
+  shooter = -1,
 ): void {
   if (e.count >= e.capacity) {
     e.dropped++
@@ -85,6 +89,7 @@ export function pushImpact(
   d[o + 3] = nx
   d[o + 4] = ny
   d[o + 5] = nz
+  d[o + 6] = shooter
   e.count++
   // 【丟掉的不算進流水號】算進去的話，「第 e 筆的流水號是 total − count + e」
   // 就不成立，消費者的游標會整批錯位。與 `pushKill` 同一條。
