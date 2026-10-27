@@ -4,8 +4,14 @@ import { battleConfigFrom, DEFAULT_SKIRMISH, uniform } from '../../src/battle/sk
 import { feeledSpec } from '../../src/battle/flightSpawn'
 import { placeGround } from '../../src/battle/missionSpawns'
 import {
-  applyFeel, BOMBER_FEEL, feelFor, GAME_FEEL, PERFORMANCE, withPerformance, type PerformanceLevel,
+  applyFeel, BOMBER_FEEL, feelFor, GAME_FEEL, holdCeiling, PERFORMANCE, withPerformance, type PerformanceLevel,
 } from '../../src/specs/feel'
+import { maxClimbRate, serviceCeiling } from '../../src/analysis/envelope'
+import { atmosphere } from '../../src/physics/atmosphere'
+import { enginePower, WEP_THROTTLE } from '../../src/physics/propulsion'
+import type { AirData } from '../../src/physics/types'
+
+const airAt = (): AirData => ({ density: 0, pressure: 0, temperature: 0, soundSpeed: 0, sigma: 0 })
 import { B17G } from '../../src/specs/b17g'
 import { BF109K4 } from '../../src/specs/bf109k4'
 import { P51D } from '../../src/specs/p51d'
@@ -21,6 +27,16 @@ import type { World } from '../../src/world/World'
 
 const idle = { update() {} }
 const BOOSTS: readonly PerformanceLevel[] = ['boosted', 'extreme']
+
+/** 手感輪廓乘上等級倍率、還沒壓升限的 spec */
+const boosted = (base: AircraftSpec, level: PerformanceLevel): AircraftSpec =>
+  applyFeel(base, withPerformance(feelFor(base), level))
+
+/** 套過等級的 spec：除了壓升限的 `altitudeLoss` 之外與 `boosted` 相同，而且真的有壓 */
+function expectLeveled(spec: AircraftSpec | null | undefined, base: AircraftSpec, level: PerformanceLevel): void {
+  expect(spec?.engine.altitudeLoss).toBeGreaterThan(0)
+  expect({ ...spec, engine: { ...spec!.engine, altitudeLoss: undefined } }).toEqual(boosted(base, level))
+}
 
 describe('withPerformance', () => {
   it('標準段回傳同一個輪廓物件', () => {
@@ -56,9 +72,8 @@ describe('withPerformance', () => {
 })
 
 describe('feeledSpec 帶性能等級', () => {
-  it('套出來的 spec 等於手感輪廓乘上等級倍率', () => {
-    const spec = feeledSpec(new Map(), P51D, undefined, 'extreme')
-    expect(spec).toEqual(applyFeel(P51D, withPerformance(GAME_FEEL, 'extreme')))
+  it('套出來的 spec 等於手感輪廓乘上等級倍率，再壓升限', () => {
+    expectLeveled(feeledSpec(new Map(), P51D, undefined, 'extreme'), P51D, 'extreme')
   })
 
   it('省略等級 = 標準，與現在逐項相同', () => {
@@ -69,7 +84,7 @@ describe('feeledSpec 帶性能等級', () => {
     const world = { groundTargets: [] } as unknown as Pick<World, 'groundTargets'>
     const feeled = { blue: new Map<AircraftSpec, AircraftSpec>(), red: new Map<AircraftSpec, AircraftSpec>() }
     placeGround(world, [{ unit: 'parkedP51', team: 'blue', x: 0, z: 0, heading: 0 }], feeled, undefined, undefined, 'extreme')
-    expect(world.groundTargets[0]!.airframe).toEqual(applyFeel(P51D, withPerformance(GAME_FEEL, 'extreme')))
+    expectLeveled(world.groundTargets[0]!.airframe, P51D, 'extreme')
   })
 })
 
@@ -98,7 +113,7 @@ describe('建場：敵我全部飛機一起套', () => {
     const ids = new Set<string>()
     for (const c of b.world.combatants) {
       const base = c.aircraft.spec.id === B17G.id ? B17G : P51D
-      expect(c.aircraft.spec).toEqual(applyFeel(base, withPerformance(feelFor(base), 'extreme')))
+      expectLeveled(c.aircraft.spec, base, 'extreme')
       ids.add(`${c.team}:${base.id}`)
     }
     expect(ids).toEqual(new Set(['blue:p51d', 'red:b17g']))
@@ -112,6 +127,42 @@ describe('建場：敵我全部飛機一起套', () => {
     }
     const b = createBattle(idle, cfg, 1)
     const parked = b.world.groundTargets.find((t) => t.airframe !== null && t.airframe !== undefined)
-    expect(parked?.airframe).toEqual(applyFeel(P51D, withPerformance(GAME_FEEL, 'extreme')))
+    expectLeveled(parked?.airframe, P51D, 'extreme')
+  })
+})
+
+describe('升限照標準段', () => {
+  for (const base of [P51D, B17G]) {
+    for (const level of BOOSTS) {
+      it(`${base.id}/${level}：升限等於標準段，3,000 m 的爬升率與沒壓之前相同`, () => {
+        const target = serviceCeiling(applyFeel(base, feelFor(base)))
+        const held = holdCeiling(boosted(base, level), target)
+        expect(serviceCeiling(boosted(base, level))).toBeGreaterThan(target + 500)
+        expect(Math.abs(serviceCeiling(held) - target)).toBeLessThan(5)
+        expect(maxClimbRate(held, 3000).rate).toBe(maxClimbRate(boosted(base, level), 3000).rate)
+      })
+    }
+  }
+
+  it('本來就到不了那個高度：原樣回傳', () => {
+    const spec = applyFeel(P51D, GAME_FEEL)
+    expect(holdCeiling(spec, serviceCeiling(spec) + 1000)).toBe(spec)
+  })
+})
+
+describe('enginePower 的額外掉力', () => {
+  const spec = applyFeel(P51D, GAME_FEEL)
+  const top = Math.max(...spec.engine.gears.map((g) => g.altCritical))
+  const lossy = { ...spec, engine: { ...spec.engine, altitudeLoss: 1 } }
+  const power = (s: AircraftSpec, h: number): number => enginePower(s, atmosphere(h, airAt()), 0, WEP_THROTTLE)
+
+  it('最高一檔臨界高度以下逐位元不動', () => {
+    for (const h of [0, 1500, 3000, top - 10]) expect(power(lossy, h)).toBe(power(spec, h))
+  })
+
+  it('以上越高掉越多，臨界高度處連續', () => {
+    expect(power(lossy, top + 1) / power(spec, top + 1)).toBeGreaterThan(0.9995)
+    for (const h of [top + 2000, top + 6000]) expect(power(lossy, h)).toBeLessThan(power(spec, h))
+    expect(power(lossy, top + 6000) / power(spec, top + 6000)).toBeLessThan(power(lossy, top + 2000) / power(spec, top + 2000))
   })
 })

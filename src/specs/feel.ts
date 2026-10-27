@@ -1,4 +1,5 @@
 import type { AircraftSpec } from './types'
+import { CEILING_RATE, maxClimbRate } from '../analysis/envelope'
 
 /**
  * 手感係數：把「史實的飛機」與「玩起來的飛機」分成兩層。
@@ -466,6 +467,33 @@ export function withPerformance(feel: FeelProfile, level: PerformanceLevel): Fee
     cd0: feel.cd0 * p.power,
     mass: feel.mass * p.mass,
   }
+}
+
+/** 額外掉力斜率的搜尋上限。σ/σ_top 到 0.5 時出力就歸零 */
+const MAX_ALTITUDE_LOSS = 2
+
+/**
+ * 把一份強化過的 spec 的升限壓回 `ceiling`：只讓最高一檔臨界高度以上的出力
+ * 多掉一些（`engine.altitudeLoss`），臨界高度以下一點不動。
+ *
+ * 解的是「`ceiling` 這個高度的最佳爬升率 = 升限門檻」，在掉力斜率上二分；
+ * 斜率越大、那個高度的爬升率越低。本來就到不了 `ceiling` 的 spec 原樣回傳。
+ * `ceiling` 低於臨界高度時這個旋鈕壓不下來，回傳斜率上限的版本。
+ */
+export function holdCeiling(spec: AircraftSpec, ceiling: number): AircraftSpec {
+  if (!Number.isFinite(ceiling)) return spec
+  const withLoss = (loss: number): AircraftSpec => ({ ...spec, engine: { ...spec.engine, altitudeLoss: loss } })
+  const rate = (loss: number): number => maxClimbRate(withLoss(loss), ceiling).rate
+  if (rate(0) <= CEILING_RATE) return spec
+  if (rate(MAX_ALTITUDE_LOSS) > CEILING_RATE) return withLoss(MAX_ALTITUDE_LOSS)
+  let lo = 0
+  let hi = MAX_ALTITUDE_LOSS
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2
+    if (rate(mid) > CEILING_RATE) lo = mid
+    else hi = mid
+  }
+  return withLoss(hi)
 }
 
 /**

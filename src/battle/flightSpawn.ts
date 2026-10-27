@@ -2,12 +2,12 @@ import type { Battle, FeelCache } from './battleState'
 import type { BattleConfig } from './battleConfig'
 import { Quaternion, Vector3 } from 'three'
 import { Aircraft } from '../aircraft/Aircraft'
-import { maxLevelSpeed } from '../analysis/envelope'
+import { maxLevelSpeed, serviceCeiling } from '../analysis/envelope'
 import { STATION_OFFSETS, stationPoint } from '../ai/station'
 import type { Controller } from '../control/Controller'
 import { atmosphere } from '../physics/atmosphere'
 import type { AirData } from '../physics/types'
-import { applyFeel, feelFor, withPerformance, type FeelKind, type PerformanceLevel } from '../specs/feel'
+import { applyFeel, feelFor, holdCeiling, withPerformance, type FeelKind, type PerformanceLevel } from '../specs/feel'
 import type { AircraftSpec } from '../specs/types'
 import type { World } from '../world/World'
 import type { Combatant } from '../world/combatant'
@@ -163,7 +163,10 @@ export function feeledSpec(
 ): AircraftSpec {
   let spec = cache.get(base)
   if (spec === undefined) {
-    spec = applyFeel(base, withPerformance(feelFor(base, feels?.[base.id]), performance))
+    const feel = feelFor(base, feels?.[base.id])
+    spec = applyFeel(base, withPerformance(feel, performance))
+    // 【升限照標準段】強化只加在臨界高度以下，升限仍是標準段那一個。一種機約 10 ms，只在第一次查表時付
+    if (performance !== 'standard') spec = holdCeiling(spec, serviceCeiling(applyFeel(base, feel)))
     cache.set(base, spec)
   }
   return spec

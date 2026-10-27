@@ -172,7 +172,8 @@ export function maxClimbRate(
   return { rate: specificExcessPower(spec, altitude, v, 1, throttle), speed: v }
 }
 
-const CEILING_RATE = 0.5
+/** 實用升限的爬升率門檻，m/s */
+export const CEILING_RATE = 0.5
 
 /**
  * 實用升限，m。定義為最佳爬升率降至 0.5 m/s 的高度。

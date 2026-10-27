@@ -100,6 +100,13 @@ export interface FlightSpec {
     gears: readonly { powerSeaLevel: number; powerCritical: number; altCritical: number }[]
     /** 進氣衝壓恢復效率，0..1。見 Spec 修訂 2 */
     ramEfficiency: number
+    /**
+     * 最高一檔臨界高度以上額外掉的出力：功率乘 `max(0, 1 − k·(1 − σ/σ_top))`，
+     * σ_top 是那一檔臨界高度的密度比。臨界高度以下完全不動，臨界高度處連續。
+     * 省略 = 不額外掉。只有遭遇戰的性能等級會設（`specs/feel.ts` 的 `holdCeiling`），
+     * 讓強化過的飛機升限與標準段相同。
+     */
+    altitudeLoss?: number
   }
 
   prop: {
