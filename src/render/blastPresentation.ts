@@ -291,7 +291,7 @@ export function createBlastPresentation({
     }
   }
 
-  function reelBomb(x: number, y: number, z: number, water: boolean, terrain: BlastTerrain, elapsed: number): void {
+  function reelBomb(x: number, y: number, z: number, water: boolean, terrain: BlastTerrain, elapsed: number, sparkBursts = 1): void {
     // 與 `emitBombBlasts` 同一套：配方依落點、放大到基準彈的尺度、閃光、碎片；
     // 落在陸上的噴火星、點一處地面火
     const vis = BOMB_BLAST_SIZE * REEL_BOMB_SCALE
@@ -301,7 +301,8 @@ export function createBlastPresentation({
     blastLights.flash(x, y, z, REEL_BOMB_SCALE, cameraPosition)
     debris.burst(x, y, z, BLAST_DEBRIS_COLOR, seed, blastDebrisSpeed())
     if (!water) {
-      burstSparks(x, y, z, terrain, elapsed)
+      // 各批推進種子，增加向外噴射的方向，不把相同火星重疊在一起。
+      for (let i = 0; i < sparkBursts; i++) burstSparks(x, y, z, terrain, elapsed)
       lightGroundFire(groundFires, x, y, z)
     }
   }

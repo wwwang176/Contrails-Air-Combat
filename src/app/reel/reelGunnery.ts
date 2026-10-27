@@ -40,6 +40,7 @@ interface AaStream {
   miss: number
   timer: number
   seed: number
+  tracerLife?: number
 }
 
 /** 防空與機槍手曳光的射手編號：負數不做命中判定（−1 是彈丸池的空槽，不能用） */
@@ -80,6 +81,7 @@ export function createReelGunnery(
         streams.push({
           ship: -1, shooter: -1, prop: e.prop, actor: e.actor, until: e.at + e.seconds, miss: e.miss,
           timer: 0, seed: 90000 + e.prop * 1000 + e.actor * 97,
+          tracerLife: e.tracerLife ?? PROJECTILE_LIFETIME,
         })
         break
     }
@@ -191,7 +193,7 @@ export function createReelGunnery(
         V2.sub(V1).normalize().multiplyScalar(AA_SPEED)
         // 機槍手的彈要加上自己的機速
         if (shooter !== undefined) V2.add(shooter.velocity)
-        projectiles.spawn(V1.x, V1.y, V1.z, V2.x, V2.y, V2.z, 0, STREAM_OWNER, 0, PROJECTILE_LIFETIME, ship !== undefined ? 40 : 13)
+        projectiles.spawn(V1.x, V1.y, V1.z, V2.x, V2.y, V2.z, 0, STREAM_OWNER, 0, s.tracerLife ?? PROJECTILE_LIFETIME, ship !== undefined ? 40 : 13)
       }
     }
   }

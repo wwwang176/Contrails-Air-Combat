@@ -7,7 +7,7 @@ import { createReelOrdnance, type ReelOrdnance } from './reelOrdnance'
 
 export interface ReelBombardmentFx {
   /** 一枚炸彈落地（`water` = 落在海上）。`y` 是地面或海面高度 */
-  bomb(x: number, y: number, z: number, water: boolean): void
+  bomb(x: number, y: number, z: number, water: boolean, sparkBursts?: number): void
   /** 魚雷入水那一下的水花 */
   torpedoSplash(x: number, z: number): void
   /** 魚雷在水中跑：落一個航跡節點。`slot` 是第幾條航跡，`serial` 換一條魚雷就換 */
@@ -171,7 +171,7 @@ export function createReelBombardment(
    * 炸彈與魚雷的一幀：照投下那一刻算出現在的位置，填進外觀池。炸彈碰到地面或海面
    * 就爆；魚雷入水掀水花、在水中落航跡、跑到瞄點時（打中的話）炸水柱
    */
-  function step(t: number, actors: readonly ReelReleaseActor[], ships: readonly Ship[], props: readonly GroundTarget[]): void {
+  function step(t: number, actors: readonly ReelReleaseActor[], ships: readonly Ship[], props: readonly GroundTarget[], sparkBursts = 1): void {
     // 排著的炸彈到了秒數就投
     for (let k = pendingBombs.length - 1; k >= 0; k--) {
       const p = pendingBombs[k]!
@@ -205,7 +205,7 @@ export function createReelBombardment(
       const ground = terrain.collisionHeightAt(V1.x, V1.z)
       if (V1.y <= ground) {
         const water = terrain.waterAt(V1.x, V1.z) > -Infinity
-        fx.bomb(V1.x, water ? 0 : ground, V1.z, water)
+        fx.bomb(V1.x, water ? 0 : ground, V1.z, water, sparkBursts)
         bombs.active[i] = 0
         // 落在地面物件旁邊就炸毀它
         for (const g of props) {

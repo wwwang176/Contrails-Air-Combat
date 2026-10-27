@@ -59,6 +59,10 @@ const DIVE_N_FRACTION = 0.92
 const DIVE_N_MIN = 0.15
 /** 投彈（相對拉起），秒 */
 const RELEASE = 13.5
+/** 投彈後才平順壓低離場航跡；保留投彈位置與速度，最低一架仍離地約 37 m。 */
+const DEPARTURE_LOWERING = 35
+const DEPARTURE_LOWER_AT = RELEASE + 0.25
+const DEPARTURE_LOWER_SECONDS = 4.5
 /**
  * 拉出的過載。投彈時已經朝著機背那一側（南）俯衝，鬆開就直接往南拉平，不用先拉過垂直；
  * 過載大的話拉平只掉三百多公尺，底部在離地兩百多公尺，車上仰拍、縱隊南邊低空看拉出
@@ -150,7 +154,7 @@ let pullDoneAt = Infinity
 /**
  * 標準航跡在 `tau`（相對拉起）的位置。拉起之前是往北的等速平飛；表外直線外推
  */
-function canon(tau: number, out: Vector3): Vector3 {
+function sampleCanon(tau: number, out: Vector3): Vector3 {
   if (tau <= 0) return out.set(0, ALT, -V0 * tau)
   const x = tau / TABLE_STEP
   const k = Math.min(TABLE_N - 2, Math.floor(x))
@@ -173,11 +177,19 @@ function canon(tau: number, out: Vector3): Vector3 {
   )
 }
 
+/** 只改投彈後的高度，水平航跡與鏡頭朝向不變；五次平滑曲線保持位置、速度、加速度連續。 */
+function canon(tau: number, out: Vector3): Vector3 {
+  sampleCanon(tau, out)
+  out.y -= DEPARTURE_LOWERING * easeInOut(tau, DEPARTURE_LOWER_AT, DEPARTURE_LOWER_SECONDS)
+  return out
+}
+
 // ── 隊形 ───────────────────────────────────────────────────
 
 /** 長機開始拉起的時刻；其餘每隔 `PEEL_GAP` 秒一架 */
 const LEAD_AT = 7.0
-const PEEL_GAP = 1.0
+// 收緊依序進場的間隔，連同投彈與拉起一起提前；落彈約每 0.5 秒一次，仍走同一套彈道。
+const PEEL_GAP = 0.52
 /** 右梯隊：每一架在前一架的右後下方 */
 const SLOT_X = 18
 const SLOT_Y = -3
@@ -227,8 +239,8 @@ export const LEAD = PATHS[0]!
  * 長機的右僚機：巡航時在長機右後下方 30 m，晚長機 0.3 秒做同一套動作，跟著它一起
  * 俯衝、拉出（不投彈）。側拍長機那一刀（鏡頭在西側）的後景：俯衝時晚 0.3 秒變成落在
  * 長機上方 24～30 m、偏北約 4 m、離鏡頭遠 9 m，畫面上在長機正上方略偏左 —— 兩架連起來
- * 的方向與長機機頭（朝右下）大致一致，讀得出一起往下衝。梯隊裡另外五架彼此隔一秒、
- * 上下差 130 m，任兩架都塞不進同一個側拍的畫面
+ * 的方向與長機機頭（朝右下）大致一致，讀得出一起往下衝。梯隊裡另外五架彼此隔 0.52 秒、
+ * 俯衝時仍有數十公尺的高度差；這架較近的僚機留在側拍的後景
  * 【`− V0 · WING_DELAY`】晚 0.3 秒在巡航是水平落後，這一項把它抵掉，巡航時才在長機
  * 右後下方。俯衝時它再往北偏的話，畫面上落到長機左上，兩架連線斜向左下、與長機
  * 朝右下的機頭反向，看起來像兩架各衝各的

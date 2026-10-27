@@ -1,5 +1,6 @@
 import './render/heightFogInstall'
 import { createReelSmoke } from './app/reel/reelSmoke'
+import { createReelFireColumns } from './app/reel/reelFireColumns'
 import { createOrderTelemetry } from './app/orderTelemetry'
 import { createMissionHud } from './hud/missionFeed'
 import { createBattleInspection } from './app/battleInspection'
@@ -666,6 +667,13 @@ const shipFireSmokeLighting = addSmokeLighting(
   undefined,
   blastLights.smokeUniforms,
 )
+/** 短片燃燒佈景沿用地面火災的煙；分池僅為切鏡前預先發展，不快轉戰場其他特效。 */
+const reelFireSmoke = createShipFireSmoke(4096, smokeTexture)
+ctx.scene.add(reelFireSmoke.object)
+const reelFireSmokeLighting = addSmokeLighting(
+  reelFireSmoke, ctx.lights.sun.position, ctx.lights.sun.color, ctx.lights.sun.intensity,
+  undefined, blastLights.smokeUniforms,
+)
 /**
  * 殘骸的引擎火冒的煙。**與船火分開一份池子** —— 顏色是逐池的，燒的東西
  * 不一樣就要有自己的一份（見 `WRECK_FIRE_SMOKE_COLOR`）。
@@ -745,6 +753,7 @@ const blastSmokeLighting = addSmokeLighting(
 )
 const fireSmokeLighting = [
   shipFireSmokeLighting,
+  reelFireSmokeLighting,
   blastEmberLighting,
   blastSmokeLighting,
 ]
@@ -852,6 +861,7 @@ const onShellLanded = (x: number, y: number, z: number): void => {
  * **在模組層建一次** —— 幀迴圈裡宣告閉包是每幀一次配置。
  */
 const emitFirePuff = createFirePuff(BLAST_POOLS, shipFireSmoke)
+const reelFireColumns = createReelFireColumns(BLAST_POOLS, reelFireSmoke)
 const battleScenery = createBattleScenery(ctx.scene, {
   glareTexture, smokeTexture, burn: emitFirePuff, impact: onGroundImpact, fired: noteGroundShot,
   landed: onShellLanded,
@@ -905,7 +915,7 @@ const POOLS = [
   blastChunks, blastGlow, muzzleBlast, blastEmber, blastSmoke, blastDust, blastMist, blastJets, reelTrackDust,
   // 【船火那兩份也在這裡】漏清煙池的話上一場的煙殘留 12 秒；漏清 `shipFires`
   // 更糟 —— 上一場的火點會用同一個船索引附到新一場的船上，燒滿 60 秒
-  shipFireSmoke, wreckFireSmoke, shipFires, groundFires, steam,
+  shipFireSmoke, wreckFireSmoke, shipFires, groundFires, steam, reelFireColumns,
   // 【鏡頭震動也在這裡】跨場狀態、`reset()` 的簽章一樣。漏清的話上一場
   // 最後那一顆炸彈的餘震會接在新一場的第一幀上
   cameraShake, cameraSmoke,
@@ -1988,11 +1998,13 @@ const menuReel: MenuReel = createMenuReel({
       clearBursts(REEL_BURSTS)
     },
     smoke: createReelSmoke(wreckFireSmoke),
+    fireColumns: reelFireColumns.start,
+    stepFireColumns: reelFireColumns.step,
     fire(x, y, z) {
       emitWreckFirePuff(x, y, z)
     },
-    bomb(x, y, z, water) {
-      blastPresentation.reelBomb(x, y, z, water, terrain, elapsed)
+    bomb(x, y, z, water, sparkBursts) {
+      blastPresentation.reelBomb(x, y, z, water, terrain, elapsed, sparkBursts)
     },
     torpedoSplash(x, z) {
       blastPresentation.reelTorpedoSplash(x, z)
@@ -2019,6 +2031,7 @@ const menuReel: MenuReel = createMenuReel({
     trackDust(x, y, z) {
       reelTrackDust.emit(x, y, z, 0, 0.8, 0, 0.6)
     },
+    stepTrackDust: (dt) => reelTrackDust.step(dt),
     groundKill(x, y, z, fires) {
       blastPresentation.reelGroundKill(x, y, z, fires)
     },
@@ -2052,7 +2065,7 @@ window.addEventListener('resize', () => menuReel.relayout())
 /** 選單期間的一幀：放短片、推進特效池 */
 const drawMenuBackground = createMenuBackgroundFrame({
   ctx, menuReel, getTerrain: () => terrain, getTerrainKind: () => terrainKind,
-  sceneWeather, stepEffects, spray, vortex, reelTrackDust,
+  sceneWeather, stepEffects, spray, vortex,
   steamEmission, fireCrowd, groundFires, shipFires, wakes, noShips: NO_SHIPS, emitFirePuff,
   rainGroundAt, updateFireCrowd, stepGroundFires, playThunder,
 })
