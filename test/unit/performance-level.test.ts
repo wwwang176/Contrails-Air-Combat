@@ -7,6 +7,7 @@ import {
   applyFeel, BOMBER_FEEL, feelFor, GAME_FEEL, PERFORMANCE, withPerformance, type PerformanceLevel,
 } from '../../src/specs/feel'
 import { B17G } from '../../src/specs/b17g'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { P51D } from '../../src/specs/p51d'
 import type { AircraftSpec } from '../../src/specs/types'
 import type { World } from '../../src/world/World'
@@ -42,14 +43,15 @@ describe('withPerformance', () => {
     })
   }
 
-  it('強化與超強真的比標準強：滾轉、升力、功率放大，重量減輕', () => {
-    for (const level of BOOSTS) {
-      const p = PERFORMANCE[level]
-      expect(p.roll).toBeGreaterThan(1)
-      expect(p.lift).toBeGreaterThan(1)
-      expect(p.power).toBeGreaterThan(1)
-      expect(p.mass).toBeLessThan(1)
+  it('一段比一段強：滾轉、升力、功率逐段放大，重量逐段減輕', () => {
+    const [s, b, e] = (['standard', 'boosted', 'extreme'] as const).map((l) => PERFORMANCE[l])
+    expect(s).toEqual({ roll: 1, lift: 1, mass: 1, power: 1 })
+    for (const k of ['roll', 'lift', 'power'] as const) {
+      expect(b![k]).toBeGreaterThan(s![k])
+      expect(e![k]).toBeGreaterThan(b![k])
     }
+    expect(b!.mass).toBeLessThan(s!.mass)
+    expect(e!.mass).toBeLessThan(b!.mass)
   })
 })
 
@@ -100,5 +102,16 @@ describe('建場：敵我全部飛機一起套', () => {
       ids.add(`${c.team}:${base.id}`)
     }
     expect(ids).toEqual(new Set(['blue:p51d', 'red:b17g']))
+  })
+
+  it('建場時地上的飛機也拿到同一個等級', () => {
+    // 天上不放 P-51：快取裡的 P-51 只能由地上那一架寫進去
+    const cfg = {
+      ...battleConfigFrom({ ...uniform(BF109K4.id, 1, BF109K4.id, 1), performance: 'extreme' as const }),
+      ground: [{ unit: 'parkedP51' as const, team: 'blue' as const, x: 0, z: 0, heading: 0 }],
+    }
+    const b = createBattle(idle, cfg, 1)
+    const parked = b.world.groundTargets.find((t) => t.airframe !== null && t.airframe !== undefined)
+    expect(parked?.airframe).toEqual(applyFeel(P51D, withPerformance(GAME_FEEL, 'extreme')))
   })
 })
