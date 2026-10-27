@@ -1691,7 +1691,9 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     const pp = player.aircraft.state.position
     stepArena(arena, arenaBounds, pp.x, pp.y, pp.z, dt)
     hitsThisFrame += player.hitsDealt
-    presentBattleEvents(world, player, terrain, elapsed, input.godView || missionIntro.busy)
+    // 【傳 `battle.player`】接手僚機發生在 `stepBattle` 裡，`player` 要到幀尾才換。
+    // 這一幀剩下的子步裡新那架打中的、被打中的都算自己的
+    presentBattleEvents(world, battle.player, terrain, elapsed, input.godView || missionIntro.busy)
     perf.endPhysics()
   })
 

@@ -172,7 +172,7 @@ describe('音效的戰鬥事件接線', () => {
    * 讀到的永遠是空的 —— 一個聲音都沒有，而且不報錯。
    */
   it('子步裡記事件，排在每一種事件的清除之前', () => {
-    expect(lines('presentBattleEvents(world, player, terrain, elapsed, input.godView || missionIntro.busy)').filter(inStep)).toHaveLength(1)
+    expect(lines('presentBattleEvents(world, battle.player, terrain, elapsed, input.godView || missionIntro.busy)').filter(inStep)).toHaveLength(1)
     const q = lines('battleAudioCues.queueAudioCues(world, player, terrain, godView)', EVENTS)
     expect(q).toHaveLength(1)
     for (const clear of ['clearDamage(dmg)', 'blastPresentation.emitGroundKills(world.groundKillEvents, world.time, world.groundTargets)', 'clearKills(world.killEvents)',

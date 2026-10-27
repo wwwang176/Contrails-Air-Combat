@@ -7,6 +7,7 @@ import { G4M } from '../../src/specs/g4m'
 import { makeBombProfile, RUN_SETTLE } from '../../src/ai/bombRun'
 import { Vector3 } from 'three'
 import type { StrikeProfile } from '../../src/ai/strikeRun'
+import { IMPACT_STRIDE } from '../../src/world/events'
 
 /**
  * 三組對照：直線段與脫離距離該不該存在。
@@ -52,7 +53,7 @@ function trial(name: string, profile: StrikeProfile, shipSpeed: number): void {
     const before = w.bombEvents.count
     w.step(DT)
     for (let e = before; e < w.bombEvents.count; e++) {
-      const o = e * 6
+      const o = e * IMPACT_STRIDE
       misses.push(Math.hypot(
         w.bombEvents.data[o]! - ship.position.x,
         w.bombEvents.data[o + 2]! - ship.position.z,

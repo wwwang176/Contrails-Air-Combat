@@ -13,7 +13,6 @@ import { LAYER_DB, randomRate } from './pick'
 import { CUE, CUE_STRIDE, clearCues, createCueQueue, pushCue } from './queue'
 import { buildVolleyGroups } from './volleyGroups'
 import { warmJamGainDb } from '../control/gunHeat'
-import { MATERIAL } from '../world/material'
 
 type CueWorld = Pick<World, 'killEvents' | 'groundKillEvents' | 'bombEvents' | 'torpedoEvents'
   | 'groundTargets' | 'burstEvents' | 'materialHits' | 'damageEvents' | 'time' | 'combatants'>
@@ -82,6 +81,15 @@ export function createBattleAudioCues(
   /** `ownKind` 裡代表打到水面的值；其餘是 `MATERIAL` 的材質 */
   const OWN_WATER = -1
 
+  /** `ownKind` 裡代表打中飛機的值：原本的打中回饋那一聲，改成定位 */
+  const OWN_AIRCRAFT = -2
+
+  /**
+   * 打中飛機的那一聲借 `impact` 類別的距離衰減播，增益要補回 `hitDealt` 原本的大小 ——
+   * 兩個類別的基準差 10 dB，不補的話「小 10 dB」只剩小 0.6 dB
+   */
+  const AIRCRAFT_HIT_DB = CATEGORY.hitDealt.gainDb - CATEGORY.impact.gainDb
+
   /** 這一子步誰是「自己」：玩家的座位；上帝視角時 −2，沒有一發算自己的 */
   let ownIndex = -2
 
@@ -94,6 +102,11 @@ export function createBattleAudioCues(
   let ownY = 0
   let ownZ = 0
   let ownKind = 0
+  /** 打中飛機時的播放速度（`hitRate`）；其餘不用 */
+  let ownRate = 1
+
+  /** `volleyGroups` 是照哪一架建的。接手僚機那一幀還沒重建，不拿新那架的槍焰去比舊的分組 */
+  let volleyOwner: Combatant | null = null
 
   /** 這一幀聽得到的範圍內離鏡頭最近的那一發打到水面；`waterDist2` 是 Infinity 時沒有 */
   let waterDist2 = Infinity
@@ -143,6 +156,7 @@ export function createBattleAudioCues(
     volleyGroups.push(...built.groups)
     prevVolleyFlash.fill(0)
     state.ownTurretVolley = built.ownTurretVolley
+    volleyOwner = player
   }
 
   /**
@@ -218,10 +232,11 @@ export function createBattleAudioCues(
   /**
    * 記下一發自己的命中：聽得到的範圍內離鏡頭最近的那一發留下，`playFrame` 播。熱路徑：不配置
    *
-   * @param kind `MATERIAL` 的材質，或 `OWN_WATER`
+   * @param kind `MATERIAL` 的材質、`OWN_WATER` 或 `OWN_AIRCRAFT`
    * @param max 那一類聲音的可聽距離，m；更遠的不記
+   * @param rate 打中飛機時的播放速度
    */
-  function noteOwnHit(x: number, y: number, z: number, kind: number, max: number): void {
+  function noteOwnHit(x: number, y: number, z: number, kind: number, max: number, rate = 1): void {
     const dx = x - cam.x, dy = y - cam.y, dz = z - cam.z
     const d2 = dx * dx + dy * dy + dz * dz
     if (d2 > max * max || d2 >= ownDist2) return
@@ -230,6 +245,7 @@ export function createBattleAudioCues(
     ownY = y
     ownZ = z
     ownKind = kind
+    ownRate = rate
   }
 
   /**
@@ -246,6 +262,11 @@ export function createBattleAudioCues(
       audio.playPool('debris', 'waterHit', ownX, ownY, ownZ, true, WATER_HIT.debrisDb + OWN_HIT_DB, false, rate,
         WATER_HIT.debrisCutoffHz, true)
       audio.playPool('waterHit', 'waterHit', ownX, ownY, ownZ, true, WATER_HIT.splashDb + OWN_HIT_DB, false, rate,
+        undefined, true)
+      return
+    }
+    if (ownKind === OWN_AIRCRAFT) {
+      audio.playPool('hit', 'impact', ownX, ownY, ownZ, true, AIRCRAFT_HIT_DB + OWN_HIT_DB, false, ownRate,
         undefined, true)
       return
     }
@@ -270,7 +291,7 @@ export function createBattleAudioCues(
   function queueAudioCues(world: CueWorld, player: Combatant, terrain: ExplosionTerrain, godView: boolean): void {
     // 自己開火：每一組同型槍（或後座砲塔）擊發一次記一筆。上帝視角時自己那架改走定位的循環
     const flash = player.muzzleFlash
-    for (let i = 0; i < volleyGroups.length; i++) {
+    for (let i = 0; i < volleyGroups.length && player === volleyOwner; i++) {
       const g = volleyGroups[i]!
       const now = g.turret >= 0 ? player.turretStates[g.turret]?.flash ?? 0 : flash[g.mount] ?? 0
       const was = prevVolleyFlash[i]!
@@ -331,11 +352,13 @@ export function createBattleAudioCues(
       // 【誰打中誰都算】不分射手 —— 僚機打中的也聽得到。太遠的由距離衰減擋掉，
       // 而距離要量**真正被打中的那一架**，所以這裡記下是誰
       if (dmg.data[o]! !== player.index) {
-        // 【自己打中的是一聲定位的金屬命中】在被打中的那一架身上，不走不定位的打中回饋
+        // 【自己打中的改成定位】同一個打中回饋，放在被打中的那一架身上、隨距離衰減
         const victim = world.combatants[dmg.data[o]!]
         if (dmg.data[o + 5]! === ownIndex && victim !== undefined) {
           const p = victim.aircraft.state.position
-          noteOwnHit(p.x, p.y, p.z, MATERIAL.metal, CATEGORY.impact.max)
+          const spec = victim.aircraft.spec
+          noteOwnHit(p.x, p.y, p.z, OWN_AIRCRAFT, CATEGORY.impact.max,
+            hitRate(spec.mass, spec.protection[partOf(dmg.data[o + 4]!)]))
         } else {
           noteDealt(dmg.data[o]!, dmg.data[o + 4]!)
         }

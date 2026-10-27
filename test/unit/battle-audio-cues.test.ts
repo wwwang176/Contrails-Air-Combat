@@ -10,7 +10,7 @@ import { B17G } from '../../src/specs/b17g'
 import { World } from '../../src/world/World'
 import { clearDamage, pushDamage } from '../../src/world/damage'
 import { clearImpacts, createImpacts, pushImpact } from '../../src/world/events'
-import { WATER_HIT, impactSound } from '../../src/audio/catalog'
+import { CATEGORY, WATER_HIT, impactSound } from '../../src/audio/catalog'
 import { MATERIAL } from '../../src/world/material'
 import { pushBurst } from '../../src/world/flak'
 import { HIT_PARTS } from '../../src/world/hit'
@@ -354,16 +354,21 @@ describe('自己的命中回饋', () => {
     expect(playPool.mock.calls.map((c) => [c[2], c[10]])).toEqual([[300, undefined], [100, true]])
   })
 
-  it('打中飛機：在那一架身上一聲定位的金屬命中，不播不定位的打中回饋；別人打中的照舊', () => {
+  /** 【比總增益，不比額外增益】借 `impact` 的距離衰減，類別基準與 `hitDealt` 不同 */
+  it('打中飛機：原本的打中回饋改成在那一架身上定位、立刻響，總增益比原本小 10 dB；別人打中的照舊', () => {
     const { world, player, playPool, cues } = setup()
     const foe = world.add(new Aircraft(JU87), { update() {} }, 'red', new Vector3(150, 1000, 0))
     foe.aircraft.state.position.set(150, 1000, 0)
-    pushDamage(world.damageEvents, foe.index, 1, 0, 0, 0, player.index)
+    pushDamage(world.damageEvents, foe.index, 1, 0, 0, 1, player.index)
     cues.queueAudioCues(world, player, land, false)
     clearDamage(world.damageEvents)
     cues.playFrame(world, player, 1, true)
-    expect(playPool.mock.calls).toEqual([[metal.pool, 'impact', 150, 1000, 0, true, metal.gainDb + OWN_DB, false,
-      metal.rate, metal.cutoffHz, true]])
+    expect(playPool).toHaveBeenCalledTimes(1)
+    const c = playPool.mock.calls[0]!
+    expect(c.slice(0, 6)).toEqual(['hit', 'impact', 150, 1000, 0, true])
+    expect(CATEGORY[c[1] as 'impact'].gainDb + (c[6] as number)).toBeCloseTo(CATEGORY.hitDealt.gainDb + OWN_DB, 9)
+    expect(c[8]).toBe(hitRate(JU87.mass, JU87.protection[HIT_PARTS[1]!]))
+    expect(c[10]).toBe(true)
     playPool.mockClear()
     pushDamage(world.damageEvents, foe.index, 1, 0, 0, 0, -1)
     cues.queueAudioCues(world, player, land, false)
@@ -408,6 +413,22 @@ describe('自己的命中回饋', () => {
     cues.queueAudioCues(world, player, land, false)
     cues.playFrame(world, player, 10.08, true)
     expect(playPool).toHaveBeenCalledTimes(2)
+  })
+
+  /**
+   * 【接手僚機那一幀】`stepBattle` 已經換了座位，齊射分組還是舊那架的。新那架打中的算自己的；
+   * 新那架的槍焰不拿去比舊的分組
+   */
+  it('接手僚機那一幀：新座位打中的算自己的，槍焰不比舊分組', () => {
+    const { world, player, playPool, cues } = setup()
+    const next = world.add(new Aircraft(JU87), { update() {} }, 'blue', new Vector3(0, 1000, 0))
+    next.muzzleFlash.fill(0.03)
+    world.time = 10
+    pushImpact(world.materialHits, 200, 1000, 0, MATERIAL.ground, 0, 0, next.index)
+    cues.queueAudioCues(world, next, land, false)
+    cues.playFrame(world, next, 10, true)
+    expect(playPool.mock.calls.map((c) => [c[1], c[10]])).toEqual([['impact', true]])
+    expect(player.index).not.toBe(next.index)
   })
 
   it('上帝視角：自己打的照別人的那一條（等音速、原音量）', () => {

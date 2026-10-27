@@ -21,7 +21,7 @@ import {
 import { World } from '../world/World'
 import { createShip, SHIP_CLASSES, type Ship } from '../world/ships'
 import { createShipGuns } from '../world/shipGuns'
-import { clearImpacts } from '../world/events'
+import { IMPACT_STRIDE, clearImpacts } from '../world/events'
 import { TORPEDO_DEPTH, TORPEDO_RANGE, TORPEDO_SPEED, WAKE_INTERVAL } from '../world/torpedo'
 import {
   BOMB_TERMINAL_SPEED, bombDragK, solveImpact,
@@ -482,7 +482,7 @@ function stepWakes(dt: number): void {
 function drainEvents(): void {
   const d = world.torpedoEvents.data
   for (let e = 0; e < world.torpedoEvents.count; e++) {
-    const o = e * 6
+    const o = e * IMPACT_STRIDE
     const x = d[o]!
     const z = d[o + 2]!
     const w = terrain.waterAt(x, z)

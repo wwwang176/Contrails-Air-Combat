@@ -16,6 +16,7 @@ import { attitudeFromOrientation } from '../../src/core/attitude'
 import { DEG } from '../../src/core/math'
 import type { Loadout } from '../../src/weapons/stores'
 import type { AircraftSpec } from '../../src/specs/types'
+import { IMPACT_STRIDE } from '../../src/world/events'
 
 /**
  * # 雷擊的乾淨戰場
@@ -140,7 +141,7 @@ function trial(
 
     // ── 引爆事件 ────────────────────────────────────
     for (let e = before; e < w.torpedoEvents.count; e++) {
-      const o = e * 6
+      const o = e * IMPACT_STRIDE
       const kind = w.torpedoEvents.data[o + 3]!
       // 【事件不帶格子】用「最近一枚還沒收尾的」對上去 —— 一次只有一枚在飛
       for (let d = drops.length - 1; d >= 0; d--) {
