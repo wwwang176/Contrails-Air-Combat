@@ -4,6 +4,7 @@ import { createReelGunnery } from '../../src/app/reel/reelGunnery'
 import { P51D } from '../../src/specs/p51d'
 import { Projectiles } from '../../src/world/Projectiles'
 import type { ImpactEvents } from '../../src/world/events'
+import { createGroundTarget } from '../../src/world/groundTargets'
 
 function actor(z: number) {
   return {
@@ -24,6 +25,20 @@ function fixture(light = false) {
 }
 
 describe('短片槍械與曳光', () => {
+  it('高空地面曳光可延長至兩秒，一般射擊仍在 1.2 秒後回收', () => {
+    const { projectiles, gunnery } = fixture()
+    const a = actor(0)
+    const prop = createGroundTarget(0, 'truck', 'red', 0, 0, 0)
+    gunnery.startStream({ kind: 'groundFire', at: 0, prop: 0, actor: 0, seconds: 0.1, miss: 0, tracerLife: 2 })
+    gunnery.startStream({ kind: 'groundFire', at: 0, prop: 0, actor: 0, seconds: 0.1, miss: 0 })
+    gunnery.stepStreams([a], [], [prop], 0, 0)
+    expect(projectiles.live).toBe(2)
+    projectiles.step(1.3)
+    expect(projectiles.live).toBe(1)
+    projectiles.step(0.71)
+    expect(projectiles.live).toBe(0)
+  })
+
   it('長影格每挺固定槍只發射一次，放開後槍焰仍會熄滅', () => {
     const { projectiles, gunnery } = fixture()
     const a = actor(0)

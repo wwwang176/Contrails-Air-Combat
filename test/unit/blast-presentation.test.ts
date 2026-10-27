@@ -31,6 +31,21 @@ function setup() {
 }
 
 describe('爆炸呈現的事件邊界', () => {
+  it('短片可增加獨立方向的火星，火球、閃光與地面火仍只觸發一次', () => {
+    const normal = setup()
+    const dense = setup()
+    const terrain = { collisionHeightAt: () => 0, waterAt: () => -Infinity }
+    normal.presentation.reelBomb(0, 0, 0, false, terrain, 1)
+    dense.presentation.reelBomb(0, 0, 0, false, terrain, 1, 3)
+    expect(normal.blastSparks.burst).toHaveBeenCalledTimes(1)
+    expect(dense.blastSparks.burst).toHaveBeenCalledTimes(3)
+    const seeds = dense.blastSparks.burst.mock.calls.map((args) => args[6])
+    expect(new Set(seeds).size).toBe(3)
+    expect(dense.fireball.emit.mock.calls).toEqual(normal.fireball.emit.mock.calls)
+    expect(dense.blastLights.flash).toHaveBeenCalledTimes(1)
+    expect(Array.from(dense.groundFires.live)).toEqual(Array.from(normal.groundFires.live))
+  })
+
   it.each(['砲口', '落點'])('%s 只在近處微震，多發不累加，也不蓋掉較強的爆炸', (kind) => {
     const { presentation, cameraPosition, cameraShake } = setup()
     const pulse = cameraShake.cannon[kind === '砲口' ? 'muzzle' : 'impact']

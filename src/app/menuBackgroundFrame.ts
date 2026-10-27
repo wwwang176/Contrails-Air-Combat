@@ -23,7 +23,6 @@ export interface MenuBackgroundFrameDeps {
   readonly stepEffects: ReturnType<typeof createEffectStepper>
   readonly spray: ReturnType<typeof createSpray>
   readonly vortex: ReturnType<typeof createVortex>
-  readonly reelTrackDust: { step(dt: number): void }
   readonly steamEmission: ReturnType<typeof createSteamEmission>
   readonly fireCrowd: ReturnType<typeof createFireCrowd>
   readonly groundFires: ReturnType<typeof createGroundFires>
@@ -40,7 +39,7 @@ export interface MenuBackgroundFrameDeps {
 /** 推進並渲染一幀主選單背景短片，不碰戰鬥狀態 */
 export function createMenuBackgroundFrame(deps: MenuBackgroundFrameDeps) {
   const {
-    ctx, menuReel, getTerrain, getTerrainKind, sceneWeather, stepEffects, spray, vortex, reelTrackDust,
+    ctx, menuReel, getTerrain, getTerrainKind, sceneWeather, stepEffects, spray, vortex,
     steamEmission, fireCrowd, groundFires, shipFires, wakes, noShips, emitFirePuff,
     rainGroundAt, updateFireCrowd, stepGroundFires, playThunder,
   } = deps
@@ -56,7 +55,6 @@ export function createMenuBackgroundFrame(deps: MenuBackgroundFrameDeps) {
     stepEffects(fx, elapsed, terrain, elapsed)
     spray.step(fx)
     vortex.step(fx)
-    reelTrackDust.step(fx)
     // 短片地上的煙囪與冷卻塔冒白煙（炸毀的就停）
     steamEmission.emitPlantSteam(fx, menuReel.props, terrainKind)
     // 短片投下的炸彈點的地面火、魚雷的航跡。【擠在一起的火少冒煙】短片的地面火也要

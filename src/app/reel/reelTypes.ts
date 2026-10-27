@@ -116,6 +116,11 @@ export type ReelEvent =
     readonly at: number, readonly kind: 'smoke', readonly actor: number,
     readonly engine?: number, readonly fire?: boolean
   }
+  /** 已經燃燒一段時間的地面火點；局部座標，age 是切入時已燃燒的秒數。 */
+  | {
+    readonly at: number, readonly kind: 'fireColumns',
+    readonly points: readonly { readonly x: number, readonly z: number, readonly age: number }[]
+  }
   /** 這一架交給殘骸池。`blast` = 空中爆炸那一團火 */
   | { readonly at: number, readonly kind: 'kill', readonly actor: number, readonly blast: boolean }
   /** 一朵高砲黑雲，局部座標 */
@@ -156,6 +161,8 @@ export type ReelEvent =
   | {
     readonly at: number, readonly kind: 'groundFire', readonly prop: number, readonly actor: number,
     readonly seconds: number, readonly miss: number
+    /** 高空交叉火網的曳光存活秒數；省略沿用一般子彈壽命。 */
+    readonly tracerLife?: number
   }
   /** 第 `prop` 個地面物件在這一刻炸毀（換殘骸、爆一團、起火） */
   | { readonly at: number, readonly kind: 'destroy', readonly prop: number }
@@ -228,6 +235,8 @@ export interface Shot {
   readonly id: string
   /** 秒（片內時間；有變速的段，實際播放比這個長或短） */
   readonly duration: number
+  /** 落地炸彈噴幾批火星；每批方向獨立，省略時維持一批。只影響短片。 */
+  readonly bombSparkBursts?: number
   /** 變速（省略 = 全段等速）。見 `SpeedRamp` */
   readonly speed?: readonly SpeedRamp[]
   /** 跳接（省略 = 不跳）。見 `TimeJump` */

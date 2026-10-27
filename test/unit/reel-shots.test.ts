@@ -393,8 +393,18 @@ describe.each(shots.map((s) => [s.id, s] as const))(
       const killed = new Set<number>()
       for (const e of shot.events) {
         if (e.kind === 'flak') continue
+        if (e.kind === 'fireColumns') {
+          expect(e.points.length).toBeLessThanOrEqual(16)
+          for (const p of e.points) {
+            expect([p.x, p.z, p.age].every(Number.isFinite)).toBe(true)
+            expect(p.age).toBeGreaterThanOrEqual(0)
+            expect(p.age).toBeLessThanOrEqual(20)
+          }
+          continue
+        }
         if (e.kind === 'blast') {
           expect(e.size).toBeGreaterThan(0)
+          expect([e.x, e.y, e.z].every(Number.isFinite)).toBe(true)
           continue
         }
         if (e.kind === 'destroy') {

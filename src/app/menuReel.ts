@@ -15,7 +15,6 @@ import { createShipWakes, type ShipWakes } from '../render/shipWakes'
 import { shipFoamTexture } from '../render/shipFoamTexture'
 import { paletteOf, paletteSunDir } from '../render/timeOfDay'
 import type { OceanHeightUniforms } from '../render/wake'
-import { hash01 } from '../core/hash'
 import { Projectiles } from '../world/Projectiles'
 import { createShip, SHIP_CLASSES, type Ship } from '../world/ships'
 import type { IslandDesc } from '../world/archipelago'
@@ -23,7 +22,7 @@ import type { TimeOfDay } from '../world/timeOfDay'
 import type { AircraftSpec } from '../specs/types'
 import { createFlight, flightPose, openSeaOrigin, type Flight } from './reelFlight'
 import {
-  BOMB_RELEASE_Y, createReelCamera, jumpAt, pickIsland, propSpeedAt, propTravel, speedAt,
+  BOMB_RELEASE_Y, createReelCamera, jumpAt, pickIsland, propTravel, speedAt,
 } from './reel/kit'
 import { reelShots } from './reelShots'
 import type { ReelEvent, ReelGround, ReelPoint, ReelTerrainKind, Shot } from './reel/reelTypes'
@@ -31,7 +30,7 @@ import type { SiteLayout } from '../render/siteSurface'
 import type { CloudSpec } from '../render/clouds'
 import { createBombs, createTorpedoes, type BombVisuals } from '../render/bombs'
 import { createGroundModels, type GroundModels } from '../render/groundTargets'
-import { TRACK_DUST_EVERY } from '../render/groundBattle'
+import { createReelVehicleDust } from './reel/reelVehicleDust'
 import { createGroundTarget, type GroundTarget } from '../world/groundTargets'
 import type { ImpactEvents } from '../world/events'
 import { createReelBombardment, PROP_BLAST_REACH, type ReelBombardmentFx, type ReelReleaseActor } from './reel/reelBombardment'
@@ -62,12 +61,16 @@ export interface ReelFx extends ReelBombardmentFx {
   hits(events: ImpactEvents): void
   /** 一朵高砲黑雲 */
   flak(x: number, y: number, z: number): void
-  /** 受損拖的一團煙 */
+  /** 受損飛機拖煙。 */
   smoke(x: number, y: number, z: number, vx: number, vy: number, vz: number): void
+  /** 地面火災佈景，世界座標；預先發展的煙柱與逐幀燃燒共用遊戲配方。 */
+  fireColumns(points: readonly { x: number, y: number, z: number, age: number }[]): void
+  stepFireColumns(dt: number): void
   /** 發動機起火的一朵火 */
   fire(x: number, y: number, z: number): void
   /** 開動的車在車尾貼地揚起一團塵（與地面戰的行進揚塵同一個配方） */
   trackDust(x: number, y: number, z: number): void
+  stepTrackDust(dt: number): void
   /** 清掉所有共用特效與殘骸池 */
   clear(): void
 }
@@ -153,8 +156,6 @@ export const REEL_FADE = 0.6
 const SMOKE_INTERVAL = 0.015
 /** 螺旋槳轉速，rad/s */
 const PROP_SPIN = 55
-/** 地面物件慢過這個速度（煞停中）就不再揚塵，m/s */
-const TRACK_DUST_MIN_SPEED = 1
 /** 跳接時被跳過那段裡的高砲黑雲，只補放跳點前這麼多秒內的，s */
 const JUMP_FLAK_KEEP = 0.5
 /** 曳光池容量。幾架戰鬥機連射、轟炸機的機槍手加兩艘船的防空 */
@@ -255,8 +256,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
   let shipModels: ShipModels | null = null
   let shipWakes: ShipWakes | null = null
   let props: GroundTarget[] = []
-  /** 每一台開動的車距下一團車尾揚塵還有幾秒（與 `props` 同索引）。換段時重建 */
-  let trackClock = new Float32Array(0)
+  const vehicleDust = createReelVehicleDust(fx)
   let groundModels: GroundModels | null = null
   const reelDecor = createReelDecor(group, fx, PROP_BLAST_REACH)
   const bombardment = createReelBombardment(stage, releasePose, toWorld, reelDecor.burn)
@@ -421,9 +421,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       g.spawn.y = g.position.y
       return g
     })
-    // 【起點錯開】全部從 0 起算的話整條縱隊同一幀一起冒，讀起來是一排節拍
-    trackClock = new Float32Array(props.length)
-    for (let k = 0; k < props.length; k++) trackClock[k] = hash01(k * 13 + 5) * TRACK_DUST_EVERY
+    vehicleDust.reset(props.length)
     if (props.length > 0) {
       groundModels = createGroundModels(props)
       group.add(groundModels.object)
@@ -455,6 +453,14 @@ export function createMenuReel(stage: ReelStage): MenuReel {
           a.smokeEngine = e.engine ?? 0
           a.burning = e.fire === true
         }
+        break
+      }
+      case 'fireColumns': {
+        fx.fireColumns(e.points.map((point) => {
+          V1.set(point.x, 0, point.z)
+          toWorld(V1)
+          return { x: V1.x, y: stage.terrain().collisionHeightAt(V1.x, V1.z), z: V1.z, age: point.age }
+        }))
         break
       }
       case 'bomb':
@@ -588,7 +594,7 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       shipWakes.step(ships, dt, time, terrain.heightAt)
     }
     // 開動的地面物件照時間往前開、貼著地形；炸毀的停在原地。開了多遠是 `propTravel`
-    // （含煞車），與 `propAt` 同一條。還在動的每隔 `TRACK_DUST_EVERY` 秒在車尾貼地揚一團塵
+    // （含煞車），與 `propAt` 同一條。
     const specs = shot.props ?? []
     for (let k = 0; k < props.length; k++) {
       const g = props[k]!
@@ -600,12 +606,6 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       const x = g.spawn.x - sin * d
       const z = g.spawn.z - cos * d
       g.position.set(x, terrain.collisionHeightAt(x, z), z)
-      if (propSpeedAt(spec, t) < TRACK_DUST_MIN_SPEED) continue
-      trackClock[k]! -= dt
-      if (trackClock[k]! > 0) continue
-      trackClock[k]! += TRACK_DUST_EVERY
-      const back = g.unit.realLength / 2
-      fx.trackDust(x + sin * back, g.position.y + 0.5, z + cos * back)
     }
     // 地面物件：炸毀的換殘骸、停放飛機的槳照時間轉
     groundModels?.update(props, camera.position, dt)
@@ -659,13 +659,18 @@ export function createMenuReel(stage: ReelStage): MenuReel {
       if (!(e.kind === 'flak' && e.at < staleFlak)) fire(e)
       cursor++
     }
+    fx.stepFireColumns(dt)
     propRotation += dt * PROP_SPIN
     poseActors()
     placeCamera()
     stepActors(dt, propRotation)
     gunnery.stepStreams(actors, ships, props, t, dt)
     stepShips(dt, time)
-    bombardment.step(t, actors, ships, props)
+    // 剪接清空特效後補回車尾既有塵跡；平常與 seek 都在這裡推進，避免漏更新或加速兩次。
+    const terrain = stage.terrain()
+    if (jump !== undefined) vehicleDust.rebuild(t, props, shot.props ?? [], terrain.collisionHeightAt)
+    else vehicleDust.step(dt, t, props, shot.props ?? [], terrain.collisionHeightAt)
+    bombardment.step(t, actors, ships, props, shot.bombSparkBursts)
     bombVisuals.update(bombs)
     torpedoVisuals.update(torpedoes)
     bombardment.stepShipFires(ships, dt)
