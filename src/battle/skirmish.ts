@@ -83,17 +83,18 @@ export interface SkirmishSetup {
 export const PERFORMANCE_LEVELS: readonly PerformanceLevel[] = ['standard', 'boosted', 'extreme']
 
 /**
- * 開場高度的三個選項。**順序即按鈕順序。**
+ * 開場高度的四個選項。**順序即按鈕順序。**
  *
  * ```
  *   甲板     600 m   地形是主角。實測繞島佔時 4~7%
  *   低空   1,500 m   島在腳下，但擋不住路（實測繞島 0%）
  *   中空   4,000 m   預設
+ *   高空   6,000 m   空氣稀薄，爬升與持續迴旋都比中空差
  * ```
  *
- * 【為什麼上面不再加】He 111 的實用升限是 6,300 m，而 `altitudeSpread`
- * 還會再加 ±300。開場給到 6,000 的話，混編裡的 He 111 一出生就在升限上、
- * 會一路往下沉。4,000 已經是地形完全不相干的高度。
+ * 【6,000 m 是 He 111 的邊】它的升限 6,313 m，而 `altitudeSpread` 還會再加 ±300。
+ * 6,300 m 仍飛得了平飛（標準段極速 318 km/h），但幾乎沒有爬升餘裕。
+ * 其餘機種在 6,300 m 都還有 6 m/s 以上的爬升率。
  *
  * 【為什麼甲板是 600 而不是 400】400 m 會把飛機壓在海面上，20v20 的繞島
  * 佔時反而掉到 0。600 m 在 8v8 與 20v20 兩種規模都落在 4~7%，兩邊都不是
@@ -103,6 +104,7 @@ export const ALTITUDES: readonly { readonly labelKey: MessageKey; readonly value
   { labelKey: 'skirmish.alt.deck', value: 600 },
   { labelKey: 'skirmish.alt.low', value: 1500 },
   { labelKey: 'skirmish.alt.mid', value: 4000 },
+  { labelKey: 'skirmish.alt.high', value: 6000 },
 ]
 
 /** 一側的總架數 */

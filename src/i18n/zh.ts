@@ -324,6 +324,7 @@ export const zh = {
   'skirmish.alt.deck': '甲板',
   'skirmish.alt.low': '低空',
   'skirmish.alt.mid': '中空',
+  'skirmish.alt.high': '高空',
   'skirmish.preset.even': '勢均力敵',
   'skirmish.preset.escort': '護航突破',
   'skirmish.preset.few': '以寡擊眾',

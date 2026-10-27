@@ -40,7 +40,7 @@ const TERRAINS: readonly OptItem<TerrainKind>[] = [
     sil: settingImage('sea') },
 ]
 /** 高度圖片沿用相同地平線，以飛機離地位置區分。 */
-const ALT_IMAGES: Readonly<Record<number, string>> = { 600: 'alt-low', 1500: 'alt-mid', 4000: 'alt-high' }
+const ALT_IMAGES: Readonly<Record<number, string>> = { 600: 'alt-low', 1500: 'alt-mid', 4000: 'alt-high', 6000: 'alt-top' }
 /**
  * 時段的選項。**順序即按鈕順序，與 `render/timeOfDay.ts` 的 `TIME_OF_DAY_IDS`
  * 一致**；十一月的正午不列（它是洛伊納那一關的天色，選單上與正午分不出來）。

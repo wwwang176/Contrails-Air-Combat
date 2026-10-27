@@ -322,6 +322,7 @@ export const en: Record<MessageKey, string> = {
   'skirmish.alt.deck': 'Deck',
   'skirmish.alt.low': 'Low',
   'skirmish.alt.mid': 'Medium',
+  'skirmish.alt.high': 'High',
   'skirmish.preset.even': 'Even odds',
   'skirmish.preset.escort': 'Escort run',
   'skirmish.preset.few': 'Outnumbered',

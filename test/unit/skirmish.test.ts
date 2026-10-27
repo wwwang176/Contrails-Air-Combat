@@ -7,6 +7,8 @@ import {
   type SkirmishSetup, type Flight,
 } from '../../src/battle/skirmish'
 import type { BattleConfig } from '../../src/battle/setup'
+import { DEFAULT_BATTLE } from '../../src/battle/battleDefaults'
+import { serviceCeiling } from '../../src/analysis/envelope'
 import { mixedLine, sideCount, sideSummary, assertOrderOfBattle } from '../../src/battle/order'
 import { HEAD_ON } from '../../src/battle/entry'
 import { SCHWARM_SIZE } from '../../src/battle/flights'
@@ -340,10 +342,16 @@ describe('遭遇戰的地形與開場高度', () => {
     expect(battleConfigFrom(DEFAULT_SKIRMISH).altitude).toBe(4000)
   })
 
-  it('三個高度都接得到 BattleConfig', () => {
+  it('每個高度都接得到 BattleConfig', () => {
     for (const a of ALTITUDES) {
       expect(battleConfigFrom({ ...DEFAULT_SKIRMISH, altitude: a.value }).altitude).toBe(a.value)
     }
+  })
+
+  it('最高那一格加上高度散布，仍在每一台的升限之下（遊戲用的升限 = 未套手感的）', () => {
+    const top = Math.max(...ALTITUDES.map((a) => a.value)) + DEFAULT_BATTLE.altitudeSpread
+    expect(top).toBe(6300)
+    for (const spec of ALL_SPECS) expect(serviceCeiling(spec), spec.id).toBeGreaterThan(top)
   })
 
   it('甲板那一格低於島頂 —— 山才擋得住路', () => {
