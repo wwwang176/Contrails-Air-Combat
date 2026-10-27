@@ -13,6 +13,7 @@ import type { AirData } from '../../src/physics/types'
 
 const airAt = (): AirData => ({ density: 0, pressure: 0, temperature: 0, soundSpeed: 0, sigma: 0 })
 import { B17G } from '../../src/specs/b17g'
+import { ALL_SPECS } from '../../src/specs/catalog'
 import { BF109K4 } from '../../src/specs/bf109k4'
 import { P51D } from '../../src/specs/p51d'
 import type { AircraftSpec } from '../../src/specs/types'
@@ -76,8 +77,8 @@ describe('feeledSpec 帶性能等級', () => {
     expectLeveled(feeledSpec(new Map(), P51D, undefined, 'extreme'), P51D, 'extreme')
   })
 
-  it('省略等級 = 標準，與現在逐項相同', () => {
-    expect(feeledSpec(new Map(), P51D, undefined)).toEqual(applyFeel(P51D, GAME_FEEL))
+  it('省略等級 = 標準：只有手感倍率，再壓升限', () => {
+    expectLeveled(feeledSpec(new Map(), P51D, undefined), P51D, 'standard')
   })
 
   it('地上的飛機與天上的同一個等級（共用同一張快取）', () => {
@@ -131,17 +132,17 @@ describe('建場：敵我全部飛機一起套', () => {
   })
 })
 
-describe('升限照標準段', () => {
-  for (const base of [P51D, B17G]) {
-    for (const level of BOOSTS) {
-      it(`${base.id}/${level}：升限等於標準段，3,000 m 的爬升率與沒壓之前相同`, () => {
-        const target = serviceCeiling(applyFeel(base, feelFor(base)))
-        const held = holdCeiling(boosted(base, level), target)
-        expect(serviceCeiling(boosted(base, level))).toBeGreaterThan(target + 500)
-        expect(Math.abs(serviceCeiling(held) - target)).toBeLessThan(5)
-        expect(maxClimbRate(held, 3000).rate).toBe(maxClimbRate(boosted(base, level), 3000).rate)
-      })
-    }
+describe('升限照未套手感的值', () => {
+  for (const base of ALL_SPECS) {
+    it(`${base.id}：三段的升限都等於未套手感的，3,000 m 的爬升率與沒壓之前相同`, () => {
+      const target = serviceCeiling(base)
+      for (const level of ['standard', ...BOOSTS] as const) {
+        const held = feeledSpec(new Map(), base, undefined, level)
+        expect(serviceCeiling(boosted(base, level)), level).toBeGreaterThan(target + 500)
+        expect(Math.abs(serviceCeiling(held) - target), level).toBeLessThan(5)
+        expect(maxClimbRate(held, 3000).rate, level).toBe(maxClimbRate(boosted(base, level), 3000).rate)
+      }
+    })
   }
 
   it('本來就到不了那個高度：原樣回傳', () => {

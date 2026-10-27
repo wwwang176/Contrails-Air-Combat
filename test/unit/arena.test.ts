@@ -23,9 +23,20 @@ describe('戰場邊界', () => {
     expect(s.outside).toBe(true)
   })
 
-  it('高度也是界的一部分', () => {
+  it('高度也是界的一部分：任務 10,000 m', () => {
+    const mission: ArenaBounds = { x: 0, z: 0, radius: R }
     const s = createArenaState()
-    stepArena(s, SKIRMISH_ARENA, 0, ARENA_CEILING + 1, 0, 0)
+    stepArena(s, mission, 0, ARENA_CEILING - 1, 0, 0)
+    expect(s.outside).toBe(false)
+    stepArena(s, mission, 0, ARENA_CEILING + 1, 0, 0)
+    expect(s.outside).toBe(true)
+  })
+
+  it('遭遇戰的高度上限是 20,000 m', () => {
+    const s = createArenaState()
+    stepArena(s, SKIRMISH_ARENA, 0, 19999, 0, 0)
+    expect(s.outside).toBe(false)
+    stepArena(s, SKIRMISH_ARENA, 0, 20001, 0, 0)
     expect(s.outside).toBe(true)
   })
 
@@ -57,7 +68,7 @@ describe('戰場邊界', () => {
   })
 
   it('遭遇戰 12 km 對開場最遠的 5,945 m 有一倍餘裕', () => {
-    expect(SKIRMISH_ARENA).toEqual({ x: 0, z: 0, radius: 12000 })
+    expect(SKIRMISH_ARENA).toEqual({ x: 0, z: 0, radius: 12000, ceiling: 20000 })
     expect(R).toBeGreaterThan(5945 * 2)
     expect(R).toBeGreaterThanOrEqual(ARENA_MIN_RADIUS)
   })

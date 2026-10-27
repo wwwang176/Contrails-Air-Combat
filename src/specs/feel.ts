@@ -351,9 +351,13 @@ export const HISTORICAL: FeelProfile = {
  *   實用升限 m    15369     14507    12198
  * ```
  *
- * 【這台已經不是 P-51 了】爬升率是史實的 2.2 倍、持續迴旋 1.9 倍、
- * 升限 15.4 km。這是明確的取捨，不是失誤 —— 史實值原封不動留在
- * `p51d.ts`，史實測試照樣守著它。
+ * 【這台已經不是 P-51 了】爬升率是史實的 2.2 倍、持續迴旋 1.9 倍。
+ * 這是明確的取捨，不是失誤 —— 史實值原封不動留在 `p51d.ts`，史實測試
+ * 照樣守著它。
+ *
+ * 【升限不跟著倍率走】上表的 15,369 m 是只套這組倍率的值；遊戲用的 spec
+ * 再經 `holdCeiling` 壓回未套手感的升限（`battle/flightSpawn.ts` 的 `feeledSpec`），
+ * 只有最高一檔臨界高度以上的出力受影響。
  *
  * 【還沒做的事】AI 的能量層門檻（`brakeCornerRatio`、`unloadMargin`、
  * `speedRecoverMargin`、`extendPitchAngle` 的兩個增益）全是照**舊包絡**
@@ -469,11 +473,14 @@ export function withPerformance(feel: FeelProfile, level: PerformanceLevel): Fee
   }
 }
 
-/** 額外掉力斜率的搜尋上限。σ/σ_top 到 0.5 時出力就歸零 */
-const MAX_ALTITUDE_LOSS = 2
+/**
+ * 額外掉力斜率的搜尋上限。σ/σ_top 掉 5% 出力就歸零 —— He 111 的升限離臨界高度
+ * 只有 1 km，套過手感之後要很陡才壓得回去
+ */
+const MAX_ALTITUDE_LOSS = 20
 
 /**
- * 把一份強化過的 spec 的升限壓回 `ceiling`：只讓最高一檔臨界高度以上的出力
+ * 把一份套過手感的 spec 的升限壓回 `ceiling`：只讓最高一檔臨界高度以上的出力
  * 多掉一些（`engine.altitudeLoss`），臨界高度以下一點不動。
  *
  * 解的是「`ceiling` 這個高度的最佳爬升率 = 升限門檻」，在掉力斜率上二分；

@@ -163,10 +163,10 @@ export function feeledSpec(
 ): AircraftSpec {
   let spec = cache.get(base)
   if (spec === undefined) {
-    const feel = feelFor(base, feels?.[base.id])
-    spec = applyFeel(base, withPerformance(feel, performance))
-    // 【升限照標準段】強化只加在臨界高度以下，升限仍是標準段那一個。一種機約 10 ms，只在第一次查表時付
-    if (performance !== 'standard') spec = holdCeiling(spec, serviceCeiling(applyFeel(base, feel)))
+    spec = applyFeel(base, withPerformance(feelFor(base, feels?.[base.id]), performance))
+    // 【升限照未套手感的值】手感倍率與性能等級只加在臨界高度以下，升限仍是史實那一台的
+    // （`historical.test.ts` 守 ±5%）。一種機約 10 ms，只在第一次查表時付
+    spec = holdCeiling(spec, serviceCeiling(base))
     cache.set(base, spec)
   }
   return spec

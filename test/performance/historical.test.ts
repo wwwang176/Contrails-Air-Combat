@@ -84,34 +84,18 @@ const ALL: readonly Check[] = [
   'vmaxCritical', 'vmaxSeaLevel', 'climb', 'stall', 'ceiling', 'peak']
 
 /**
- * 兩台轟炸機**還沒守住**的四項，連同 實測偏差。
+ * 兩台轟炸機**還沒守住**的項目，連同 實測偏差。
  *
- * 【He 111 的升限是刻意讓掉的】要的是「5,000 m 極速與海平面
- * 爬升都提高，可以超過史實」。那兩項各自的旋鈕（`powerCritical` 與
- * `powerSeaLevel`）都會連帶抬高升限，而升限只剩 1.5 點餘裕：
- *
- * ```
- *                 前      後
- *   5,000 m 極速  −3.6%   −0.1%   ← 目標達成，仍守死
- *   海平面爬升   −13.0%   +0.0%   ← 目標達成，本來就不斷言
- *   實用升限      +3.5%   +8.9%   ← 代價，由守死降級成 PENDING
- * ```
- *
- * **這是把一條護欄拿掉，不是調參沒調到位。** 拿掉的理由是取捨
- * （高空性能優先於升限的絕對值），不是因為做不到 —— 做得到，代價是那兩項
- * 回到原本的偏差。要復原就是把 `powerSeaLevel` 退回 2,680、
- * `powerCritical` 退回 2,216。
+ * 兩台的升限都守死：He 111 靠臨界高度以上的 `engine.altitudeLoss`（+0.2%），
+ * B-17G 靠渦輪的臨界高度 9,000 m（+0.5%），見各自的 spec。
  *
  * ```
- *   He 111  實用升限      +8.9%   見上方
  *   He 111  失速          +5.6%   derivedClMax 1.313 對 HE111_HISTORICAL.clMax
  *                                 的 1.55 差 15%。要動 alphaCrit／clAlpha，
  *                                 而那兩個現在都貼著升力線理論值
  *   B-17G   失速          +7.3%   同上：derivedClMax 1.429 對 1.42 幾乎剛好，
  *                                 但史實的 145 km/h 要求 1.833 —— 那是**放
  *                                 襟翼**的值，淨形對不上是應該的
- *   B-17G   升限          −9.5%   質量取 22,000（19,017 與 24,500
- *                                 之間裁定的中間值）。19,017 時是 −0.1%
  * ```
  *
  * 爬升率兩台都**不斷言**：史實值一個是「到 2,000 m 約 8.5 分」的平均值換算、
@@ -119,10 +103,8 @@ const ALL: readonly Check[] = [
  * 任何精度。實測 He 111 −13.0%、B-17G +12.4%（都是未套手感的值）。
  */
 const PENDING: readonly { id: string; check: Check; reason: string }[] = [
-  { id: 'he111', check: 'ceiling', reason: '+8.9%。取捨：高空性能優先於升限的絕對值' },
   { id: 'he111', check: 'stall', reason: '+5.6%。derivedClMax 1.313 對史實 1.55 差 15%' },
   { id: 'he111', check: 'climb', reason: '史實值是「到 2,000 m 約 8.5 分」的平均換算，撐不起精度' },
-  { id: 'b17g', check: 'ceiling', reason: '−9.5%。質量取 22,000（中間值）；19,017 時是 −0.1%' },
   { id: 'b17g', check: 'stall', reason: '+7.3%。史實的 145 km/h 是**放襟翼**的值，淨形對不上是應該的' },
   { id: 'b17g', check: 'climb', reason: '史實值是「到 20,000 ft 約 37 分」猜的，撐不起精度' },
   {
@@ -236,11 +218,11 @@ const CASES: {
    * 三項跨源（海面極速、海面爬升、失速），逐條標在 `A6M5_HISTORICAL`。
    */
   { spec: A6M5, hist: A6M5_HISTORICAL, checks: ALL },
-  // 極速兩點守死；失速、升限與爬升見 PENDING
+  // 極速兩點與升限守死；失速與爬升見 PENDING
   { spec: HE111, hist: HE111_HISTORICAL,
-    checks: ['vmaxCritical', 'vmaxSeaLevel', 'peak'] },
-  // 極速兩點守死；失速、升限與爬升見 PENDING
-  { spec: B17G, hist: B17G_HISTORICAL, checks: ['vmaxCritical', 'vmaxSeaLevel', 'peak'] },
+    checks: ['vmaxCritical', 'vmaxSeaLevel', 'ceiling', 'peak'] },
+  // 極速兩點與升限守死；失速與爬升見 PENDING
+  { spec: B17G, hist: B17G_HISTORICAL, checks: ['vmaxCritical', 'vmaxSeaLevel', 'ceiling', 'peak'] },
   /**
    * 【守五項，只有失速進 PENDING】它的來源品質比另外兩台轟炸機好得多 ——
    * 空技廠那份文件給的是一條**從海平面到 8,000 m 的完整速度曲線**（11 個
