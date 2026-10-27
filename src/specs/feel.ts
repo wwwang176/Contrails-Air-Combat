@@ -435,20 +435,21 @@ export interface PerformanceBoost {
  *
  * ```
  *                    標準    強化    超強
- *   持續迴旋 °/s     29.6    37.0    46.5
- *   瞬間迴旋 °/s     35.7    41.3    48.1
- *   海平面爬升 m/s     38      49      63
- *   滾轉 °/s           99     129     159   @400 km/h
- *   角落速度 km/h     449     389     334
- *   失速 km/h         159     138     118
+ *   持續迴旋 °/s     29.6    45.9    63.6
+ *   瞬間迴旋 °/s     35.7    47.3    63.6   在角落速度
+ *   海平面爬升 m/s     38      63     104
+ *   滾轉 °/s           99     159     219   @400 km/h
+ *   角落速度 km/h     449     340     253
+ *   失速 km/h         159     120      89
  * ```
  *
- * 超強段的持續迴旋幾乎等於瞬間迴旋：轉彎不掉能量。
+ * 強化與超強的持續迴旋等於瞬間迴旋：轉彎不掉能量。角落速度以上由結構過載
+ * 夾住，400 km/h 三段的瞬間迴旋都是 40 °/s —— 迴旋率的增幅出現在慢速區。
  */
 export const PERFORMANCE: Readonly<Record<PerformanceLevel, PerformanceBoost>> = {
   standard: { roll: 1, lift: 1, mass: 1, power: 1 },
-  boosted: { roll: 1.3, lift: 1.2, mass: 0.9, power: 1.15 },
-  extreme: { roll: 1.6, lift: 1.45, mass: 0.8, power: 1.3 },
+  boosted: { roll: 1.6, lift: 1.4, mass: 0.8, power: 1.3 },
+  extreme: { roll: 2.2, lift: 1.9, mass: 0.6, power: 1.6 },
 }
 
 /**
