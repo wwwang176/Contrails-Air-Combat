@@ -229,6 +229,7 @@ export const en: Record<MessageKey, string> = {
   'skirmish.terrain': 'Battlefield',
   'skirmish.altitude': 'Start altitude',
   'skirmish.tod': 'Time of day',
+  'skirmish.performance': 'Aircraft performance',
   'skirmish.fight': 'Fight',
 
   'pause.title': 'Paused',
@@ -362,6 +363,12 @@ export const en: Record<MessageKey, string> = {
   'tod.night.hint': 'Moonlight',
   'tod.storm': 'Storm',
   'tod.storm.hint': 'Lightning and rain',
+  'perf.standard': 'Standard',
+  'perf.standard.hint': 'Normal handling',
+  'perf.boosted': 'Boosted',
+  'perf.boosted.hint': 'Faster turns and climbs',
+  'perf.extreme': 'Extreme',
+  'perf.extreme.hint': 'Much faster turns and climbs',
 
   'score.duration': '{m}m {s}s',
   'score.victory': 'Victory',

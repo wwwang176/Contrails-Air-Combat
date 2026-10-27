@@ -7,7 +7,7 @@ import { STATION_OFFSETS, stationPoint } from '../ai/station'
 import type { Controller } from '../control/Controller'
 import { atmosphere } from '../physics/atmosphere'
 import type { AirData } from '../physics/types'
-import { applyFeel, feelFor, type FeelKind } from '../specs/feel'
+import { applyFeel, feelFor, withPerformance, type FeelKind, type PerformanceLevel } from '../specs/feel'
 import type { AircraftSpec } from '../specs/types'
 import type { World } from '../world/World'
 import type { Combatant } from '../world/combatant'
@@ -16,7 +16,7 @@ import type { FlightPlan } from './order'
 
 /** 生成只讀出生幾何與手感設定，不需要任務、UI 或戰果狀態。 */
 type SpawnConfig = Pick<BattleConfig,
-  'altitude' | 'tas' | 'entryRange' | 'schwarmSpacing' | 'lateralOffset' | 'altitudeSpread' | 'feels' | 'convoyCruiseTas'>
+  'altitude' | 'tas' | 'entryRange' | 'schwarmSpacing' | 'lateralOffset' | 'altitudeSpread' | 'feels' | 'performance' | 'convoyCruiseTas'>
 
 const UP = new Vector3(0, 1, 0)
 const FWD = new Vector3(0, 0, -1)
@@ -153,13 +153,17 @@ export type { FeelCache } from './battleState'
 /**
  * 一個機種套過手感的規格，一側算一次、之後共用同一個物件（下游有依物件識別的快取）。
  * 任務卡的 `feels` 指名了哪一組就用哪一組，沒指名依角色挑（`feelFor`）。
+ *
+ * @param performance 遭遇戰的性能等級，省略 = 標準。**同一場的每個呼叫端都要傳同一個值**：
+ *   快取不分等級，先寫進去的那一份會被之後的增援、重生、地上的飛機沿用。
  */
 export function feeledSpec(
   cache: Map<AircraftSpec, AircraftSpec>, base: AircraftSpec, feels: Readonly<Record<string, FeelKind>> | undefined,
+  performance: PerformanceLevel = 'standard',
 ): AircraftSpec {
   let spec = cache.get(base)
   if (spec === undefined) {
-    spec = applyFeel(base, feelFor(base, feels?.[base.id]))
+    spec = applyFeel(base, withPerformance(feelFor(base, feels?.[base.id]), performance))
     cache.set(base, spec)
   }
   return spec
@@ -190,7 +194,7 @@ export function spawnMember(
   // 戰鬥機放大，爬升率變成史實的三倍。
   //
   // 【查表在內層】混編小隊裡兩種機各查各的
-  const spec = feeledSpec(feeled[unit.team], base, cfg.feels)
+  const spec = feeledSpec(feeled[unit.team], base, cfg.feels, cfg.performance)
 
   // 【開局速度逐機種】見 `openingTas`。巡航只有轟炸機用得到，而
   // `maxLevelSpeed` 是一次求根搜尋 —— 戰鬥機不必付這個錢。

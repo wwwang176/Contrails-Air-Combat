@@ -9,7 +9,7 @@ export function mount() {
   let setup: SkirmishSetup = {
     blue: [{ id: ALL_SPECS[0]!.id, count: 4 }],
     red: [{ id: ALL_SPECS[1]!.id, count: 4 }],
-    lead: 0, terrain: 'archipelago', altitude: 3000, timeOfDay: 'noon',
+    lead: 0, terrain: 'archipelago', altitude: 3000, timeOfDay: 'noon', performance: 'standard',
   }
   const menu = createMenu(document.querySelector('#ui') as HTMLElement, {
     onEvent(event) {

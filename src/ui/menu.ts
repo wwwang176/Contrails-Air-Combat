@@ -184,6 +184,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     terrain: q('sk-terrain'),
     alt: q('sk-alt'),
     tod: q('sk-tod'),
+    perf: q('sk-perf'),
     quality: q('set-quality'),
     antialias: q('set-aa'),
     volume: q('set-volume'),

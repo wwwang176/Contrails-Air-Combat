@@ -12,6 +12,7 @@ import { VETERAN } from '../ai/profile'
 import type { TerrainKind } from '../world/terrainKind'
 import type { TimeOfDay } from '../world/timeOfDay'
 import type { MessageKey } from '../i18n'
+import type { PerformanceLevel } from '../specs/feel'
 
 /** 每隊最少架數。一架也要能打 —— 那時玩家沒有僚機可接，一死就落敗 */
 export const MIN_SIDE = 1
@@ -74,7 +75,12 @@ export interface SkirmishSetup {
    * `main.ts` 直接讀這一格。
    */
   readonly timeOfDay: TimeOfDay
+  /** 飛機性能等級，敵我全部飛機一起套（`BattleConfig.performance`） */
+  readonly performance: PerformanceLevel
 }
+
+/** 性能等級的三個選項。**順序即按鈕順序** */
+export const PERFORMANCE_LEVELS: readonly PerformanceLevel[] = ['standard', 'boosted', 'extreme']
 
 /**
  * 開場高度的三個選項。**順序即按鈕順序。**
@@ -124,6 +130,7 @@ export function uniform(
     terrain: 'archipelago',
     altitude: DEFAULT_BATTLE.altitude,
     timeOfDay: 'noon',
+    performance: 'standard',
   }
 }
 
@@ -318,5 +325,7 @@ export function battleConfigFrom(setup: SkirmishSetup): BattleConfig {
     // 測試量天花板用的基準。這裡是「史實的 AI」變成「打得動的 AI」的唯一
     // 入口，與 `specs/feel.ts` 在 `setup.ts` 的位置對稱。
     aiProfile: VETERAN,
+    // 【不是三段之一就落回標準】值從 DOM 與舊的設定物件來
+    performance: PERFORMANCE_LEVELS.includes(setup.performance) ? setup.performance : 'standard',
   }
 }

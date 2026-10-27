@@ -413,6 +413,60 @@ export function feelFor(spec: AircraftSpec, kind?: FeelKind): FeelProfile {
   return kind === 'bomber' ? BOMBER_FEEL : GAME_FEEL
 }
 
+/** 遭遇戰的飛機性能等級。敵我全部飛機一起套，任務模式不用 */
+export type PerformanceLevel = 'standard' | 'boosted' | 'extreme'
+
+/** 性能等級疊在手感輪廓上的倍率。`power` 同時乘在 `cd0` 上 */
+export interface PerformanceBoost {
+  readonly roll: number
+  readonly lift: number
+  readonly mass: number
+  readonly power: number
+}
+
+/**
+ * 三段性能等級的倍率。
+ *
+ * - `power` 與 `cd0` 同倍率，極速不動（`V_max³ ∝ power / cd0`）。
+ * - 不動 `limits.gPositive`：玩家的黑視從 7.5 G 起算，結構上限拉高之後
+ *   畫面會常態發黑。轉得快靠升力與重量把角落速度壓低。
+ *
+ * P-51D @3,000 m（`analysis/envelope.ts`）：
+ *
+ * ```
+ *                    標準    強化    超強
+ *   持續迴旋 °/s     29.6    37.0    46.5
+ *   瞬間迴旋 °/s     35.7    41.3    48.1
+ *   海平面爬升 m/s     38      49      63
+ *   滾轉 °/s           99     129     159   @400 km/h
+ *   角落速度 km/h     449     389     334
+ *   失速 km/h         159     138     118
+ * ```
+ *
+ * 超強段的持續迴旋幾乎等於瞬間迴旋：轉彎不掉能量。
+ */
+export const PERFORMANCE: Readonly<Record<PerformanceLevel, PerformanceBoost>> = {
+  standard: { roll: 1, lift: 1, mass: 1, power: 1 },
+  boosted: { roll: 1.3, lift: 1.2, mass: 0.9, power: 1.15 },
+  extreme: { roll: 1.6, lift: 1.45, mass: 0.8, power: 1.3 },
+}
+
+/**
+ * 手感輪廓乘上性能等級。**標準段回傳同一個物件**，套出來的 spec 與沒有這一層時逐位元相同。
+ */
+export function withPerformance(feel: FeelProfile, level: PerformanceLevel): FeelProfile {
+  if (level === 'standard') return feel
+  const p = PERFORMANCE[level]
+  return {
+    roll: feel.roll * p.roll,
+    oswald: feel.oswald,
+    power: feel.power * p.power,
+    lift: feel.lift * p.lift,
+    cd0: feel.cd0 * p.power,
+    mass: feel.mass * p.mass,
+  }
+}
+
 /**
  * 把手感輪廓套在一份 spec 上，回傳新的 spec。**不修改傳入的物件。**
  *

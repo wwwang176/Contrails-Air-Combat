@@ -258,7 +258,7 @@ export function createBattle(
   )
 
   placeFleet(world, cfg.fleet)
-  placeGround(world, cfg.ground, feeled, cfg.flakSpec, cfg.feels)
+  placeGround(world, cfg.ground, feeled, cfg.flakSpec, cfg.feels, cfg.performance)
   // 【排在艦隊之後】繫在船上的氣球要讀那艘船的位置與艏向
   placeBalloons(world, cfg.balloons)
   const battle: Battle = {
