@@ -5,7 +5,7 @@ import type { TransitRoute } from './convoy'
 import type { BalloonEntry, GroundEntry, MissionAlert, MissionFleet } from './missions/types'
 import type { ShipGunSpec } from '../world/shipGuns'
 import type { Loadout } from '../weapons/stores'
-import type { FeelKind } from '../specs/feel'
+import type { FeelKind, PerformanceLevel } from '../specs/feel'
 import type { GroundLivery } from '../specs/ground'
 import type { DifficultyProfile } from '../ai/profile'
 import type { MissionRules, MissionTuning } from './mission'
@@ -119,6 +119,11 @@ export interface BattleConfig {
    * （`feeledSpec`）。省略 = 依機種角色挑。
    */
   readonly feels?: Readonly<Record<string, FeelKind>>
+  /**
+   * 飛機性能等級，敵我全部飛機一起套（`specs/feel.ts` 的 `PERFORMANCE`）。
+   * 只有遭遇戰會給；省略 = 標準。
+   */
+  readonly performance?: PerformanceLevel
   altitude: number
   tas: number
   /**

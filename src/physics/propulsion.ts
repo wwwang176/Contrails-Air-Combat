@@ -44,6 +44,9 @@ export function enginePower(
   // 等邊界情況提供第二層防護，並讓 σ_eff 維持「密度比不超過海平面」的物理意義。
   const sigmaEff = Math.min(air.sigma * ramFactor(mach, spec.engine.ramEfficiency), 1)
 
+  const loss = spec.engine.altitudeLoss
+  /** 最高那一檔臨界高度的密度比 */
+  let sigmaTop = 1
   let best = 0
   for (const gear of spec.engine.gears) {
     const sigmaCrit = atmosphere(gear.altCritical, scratchAir).sigma
@@ -63,9 +66,14 @@ export function enginePower(
       p = gear.powerCritical * ((sigmaEff / sigmaCrit - 0.117) / 0.883)
     }
     if (p > best) best = p
+    if (sigmaCrit < sigmaTop) sigmaTop = sigmaCrit
   }
 
-  return Math.max(best, 0) * frac
+  let power = Math.max(best, 0)
+  if (loss !== undefined && sigmaEff < sigmaTop) {
+    power *= Math.max(0, 1 - loss * (1 - sigmaEff / sigmaTop))
+  }
+  return power * frac
 }
 
 /** 螺旋槳效率：低速效率低，高速趨近 etaMax。 */

@@ -231,6 +231,7 @@ export const zh = {
   'skirmish.terrain': '戰場',
   'skirmish.altitude': '開場高度',
   'skirmish.tod': '時段',
+  'skirmish.performance': '飛機性能',
   'skirmish.fight': '戰鬥',
 
   'pause.title': '已暫停',
@@ -364,6 +365,12 @@ export const zh = {
   'tod.night.hint': '月光',
   'tod.storm': '雷雨',
   'tod.storm.hint': '閃電與雨',
+  'perf.standard': '標準',
+  'perf.standard.hint': '原本的手感',
+  'perf.boosted': '強化',
+  'perf.boosted.hint': '轉彎、爬升更快',
+  'perf.extreme': '超強',
+  'perf.extreme.hint': '轉彎、爬升快得多',
 
   'score.duration': '{m} 分 {s} 秒',
   'score.victory': '勝利',

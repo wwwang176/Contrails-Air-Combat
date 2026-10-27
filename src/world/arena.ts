@@ -21,15 +21,20 @@ export interface ArenaBounds {
   readonly x: number
   readonly z: number
   readonly radius: number
+  /** 高度上限，m。省略 = `ARENA_CEILING` */
+  readonly ceiling?: number
 }
 
-/** 遭遇戰的界。開場最遠的一架在 5,945 m，餘裕一倍 */
-export const SKIRMISH_ARENA: ArenaBounds = { x: 0, z: 0, radius: 12000 }
+/**
+ * 遭遇戰的界。開場最遠的一架在 5,945 m，餘裕一倍。
+ * 高度上限 20,000 m 高過每一台的升限（最高 Bf 109 12,791 m），等於不限高
+ */
+export const SKIRMISH_ARENA: ArenaBounds = { x: 0, z: 0, radius: 12000, ceiling: 20000 }
 
 /** 任務的界最小半徑，m。再小的話追逐一兩個迴旋就碰到界 */
 export const ARENA_MIN_RADIUS = 10000
 
-/** 高度上限，m。P-51D 的升限是 12,770，所以這一條是飛得到的 */
+/** 任務的高度上限，m。P-51D 的升限是 12,238，所以這一條是飛得到的 */
 export const ARENA_CEILING = 10000
 
 /** 界外到爆炸的秒數。 */
@@ -59,7 +64,7 @@ export function stepArena(
   if (s.expired) return
   const dx = x - b.x
   const dz = z - b.z
-  const outside = dx * dx + dz * dz > b.radius * b.radius || y > ARENA_CEILING
+  const outside = dx * dx + dz * dz > b.radius * b.radius || y > (b.ceiling ?? ARENA_CEILING)
   s.outside = outside
   if (!outside) {
     s.remaining = ARENA_COUNTDOWN

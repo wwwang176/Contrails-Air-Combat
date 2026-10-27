@@ -2,9 +2,10 @@ import { specOf } from '../specs/catalog'
 import { SCHWARM_SIZE } from '../battle/flights'
 import {
   addFlight, setCount, removeFlight, setLead, applyPreset, flightsTotal,
-  PRESETS, ALTITUDES, MAX_SIDE, MAX_FLIGHTS, type SkirmishSetup, type Flight, type PresetKey,
+  PRESETS, ALTITUDES, MAX_SIDE, MAX_FLIGHTS, PERFORMANCE_LEVELS, type SkirmishSetup, type Flight, type PresetKey,
 } from '../battle/skirmish'
 import { formatNumber, t, type MessageKey } from '../i18n'
+import type { PerformanceLevel } from '../specs/feel'
 import type { AircraftSpec } from '../specs/types'
 import type { TerrainKind } from '../world/terrainKind'
 import type { TimeOfDay } from '../world/timeOfDay'
@@ -57,11 +58,15 @@ const TIMES: readonly OptItem<TimeOfDay>[] = [
   { labelKey: 'tod.storm', hintKey: 'tod.storm.hint', value: 'storm',
     sil: settingImage('storm') },
 ]
+/** 飛機性能的選項，順序照 `PERFORMANCE_LEVELS` */
+const PERFORMANCES: readonly OptItem<PerformanceLevel>[] = PERFORMANCE_LEVELS.map((value) => ({
+  labelKey: `perf.${value}`, hintKey: `perf.${value}.hint`, value, sil: settingImage(`perf-${value}`),
+}))
 
 /** 管編隊編輯與選機視窗；每一次提出的設定由呼叫端套用 */
 export function createMenuSkirmish(
   el: { presets: HTMLElement; mine: HTMLElement; foe: HTMLElement; versus: HTMLElement;
-    terrain: HTMLElement; alt: HTMLElement; tod: HTMLElement; go: HTMLButtonElement },
+    terrain: HTMLElement; alt: HTMLElement; tod: HTMLElement; perf: HTMLElement; go: HTMLButtonElement },
   planePick: HTMLElement,
   optionPick: HTMLElement,
   hooks: { onSetup(setup: SkirmishSetup): void },
@@ -226,6 +231,7 @@ export function createMenuSkirmish(
     settingChoice(el.alt, 'skirmish.altitude', ALTITUDES.map((a) => ({ labelKey: a.labelKey, hint: `${formatNumber(a.value)} m`, value: a.value, sil: settingImage(ALT_IMAGES[a.value] ?? 'alt-mid') })),
       setup.altitude, (v) => hooks.onSetup({ ...setup, altitude: v }))
     settingChoice(el.tod, 'skirmish.tod', TIMES, setup.timeOfDay, (v) => hooks.onSetup({ ...setup, timeOfDay: v }))
+    settingChoice(el.perf, 'skirmish.performance', PERFORMANCES, setup.performance, (v) => hooks.onSetup({ ...setup, performance: v }))
     // 【任一邊空著就禁用】不靠 `battleConfigFrom` 補一架 —— 那是防禦，不是 UI 的行為
     // 【只禁用，不寫一行字】一邊空著的時候那一欄本身就是空的、按鈕也灰了，
     // 再寫一句「兩邊都要有人才打得起來」是多的

@@ -1,4 +1,5 @@
 import type { AircraftSpec } from './types'
+import { CEILING_RATE, maxClimbRate } from '../analysis/envelope'
 
 /**
  * 手感係數：把「史實的飛機」與「玩起來的飛機」分成兩層。
@@ -350,9 +351,13 @@ export const HISTORICAL: FeelProfile = {
  *   實用升限 m    15369     14507    12198
  * ```
  *
- * 【這台已經不是 P-51 了】爬升率是史實的 2.2 倍、持續迴旋 1.9 倍、
- * 升限 15.4 km。這是明確的取捨，不是失誤 —— 史實值原封不動留在
- * `p51d.ts`，史實測試照樣守著它。
+ * 【這台已經不是 P-51 了】爬升率是史實的 2.2 倍、持續迴旋 1.9 倍。
+ * 這是明確的取捨，不是失誤 —— 史實值原封不動留在 `p51d.ts`，史實測試
+ * 照樣守著它。
+ *
+ * 【升限不跟著倍率走】上表的 15,369 m 是只套這組倍率的值；遊戲用的 spec
+ * 再經 `holdCeiling` 壓回未套手感的升限（`battle/flightSpawn.ts` 的 `feeledSpec`），
+ * 只有最高一檔臨界高度以上的出力受影響。
  *
  * 【還沒做的事】AI 的能量層門檻（`brakeCornerRatio`、`unloadMargin`、
  * `speedRecoverMargin`、`extendPitchAngle` 的兩個增益）全是照**舊包絡**
@@ -411,6 +416,91 @@ export type FeelKind = 'fighter' | 'bomber'
 export function feelFor(spec: AircraftSpec, kind?: FeelKind): FeelProfile {
   if (kind === undefined) return spec.role === 'bomber' ? BOMBER_FEEL : GAME_FEEL
   return kind === 'bomber' ? BOMBER_FEEL : GAME_FEEL
+}
+
+/** 遭遇戰的飛機性能等級。敵我全部飛機一起套，任務模式不用 */
+export type PerformanceLevel = 'standard' | 'boosted' | 'extreme'
+
+/** 性能等級疊在手感輪廓上的倍率。`power` 同時乘在 `cd0` 上 */
+export interface PerformanceBoost {
+  readonly roll: number
+  readonly lift: number
+  readonly mass: number
+  readonly power: number
+}
+
+/**
+ * 三段性能等級的倍率。
+ *
+ * - `power` 與 `cd0` 同倍率，極速不動（`V_max³ ∝ power / cd0`）。
+ * - 不動 `limits.gPositive`：玩家的黑視從 7.5 G 起算，結構上限拉高之後
+ *   畫面會常態發黑。轉得快靠升力與重量把角落速度壓低。
+ *
+ * P-51D @3,000 m（`analysis/envelope.ts`）：
+ *
+ * ```
+ *                    標準    強化    超強
+ *   持續迴旋 °/s     29.6    45.9    63.6
+ *   瞬間迴旋 °/s     35.7    47.3    63.6   在角落速度
+ *   海平面爬升 m/s     38      63     104
+ *   滾轉 °/s           99     159     219   @400 km/h
+ *   角落速度 km/h     449     340     253
+ *   失速 km/h         159     120      89
+ * ```
+ *
+ * 強化與超強的持續迴旋等於瞬間迴旋：轉彎不掉能量。角落速度以上由結構過載
+ * 夾住，400 km/h 三段的瞬間迴旋都是 40 °/s —— 迴旋率的增幅出現在慢速區。
+ */
+export const PERFORMANCE: Readonly<Record<PerformanceLevel, PerformanceBoost>> = {
+  standard: { roll: 1, lift: 1, mass: 1, power: 1 },
+  boosted: { roll: 1.6, lift: 1.4, mass: 0.8, power: 1.3 },
+  extreme: { roll: 2.2, lift: 1.9, mass: 0.6, power: 1.6 },
+}
+
+/**
+ * 手感輪廓乘上性能等級。**標準段回傳同一個物件**，套出來的 spec 與沒有這一層時逐位元相同。
+ */
+export function withPerformance(feel: FeelProfile, level: PerformanceLevel): FeelProfile {
+  if (level === 'standard') return feel
+  const p = PERFORMANCE[level]
+  return {
+    roll: feel.roll * p.roll,
+    oswald: feel.oswald,
+    power: feel.power * p.power,
+    lift: feel.lift * p.lift,
+    cd0: feel.cd0 * p.power,
+    mass: feel.mass * p.mass,
+  }
+}
+
+/**
+ * 額外掉力斜率的搜尋上限。σ/σ_top 掉 5% 出力就歸零 —— He 111 的升限離臨界高度
+ * 只有 1 km，套過手感之後要很陡才壓得回去
+ */
+const MAX_ALTITUDE_LOSS = 20
+
+/**
+ * 把一份套過手感的 spec 的升限壓回 `ceiling`：只讓最高一檔臨界高度以上的出力
+ * 多掉一些（`engine.altitudeLoss`），臨界高度以下一點不動。
+ *
+ * 解的是「`ceiling` 這個高度的最佳爬升率 = 升限門檻」，在掉力斜率上二分；
+ * 斜率越大、那個高度的爬升率越低。本來就到不了 `ceiling` 的 spec 原樣回傳。
+ * `ceiling` 低於臨界高度時這個旋鈕壓不下來，回傳斜率上限的版本。
+ */
+export function holdCeiling(spec: AircraftSpec, ceiling: number): AircraftSpec {
+  if (!Number.isFinite(ceiling)) return spec
+  const withLoss = (loss: number): AircraftSpec => ({ ...spec, engine: { ...spec.engine, altitudeLoss: loss } })
+  const rate = (loss: number): number => maxClimbRate(withLoss(loss), ceiling).rate
+  if (rate(0) <= CEILING_RATE) return spec
+  if (rate(MAX_ALTITUDE_LOSS) > CEILING_RATE) return withLoss(MAX_ALTITUDE_LOSS)
+  let lo = 0
+  let hi = MAX_ALTITUDE_LOSS
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2
+    if (rate(mid) > CEILING_RATE) lo = mid
+    else hi = mid
+  }
+  return withLoss(hi)
 }
 
 /**

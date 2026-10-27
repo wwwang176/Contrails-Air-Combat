@@ -1,6 +1,6 @@
 import type { FeelCache } from './battleState'
 import { Quaternion, Vector3 } from 'three'
-import type { FeelKind } from '../specs/feel'
+import type { FeelKind, PerformanceLevel } from '../specs/feel'
 import type { AircraftSpec } from '../specs/types'
 import type { GroundUnitId } from '../specs/ground'
 import { P51D } from '../specs/p51d'
@@ -83,7 +83,7 @@ export function placeBalloons(world: Pick<World, 'ships' | 'balloons'>, entries:
  */
 export function placeGround(
   world: Pick<World, 'groundTargets'>, ground: readonly GroundEntry[] | undefined, feeled: FeelCache, flakSpec?: ShipGunSpec,
-  feels?: Readonly<Record<string, FeelKind>>,
+  feels?: Readonly<Record<string, FeelKind>>, performance?: PerformanceLevel,
 ): void {
   if (ground === undefined) return
   for (const e of ground) {
@@ -95,7 +95,7 @@ export function placeGround(
     // 手感表拿 —— 離地時交給的那一席用的是同一份（`spawnMember`）
     const base = GROUND_AIRFRAME[e.unit]
     if (base !== undefined) {
-      const spec = feeledSpec(feeled[e.team], base, feels)
+      const spec = feeledSpec(feeled[e.team], base, feels, performance)
       t.airframe = spec
       t.hp = spec.hp
       // 【先算好】第一發打到它的子彈才算的話，那一步會在物理迴圈裡配置
