@@ -11,7 +11,8 @@ import type { ShipAATier } from '../world/shipAA'
  */
 export type Category = 'engine' | 'engineSelf' | 'fire' | 'fireSelf' | 'turret' | 'explosion' | 'splash'
   | 'blast' | 'cannon' | 'flakBurst' | 'hitSelf' | 'hitDealt' | 'flyby' | 'damage' | 'rattle'
-  | 'reload' | 'whistle' | 'radio' | 'warn' | 'wind' | 'impact' | 'waterHit' | 'ui' | 'thunder' | 'siren' | 'sirenSelf' | 'vehicle'
+  | 'reload' | 'whistle' | 'radio' | 'warn' | 'wind' | 'impact' | 'waterHit' | 'hitOwn' | 'ui' | 'thunder' | 'siren' | 'sirenSelf'
+  | 'vehicle'
 
 /** 車輛的三層共用同一份最近車輛名單，各自保留淡出空間。 */
 export const VEHICLE_AUDIO_VOICES = 8
@@ -135,6 +136,15 @@ export const CATEGORY: Record<Category, CategorySpec> = {
    * 這裡是 0 —— 不是 0 的話兩層各自亂跳，聽起來像兩個聲音
    */
   waterHit: { gainDb: -4, ref: 60, max: 1200, pitchJitter: 0 },
+  /**
+   * 自己打中東西的回饋（`battleAudioCues` 的 `playOwnHit`）：地面、車輛、船、飛機、水面都是這一類。
+   *
+   * 【定位，但引擎不做距離衰減】衰減率 0；隨距離小多少由呼叫端照 `ownHitDb` 算好當額外增益給，
+   * `ref` 是那條曲線的滿音量距離、`max` 起無聲。
+   * 【基準與 `hitSelf` 同一個數字】近距離與自己被打中一樣大，見 `OWN_HIT_DB`。
+   * 音高亂數由呼叫端給：打到水面的兩層要同一個音高
+   */
+  hitOwn: { gainDb: -6, ref: 100, max: 1200, rolloff: 0, pitchJitter: 0 },
   /**
    * 雷聲（雷雨的時段）。**定位在閃電打下的地方**（`render/storm.ts`、`main.ts`
    * 的 `playThunder`）：聽得出從哪一邊來，音波走到才響，遠的更悶。

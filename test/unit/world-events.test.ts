@@ -13,13 +13,13 @@ describe('ImpactEvents（M7 spec §2.2）', () => {
     expect(e.data.length).toBe(IMPACT_CAPACITY * IMPACT_STRIDE)
   })
 
-  it('推入的六個分量照 stride 排好', () => {
+  it('推入的七個分量照 stride 排好；射手省略是 −1', () => {
     const e = createImpacts(4)
     pushImpact(e, 1, 2, 3, 0, 1, 0)
-    pushImpact(e, 4, 5, 6, 1, 0, 0)
+    pushImpact(e, 4, 5, 6, 1, 0, 0, 9)
     expect(e.count).toBe(2)
-    expect(Array.from(e.data.subarray(0, 12)))
-      .toEqual([1, 2, 3, 0, 1, 0, 4, 5, 6, 1, 0, 0])
+    expect(Array.from(e.data.subarray(0, 14)))
+      .toEqual([1, 2, 3, 0, 1, 0, -1, 4, 5, 6, 1, 0, 0, 9])
   })
 
   it('滿了就丟棄並計數，不會越界寫', () => {
@@ -33,7 +33,7 @@ describe('ImpactEvents（M7 spec §2.2）', () => {
     expect(e.count).toBe(2)
     expect(e.dropped).toBe(1)
     expect(e.data[0]).toBe(1)
-    expect(e.data[6]).toBe(2)
+    expect(e.data[IMPACT_STRIDE]).toBe(2)
   })
 
   it('clearImpacts 只清 count，不清 dropped', () => {
@@ -60,6 +60,6 @@ describe('ImpactEvents（M7 spec §2.2）', () => {
     // 40 架全開火是 2,434 發/s；全部命中（不可能）在 60 fps 下是 41 次/幀，
     // 除以 8 個子步約 6 次/子步。64 是它的 10 倍。
     expect(IMPACT_CAPACITY).toBe(64)
-    expect(IMPACT_STRIDE).toBe(6)
+    expect(IMPACT_STRIDE).toBe(7)
   })
 })

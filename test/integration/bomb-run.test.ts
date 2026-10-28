@@ -9,6 +9,7 @@ import { G4M } from '../../src/specs/g4m'
 import { resetBombBay } from '../../src/weapons/bomb'
 import type { Loadout } from '../../src/weapons/stores'
 import type { Combatant } from '../../src/world/World'
+import { IMPACT_STRIDE } from '../../src/world/events'
 
 /** 與 `japan-m3` 的 `blueLoadout` 同一組：500 kg × 2。 */
 const BOMB_LOAD: Loadout = { kind: 'bomb', count: 2, damage: 11_700, reloadSeconds: 20 }
@@ -99,7 +100,7 @@ function fly(r: Rig, seconds: number): Result {
     const before = r.w.bombEvents.count
     r.w.step(DT)
     for (let e = before; e < r.w.bombEvents.count; e++) {
-      const o = e * 6
+      const o = e * IMPACT_STRIDE
       const d = Math.hypot(
         r.w.bombEvents.data[o]! - r.ship.position.x,
         r.w.bombEvents.data[o + 2]! - r.ship.position.z,

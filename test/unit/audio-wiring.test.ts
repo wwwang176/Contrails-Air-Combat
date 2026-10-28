@@ -172,7 +172,7 @@ describe('音效的戰鬥事件接線', () => {
    * 讀到的永遠是空的 —— 一個聲音都沒有，而且不報錯。
    */
   it('子步裡記事件，排在每一種事件的清除之前', () => {
-    expect(lines('presentBattleEvents(world, player, terrain, elapsed, input.godView || missionIntro.busy)').filter(inStep)).toHaveLength(1)
+    expect(lines('presentBattleEvents(world, battle.player, terrain, elapsed, input.godView || missionIntro.busy)').filter(inStep)).toHaveLength(1)
     const q = lines('battleAudioCues.queueAudioCues(world, player, terrain, godView)', EVENTS)
     expect(q).toHaveLength(1)
     for (const clear of ['clearDamage(dmg)', 'blastPresentation.emitGroundKills(world.groundKillEvents, world.time, world.groundTargets)', 'clearKills(world.killEvents)',
@@ -626,6 +626,14 @@ describe('單次音效的聲道池', () => {
     const update = ENGINE.slice(ENGINE.indexOf('function updateVoices('), ENGINE.indexOf('function beginFrame('))
     expect(update).toContain('soundArrived(now - v.waitingSince, d)')
     expect(update).toContain('v.audio.play(v.waitDelay)')
+  })
+
+  /** 【自己的命中不等音速】定位與距離衰減照舊，只是跳過等音波那一段；疊的那一層也一樣 */
+  it('instant 的定位音效跳過等音波，playPool 兩層都帶下去', () => {
+    const play = ENGINE.slice(ENGINE.indexOf('function playFile('), ENGINE.indexOf('function playPool('))
+    expect(play).toContain('if (loc && d > 0 && !instant) {')
+    const pool = ENGINE.slice(ENGINE.indexOf('function playPool('), ENGINE.indexOf('function playPool(') + 900)
+    expect(pool.match(/cutoffHz, instant\)/g)).toHaveLength(2)
   })
 
   /**

@@ -3,6 +3,8 @@ import { Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createBattleAudioCues } from '../../src/audio/battleAudioCues'
 import { hitFeedback, hitRate } from '../../src/audio/curves'
+import { randomRate } from '../../src/audio/pick'
+import { HDR_EXEMPT } from '../../src/audio/dynamics'
 import { warmJamGainDb } from '../../src/control/gunHeat'
 import { P51D } from '../../src/specs/p51d'
 import { JU87 } from '../../src/specs/ju87'
@@ -10,7 +12,8 @@ import { B17G } from '../../src/specs/b17g'
 import { World } from '../../src/world/World'
 import { clearDamage, pushDamage } from '../../src/world/damage'
 import { clearImpacts, createImpacts, pushImpact } from '../../src/world/events'
-import { WATER_HIT } from '../../src/audio/catalog'
+import { CATEGORY, WATER_HIT, impactSound } from '../../src/audio/catalog'
+import { MATERIAL } from '../../src/world/material'
 import { pushBurst } from '../../src/world/flak'
 import { HIT_PARTS } from '../../src/world/hit'
 
@@ -314,5 +317,168 @@ describe('戰鬥單次音效的收集與播放', () => {
     cues.playFrame(world, next, 2, true)
     expect(playPool.mock.calls.at(-1)![0]).toBe('volley-m2-50calx6')
     expect(playPool).toHaveBeenCalledTimes(3)
+  })
+})
+
+/**
+ * 【自己打中東西的回饋】與別人的同一個聲音、定位，但**不等音速**（`playPool` 第 11 格 `instant`），
+ * 音量走 `hitOwn` 與 `ownHitDb` 的距離曲線。這一發不再走別人的那一條，否則同一發響兩次。
+ * 上帝視角時沒有一發算自己的
+ */
+describe('自己的命中回饋', () => {
+  const metal = impactSound(MATERIAL.metal)
+  const dirt = impactSound(MATERIAL.ground)
+  const RATE = randomRate(() => 0.75)
+
+  it('打到地面、車輛：定位在命中點、立刻響、走 hitOwn；別人的照舊等音速', () => {
+    const { world, player, playPool, cues } = setup()
+    vi.spyOn(Math, 'random').mockReturnValue(0.75)
+    world.time = 10
+    pushImpact(world.materialHits, 200, 1000, 0, MATERIAL.ground, 0, 0, player.index)
+    cues.queueAudioCues(world, player, land, false)
+    cues.playFrame(world, player, 10, true)
+    expect(playPool).toHaveBeenCalledTimes(1)
+    const c = playPool.mock.calls[0]!
+    expect([...c.slice(0, 6), ...c.slice(7)]).toEqual([dirt.pool, 'hitOwn', 200, 1000, 0, true, true,
+      dirt.rate * RATE, dirt.cutoffHz, true])
+    playPool.mockClear()
+    world.time = 11
+    pushImpact(world.materialHits, 200, 1000, 0, MATERIAL.metal, 0, 0, 7)
+    cues.queueAudioCues(world, player, land, false)
+    cues.playFrame(world, player, 11, true)
+    expect(playPool.mock.calls).toEqual([[metal.pool, 'impact', 200, 1000, 0, true, metal.gainDb, false,
+      metal.rate, metal.cutoffHz]])
+  })
+
+  it('同一子步自己的與別人的各播一聲，自己的不重複走定位那一條', () => {
+    const { world, player, playPool, cues } = setup()
+    world.time = 10
+    pushImpact(world.materialHits, 100, 1000, 0, MATERIAL.metal, 0, 0, player.index)
+    pushImpact(world.materialHits, 300, 1000, 0, MATERIAL.metal, 0, 0, -1)
+    cues.queueAudioCues(world, player, land, false)
+    cues.playFrame(world, player, 10, true)
+    expect(playPool.mock.calls.map((c) => [c[1], c[2], c[10]])).toEqual([['impact', 300, undefined],
+      ['hitOwn', 100, true]])
+  })
+
+  /**
+   * 【比總增益，不比額外增益】兩類的基準可以不同。近距離與自己被機槍打中一樣大（同樣疊第二層）——
+   * 再小就會被自己的機槍與引擎蓋掉
+   */
+  it('打中飛機：在那一架身上定位、立刻響；近距離與自己被打中一樣大；別人打中的照舊', () => {
+    const { world, player, playPool, cues } = setup()
+    vi.spyOn(Math, 'random').mockReturnValue(0.75)
+    const foe = world.add(new Aircraft(JU87), { update() {} }, 'red', new Vector3(50, 1000, 0))
+    foe.aircraft.state.position.set(50, 1000, 0)
+    pushDamage(world.damageEvents, foe.index, 1, 0, 0, 1, player.index)
+    pushDamage(world.damageEvents, player.index, 1, 0, 0, 1, foe.index)
+    cues.queueAudioCues(world, player, land, false)
+    clearDamage(world.damageEvents)
+    cues.playFrame(world, player, 1, true)
+    const own = playPool.mock.calls.find((c) => c[1] === 'hitOwn')!
+    const self = playPool.mock.calls.find((c) => c[1] === 'hitSelf')!
+    expect(own.slice(0, 6)).toEqual(['hit', 'hitOwn', 50, 1000, 0, true])
+    expect(own[8]).toBe(hitRate(JU87.mass, JU87.protection[HIT_PARTS[1]!]) * RATE)
+    expect(own[10]).toBe(true)
+    const ownDb = CATEGORY.hitOwn.gainDb + (own[6] as number)
+    const selfDb = CATEGORY.hitSelf.gainDb + (self[6] as number)
+    expect(ownDb).toBeCloseTo(selfDb, 9)
+    expect(own[7]).toBe(self[7])
+    playPool.mockClear()
+    pushDamage(world.damageEvents, foe.index, 1, 0, 0, 0, -1)
+    cues.queueAudioCues(world, player, land, false)
+    clearDamage(world.damageEvents)
+    cues.playFrame(world, player, 2, true)
+    expect(playPool.mock.calls.map((c) => c[1])).toEqual(['hitDealt'])
+  })
+
+  /** 每一發在新的一場打，避開限頻；回那一聲的額外增益，沒播回 undefined */
+  function groundHitDb(distance: number): number | undefined {
+    const { world, player, playPool, cues } = setup()
+    pushImpact(world.materialHits, distance, 1000, 0, MATERIAL.ground, 0, 0, player.index)
+    cues.queueAudioCues(world, player, land, false)
+    cues.playFrame(world, player, 10, true)
+    return playPool.mock.calls[0]?.[6] as number | undefined
+  }
+
+  it('距離：100 m 內滿音量，到 1,000 m 只小 1.5 dB，最後 200 m 收到 0，1,200 m 起不播', () => {
+    const near = groundHitDb(50)!
+    expect(groundHitDb(100)).toBeCloseTo(near, 9)
+    expect(groundHitDb(200)! - near).toBeCloseTo(-0.4515, 3)
+    expect(groundHitDb(1000)! - near).toBeCloseTo(-1.5, 9)
+    expect(groundHitDb(1100)! - near).toBeCloseTo(1.5 * Math.log10(100 / 1100) + 20 * Math.log10(0.5), 6)
+    expect(groundHitDb(1199)! - near).toBeLessThan(-45)
+    expect(groundHitDb(1200)).toBeUndefined()
+  })
+
+  /** 少了任一項都不會報錯：引擎再疊一次真實衰減，或吵的時候被 HDR 整聲略過 */
+  it('hitOwn：引擎不再做距離衰減、不吃 HDR 窗口', () => {
+    expect(CATEGORY.hitOwn.rolloff).toBe(0)
+    expect(HDR_EXEMPT.has('hitOwn')).toBe(true)
+  })
+
+  it('打到水面：兩層都走 hitOwn、立刻響、同一個音高，大小與打到地面同一條；別人的不吃這幾項', () => {
+    const { world, player, playPool, cues } = setup()
+    vi.spyOn(Math, 'random').mockReturnValue(0.75)
+    cues.queueAudioCues(world, player, land, false)
+    const ev = createImpacts()
+    pushImpact(ev, 100, 1000, 0, 0, 1, 0, player.index)
+    cues.noteWaterHits(ev)
+    cues.playFrame(world, player, 1, true)
+    const near = groundHitDb(100)! - dirt.gainDb
+    expect(playPool.mock.calls.map((c) => [c[0], c[1], c[6], c[8], c[10]])).toEqual([
+      ['debris', 'hitOwn', WATER_HIT.debrisDb + near, RATE, true],
+      ['waterHit', 'hitOwn', WATER_HIT.splashDb + near, RATE, true]])
+    playPool.mockClear()
+    clearImpacts(ev)
+    pushImpact(ev, 100, 0, 0, 0, 1, 0, -1)
+    cues.noteWaterHits(ev)
+    cues.playFrame(world, player, 2, true)
+    expect(playPool.mock.calls.map((c) => [c[0], c[6], c[10]])).toEqual([
+      ['debris', WATER_HIT.debrisDb, undefined], ['waterHit', WATER_HIT.splashDb, undefined]])
+  })
+
+  it('自己的命中限頻：0.07 s 內只響一聲，聽不到的（1,200 m 外）不記', () => {
+    const { world, player, playPool, cues } = setup()
+    pushImpact(world.materialHits, 3000, 1000, 0, MATERIAL.ground, 0, 0, player.index)
+    cues.queueAudioCues(world, player, land, false)
+    cues.playFrame(world, player, 10, true)
+    expect(playPool).not.toHaveBeenCalled()
+    pushImpact(world.materialHits, 100, 1000, 0, MATERIAL.ground, 0, 0, player.index)
+    cues.queueAudioCues(world, player, land, false)
+    cues.playFrame(world, player, 10, true)
+    pushImpact(world.materialHits, 100, 1000, 0, MATERIAL.ground, 0, 0, player.index)
+    cues.queueAudioCues(world, player, land, false)
+    cues.playFrame(world, player, 10.05, true)
+    expect(playPool).toHaveBeenCalledTimes(1)
+    pushImpact(world.materialHits, 100, 1000, 0, MATERIAL.ground, 0, 0, player.index)
+    cues.queueAudioCues(world, player, land, false)
+    cues.playFrame(world, player, 10.08, true)
+    expect(playPool).toHaveBeenCalledTimes(2)
+  })
+
+  /**
+   * 【接手僚機那一幀】`stepBattle` 已經換了座位，齊射分組還是舊那架的。新那架打中的算自己的；
+   * 新那架的槍焰不拿去比舊的分組
+   */
+  it('接手僚機那一幀：新座位打中的算自己的，槍焰不比舊分組', () => {
+    const { world, player, playPool, cues } = setup()
+    const next = world.add(new Aircraft(JU87), { update() {} }, 'blue', new Vector3(0, 1000, 0))
+    next.muzzleFlash.fill(0.03)
+    world.time = 10
+    pushImpact(world.materialHits, 200, 1000, 0, MATERIAL.ground, 0, 0, next.index)
+    cues.queueAudioCues(world, next, land, false)
+    cues.playFrame(world, next, 10, true)
+    expect(playPool.mock.calls.map((c) => [c[1], c[10]])).toEqual([['hitOwn', true]])
+    expect(player.index).not.toBe(next.index)
+  })
+
+  it('上帝視角：自己打的照別人的那一條（等音速、原音量）', () => {
+    const { world, player, playPool, cues } = setup()
+    world.time = 10
+    pushImpact(world.materialHits, 200, 1000, 0, MATERIAL.metal, 0, 0, player.index)
+    cues.queueAudioCues(world, player, land, true)
+    cues.playFrame(world, player, 10, true)
+    expect(playPool.mock.calls.map((c) => [c[6], c[10]])).toEqual([[metal.gainDb, undefined]])
   })
 })

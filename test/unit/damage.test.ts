@@ -10,8 +10,8 @@ import type { Command, Controller } from '../../src/control/Controller'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 
 describe('DamageEvents', () => {
-  it('每筆五個 float：受害者索引 + 來彈方向 + 部位序號', () => {
-    expect(DAMAGE_STRIDE).toBe(5)
+  it('每筆六個 float：受害者索引 + 來彈方向 + 部位序號 + 射手', () => {
+    expect(DAMAGE_STRIDE).toBe(6)
     const e = createDamageEvents(4)
     expect(e.data.length).toBe(4 * DAMAGE_STRIDE)
     expect(e.count).toBe(0)
@@ -22,11 +22,12 @@ describe('DamageEvents', () => {
     expect(createDamageEvents().capacity).toBe(IMPACT_CAPACITY)
   })
 
-  it('追加一筆，欄位依序寫入', () => {
+  it('追加一筆，欄位依序寫入；射手省略是 −1', () => {
     const e = createDamageEvents(4)
     pushDamage(e, 7, 1, 0, 0, 3)
-    expect(e.count).toBe(1)
-    expect(Array.from(e.data.slice(0, DAMAGE_STRIDE))).toEqual([7, 1, 0, 0, 3])
+    pushDamage(e, 8, 0, 1, 0, 2, 5)
+    expect(e.count).toBe(2)
+    expect(Array.from(e.data.slice(0, 2 * DAMAGE_STRIDE))).toEqual([7, 1, 0, 0, 3, -1, 8, 0, 1, 0, 2, 5])
   })
 
   it('索引存進 float32 仍然精確', () => {

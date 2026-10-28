@@ -144,6 +144,8 @@ export class ProjectileHits {
       // —— 同隊過濾會靜靜失效，船於是打自己人。飛機那一側 `World.fire` 與
       // `stepTurrets` 填的值與反查出來的完全相同，所以行為逐位元不變。
       const shooter = owner >= 0 && owner < combatants.length ? combatants[owner] : undefined
+      /** 事件裡記的射手：飛機打的是它的座位，船砲是 −1 */
+      const shooterIndex = shooter === undefined ? -1 : owner
       const ownerTeam = p.team[i]!
 
       const lo = (ax < bx ? ax : bx) - rMax
@@ -245,8 +247,8 @@ export class ProjectileHits {
         // 【火花與打到飛機同一組】`hitEvents` 的消費者是 `sparks.emit`。
         // **不推 `damageEvents`** —— 那一條要一個 combatant 索引，船不是飛機。
         const hx = ax + (bx - ax) * bestT, hy = ay + (by - ay) * bestT, hz = az + (bz - az) * bestT
-        pushImpact(world.hitEvents, hx, hy, hz, -(bx - ax), -(by - ay), -(bz - az))
-        pushImpact(world.materialHits, hx, hy, hz, MATERIAL.ship, 0, 0)
+        pushImpact(world.hitEvents, hx, hy, hz, -(bx - ax), -(by - ay), -(bz - az), shooterIndex)
+        pushImpact(world.materialHits, hx, hy, hz, MATERIAL.ship, 0, 0, shooterIndex)
         const dmg = p.damage[i]!
         const cal = p.caliber[i]!
         // 【不套 PART_MULTIPLIER】那是飛機的六個部位，船沒有座艙也沒有機翼。
@@ -316,8 +318,8 @@ export class ProjectileHits {
         }
         if (hitTarget !== null) {
           const hx = ax + (bx - ax) * bestT, hy = ay + (by - ay) * bestT, hz = az + (bz - az) * bestT
-          pushImpact(world.hitEvents, hx, hy, hz, -(bx - ax), -(by - ay), -(bz - az))
-          pushImpact(world.materialHits, hx, hy, hz, groundTargetMaterial(hitTarget.unit), 0, 0)
+          pushImpact(world.hitEvents, hx, hy, hz, -(bx - ax), -(by - ay), -(bz - az), shooterIndex)
+          pushImpact(world.materialHits, hx, hy, hz, groundTargetMaterial(hitTarget.unit), 0, 0, shooterIndex)
           if (hitPart !== null) {
             hitTarget.hp -= partDamage(hitTarget.airframe!.protection, p.damage[i]!, hitPart)
           } else {
@@ -361,7 +363,7 @@ export class ProjectileHits {
         }
         if (hitBalloon !== null) {
           const hx = ax + (bx - ax) * bestT, hy = ay + (by - ay) * bestT, hz = az + (bz - az) * bestT
-          pushImpact(world.hitEvents, hx, hy, hz, -(bx - ax), -(by - ay), -(bz - az))
+          pushImpact(world.hitEvents, hx, hy, hz, -(bx - ax), -(by - ay), -(bz - az), shooterIndex)
           hitBalloon.hp -= p.damage[i]!
           popIfDead(hitBalloon, owner >= 0 && owner < combatants.length ? owner : -1, world.balloonKillEvents)
           p.kill(i)
@@ -389,9 +391,9 @@ export class ProjectileHits {
           // 那一發終點在地下好幾公尺，土柱與煙塵會整團埋在地面下
           const hy = land.field.sample(hx, hz)
           normalAt(land.field, hx, hz, LAND_N)
-          pushImpact(world.terrainHitEvents, hx, hy, hz, LAND_N.nx, LAND_N.ny, LAND_N.nz)
+          pushImpact(world.terrainHitEvents, hx, hy, hz, LAND_N.nx, LAND_N.ny, LAND_N.nz, shooterIndex)
           // 位置與土柱一致
-          pushImpact(world.materialHits, hx, hy, hz, MATERIAL.ground, 0, 0)
+          pushImpact(world.materialHits, hx, hy, hz, MATERIAL.ground, 0, 0, shooterIndex)
           p.kill(i)
           continue
         }
@@ -405,7 +407,7 @@ export class ProjectileHits {
           pushImpact(
             world.splashEvents,
             ax + (bx - ax) * s, SEA_SURFACE_Y, az + (bz - az) * s,
-            0, 1, 0,
+            0, 1, 0, shooterIndex,
           )
         }
         // 【回收在更深的地方】見 SEA_KILL_Y 的推導
@@ -428,7 +430,7 @@ export class ProjectileHits {
       pushImpact(
         world.hitEvents,
         ax + (bx - ax) * bestT, ay + (by - ay) * bestT, az + (bz - az) * bestT,
-        n.x, n.y, n.z,
+        n.x, n.y, n.z, shooterIndex,
       )
 
       // 【方向取彈丸速度的反向，不是射手的位置】887 m/s 飛 500 m 要 0.56 秒
@@ -439,7 +441,7 @@ export class ProjectileHits {
       const vs = Math.hypot(vx, vy, vz)
       // 靜止的彈丸不存在，但除以 0 會把 NaN 一路餵進 HUD —— 擋在源頭
       if (vs > 1e-6) {
-        pushDamage(world.damageEvents, victim.index, -vx / vs, -vy / vs, -vz / vs, PART_INDEX[part])
+        pushDamage(world.damageEvents, victim.index, -vx / vs, -vy / vs, -vz / vs, PART_INDEX[part], shooterIndex)
       }
 
       // 【命中即回收】不回收的話同一發會在後續每一步繼續扣血，而且池子

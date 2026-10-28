@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createTorpedoContacts } from '../../src/world/torpedoContacts'
-import { createImpacts } from '../../src/world/events'
+import { IMPACT_STRIDE, createImpacts } from '../../src/world/events'
 import { createShip, SHIP_CLASSES, type Ship } from '../../src/world/ships'
 import { NO_HIT } from '../../src/world/hit'
 
@@ -27,7 +27,7 @@ describe('魚雷碰撞的回呼', () => {
     expect(contacts.block(1000, -1, -300, 1000, -1, 300)).toBe(NO_HIT)
     contacts.end(1000, -1, 300, 0, 10, 0, 7)
     expect(world.shipHitEvents.count).toBe(1)
-    expect(world.torpedoEvents.data[11]).toBe(-1)
+    expect(world.torpedoEvents.data[IMPACT_STRIDE + 5]).toBe(-1)
   })
 
   it('兩個世界在結算前交錯查詢，命中各算各的', () => {
@@ -56,10 +56,10 @@ describe('魚雷碰撞的回呼', () => {
     world.waterAt = () => -Infinity
     contacts.entry(4, 5, 6)
     contacts.wake(7, 8, 9)
-    expect(Array.from(world.torpedoWakeEvents.data.slice(0, 18))).toEqual([
-      1, 3, 3, 0, 0, 0,
-      4, 5, 6, 0, 0, 0,
-      7, 8, 9, 0, 0, 0,
+    expect(Array.from(world.torpedoWakeEvents.data.slice(0, 3 * IMPACT_STRIDE))).toEqual([
+      1, 3, 3, 0, 0, 0, -1,
+      4, 5, 6, 0, 0, 0, -1,
+      7, 8, 9, 0, 0, 0, -1,
     ])
   })
 })

@@ -24,7 +24,7 @@ type EventWorld = Pick<World,
   'time' | 'killEvents' | 'groundKillEvents' | 'balloonKillEvents' | 'bombEvents'
   | 'torpedoEvents' | 'torpedoWakeEvents' | 'burstEvents' | 'hitEvents' | 'terrainHitEvents'
   | 'splashEvents'
-  | 'damageEvents' | 'materialHits' | 'groundTargets' | 'ships'>
+  | 'damageEvents' | 'materialHits' | 'groundTargets' | 'ships' | 'combatants'>
 type EventTerrain = Pick<ReturnType<typeof createTerrain>, 'heightAt' | 'collisionHeightAt' | 'waterAt'>
 
 export interface BattleEventSinks {

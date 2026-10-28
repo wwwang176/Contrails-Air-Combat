@@ -8,6 +8,7 @@ import { SHIP_CLASSES, createShip } from '../../src/world/ships'
 import { G4M } from '../../src/specs/g4m'
 import { resetBombBay } from '../../src/weapons/bomb'
 import { wireBattleAi } from '../../src/app/wireBattleAi'
+import { IMPACT_STRIDE } from '../../src/world/events'
 import type { Loadout } from '../../src/weapons/stores'
 
 /**
@@ -57,7 +58,7 @@ function run(loadout?: Loadout) {
   const e = w.bombEvents
   return {
     dropped: dropped(),
-    points: Array.from(e.data.subarray(0, e.count * 6)),
+    points: Array.from(e.data.subarray(0, e.count * IMPACT_STRIDE)),
     // 【魚雷要看池子】落彈事件只記炸彈；投雷後 20 秒魚雷還在水裡跑、沒打到船，
     // 不比池子的話魚雷的散佈換成亂數也照樣相等
     torpedoes: [...w.torpedoes.x, ...w.torpedoes.z],

@@ -302,3 +302,24 @@ export function hitFeedback(distance: number, out: { gainDb: number; cutoffHz: n
   out.gainDb = 0.5 * full
   out.cutoffHz = distanceCutoffHz(d * 0.5)
 }
+
+/** 自己命中的回饋在可聽距離前這麼多公尺開始收到 0，m */
+const OWN_HIT_FADE = 200
+
+/** 自己命中的回饋取真實距離衰減的幾成：0.075 時 `ref` 100 m 到 1,000 m 小 1.5 dB */
+const OWN_HIT_SPREAD = 0.075
+
+/**
+ * 自己打中東西的回饋隨距離小多少，dB（相對 `ref` 以內的滿音量）。`max` 起無聲，回 −Infinity。
+ *
+ * 【為了遊戲性捨棄真實衰減】真實的聲音每遠一倍小 6 dB，滿音量也只與自己被打中一樣大，
+ * 幾百公尺外的命中就被自己的引擎蓋掉，回饋等於沒有。這裡只取真實衰減的 `OWN_HIT_SPREAD`：
+ * 1,000 m 內只微微變小，聽得出遠近，但都還聽得到。
+ * 真實衰減永遠不會到 0，所以最後 `OWN_HIT_FADE` 公尺另外照振幅線性收到 0，到 `max` 不會一刀切斷。
+ */
+export function ownHitDb(distance: number, ref: number, max: number): number {
+  const d = Math.max(0, distance)
+  const fade = clamp((max - d) / OWN_HIT_FADE, 0, 1)
+  if (fade <= 0) return -Infinity
+  return OWN_HIT_SPREAD * 20 * Math.log10(ref / Math.max(ref, d)) + 20 * Math.log10(fade)
+}
