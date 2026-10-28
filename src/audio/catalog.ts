@@ -32,6 +32,11 @@ export interface CategorySpec {
    */
   rolloff?: number
   /**
+   * 空氣吸收照幾倍的距離算，省略 = 1。0.25 時 1,000 m 外的高頻與 250 m 一樣多。
+   * 只作用在單次音效（`playFile`）；搶聲道的響度估計仍照真實距離
+   */
+  airScale?: number
+  /**
    * 每次播放的隨機音高幅度（±），省略 = 0.08。**引擎是唯一乘這個亂數的地方**（`randomRate`）——
    * 呼叫端再乘一次，兩個疊起來就超出這個幅度
    */
@@ -143,8 +148,10 @@ export const CATEGORY: Record<Category, CategorySpec> = {
    * `ref` 是那條曲線的滿音量距離、`max` 起無聲。
    * 【基準與 `hitSelf` 同一個數字】近距離與自己被打中一樣大，見 `OWN_HIT_DB`。
    * 音高亂數由呼叫端給：打到水面的兩層要同一個音高
+   * 【空氣吸收只取四分之一的距離，為了遊戲性捨棄真實】照真實距離的話 1,000 m 外 2 kHz 以上
+   * 少 9–23 dB，剩下的悶響與自己的引擎同一個頻段，聽不出命中；四分之一時 4 kHz 約少 6 dB
    */
-  hitOwn: { gainDb: -6, ref: 100, max: 1200, rolloff: 0, pitchJitter: 0 },
+  hitOwn: { gainDb: -6, ref: 100, max: 1200, rolloff: 0, airScale: 0.25, pitchJitter: 0 },
   /**
    * 雷聲（雷雨的時段）。**定位在閃電打下的地方**（`render/storm.ts`、`main.ts`
    * 的 `playThunder`）：聽得出從哪一邊來，音波走到才響，遠的更悶。

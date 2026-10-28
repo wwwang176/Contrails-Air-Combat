@@ -599,11 +599,18 @@ describe('單次音效的聲道池', () => {
   it('每一幀更新播放中定位聲道的低通與音量', () => {
     const fn = ENGINE.slice(ENGINE.indexOf('function updateVoices('), ENGINE.indexOf('function beginFrame('))
     expect(fn).toContain('camDistance(')
-    expect(fn).toContain('v.air.setDistance(d, now')
+    expect(fn).toContain('v.air.setDistance(d * v.airScale, now')
     expect(fn).not.toContain('absorptionDb(d)')
     expect(fn).toContain('voiceLoudnessDb(')
     const begin = ENGINE.slice(ENGINE.indexOf('function beginFrame('), ENGINE.indexOf('function assign('))
     expect(begin).toContain('updateVoices(dt)')
+  })
+
+  /** 起播時漏乘的話，自己的命中第一下照真實距離變悶，下一幀才變亮 —— 不報錯，只是聽起來怪 */
+  it('起播與逐幀的空氣吸收都照類別的倍率算距離', () => {
+    const fn = ENGINE.slice(ENGINE.indexOf('function playFile('), ENGINE.indexOf('function playPool('))
+    expect(fn).toContain('pick.airScale = spec.airScale ?? 1')
+    expect(fn).toContain('pick.air.setDistance(loc ? d * pick.airScale : 0')
   })
 
   /**
