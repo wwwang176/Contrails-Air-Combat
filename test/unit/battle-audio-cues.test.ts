@@ -411,10 +411,14 @@ describe('自己的命中回饋', () => {
     expect(groundHitDb(1200)).toBeUndefined()
   })
 
-  /** 少了任一項都不會報錯：引擎再疊一次真實衰減，或吵的時候被 HDR 整聲略過 */
-  it('hitOwn：引擎不再做距離衰減、不吃 HDR 窗口', () => {
+  /**
+   * 少了任一項都不會報錯：引擎再疊一次真實衰減、吵的時候被 HDR 整聲略過，
+   * 或照真實距離吸掉高頻、遠處命中只剩被引擎蓋掉的悶響
+   */
+  it('hitOwn：引擎不再做距離衰減、不吃 HDR 窗口、空氣吸收只取四分之一的距離', () => {
     expect(CATEGORY.hitOwn.rolloff).toBe(0)
     expect(HDR_EXEMPT.has('hitOwn')).toBe(true)
+    expect(CATEGORY.hitOwn.airScale).toBe(0.25)
   })
 
   it('打到水面：兩層都走 hitOwn、立刻響、同一個音高，大小與打到地面同一條；別人的不吃這幾項', () => {

@@ -197,6 +197,8 @@ interface Voice {
   positioned: boolean
   ref: number
   rolloff: number
+  /** 空氣吸收照幾倍的距離算，見 `CategorySpec.airScale` */
+  airScale: number
   /** 估計到耳朵有多響，dB。搶聲道比這個 */
   loudness: number
   /** 在等音波傳到：發聲的 context 時間。−1 = 沒在等 */
@@ -383,7 +385,7 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
     const v = positional()
     voices.push({
       ...v, cat: null, envelope: undefined, startedAt: 0,
-      distance: 0, baseDb: 0, positioned: false, ref: 0, rolloff: 1, loudness: -Infinity,
+      distance: 0, baseDb: 0, positioned: false, ref: 0, rolloff: 1, airScale: 1, loudness: -Infinity,
       waitingSince: -1, waitDelay: 0, waitRate: 1, waitMax: 0, maxCutoff: FULL_BAND, cutoff: FULL_BAND,
     })
   }
@@ -482,13 +484,14 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
     pick.positioned = loc
     pick.ref = loc ? spec.ref : 0
     pick.rolloff = spec.rolloff ?? 1
+    pick.airScale = spec.airScale ?? 1
     pick.loudness = loud
     pick.maxCutoff = cutoffHz
     lastFreeVoices = free
     // 【不定位的永遠在正中間】它跟著聽者走，不看座標
     if (loc) a.position.set(x, y, z)
     setCutoff(pick, cutoffHz, ctx.currentTime, 0)
-    pick.air.setDistance(loc ? d : 0, ctx.currentTime, true)
+    pick.air.setDistance(loc ? d * pick.airScale : 0, ctx.currentTime, true)
     a.setBuffer(buffer)
     // 【直接設，不漸變】setVolume 會從上一個聲音的音量爬 10 ms，爆炸、命中的起音會被削掉
     a.gain.gain.cancelScheduledValues(ctx.currentTime)
@@ -574,7 +577,7 @@ export function createAudioEngine(camera: Camera, ear: Vector3 = camera.position
       const d = camDistance(p.x, p.y, p.z)
       v.distance = d
       v.loudness = voiceLoudnessDb(v.baseDb, v.ref, d, v.rolloff)
-      v.air.setDistance(d, now, v.waitingSince >= 0)
+      v.air.setDistance(d * v.airScale, now, v.waitingSince >= 0)
       // 【HDR 的衰減逐幀重算】聽者移動與素材衰減都會讓它變
       const live = v.loudness + envelopeAt(v.envelope, now - v.startedAt)
       const duck = !hdrOn || (v.cat !== null && HDR_EXEMPT.has(v.cat)) ? 0 : hdrDuckDb(live, loudest)
