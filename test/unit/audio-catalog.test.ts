@@ -104,7 +104,7 @@ describe('撞擊材質', () => {
 
   /**
    * 【泥土庫 19 支一起抽】單發 4、連發切出的單下 10、跳彈 5。每支的 A 加權響度（加上補償）
-   * 對齊碎屑庫，換過去不會突然變大變小
+   * 一樣大，連續掃射不會忽大忽小
    */
   it('泥土庫是 19 支，每支都有檔、在清單裡、帶包絡', () => {
     expect(POOLS.dirt).toEqual(Array.from({ length: 19 }, (_, i) => `dirt-${i + 1}`))
@@ -115,19 +115,22 @@ describe('撞擊材質', () => {
     }
   })
 
-  /** 【碎屑庫只剩水面用】打到水面的第一層還是它，檔案不能拿掉 */
-  it('碎屑庫留著給打到水面', () => {
-    expect(POOLS.debris).toHaveLength(4)
-    for (const id of POOLS.debris) expect(manifest[id], id).toBeDefined()
+  /** 【子彈打進水面四選一】每支都有檔、在清單裡、帶包絡；少了包絡 HDR 會把整段當成一樣響 */
+  it('子彈打進水面的庫是 4 支，每支都有檔、在清單裡、帶包絡', () => {
+    expect(POOLS.waterBullet).toEqual(['water-bullet-1', 'water-bullet-2', 'water-bullet-3', 'water-bullet-4'])
+    for (const id of POOLS.waterBullet) {
+      expect(existsSync(`public/audio/${id}.mp3`), id).toBe(true)
+      const entry = manifest[id] as { envelopeDb?: number[] } | undefined
+      expect(entry?.envelopeDb?.length, id).toBeGreaterThan(0)
+    }
   })
 
   /**
-   * 【打到水面兩層】碎屑過低通 600 Hz，疊上一段 1.5 s 的落水聲（小 16 dB：試聽的 −15 dB，
-   * 再扣掉檔案正規化後 A 加權大出來的 1.0 dB）；碎屑 −0.1 dB 是兩級低通的 A 加權差。與撞擊同一個音量與距離；
-   * 音高亂數由呼叫端給、兩層共用，所以類別的 `pitchJitter` 是 0
+   * 【打到水面兩層】子彈打進水面的那一下（不過低通），疊上一段 1.5 s 的落水聲；兩層合起來與打到地面
+   * 一樣大。與撞擊同一個音量與距離；音高亂數由呼叫端給、兩層共用，所以類別的 `pitchJitter` 是 0
    */
   it('打到水面：兩層的設定，與撞擊同一個音量與距離', () => {
-    expect(WATER_HIT).toEqual({ debrisCutoffHz: 600, debrisDb: 4.6, splashDb: -11.3 })
+    expect(WATER_HIT).toEqual({ bulletDb: -0.2, splashDb: -11.3 })
     expect(POOLS.waterHit).toEqual(['water-hit-1'])
     const { pitchJitter, ...rest } = CATEGORY.waterHit
     expect(pitchJitter).toBe(0)

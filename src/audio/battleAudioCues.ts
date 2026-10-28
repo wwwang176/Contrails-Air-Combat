@@ -210,7 +210,7 @@ export function createBattleAudioCues(
   }
 
   /**
-   * 播 `noteWaterHits` 記下的那一發：碎屑過低通，疊上落水聲，**兩層同一個音高**（類別的
+   * 播 `noteWaterHits` 記下的那一發：子彈打進水面的那一下，疊上落水聲，**兩層同一個音高**（類別的
    * `pitchJitter` 是 0，音高在這裡給）。【被時段擋下的不留】留到下一幀會把過時的位置播出來
    */
   function playWaterHit(elapsed: number): void {
@@ -219,8 +219,7 @@ export function createBattleAudioCues(
     if (elapsed - lastWaterHit < WATER_HIT_GAP) return
     lastWaterHit = elapsed
     const rate = randomRate(Math.random)
-    audio.playPool('debris', 'waterHit', waterX, waterY, waterZ, true, WATER_HIT.debrisDb, false, rate,
-      WATER_HIT.debrisCutoffHz)
+    audio.playPool('waterBullet', 'waterHit', waterX, waterY, waterZ, true, WATER_HIT.bulletDb, false, rate)
     audio.playPool('waterHit', 'waterHit', waterX, waterY, waterZ, true, WATER_HIT.splashDb, false, rate)
   }
 
@@ -256,8 +255,8 @@ export function createBattleAudioCues(
     const db = OWN_HIT_DB + ownHitDb(dist, CATEGORY.hitOwn.ref, CATEGORY.hitOwn.max)
     const rate = randomRate(Math.random)
     if (ownKind === OWN_WATER) {
-      audio.playPool('debris', 'hitOwn', ownX, ownY, ownZ, true, WATER_HIT.debrisDb + db, false, rate,
-        WATER_HIT.debrisCutoffHz, true)
+      audio.playPool('waterBullet', 'hitOwn', ownX, ownY, ownZ, true, WATER_HIT.bulletDb + db, false, rate,
+        undefined, true)
       audio.playPool('waterHit', 'hitOwn', ownX, ownY, ownZ, true, WATER_HIT.splashDb + db, false, rate,
         undefined, true)
       return
