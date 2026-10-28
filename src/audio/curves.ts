@@ -306,8 +306,8 @@ export function hitFeedback(distance: number, out: { gainDb: number; cutoffHz: n
 /** 自己命中的回饋在可聽距離前這麼多公尺開始收到 0，m */
 const OWN_HIT_FADE = 200
 
-/** 自己命中的回饋取真實距離衰減的幾成：0.15 時 `ref` 100 m 到 1,000 m 小 3 dB */
-const OWN_HIT_SPREAD = 0.15
+/** 自己命中的回饋取真實距離衰減的幾成：0.075 時 `ref` 100 m 到 1,000 m 小 1.5 dB */
+const OWN_HIT_SPREAD = 0.075
 
 /**
  * 自己打中東西的回饋隨距離小多少，dB（相對 `ref` 以內的滿音量）。`max` 起無聲，回 −Infinity。

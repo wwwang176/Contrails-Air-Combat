@@ -401,12 +401,12 @@ describe('自己的命中回饋', () => {
     return playPool.mock.calls[0]?.[6] as number | undefined
   }
 
-  it('距離：100 m 內滿音量，到 1,000 m 只小 3 dB，最後 200 m 收到 0，1,200 m 起不播', () => {
+  it('距離：100 m 內滿音量，到 1,000 m 只小 1.5 dB，最後 200 m 收到 0，1,200 m 起不播', () => {
     const near = groundHitDb(50)!
     expect(groundHitDb(100)).toBeCloseTo(near, 9)
-    expect(groundHitDb(200)! - near).toBeCloseTo(-0.903, 3)
-    expect(groundHitDb(1000)! - near).toBeCloseTo(-3, 9)
-    expect(groundHitDb(1100)! - near).toBeCloseTo(3 * Math.log10(100 / 1100) + 20 * Math.log10(0.5), 6)
+    expect(groundHitDb(200)! - near).toBeCloseTo(-0.4515, 3)
+    expect(groundHitDb(1000)! - near).toBeCloseTo(-1.5, 9)
+    expect(groundHitDb(1100)! - near).toBeCloseTo(1.5 * Math.log10(100 / 1100) + 20 * Math.log10(0.5), 6)
     expect(groundHitDb(1199)! - near).toBeLessThan(-45)
     expect(groundHitDb(1200)).toBeUndefined()
   })
