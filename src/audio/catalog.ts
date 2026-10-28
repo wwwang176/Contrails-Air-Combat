@@ -141,7 +141,7 @@ export const CATEGORY: Record<Category, CategorySpec> = {
    *
    * 【定位，但引擎不做距離衰減】衰減率 0；隨距離小多少由呼叫端照 `ownHitDb` 算好當額外增益給，
    * `ref` 是那條曲線的滿音量距離、`max` 起無聲。
-   * 【基準與 `hitSelf` 同一個數字】近距離最多與自己被打中一樣大，再壓多少見 `OWN_HIT_DB`。
+   * 【基準與 `hitSelf` 同一個數字】近距離與自己被打中一樣大，見 `OWN_HIT_DB`。
    * 音高亂數由呼叫端給：打到水面的兩層要同一個音高
    */
   hitOwn: { gainDb: -6, ref: 100, max: 1200, rolloff: 0, pitchJitter: 0 },

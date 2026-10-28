@@ -339,7 +339,7 @@ describe('自己的命中回饋', () => {
     cues.playFrame(world, player, 10, true)
     expect(playPool).toHaveBeenCalledTimes(1)
     const c = playPool.mock.calls[0]!
-    expect([...c.slice(0, 6), ...c.slice(7)]).toEqual([dirt.pool, 'hitOwn', 200, 1000, 0, true, false,
+    expect([...c.slice(0, 6), ...c.slice(7)]).toEqual([dirt.pool, 'hitOwn', 200, 1000, 0, true, true,
       dirt.rate * RATE, dirt.cutoffHz, true])
     playPool.mockClear()
     world.time = 11
@@ -362,10 +362,10 @@ describe('自己的命中回饋', () => {
   })
 
   /**
-   * 【比總增益，不比額外增益】兩類的基準可以不同。近距離要聽得到，但不能比自己被機槍打中還響；
-   * 「聽得到」取 6 dB 以內
+   * 【比總增益，不比額外增益】兩類的基準可以不同。近距離與自己被機槍打中一樣大（同樣疊第二層）——
+   * 再小就會被自己的機槍與引擎蓋掉
    */
-  it('打中飛機：在那一架身上定位、立刻響；近距離比自己被打中小、但差不到 6 dB；別人打中的照舊', () => {
+  it('打中飛機：在那一架身上定位、立刻響；近距離與自己被打中一樣大；別人打中的照舊', () => {
     const { world, player, playPool, cues } = setup()
     vi.spyOn(Math, 'random').mockReturnValue(0.75)
     const foe = world.add(new Aircraft(JU87), { update() {} }, 'red', new Vector3(50, 1000, 0))
@@ -382,8 +382,8 @@ describe('自己的命中回饋', () => {
     expect(own[10]).toBe(true)
     const ownDb = CATEGORY.hitOwn.gainDb + (own[6] as number)
     const selfDb = CATEGORY.hitSelf.gainDb + (self[6] as number)
-    expect(ownDb).toBeLessThan(selfDb)
-    expect(ownDb).toBeGreaterThan(selfDb - 6)
+    expect(ownDb).toBeCloseTo(selfDb, 9)
+    expect(own[7]).toBe(self[7])
     playPool.mockClear()
     pushDamage(world.damageEvents, foe.index, 1, 0, 0, 0, -1)
     cues.queueAudioCues(world, player, land, false)

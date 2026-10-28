@@ -70,10 +70,11 @@ export function createBattleAudioCues(
   let lastWaterHit = -Infinity
 
   /**
-   * 自己打中東西的回饋在近距離的額外增益，dB（`hitOwn` 與 `hitSelf` 同基準）：比自己被機槍打中
-   * 那一聲的額外增益（上面的 −1.4）小 2 dB。要聽得到，但不能比被打中還響 —— 被打中是警訊，回饋不能蓋過它
+   * 自己打中東西的回饋在近距離的額外增益，dB（`hitOwn` 與 `hitSelf` 同基準）：與自己被機槍打中
+   * 那一聲（上面的 −1.4、疊第二層）一樣大，遠的再照 `ownHitDb` 變小。
+   * 比它小的話，開火時會被自己的機槍與引擎蓋掉
    */
-  const OWN_HIT_DB = -3.4
+  const OWN_HIT_DB = -1.4
 
   /** 自己打中東西最密多久一次，s。與別人打在船殼、建築上同一個間隔 */
   const OWN_HIT_GAP = MATERIAL_HIT_GAP
@@ -262,11 +263,11 @@ export function createBattleAudioCues(
       return
     }
     if (ownKind === OWN_AIRCRAFT) {
-      audio.playPool('hit', 'hitOwn', ownX, ownY, ownZ, true, db, false, ownRate * rate, undefined, true)
+      audio.playPool('hit', 'hitOwn', ownX, ownY, ownZ, true, db, true, ownRate * rate, undefined, true)
       return
     }
     const m = impactSound(ownKind)
-    audio.playPool(m.pool, 'hitOwn', ownX, ownY, ownZ, true, m.gainDb + db, false, m.rate * rate, m.cutoffHz, true)
+    audio.playPool(m.pool, 'hitOwn', ownX, ownY, ownZ, true, m.gainDb + db, true, m.rate * rate, m.cutoffHz, true)
   }
 
   /** 記下這一幀有一架被打中：已經記過就只更新部位。熱路徑：不配置 */
