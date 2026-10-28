@@ -388,16 +388,17 @@ const IMPACT_BY_MATERIAL: readonly ImpactSound[] = [
  * 子彈、砲彈打到水面：**兩層同時起播、共用一個音高**。碎屑過低通是濺起來的那一下，
  * 疊上落水聲（`POOLS.waterHit`）是水花的尾巴。
  *
- * 【落水聲的 −16 dB】試聽定的是 −15 dB；檔案照慣例正規化到 −16 LUFS 之後，A 加權（最響 0.4 s
- * 窗的 RMS）比試聽那一段大 1.0 dB，這裡扣回來。
- * 【碎屑的 −0.1 dB】試聽是一級低通、0 dB；遊戲的兩級串接在 600 Hz 時 A 加權大 0.09 dB
+ * 【兩層合起來與打到地面一樣大】碎屑過 600 Hz 低通後少約 3 dB，素材本身也比泥土庫小；
+ * 兩層一起墊高到最響 0.4 s 的響度（ebur128）約 −14.7 LUFS，與泥土庫 19 支的平均相同。
+ * 不墊的話打到水面比打到地面小約 5 dB，剩下的低頻又與引擎同一個頻段，幾乎聽不到。
+ * 落水聲維持比碎屑小 15.9 dB，只是水花的尾巴
  */
 export const WATER_HIT = {
   /** 碎屑那一層的低通，Hz */
   debrisCutoffHz: 600,
-  debrisDb: -0.1,
+  debrisDb: 4.6,
   /** 落水聲那一層，dB */
-  splashDb: -16,
+  splashDb: -11.3,
 } as const
 
 export function impactSound(material: number): ImpactSound {
