@@ -7,7 +7,7 @@ import { burstDamageTo } from '../world/flak'
 import { HIT_PARTS, type HitPart } from '../world/hit'
 import type { AudioEngine } from './engine'
 import { CATEGORY, WATER_HIT, impactSound, type Pool } from './catalog'
-import { blastGainDb, blastRate, damageGainDb, hitFeedback, hitRate } from './curves'
+import { blastGainDb, blastRate, damageGainDb, hitFeedback, hitRate, ownHitDb } from './curves'
 import { queueExplosionCues, type ExplosionTerrain } from './explosionCues'
 import { LAYER_DB, randomRate } from './pick'
 import { CUE, CUE_STRIDE, clearCues, createCueQueue, pushCue } from './queue'
@@ -70,10 +70,10 @@ export function createBattleAudioCues(
   let lastWaterHit = -Infinity
 
   /**
-   * 自己打中東西的回饋比原本的命中聲小多少，dB。−10 dB 聽起來約一半大聲。
-   * 照樣定位、照樣隨距離衰減（`CATEGORY.impact` 的 1,200 m 外不播），只是不等音速
+   * 自己打中東西的回饋在近距離的額外增益，dB（`hitOwn` 與 `hitSelf` 同基準）：比自己被機槍打中
+   * 那一聲的額外增益（上面的 −1.4）小 2 dB。要聽得到，但不能比被打中還響 —— 被打中是警訊，回饋不能蓋過它
    */
-  const OWN_HIT_DB = -10
+  const OWN_HIT_DB = -3.4
 
   /** 自己打中東西最密多久一次，s。與別人打在船殼、建築上同一個間隔 */
   const OWN_HIT_GAP = MATERIAL_HIT_GAP
@@ -83,12 +83,6 @@ export function createBattleAudioCues(
 
   /** `ownKind` 裡代表打中飛機的值：原本的打中回饋那一聲，改成定位 */
   const OWN_AIRCRAFT = -2
-
-  /**
-   * 打中飛機的那一聲借 `impact` 類別的距離衰減播，增益要補回 `hitDealt` 原本的大小 ——
-   * 兩個類別的基準差 10 dB，不補的話「小 10 dB」只剩小 0.6 dB
-   */
-  const AIRCRAFT_HIT_DB = CATEGORY.hitDealt.gainDb - CATEGORY.impact.gainDb
 
   /** 這一子步誰是「自己」：玩家的座位；上帝視角時 −2，沒有一發算自己的 */
   let ownIndex = -2
@@ -201,7 +195,7 @@ export function createBattleAudioCues(
       const o = e * IMPACT_STRIDE
       const x = events.data[o]!, y = events.data[o + 1]!, z = events.data[o + 2]!
       if (events.data[o + 6]! === ownIndex) {
-        noteOwnHit(x, y, z, OWN_WATER, CATEGORY.waterHit.max)
+        noteOwnHit(x, y, z, OWN_WATER)
         continue
       }
       const dx = x - cam.x, dy = y - cam.y, dz = z - cam.z
@@ -233,13 +227,13 @@ export function createBattleAudioCues(
    * 記下一發自己的命中：聽得到的範圍內離鏡頭最近的那一發留下，`playFrame` 播。熱路徑：不配置
    *
    * @param kind `MATERIAL` 的材質、`OWN_WATER` 或 `OWN_AIRCRAFT`
-   * @param max 那一類聲音的可聽距離，m；更遠的不記
    * @param rate 打中飛機時的播放速度
    */
-  function noteOwnHit(x: number, y: number, z: number, kind: number, max: number, rate = 1): void {
+  function noteOwnHit(x: number, y: number, z: number, kind: number, rate = 1): void {
     const dx = x - cam.x, dy = y - cam.y, dz = z - cam.z
     const d2 = dx * dx + dy * dy + dz * dz
-    if (d2 > max * max || d2 >= ownDist2) return
+    const max = CATEGORY.hitOwn.max
+    if (d2 >= max * max || d2 >= ownDist2) return
     ownDist2 = d2
     ownX = x
     ownY = y
@@ -249,29 +243,30 @@ export function createBattleAudioCues(
   }
 
   /**
-   * 播 `noteOwnHit` 記下的那一發：與別人的同一個聲音，定位、隨距離衰減，但**不等音速**、
-   * 小 `OWN_HIT_DB`。【被時段擋下的不留】與打到水面同一個理由
+   * 播 `noteOwnHit` 記下的那一發：與別人的同一個聲音、定位，但**不等音速**，音量走 `hitOwn`
+   * 與 `ownHitDb` 的距離曲線。【被時段擋下的不留】與打到水面同一個理由
    */
   function playOwnHit(elapsed: number): void {
     if (ownDist2 === Infinity) return
+    const dist = Math.sqrt(ownDist2)
     ownDist2 = Infinity
     if (elapsed - lastOwnHit < OWN_HIT_GAP) return
     lastOwnHit = elapsed
+    const db = OWN_HIT_DB + ownHitDb(dist, CATEGORY.hitOwn.ref, CATEGORY.hitOwn.max)
+    const rate = randomRate(Math.random)
     if (ownKind === OWN_WATER) {
-      const rate = randomRate(Math.random)
-      audio.playPool('debris', 'waterHit', ownX, ownY, ownZ, true, WATER_HIT.debrisDb + OWN_HIT_DB, false, rate,
+      audio.playPool('debris', 'hitOwn', ownX, ownY, ownZ, true, WATER_HIT.debrisDb + db, false, rate,
         WATER_HIT.debrisCutoffHz, true)
-      audio.playPool('waterHit', 'waterHit', ownX, ownY, ownZ, true, WATER_HIT.splashDb + OWN_HIT_DB, false, rate,
+      audio.playPool('waterHit', 'hitOwn', ownX, ownY, ownZ, true, WATER_HIT.splashDb + db, false, rate,
         undefined, true)
       return
     }
     if (ownKind === OWN_AIRCRAFT) {
-      audio.playPool('hit', 'impact', ownX, ownY, ownZ, true, AIRCRAFT_HIT_DB + OWN_HIT_DB, false, ownRate,
-        undefined, true)
+      audio.playPool('hit', 'hitOwn', ownX, ownY, ownZ, true, db, false, ownRate * rate, undefined, true)
       return
     }
     const m = impactSound(ownKind)
-    audio.playPool(m.pool, 'impact', ownX, ownY, ownZ, true, m.gainDb + OWN_HIT_DB, false, m.rate, m.cutoffHz, true)
+    audio.playPool(m.pool, 'hitOwn', ownX, ownY, ownZ, true, m.gainDb + db, false, m.rate * rate, m.cutoffHz, true)
   }
 
   /** 記下這一幀有一架被打中：已經記過就只更新部位。熱路徑：不配置 */
@@ -322,7 +317,7 @@ export function createBattleAudioCues(
     // 不限的話光這一項就把事件佇列灌滿，爆炸與擊落會被擠掉。一個時段播一聲：這一子步裡挑
     // 聽得到的範圍內最近的那一發。【先濾距離再佔時段】聽不到的遠處命中佔掉時段的話，旁邊那一發就被擋掉
     //
-    // 【自己打的另走 `noteOwnHit`】不等音速、小一截；這裡就不再排定位那一聲，否則同一發響兩次
+    // 【自己打的另走 `noteOwnHit`】不等音速、音量另算；這裡就不再排定位那一聲，否則同一發響兩次
     ownIndex = godView ? -2 : player.index
     const mh = world.materialHits
     const others = world.time - lastMaterialHit >= MATERIAL_HIT_GAP
@@ -331,7 +326,7 @@ export function createBattleAudioCues(
     for (let e = 0; e < mh.count; e++) {
       const o = e * IMPACT_STRIDE
       if (mh.data[o + 6]! === ownIndex) {
-        noteOwnHit(mh.data[o]!, mh.data[o + 1]!, mh.data[o + 2]!, mh.data[o + 3]!, CATEGORY.impact.max)
+        noteOwnHit(mh.data[o]!, mh.data[o + 1]!, mh.data[o + 2]!, mh.data[o + 3]!)
         continue
       }
       if (!others) continue
@@ -352,13 +347,12 @@ export function createBattleAudioCues(
       // 【誰打中誰都算】不分射手 —— 僚機打中的也聽得到。太遠的由距離衰減擋掉，
       // 而距離要量**真正被打中的那一架**，所以這裡記下是誰
       if (dmg.data[o]! !== player.index) {
-        // 【自己打中的改成定位】同一個打中回饋，放在被打中的那一架身上、隨距離衰減
+        // 【自己打中的改成定位】同一個打中回饋，放在被打中的那一架身上、隨距離變小
         const victim = world.combatants[dmg.data[o]!]
         if (dmg.data[o + 5]! === ownIndex && victim !== undefined) {
           const p = victim.aircraft.state.position
           const spec = victim.aircraft.spec
-          noteOwnHit(p.x, p.y, p.z, OWN_AIRCRAFT, CATEGORY.impact.max,
-            hitRate(spec.mass, spec.protection[partOf(dmg.data[o + 4]!)]))
+          noteOwnHit(p.x, p.y, p.z, OWN_AIRCRAFT, hitRate(spec.mass, spec.protection[partOf(dmg.data[o + 4]!)]))
         } else {
           noteDealt(dmg.data[o]!, dmg.data[o + 4]!)
         }
