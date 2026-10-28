@@ -203,7 +203,7 @@ describe('戰鬥單次音效的收集與播放', () => {
   })
 
   /**
-   * 【打到水面：兩層同時起播、共用一個音高】碎屑過低通，疊上落水聲。限頻與材質撞擊同一套：
+   * 【打到水面：兩層同時起播、共用一個音高】子彈打進水面的那一下，疊上落水聲。限頻與材質撞擊同一套：
    * 聽得到的範圍內挑最近的一發、聽不到的不佔時段；候選跨幀留到播完才清
    * （地面戰的砲彈落地在 `playFrame` 之後才寫進來）
    */
@@ -220,7 +220,7 @@ describe('戰鬥單次音效的收集與播放', () => {
     cues.playFrame(world, player, 10, true)
     const r = 0.92 + 0.75 * 0.16
     expect(playPool.mock.calls).toEqual([
-      ['debris', 'waterHit', 40, 1000, 0, true, WATER_HIT.debrisDb, false, r, WATER_HIT.debrisCutoffHz],
+      ['waterBullet', 'waterHit', 40, 1000, 0, true, WATER_HIT.bulletDb, false, r],
       ['waterHit', 'waterHit', 40, 1000, 0, true, WATER_HIT.splashDb, false, r],
     ])
     // 播完就清：下一幀沒有新的就不響
@@ -431,7 +431,7 @@ describe('自己的命中回饋', () => {
     cues.playFrame(world, player, 1, true)
     const near = groundHitDb(100)! - dirt.gainDb
     expect(playPool.mock.calls.map((c) => [c[0], c[1], c[6], c[8], c[10]])).toEqual([
-      ['debris', 'hitOwn', WATER_HIT.debrisDb + near, RATE, true],
+      ['waterBullet', 'hitOwn', WATER_HIT.bulletDb + near, RATE, true],
       ['waterHit', 'hitOwn', WATER_HIT.splashDb + near, RATE, true]])
     playPool.mockClear()
     clearImpacts(ev)
@@ -439,7 +439,7 @@ describe('自己的命中回饋', () => {
     cues.noteWaterHits(ev)
     cues.playFrame(world, player, 2, true)
     expect(playPool.mock.calls.map((c) => [c[0], c[6], c[10]])).toEqual([
-      ['debris', WATER_HIT.debrisDb, undefined], ['waterHit', WATER_HIT.splashDb, undefined]])
+      ['waterBullet', WATER_HIT.bulletDb, undefined], ['waterHit', WATER_HIT.splashDb, undefined]])
   })
 
   it('自己的命中限頻：0.07 s 內只響一聲，聽不到的（1,200 m 外）不記', () => {

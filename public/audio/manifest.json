@@ -107,36 +107,36 @@
    -37.0
   ]
  },
- "debris-1": {
+ "water-bullet-1": {
   "loop": false,
-  "makeupDb": 2.6,
+  "makeupDb": 4.1,
   "envelopeDb": [
    0.0,
-   -34.6
+   -28.6
   ]
  },
- "debris-2": {
+ "water-bullet-2": {
   "loop": false,
-  "makeupDb": 2.8,
+  "makeupDb": 10.2,
   "envelopeDb": [
    0.0,
-   -37.2
+   -33.2
   ]
  },
- "debris-3": {
+ "water-bullet-3": {
   "loop": false,
-  "makeupDb": 3.0,
+  "makeupDb": 11.3,
   "envelopeDb": [
    0.0,
-   -39.9
+   -34.2
   ]
  },
- "debris-4": {
+ "water-bullet-4": {
   "loop": false,
-  "makeupDb": 3.3,
+  "makeupDb": 10.2,
   "envelopeDb": [
    0.0,
-   -41.6
+   -22.6
   ]
  },
  "dirt-1": {
