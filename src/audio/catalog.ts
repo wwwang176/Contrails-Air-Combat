@@ -391,14 +391,15 @@ const IMPACT_BY_MATERIAL: readonly ImpactSound[] = [
  * 子彈、砲彈打到水面：**兩層同時起播、共用一個音高**。子彈打進水面的那一下
  * （`POOLS.waterBullet`，四選一、不過低通），疊上落水聲（`POOLS.waterHit`）是水花的尾巴。
  *
- * 【兩層合起來與打到地面一樣大】最響 0.4 s 的響度（ebur128）約 −14.7 LUFS，與泥土庫 19 支的平均相同；
- * 第一層的檔案已經用補償對齊泥土庫，−0.2 dB 是扣掉疊上落水聲多出來的部分
+ * 【兩層合起來與打到地面一樣大】最響 0.4 s 的響度（ebur128）約 −14.7 LUFS，與泥土庫 19 支的平均相同。
+ * 【水花與打進水面那一下差不多大】各自約 −17 與 −18 LUFS；水花小 10 dB 以上時，連發會被下一發的那一下
+ * 蓋住、遠一點會先沉到引擎聲底下，聽起來只剩「啪」
  */
 export const WATER_HIT = {
   /** 子彈打進水面那一層，dB */
-  bulletDb: -0.2,
+  bulletDb: -3.3,
   /** 落水聲那一層，dB */
-  splashDb: -11.3,
+  splashDb: -1.2,
 } as const
 
 export function impactSound(material: number): ImpactSound {
