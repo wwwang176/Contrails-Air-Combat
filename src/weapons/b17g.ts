@@ -71,8 +71,8 @@ export const B17G_BATTERY: Battery = {
  * 旋轉速率：動力砲塔 60 °/s（馬達與減速機構，轉得穩但慢）、手持槍 90 °/s
  * （轉得快但射界小）。**兩個數字都沒有實測支撐**，由試飛裁定。
  *
- * 【中立位】機背朝前水平、球塔朝後水平，與真機收槍的姿勢一樣；其餘就是射界中心。
- * 鎖定後從這裡轉過去，機背、球塔的第一發最多晚約 1.5 s（離射界最遠 170°、60 °/s）
+ * 【中立位】機背朝前上 30°、球塔朝後下 30°；其餘就是射界中心。水平的話槍管貼在機身上。
+ * 鎖定後從這裡轉過去，機背、球塔的第一發最多比從射界中心晚約 1 s（離射界最遠 140°、60 °/s）
  */
 export const B17G_TURRETS: readonly Turret[] = [
   { id: 'chin', weapon: M2_BROWNING, position: muzzleAt(new Vector3(0, -0.703, -5.403),
@@ -89,11 +89,11 @@ export const B17G_TURRETS: readonly Turret[] = [
     halfAngle: 35 * DEG, rotationRate: 90 * DEG, guns: 1 },
   { id: 'top', weapon: M2_BROWNING, position: muzzleAt(new Vector3(0, 2.40, -1.28),
       new Vector3(0, 1, 0)),
-    axis: new Vector3(0, 1, 0), rest: new Vector3(0, 0, -1),
+    axis: new Vector3(0, 1, 0), rest: new Vector3(0, 0.5, -Math.sqrt(3) / 2),
     halfAngle: 80 * DEG, rotationRate: 60 * DEG, guns: 2 },
   { id: 'ball', weapon: M2_BROWNING, position: muzzleAt(new Vector3(0, -1.13, 5.12),
       new Vector3(0, -1, 0)),
-    axis: new Vector3(0, -1, 0), rest: new Vector3(0, 0, 1),
+    axis: new Vector3(0, -1, 0), rest: new Vector3(0, -0.5, Math.sqrt(3) / 2),
     halfAngle: 80 * DEG, rotationRate: 60 * DEG, guns: 2 },
   { id: 'waistR', weapon: M2_BROWNING, position: muzzleAt(new Vector3(1.07, 0.98, 6.28),
       new Vector3(1, 0, 0)),
