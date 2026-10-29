@@ -4,12 +4,12 @@ import {
 } from 'three'
 import { barrelGeometry } from '../render/turretBarrels'
 import { BARREL_SPACING } from '../world/turrets'
-import { turretPivot, wobbleBasis } from '../weapons/turret'
+import { turretMuzzle, turretPivot, turretRest, wobbleBasis } from '../weapons/turret'
 export { buildShipArcs } from './hangarShipArcs'
 import type { AircraftSpec } from '../specs/types'
 
 /**
- * 砲塔的槍管，畫在**靜止位置**（`turret.axis`）上。
+ * 砲塔的槍管，畫在**中立位**（`turretRest`）上。
  *
  * 【為什麼機庫要畫它】槍管在遊戲裡是由 combatant 狀態驅動的
  * `InstancedMesh`，機庫沒有 combatant。但砲塔位置最需要用眼睛驗，而
@@ -45,14 +45,17 @@ export function buildBarrels(spec: Pick<AircraftSpec, 'turrets'>): Group {
   const mat = new MeshBasicMaterial({ color: 0x101010 })
   const e1 = new Vector3()
   const e2 = new Vector3()
+  const muzzle = new Vector3()
   for (const t of spec.turrets) {
-    wobbleBasis(t.axis, e1, e2)
+    const rest = turretRest(t)
+    wobbleBasis(rest, e1, e2)
+    turretMuzzle(t, rest, muzzle)
     for (let b = 0; b < t.guns; b++) {
       const side = t.guns > 1 ? (b === 0 ? -1 : 1) : 0
       const m = new Mesh(geo, mat)
-      m.position.copy(t.position).addScaledVector(e1, side * BARREL_SPACING)
-      // +Z 對準 −axis：管子由槍口往機體方向長
-      m.quaternion.setFromUnitVectors(UNIT_Z, e2.copy(t.axis).negate())
+      m.position.copy(muzzle).addScaledVector(e1, side * BARREL_SPACING)
+      // +Z 對準 −rest：管子由槍口往機體方向長
+      m.quaternion.setFromUnitVectors(UNIT_Z, e2.copy(rest).negate())
       g.add(m)
     }
   }

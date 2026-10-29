@@ -37,6 +37,14 @@ export interface Turret {
   axis: Vector3
   /** 射界半角，rad。**設計值，不是量測值。** */
   halfAngle: number
+  /**
+   * 中立位：沒有目標時槍管停的方向，機體座標單位向量。省略 = `axis`。起始、重設、沒有目標時回轉
+   * 都照它（`turretRest`）。
+   *
+   * 【它在模擬裡，不只是外觀】鎖定目標後砲塔從這裡照 `rotationRate` 轉過去，離射界越遠，
+   * 第一發越晚。可以在射界外（B-17 的機背朝前水平，離正上方 90°）
+   */
+  rest?: Vector3
   /** 旋轉速率上限，rad/s。這是「不能久留」的來源。 */
   rotationRate: number
   /**
@@ -109,6 +117,11 @@ export function muzzleAt(skin: Vector3, axis: Vector3): Vector3 {
  */
 export function turretPivot(t: Turret, out: Vector3): Vector3 {
   return out.copy(t.position).addScaledVector(t.axis, -BARREL_LENGTH)
+}
+
+/** 砲塔的中立位（`Turret.rest`，省略時是 `axis`）。回傳 spec 裡的同一個物件，呼叫端不能改它 */
+export function turretRest(t: Turret): Vector3 {
+  return t.rest ?? t.axis
 }
 
 /**

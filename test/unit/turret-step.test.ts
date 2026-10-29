@@ -330,6 +330,43 @@ describe('stepTurrets', () => {
     expect(b.turretStates[0]!.flash).toBe(0)
   })
 
+  /**
+   * 【中立位】沒有目標時槍管停的方向，省略 = 射界中心。B-17 的機背朝前、球塔朝後，與真機收槍的
+   * 姿勢一樣；起始、重設、沒有目標時回轉都照它
+   */
+  describe('中立位', () => {
+    const idx = (id: string): number => B17G.turrets.findIndex((t) => t.id === id)
+    const FWD = new Vector3(0, 0, -1)
+    const AFT = new Vector3(0, 0, 1)
+
+    it('B-17 機背朝前、球塔朝後，其他砲塔就是射界中心', () => {
+      const states = createTurretStates(B17G, 0)
+      expect(states[idx('top')]!.aim.angleTo(FWD)).toBeLessThan(1e-9)
+      expect(states[idx('ball')]!.aim.angleTo(AFT)).toBeLessThan(1e-9)
+      for (const id of ['chin', 'cheekL', 'cheekR', 'waistR', 'waistL', 'tail']) {
+        expect(states[idx(id)]!.aim.equals(B17G.turrets[idx(id)]!.axis), id).toBe(true)
+      }
+    })
+
+    it('重設回到中立位', () => {
+      const b = bomberAt(-100)
+      b.turretStates[idx('top')]!.aim.set(0, 1, 0)
+      resetTurretStates(b.turretStates, B17G, 0)
+      expect(b.turretStates[idx('top')]!.aim.angleTo(FWD)).toBeLessThan(1e-9)
+    })
+
+    it('沒有目標時照轉速轉回中立位', () => {
+      const b = bomberAt(-100)
+      const top = b.turretStates[idx('top')]!
+      top.aim.set(0, 1, 0)
+      run(b, [b], Math.round(1.0 / DT))
+      // 60 °/s 轉 1 秒：90° 還差 30°
+      expect(top.aim.angleTo(FWD)).toBeCloseTo(30 * Math.PI / 180, 2)
+      run(b, [b], Math.round(1.0 / DT))
+      expect(top.aim.angleTo(FWD)).toBeLessThan(1e-6)
+    })
+  })
+
   it('槍焰計時器在開火時被設起來', () => {
     const b = bomberAt(0)
     const f = fake(P51D, 1, 'red', new Vector3(0, 3000, 300), new Vector3())
