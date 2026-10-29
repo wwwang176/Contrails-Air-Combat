@@ -3,7 +3,7 @@ import { DEG } from '../core/math'
 import { BURST_ON, resetBurst, stepGunnerBurst } from '../weapons/burst'
 import { stepCadence } from '../weapons/cadence'
 import {
-  applyWobble, GOLDEN, inArc, MAX_TURRETS, slew, turretMuzzle,
+  applyWobble, GOLDEN, inArc, MAX_TURRETS, slew, turretMuzzle, turretRest,
   TURRET_DAMAGE_SCALE, wobbleBasis, wobblePhase,
 } from '../weapons/turret'
 import type { RandomBurstCycle } from '../weapons/burst'
@@ -40,7 +40,7 @@ export interface TurretCombatant {
  * 【點放的欄位在 `weapons/burst.ts`】那一份實作與 AI 戰鬥機的扳機共用。
  */
 export interface TurretState extends RandomBurstCycle {
-  /** 目前指向，**機體座標**單位向量。初始 = spec 的 `axis`。 */
+  /** 目前指向，**機體座標**單位向量。初始 = 中立位（`turretRest`）。 */
   aim: Vector3
   /** 搖晃相位。 */
   phase: number
@@ -115,7 +115,7 @@ export function createTurretStates(
   const out: TurretState[] = []
   for (let i = 0; i < spec.turrets.length; i++) {
     out.push({
-      aim: spec.turrets[i]!.axis.clone(),
+      aim: turretRest(spec.turrets[i]!).clone(),
       phase: 0, targetIndex: -1, targetShip: -1, targetGun: -1, searchCooldown: 0,
       burstFiring: true, burstTimer: BURST_ON, burstScale: 1, burstDraw: 0, burstLength: BURST_ON,
       flash: 0, lastBarrel: 0,
@@ -146,7 +146,7 @@ export function resetTurretStates(
   const n = spec.turrets.length
   for (let i = 0; i < n; i++) {
     const s = states[i]!
-    s.aim.copy(spec.turrets[i]!.axis)
+    s.aim.copy(turretRest(spec.turrets[i]!))
     s.phase = wobblePhase(combatantIndex, i)
     s.targetIndex = -1
     s.targetShip = -1
@@ -262,8 +262,8 @@ export function stepTurrets(
       // 【停火只擋扳機】搜尋、追瞄、射速時鐘照常，解除的那一步就接得上
       trigger = !holdFire && firingWindow && s.aim.angleTo(WANT) < FIRE_THRESHOLD
     } else {
-      // 沒有目標就慢慢回到中心方向 —— 否則砲塔會停在最後一次追瞄的角度
-      slew(s.aim, t.axis, t.rotationRate * dt)
+      // 沒有目標就慢慢回到中立位 —— 否則砲塔會停在最後一次追瞄的角度
+      slew(s.aim, turretRest(t), t.rotationRate * dt)
     }
 
     // 射速時鐘。**每座每步恰好呼叫一次**，即使 trigger 是 false ——
