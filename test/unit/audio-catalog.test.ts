@@ -130,7 +130,7 @@ describe('撞擊材質', () => {
    * 一樣大。與撞擊同一個音量與距離；音高亂數由呼叫端給、兩層共用，所以類別的 `pitchJitter` 是 0
    */
   it('打到水面：兩層的設定，與撞擊同一個音量與距離', () => {
-    expect(WATER_HIT).toEqual({ bulletDb: -0.2, splashDb: -11.3 })
+    expect(WATER_HIT).toEqual({ bulletDb: -3.3, splashDb: -1.2 })
     expect(POOLS.waterHit).toEqual(['water-hit-1'])
     const { pitchJitter, ...rest } = CATEGORY.waterHit
     expect(pitchJitter).toBe(0)
