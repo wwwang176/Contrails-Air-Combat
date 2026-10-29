@@ -85,6 +85,12 @@ export function createBattleAudioCues(
   /** `ownKind` 裡代表打中飛機的值：原本的打中回饋那一聲，改成定位 */
   const OWN_AIRCRAFT = -2
 
+  /**
+   * 自己打中飛機那一聲的額外增益，dB：命中庫原速、全頻比泥土庫小 2.1 dB（最響 0.4 s 的 ebur128），
+   * 補上之後打中飛機與打到地面、船、車、水面一樣大
+   */
+  const OWN_AIRCRAFT_DB = 2.1
+
   /** 這一子步誰是「自己」：玩家的座位；上帝視角時 −2，沒有一發算自己的 */
   let ownIndex = -2
 
@@ -210,8 +216,8 @@ export function createBattleAudioCues(
   }
 
   /**
-   * 播 `noteWaterHits` 記下的那一發：子彈打進水面的那一下，疊上落水聲，**兩層同一個音高**（類別的
-   * `pitchJitter` 是 0，音高在這裡給）。【被時段擋下的不留】留到下一幀會把過時的位置播出來
+   * 播 `noteWaterHits` 記下的那一發：子彈打進水面的那一下，疊上落水聲，**兩層同一個音高亂數**（類別的
+   * `pitchJitter` 是 0，音高在這裡給；那一下再乘 `WATER_HIT.bulletRate`）。【被時段擋下的不留】留到下一幀會把過時的位置播出來
    */
   function playWaterHit(elapsed: number): void {
     if (waterDist2 === Infinity) return
@@ -219,7 +225,8 @@ export function createBattleAudioCues(
     if (elapsed - lastWaterHit < WATER_HIT_GAP) return
     lastWaterHit = elapsed
     const rate = randomRate(Math.random)
-    audio.playPool('waterBullet', 'waterHit', waterX, waterY, waterZ, true, WATER_HIT.bulletDb, false, rate)
+    audio.playPool('waterBullet', 'waterHit', waterX, waterY, waterZ, true, WATER_HIT.bulletDb, false,
+      rate * WATER_HIT.bulletRate)
     audio.playPool('waterHit', 'waterHit', waterX, waterY, waterZ, true, WATER_HIT.splashDb, false, rate)
   }
 
@@ -255,14 +262,14 @@ export function createBattleAudioCues(
     const db = OWN_HIT_DB + ownHitDb(dist, CATEGORY.hitOwn.ref, CATEGORY.hitOwn.max)
     const rate = randomRate(Math.random)
     if (ownKind === OWN_WATER) {
-      audio.playPool('waterBullet', 'hitOwn', ownX, ownY, ownZ, true, WATER_HIT.bulletDb + db, false, rate,
-        undefined, true)
+      audio.playPool('waterBullet', 'hitOwn', ownX, ownY, ownZ, true, WATER_HIT.bulletDb + db, false,
+        rate * WATER_HIT.bulletRate, undefined, true)
       audio.playPool('waterHit', 'hitOwn', ownX, ownY, ownZ, true, WATER_HIT.splashDb + db, false, rate,
         undefined, true)
       return
     }
     if (ownKind === OWN_AIRCRAFT) {
-      audio.playPool('hit', 'hitOwn', ownX, ownY, ownZ, true, db, true, ownRate * rate, undefined, true)
+      audio.playPool('hit', 'hitOwn', ownX, ownY, ownZ, true, db + OWN_AIRCRAFT_DB, true, ownRate * rate, undefined, true)
       return
     }
     const m = impactSound(ownKind)

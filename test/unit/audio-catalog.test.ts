@@ -83,21 +83,17 @@ describe('撞擊材質', () => {
   })
 
   /**
-   * 【鋼板與地面是兩種聲音】船是金屬悶響、地面是子彈鑽進土裡。
-   *
-   * 【悶響】放慢 0.7 倍往低音移，再低通切掉高頻的殘響；增益是放慢後扣回來、與原速一樣大的值。
+   * 【鋼板與地面是兩種聲音】船是命中庫放慢一半的低沉鋼板、地面是子彈鑽進土裡。
+   * 增益是照這個速度量過、與泥土庫一樣大的值
    */
-  it('船用命中庫且只留低頻，地表與人用泥土庫、不過低通', () => {
-    expect(impactSound(MATERIAL.ship)).toEqual({ pool: 'hit', gainDb: 0.1, rate: 0.7, cutoffHz: 550 })
+  it('船用命中庫放慢一半，地表與人用泥土庫，都不過低通', () => {
+    expect(impactSound(MATERIAL.ship)).toEqual({ pool: 'hit', gainDb: 0.4, rate: 0.5, cutoffHz: 22000 })
     expect(impactSound(MATERIAL.ground)).toEqual({ pool: 'dirt', gainDb: 0, rate: 1, cutoffHz: 22000 })
   })
 
-  /**
-   * 【金屬是命中庫，比船清脆】試聽定案：一級低通 5350 Hz、0 dB、原速。遊戲的定位聲道是兩級低通，
-   * A 加權大 0.58 dB，所以是 −0.6 dB
-   */
-  it('金屬（車輛、建物、砲位、堆放）用命中庫，低通 5350 Hz、−0.6 dB', () => {
-    expect(impactSound(MATERIAL.metal)).toEqual({ pool: 'hit', gainDb: -0.6, rate: 1, cutoffHz: 5350 })
+  /** 【金屬是命中庫，比船亮】放慢到 0.82 倍、不過低通；增益同樣量過與泥土庫一樣大 */
+  it('金屬（車輛、建物、砲位、堆放）用命中庫，0.82 倍、+1.6 dB', () => {
+    expect(impactSound(MATERIAL.metal)).toEqual({ pool: 'hit', gainDb: 1.6, rate: 0.82, cutoffHz: 22000 })
   })
 
   /**
@@ -128,7 +124,7 @@ describe('撞擊材質', () => {
    * 一樣大。與撞擊同一個音量與距離；音高亂數由呼叫端給、兩層共用，所以類別的 `pitchJitter` 是 0
    */
   it('打到水面：兩層的設定，與撞擊同一個音量與距離', () => {
-    expect(WATER_HIT).toEqual({ bulletDb: -3.3, splashDb: -1.2 })
+    expect(WATER_HIT).toEqual({ bulletDb: -3.8, splashDb: -1.7, bulletRate: 0.72 })
     expect(POOLS.waterHit).toEqual(['water-hit-1'])
     const { pitchJitter, ...rest } = CATEGORY.waterHit
     expect(pitchJitter).toBe(0)
