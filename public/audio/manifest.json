@@ -109,10 +109,10 @@
  },
  "water-bullet-1": {
   "loop": false,
-  "makeupDb": 4.1,
+  "makeupDb": 3.9,
   "envelopeDb": [
    0.0,
-   -28.6
+   -45.8
   ]
  },
  "water-bullet-2": {

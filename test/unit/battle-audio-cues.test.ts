@@ -220,7 +220,7 @@ describe('戰鬥單次音效的收集與播放', () => {
     cues.playFrame(world, player, 10, true)
     const r = 0.92 + 0.75 * 0.16
     expect(playPool.mock.calls).toEqual([
-      ['waterBullet', 'waterHit', 40, 1000, 0, true, WATER_HIT.bulletDb, false, r],
+      ['waterBullet', 'waterHit', 40, 1000, 0, true, WATER_HIT.bulletDb, false, r * WATER_HIT.bulletRate],
       ['waterHit', 'waterHit', 40, 1000, 0, true, WATER_HIT.splashDb, false, r],
     ])
     // 播完就清：下一幀沒有新的就不響
@@ -362,10 +362,10 @@ describe('自己的命中回饋', () => {
   })
 
   /**
-   * 【比總增益，不比額外增益】兩類的基準可以不同。近距離與自己被機槍打中一樣大（同樣疊第二層）——
-   * 再小就會被自己的機槍與引擎蓋掉
+   * 【比總增益，不比額外增益】兩類的基準可以不同。近距離比自己被機槍打中大 2.1 dB（同樣疊第二層），
+   * 與打到地面一樣大 —— 再小就會被自己的機槍與引擎蓋掉
    */
-  it('打中飛機：在那一架身上定位、立刻響；近距離與自己被打中一樣大；別人打中的照舊', () => {
+  it('打中飛機：在那一架身上定位、立刻響；近距離比自己被打中大 2.1 dB；別人打中的照舊', () => {
     const { world, player, playPool, cues } = setup()
     vi.spyOn(Math, 'random').mockReturnValue(0.75)
     const foe = world.add(new Aircraft(JU87), { update() {} }, 'red', new Vector3(50, 1000, 0))
@@ -382,7 +382,7 @@ describe('自己的命中回饋', () => {
     expect(own[10]).toBe(true)
     const ownDb = CATEGORY.hitOwn.gainDb + (own[6] as number)
     const selfDb = CATEGORY.hitSelf.gainDb + (self[6] as number)
-    expect(ownDb).toBeCloseTo(selfDb, 9)
+    expect(ownDb - selfDb).toBeCloseTo(2.1, 9)
     expect(own[7]).toBe(self[7])
     playPool.mockClear()
     pushDamage(world.damageEvents, foe.index, 1, 0, 0, 0, -1)
@@ -431,7 +431,7 @@ describe('自己的命中回饋', () => {
     cues.playFrame(world, player, 1, true)
     const near = groundHitDb(100)! - dirt.gainDb
     expect(playPool.mock.calls.map((c) => [c[0], c[1], c[6], c[8], c[10]])).toEqual([
-      ['waterBullet', 'hitOwn', WATER_HIT.bulletDb + near, RATE, true],
+      ['waterBullet', 'hitOwn', WATER_HIT.bulletDb + near, RATE * WATER_HIT.bulletRate, true],
       ['waterHit', 'hitOwn', WATER_HIT.splashDb + near, RATE, true]])
     playPool.mockClear()
     clearImpacts(ev)
