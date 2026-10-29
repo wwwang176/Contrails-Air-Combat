@@ -397,6 +397,8 @@ export const GROUND_FLAK_MUZZLE_Y = 2.2
  * 【射界朝正上】`axisOf` 靠 `zone.position.x` 判斷舷別，中線上的朝天頂 ——
  * 陸上砲位就該是這樣：它守的是頭上那一塊天，不是某一側。
  *
+ * 【中立位朝前上】沒有目標時砲口朝車頭（−Z）往上 `GROUND_REST_ELEVATION_DEG[tier]`，不是朝天。
+ *
  * 【`hp` 與 `box` 用不到但要填】陸上砲位的命中判定走 `GroundTarget.hull`，
  * 這一門砲不是獨立的可打目標；`alive` 由砲位本身的存活決定。
  *
@@ -407,6 +409,12 @@ export const GROUND_FLAK_MUZZLE_Y = 2.2
  * @param calibreMm 口徑，只進 `ShipAAZone`（穿甲門檻在 `spec.caliber`）
  * @param sound 開火聲的種類（`ShipAAZone.sound`）。省略 = 依 `tier` 用艦砲的那三種
  */
+/**
+ * 陸上砲位中立位的仰角，度：車輛的機槍 30°，其他（88／90 mm、20 mm、M16）45°。
+ * 鎖定後從這裡轉過去 —— 射界中心是正上方，中立位離它 45–60°，最遠的目標要比從正上方多轉這麼多
+ */
+const GROUND_REST_ELEVATION_DEG: Readonly<Record<ShipAATier, number>> = { mg: 30, autocannon: 45, flak: 45 }
+
 export function createGroundBattery(
   spec: ShipGunSpec = GROUND_FLAK_SPEC, tier: ShipAATier = 'flak', calibreMm = 88, sound?: string,
 ): ShipGun[] {
@@ -421,11 +429,14 @@ export function createGroundBattery(
     ...(sound === undefined ? {} : { sound }),
   }
   const axis = axisOf(zone.position.x, zone.tier, new Vector3())
+  const elev = GROUND_REST_ELEVATION_DEG[tier] * DEG
+  const rest = new Vector3(0, Math.sin(elev), -Math.cos(elev))
   const out: ShipGun[] = [{
     zone,
     spec,
-    aim: axis.clone(),
+    aim: rest.clone(),
     axis,
+    rest,
     phase: 0, targetIndex: -1, searchCooldown: 0, fired: 0, shots: 0,
     burstFiring: true, burstTimer: BURST_ON, burstScale: 1, burstDraw: 0, burstLength: BURST_ON,
     flash: 0,
@@ -464,7 +475,7 @@ export function resetShipGuns(ship: Ship): void {
 function resetGuns(guns: ShipGun[], shipIndex = 0): void {
   for (let i = 0; i < guns.length; i++) {
     const g = guns[i]!
-    g.aim.copy(g.axis)
+    g.aim.copy(g.rest ?? g.axis)
     g.targetIndex = -1
     g.fired = 0
     g.shots = 0
@@ -582,8 +593,8 @@ export function stepGunPlatform(
       // 【停火只擋扳機】搜尋、追瞄、射速時鐘照常，解除的那一步就接得上
       trigger = !holdFire && firingWindow && g.aim.angleTo(WANT) < FIRE_THRESHOLD
     } else {
-      // 沒有目標就慢慢回到中心方向 —— 否則砲位會停在最後一次追瞄的角度
-      slew(g.aim, g.axis, spec.rotationRate * dt)
+      // 沒有目標就慢慢回到中立位 —— 否則砲位會停在最後一次追瞄的角度
+      slew(g.aim, g.rest ?? g.axis, spec.rotationRate * dt)
     }
 
     // 射速時鐘。**每個砲位每步恰好呼叫一次**，即使 trigger 是 false

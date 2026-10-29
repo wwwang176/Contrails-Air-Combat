@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import {
-  createGroundBattery, GROUND_FLAK_MUZZLE_Y, GROUND_FLAK_SPEC, SHIP_GUN_SPECS, stepGunPlatform,
+  createGroundBattery, GROUND_FLAK_MUZZLE_Y, GROUND_FLAK_SPEC, GROUND_LIGHT_FLAK_SPEC, GROUND_MG_SPEC,
+  resetGroundBattery, SHIP_GUN_SPECS, stepGunPlatform,
 } from '../../src/world/shipGuns'
 import { createGroundTarget } from '../../src/world/groundTargets'
 import { Projectiles } from '../../src/world/Projectiles'
@@ -282,6 +283,40 @@ describe('陸砲規格的逐關複寫', () => {
     const n = fired(b, [target(0, 0, 2000, 0)], 60)
     const m = fired(slow, [target(0, 0, 2000, 0)], 60)
     expect(n, `複寫 ${n} 發 vs 通用 ${m} 發`).toBeGreaterThan(m * 1.5)
+  })
+})
+
+/**
+ * # 陸上砲位的中立位
+ *
+ * 沒有目標時砲口停的方向：車輛的機槍朝車頭往上 30°，其他（88／90 mm、20 mm、M16）朝前往上 45°。
+ * 射界中心仍是正上方；起始、重設、沒有目標時回轉都照中立位
+ */
+describe('陸上砲位的中立位', () => {
+  const up = (deg: number): Vector3 =>
+    new Vector3(0, Math.sin(deg * Math.PI / 180), -Math.cos(deg * Math.PI / 180))
+
+  it('機槍朝前上 30°，其他朝前上 45°；射界中心仍是正上方', () => {
+    const mg = createGroundBattery(GROUND_MG_SPEC, 'mg', GROUND_MG_SPEC.caliber)[0]!
+    expect(mg.aim.angleTo(up(30))).toBeLessThan(1e-9)
+    expect(mg.axis.equals(new Vector3(0, 1, 0))).toBe(true)
+    expect(createGroundBattery()[0]!.aim.angleTo(up(45))).toBeLessThan(1e-9)
+    const ac = createGroundBattery(GROUND_LIGHT_FLAK_SPEC, 'autocannon', GROUND_LIGHT_FLAK_SPEC.caliber)[0]!
+    expect(ac.aim.angleTo(up(45))).toBeLessThan(1e-9)
+  })
+
+  it('重設回到中立位', () => {
+    const b = battery()
+    b.guns[0]!.aim.set(0, 1, 0)
+    resetGroundBattery(b)
+    expect(b.guns[0]!.aim.angleTo(up(45))).toBeLessThan(1e-9)
+  })
+
+  it('沒有目標時轉回中立位', () => {
+    const b = battery()
+    b.guns[0]!.aim.set(0, 1, 0)
+    fired(b, [], 10)
+    expect(b.guns[0]!.aim.angleTo(up(45))).toBeLessThan(1e-6)
   })
 })
 

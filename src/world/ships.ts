@@ -101,10 +101,15 @@ export interface ShipGun extends RandomBurstCycle {
    * 的 5 吋同屬 `flak` 層，但強度是兩份（`GROUND_FLAK_SPEC`）。
    */
   readonly spec: ShipGunSpec
-  /** 目前指向，**艦體座標**單位向量。初值 = 該層射界錐的軸。 */
+  /** 目前指向，**艦體座標**單位向量。初值 = 中立位。 */
   readonly aim: Vector3
-  /** 射界錐的軸，艦體座標。`aim` 沒有目標時回歸到它。 */
+  /** 射界錐的軸，艦體座標。 */
   readonly axis: Vector3
+  /**
+   * 中立位：起始、重設、沒有目標時砲口回到的方向，艦體座標單位向量。省略 = `axis`。
+   * 鎖定後從這裡照轉速轉過去，離射界越遠第一發越晚
+   */
+  readonly rest?: Vector3
   /** 搖晃相位。 */
   phase: number
   /** 目前目標的 combatant 索引；−1 = 沒有目標。 */
