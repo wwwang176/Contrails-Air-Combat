@@ -105,7 +105,7 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   {
     id: 'tiger', note: '德軍虎式戰車 — 目前沒有任務使用',
     realLength: 8.34, realWidth: 3.56, realHeight: 2.93, vehicle: true,
-    hull: [groundBox([-1.78, 0.00, -3.15], [1.78, 2.93, 3.05])],
+    hull: [groundBox([-1.78, 0.00, -3.15], [1.78, 2.93, 3.10])],
   },
   {
     id: 'infantry', note: '步兵一個班（五根圓柱）— 德 M4 勒熱夫，兩邊都有',
