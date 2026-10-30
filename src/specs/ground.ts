@@ -145,7 +145,7 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   {
     id: 'usFlakTrack', note: '美軍四聯 .50 防空半履帶車 — 日 M2 雷伊泰車隊與灘頭',
     realLength: 6.51, realWidth: 2.16, realHeight: 2.61, vehicle: true,
-    hull: [groundBox([-1.05, 0.00, -3.43], [1.05, 2.61, 2.90])],
+    hull: [groundBox([-1.05, 0.00, -3.43], [1.05, 2.61, 3.06])],
   },
   {
     id: 'usFlakHeavy', note: '美軍 90 mm M1A1 重高砲 — 日 M2 雷伊泰灘頭',
