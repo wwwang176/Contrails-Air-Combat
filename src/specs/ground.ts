@@ -82,14 +82,14 @@ function measuredBox(center: readonly [number, number, number], half: readonly [
 export const GROUND_UNITS: readonly GroundUnit[] = [
   {
     id: 'tank', note: '蘇軍戰車 — 德 M4 勒熱夫突擊的縱隊',
-    realLength: 6.68, realWidth: 3.00, realHeight: 2.60, vehicle: true,
-    hull: [groundBox([-1.50, 0.00, -2.61], [1.50, 2.63, 3.54])],
+    realLength: 6.68, realWidth: 3.00, realHeight: 2.45, vehicle: true,
+    hull: [groundBox([-1.50, 0.00, -2.56], [1.50, 2.35, 3.54])],
   },
   {
     // 劇本殘骸與突擊縱隊分開計數，也有不同的 AI 目標價值。
     id: 'tankDug', note: '蘇軍戰車（殘骸與劇本打掉的）— 德 M4 勒熱夫',
-    realLength: 6.68, realWidth: 3.00, realHeight: 2.60, vehicle: true,
-    hull: [groundBox([-1.50, 0.00, -2.61], [1.50, 2.63, 3.54])],
+    realLength: 6.68, realWidth: 3.00, realHeight: 2.45, vehicle: true,
+    hull: [groundBox([-1.50, 0.00, -2.56], [1.50, 2.35, 3.54])],
   },
   {
     id: 'atGun', note: 'ZiS-3 76 mm 加農砲 — 德 M4 勒熱夫：蘇軍支援砲（第一段的目標）與德軍的反坦克砲共用',
@@ -105,7 +105,7 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   {
     id: 'tiger', note: '德軍虎式戰車 — 目前沒有任務使用',
     realLength: 8.34, realWidth: 3.56, realHeight: 2.93, vehicle: true,
-    hull: [groundBox([-1.78, 0.00, -3.15], [1.78, 2.93, 3.05])],
+    hull: [groundBox([-1.78, 0.00, -3.15], [1.78, 2.93, 3.10])],
   },
   {
     id: 'infantry', note: '步兵一個班（五根圓柱）— 德 M4 勒熱夫，兩邊都有',
@@ -145,7 +145,7 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   {
     id: 'usFlakTrack', note: '美軍四聯 .50 防空半履帶車 — 日 M2 雷伊泰車隊與灘頭',
     realLength: 6.51, realWidth: 2.16, realHeight: 2.61, vehicle: true,
-    hull: [groundBox([-1.05, 0.00, -3.43], [1.05, 2.61, 2.90])],
+    hull: [groundBox([-1.05, 0.00, -3.43], [1.05, 2.61, 3.06])],
   },
   {
     id: 'usFlakHeavy', note: '美軍 90 mm M1A1 重高砲 — 日 M2 雷伊泰灘頭',

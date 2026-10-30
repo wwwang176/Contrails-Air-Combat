@@ -74,15 +74,15 @@ describe('地面砲口開火事件', () => {
       gun.shots++
       models.update([target], camera, 1 / 60)
       expect(emit.mock.calls[0]!.slice(0, 3)).toEqual([
-        expect.closeTo(100, 4), expect.closeTo(11.7, 4), expect.closeTo(195.85, 4),
+        expect.closeTo(100, 4), expect.closeTo(11.7, 4), expect.closeTo(195.845, 4),
       ])
       target.orientation.setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 2)
       gun.aim.set(0, 1, -1).normalize()
       gun.shots++
       models.update([target], camera, 1 / 60)
       const call = emit.mock.calls[1]!
-      expect(call[0]).toBeCloseTo(100 + 0.15 - 4.3 / Math.sqrt(2), 4)
-      expect(call[1]).toBeCloseTo(11.7 + 4.3 / Math.sqrt(2), 4)
+      expect(call[0]).toBeCloseTo(100 + 0.15 - 4.305 / Math.sqrt(2), 4)
+      expect(call[1]).toBeCloseTo(11.7 + 4.305 / Math.sqrt(2), 4)
       expect(call[2]).toBeCloseTo(200, 4)
       expect(call[3]).toBeCloseTo(-1 / Math.sqrt(2), 4)
       expect(call[4]).toBeCloseTo(1 / Math.sqrt(2), 4)
