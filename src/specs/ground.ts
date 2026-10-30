@@ -82,14 +82,14 @@ function measuredBox(center: readonly [number, number, number], half: readonly [
 export const GROUND_UNITS: readonly GroundUnit[] = [
   {
     id: 'tank', note: '蘇軍戰車 — 德 M4 勒熱夫突擊的縱隊',
-    realLength: 6.68, realWidth: 3.00, realHeight: 2.60, vehicle: true,
-    hull: [groundBox([-1.50, 0.00, -2.61], [1.50, 2.63, 3.54])],
+    realLength: 6.68, realWidth: 3.00, realHeight: 2.45, vehicle: true,
+    hull: [groundBox([-1.50, 0.00, -2.56], [1.50, 2.35, 3.54])],
   },
   {
     // 劇本殘骸與突擊縱隊分開計數，也有不同的 AI 目標價值。
     id: 'tankDug', note: '蘇軍戰車（殘骸與劇本打掉的）— 德 M4 勒熱夫',
-    realLength: 6.68, realWidth: 3.00, realHeight: 2.60, vehicle: true,
-    hull: [groundBox([-1.50, 0.00, -2.61], [1.50, 2.63, 3.54])],
+    realLength: 6.68, realWidth: 3.00, realHeight: 2.45, vehicle: true,
+    hull: [groundBox([-1.50, 0.00, -2.56], [1.50, 2.35, 3.54])],
   },
   {
     id: 'atGun', note: 'ZiS-3 76 mm 加農砲 — 德 M4 勒熱夫：蘇軍支援砲（第一段的目標）與德軍的反坦克砲共用',
