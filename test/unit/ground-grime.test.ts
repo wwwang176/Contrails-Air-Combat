@@ -2,14 +2,16 @@ import { describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { BoxGeometry, BufferGeometry, Mesh, MeshStandardMaterial, Object3D, Texture, Vector3 } from 'three'
 import {
-  GRIME_ATLAS_HEIGHT, GRIME_ATLAS_WIDTH, GRIME_CELL, GRIME_COLUMNS, GRIME_LAYOUT_KEY, GRIME_ROWS,
+  GRIME_ATLAS_HEIGHT, GRIME_ATLAS_WIDTH, GRIME_CELL, GRIME_COLUMNS, GRIME_LAYOUT_KEY, GRIME_ROWS, GROUND_DUST_WEIGHT,
   applyGroundGrimeUv, groundGrimeLayout, type GrimeRect, type GroundGrimeLayout,
 } from '../../src/render/geometry/ground/grime'
 import { bakeGroundScene, groundGrimeLayouts, preloadGroundGlbs } from '../../src/render/geometry/ground/glb'
 import { GUN_TURRET_KEY, restGeometry, type GunTurretParts } from '../../src/render/geometry/ground/turret'
 import { GROUND_MODELS } from '../../src/render/geometry/ground'
 import { GROUND_UNITS } from '../../src/specs/ground'
-import { GROUND_MUD_HEIGHT, groundGrimeStamps, groundMudBands } from '../../src/render/groundGrime'
+import {
+  GROUND_DUST, GROUND_MUD_HEIGHT, applyGroundDust, groundDustMask, groundGrimeStamps, groundMudBands,
+} from '../../src/render/groundGrime'
 
 /**
  * # 車輛與地面砲的髒污
@@ -144,6 +146,24 @@ describe('烘 GLB', () => {
     expect((split.userData[GRIME_LAYOUT_KEY] as GroundGrimeLayout).cell).toBe(3)
   })
 
+  /** 【履帶、輪胎不蒙灰土】深色的橡膠被土色一混就變淺褐，看起來不對（負責人看截圖指出） */
+  it('每個頂點帶灰土權重：履帶、輪胎 0，烤漆與帆布 1，其他介於中間', () => {
+    expect(GROUND_DUST_WEIGHT['LP_Track']).toBe(0)
+    expect(GROUND_DUST_WEIGHT['LP_Tire']).toBe(0)
+    for (const m of ['LP_ArmorGreen', 'LP_TruckGreen', 'LP_GunGrey', 'LP_Canvas']) expect(GROUND_DUST_WEIGHT[m]).toBe(1)
+    const steel = new MeshStandardMaterial({ name: 'LP_Steel' })
+    const track = new MeshStandardMaterial({ name: 'LP_Track' })
+    const root = new Object3D()
+    root.add(new Mesh(new BoxGeometry(1, 1, 1), steel))
+    root.add(new Mesh(new BoxGeometry(1, 1, 1).translate(0, 0, 2), track))
+    const g = bakeGroundScene(root)
+    const w = g.getAttribute('dustWeight')
+    const p = g.getAttribute('position')
+    for (let i = 0; i < w.count; i++) {
+      expect(w.getX(i)).toBeCloseTo(p.getZ(i) > 1 ? 0 : GROUND_DUST_WEIGHT['LP_Steel']!, 6)
+    }
+  })
+
   it('每一支 GLB 各佔一格，格數排得進圖集', async () => {
     const sources = GROUND_UNITS.flatMap((u) => {
       const m = GROUND_MODELS[u.id].model
@@ -190,6 +210,60 @@ describe('印子與泥巴帶', () => {
       expect(b.y1).toBeCloseTo(b.clip.y + b.clip.h, 6)
       expect(b.y1 - b.y0).toBeCloseTo(Math.min(GROUND_MUD_HEIGHT * L.scale, b.clip.h), 6)
     }
+  })
+})
+
+/**
+ * 【灰土】整台蒙一層土色：圖集的 alpha 是混進土色的比例（乘法只能變暗，深綠色上加黑點看不出來）。
+ * 側面、車頭、車尾越往下越濃，頂面（水平面積灰）一層均勻的，沒用到的地方 0
+ */
+describe('灰土', () => {
+  const L = groundGrimeLayout(new Vector3(-1.5, 0, -2.6), new Vector3(1.5, 2.35, 4.1), 1)
+  const mask = groundDustMask([L], () => 0.5)
+  const at = (x: number, y: number): number => mask[Math.floor(y) * GRIME_ATLAS_WIDTH + Math.floor(x)]! / 255
+  /** 一塊裡某一列的平均 */
+  const row = (r: GrimeRect, t: number): number => {
+    let s = 0
+    const y = r.y + t * (r.h - 1)
+    for (let x = r.x; x < r.x + r.w - 1; x++) s += at(x, y)
+    return s / Math.floor(r.w - 1)
+  }
+
+  it('側面、車頭、車尾越往下越濃，下緣接近 bottom、上緣接近 top', () => {
+    for (const r of [L.right, L.left, L.front, L.back]) {
+      expect(row(r, 0.95)).toBeGreaterThan(row(r, 0.05) + 0.2)
+      expect(row(r, 0.98)).toBeCloseTo(GROUND_DUST.bottom, 1)
+      expect(row(r, 0.02)).toBeCloseTo(GROUND_DUST.top, 1)
+    }
+  })
+
+  it('頂面一層均勻的；圖集沒用到的地方是 0', () => {
+    expect(row(L.top, 0.5)).toBeCloseTo(GROUND_DUST.surface, 1)
+    expect(at(0, 0)).toBe(0)
+    expect(at(GRIME_ATLAS_WIDTH - 1, GRIME_ATLAS_HEIGHT - 1)).toBe(0)
+  })
+
+  /** 【土色在頂點色之後混】three 的頂點色在貼圖之後才乘上去；混在前面的話土色也被乘成深綠，變不淺 */
+  it('著色器：貼圖的 RGB 照舊乘上去，alpha 在頂點色之後混進土色；字串裡沒有中文（i18n 護欄）', () => {
+    const m = new MeshStandardMaterial()
+    applyGroundDust(m)
+    const shader = {
+      vertexShader: 'a\n#include <begin_vertex>\nb',
+      fragmentShader: 'a\n#include <map_fragment>\n#include <color_fragment>\nb',
+      uniforms: {} as Record<string, { value: unknown }>,
+    }
+    m.onBeforeCompile(shader as never, undefined as never)
+    const f = shader.fragmentShader
+    expect(f).not.toContain('#include <map_fragment>')
+    expect(f).toContain('diffuseColor.rgb *= sampledDiffuseColor.rgb')
+    expect(f.indexOf('mix( diffuseColor.rgb, groundDust, groundDustMix )')).toBeGreaterThan(f.indexOf('#include <color_fragment>'))
+    // 灰土乘上頂點的權重（履帶、輪胎 0）
+    expect(f).toContain('groundDustMix = sampledDiffuseColor.a * vDustWeight')
+    expect(shader.vertexShader).toContain('vDustWeight = dustWeight;')
+    expect(shader.uniforms['groundDust']).toBeDefined()
+    expect(shader.fragmentShader).not.toMatch(/[一-鿿]/)
+    expect(shader.vertexShader).not.toMatch(/[一-鿿]/)
+    expect(m.customProgramCacheKey()).toContain('groundDust')
   })
 })
 

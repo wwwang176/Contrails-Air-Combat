@@ -14,7 +14,7 @@ import { createGroundMuzzles } from './groundMuzzles'
 import { createGroundVehicleBatch, type GroundModelPart } from './groundVehicleBatch'
 import { GROUND_GUN_MOUNTS } from '../specs/groundGunMounts'
 import { createRoofGunParts, SHERMAN_ROOF_GUN } from './geometry/ground/roofGun'
-import { groundGrimeTexture } from './groundGrime'
+import { applyGroundDust, groundGrimeTexture } from './groundGrime'
 import {
   GUN_PITCH_MAX, GUN_PITCH_MIN, TANK_PITCH_MAX, TANK_PITCH_MIN, TANK_TRAVERSE_RATE, aimAngles, slewYaw,
 } from './gunAim'
@@ -118,7 +118,10 @@ export function createGroundModels(
   // 合批的只有它們，所以這一份只給合批用；程序化的步兵、火車、廠房、停放的飛機維持 `live`
   const grime = groundGrimeTexture()
   const vehicle = grime === null ? live : live.clone()
-  if (grime !== null) vehicle.map = grime
+  if (grime !== null) {
+    vehicle.map = grime
+    applyGroundDust(vehicle)
+  }
   const object = new Group()
   // 車輛一律合批；沒有 multi-draw 擴充時，由 Three 自動逐筆提交。
   const vehicleBatch = createGroundVehicleBatch(object)

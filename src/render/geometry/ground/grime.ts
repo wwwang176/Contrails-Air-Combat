@@ -27,6 +27,21 @@ export const GRIME_GUTTER = 8
 /** 幾何烘好之後，版面掛在 `userData` 的這個鍵 */
 export const GRIME_LAYOUT_KEY = 'grimeLayout'
 
+/**
+ * GLB 材質名 → 灰土的權重（頂點屬性 `dustWeight`，著色器把圖集的灰土比例乘上它）。
+ * **履帶、輪胎是 0**：深色的橡膠混進淺土色就變成淺褐，看起來不對。表裡沒有的材質是 1
+ */
+export const GROUND_DUST_WEIGHT: Readonly<Record<string, number>> = {
+  LP_Track: 0,
+  LP_Tire: 0,
+  LP_Glass: 0.4,
+  LP_Steel: 0.6,
+  LP_ArmorGreen: 1,
+  LP_TruckGreen: 1,
+  LP_GunGrey: 1,
+  LP_Canvas: 1,
+}
+
 /** 圖集上的一塊，px */
 export interface GrimeRect {
   readonly x: number

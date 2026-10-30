@@ -11,7 +11,7 @@ import { GROUND_UNITS, TRAIN_CONSIST, type GroundUnit, type GroundUnitId } from 
 import { GROUND_MODELS, groundGeometry, preloadGroundModels } from '../render/geometry/ground'
 import { GUN_TURRET_KEY, type GunTurretParts } from '../render/geometry/ground/turret'
 import { liveryGeometry } from '../render/geometry/ground/livery'
-import { groundGrimeTexture } from '../render/groundGrime'
+import { applyGroundDust, groundGrimeTexture } from '../render/groundGrime'
 import { GUN_PITCH_MAX, GUN_PITCH_MIN, TANK_PITCH_MAX, TANK_PITCH_MIN } from '../render/gunAim'
 import { HUE, assemble, box } from '../render/geometry/ground/parts'
 
@@ -155,6 +155,7 @@ await preloadGroundModels()
 /** 車輛與地面砲的材質：與遊戲相同，髒污圖集乘上頂點色（`render/groundGrime.ts`） */
 const grimeMaterial = material.clone()
 grimeMaterial.map = groundGrimeTexture()
+applyGroundDust(grimeMaterial)
 
 /** 命中盒的線框。預設收著，面板「命中盒」打開。 */
 const hitMaterial = new LineBasicMaterial({ color: 0xff5a3c })

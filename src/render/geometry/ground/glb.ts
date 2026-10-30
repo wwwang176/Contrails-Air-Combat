@@ -1,6 +1,8 @@
 import { Box3, BufferAttribute, BufferGeometry, Color, Material, Mesh, Object3D, Vector3 } from 'three'
 import { GUN_TURRET_KEY, type GroundTurretNodes, type GunTurretParts } from './turret'
-import { GRIME_LAYOUT_KEY, applyGroundGrimeUv, groundGrimeLayout, type GroundGrimeLayout } from './grime'
+import {
+  GRIME_LAYOUT_KEY, GROUND_DUST_WEIGHT, applyGroundGrimeUv, groundGrimeLayout, type GroundGrimeLayout,
+} from './grime'
 import { createGltfLoader } from '../gltfLoader'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { GLB_MATERIALS, PLANT_MATERIALS, WINTER_PAINT } from './palette'
@@ -77,6 +79,7 @@ export function bakeGroundScene(scene: Object3D, turret?: GroundTurretNodes, cel
     g.setAttribute('color', new BufferAttribute(solid(hex, n), 3))
     // 冬季那一份與預設同一個頂點順序，合併之後搬進 `userData`（`WINTER_COLOR_KEY`）
     g.setAttribute(WINTER_ATTR, new BufferAttribute(solid(WINTER_PAINT[name] ?? hex, n), 3))
+    g.setAttribute('dustWeight', new BufferAttribute(new Float32Array(n).fill(GROUND_DUST_WEIGHT[name] ?? 1), 1))
     g.computeBoundingBox()
     bounds.union(g.boundingBox!)
     baked.push({ g, mesh })

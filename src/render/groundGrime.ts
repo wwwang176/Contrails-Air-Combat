@@ -1,4 +1,7 @@
-import { CanvasTexture, SRGBColorSpace, type Texture } from 'three'
+import {
+  Color, DataTexture, LinearFilter, LinearMipmapLinearFilter, RGBAFormat, SRGBColorSpace, UnsignedByteType,
+  type MeshStandardMaterial, type Texture,
+} from 'three'
 import {
   GRIME_ATLAS_HEIGHT, GRIME_ATLAS_WIDTH, GRIME_GUTTER, type GrimeRect, type GroundGrimeLayout,
 } from './geometry/ground/grime'
@@ -9,8 +12,9 @@ import { grimeSprites, type GrimeKind } from './shipGrime'
  * # 車輛與地面砲的髒污：圖集
  *
  * **載入時**在白底的圖集上蓋髒污（色斑、雨痕、小污點，與船同一組小圖），每一支 GLB 一格
- * （版面見 `geometry/ground/grime.ts`）；側面、車頭、車尾的下緣另外刷一條泥巴帶。
- * 車輛與地面砲的材質拿它當貼圖，乘上頂點色：白 = 不變，所以冬季塗裝照樣換、髒污照樣蓋。
+ * （版面見 `geometry/ground/grime.ts`）；側面、車頭、車尾的下緣另外刷一條泥巴帶，頂面蓋一層。
+ * 車輛與地面砲的材質拿它當貼圖（`applyGroundDust`）：RGB 乘上頂點色（白 = 不變），alpha 是
+ * 灰土、混進土色。冬季塗裝照樣換、髒污照樣蓋。
  *
  * 同一支 GLB 的車共用一組印子，每次載入位置不同 —— 與船同一個做法。遊戲中每一幀的成本只是
  * 多讀一次貼圖。
@@ -36,16 +40,33 @@ export interface GroundGrimeStamp {
  * 每平方公尺的印子數與尺寸（公尺）。車比船小得多，印子也小、也密。**起始值，由截圖裁定。**
  */
 const GRIME = {
-  blotch: { perM2: 0.9, r: [0.15, 0.6], alpha: [0.06, 0.16] },
+  blotch: { perM2: 0.9, r: [0.25, 0.9], alpha: [0.15, 0.35] },
   streak: { perM2: 1.8, w: [0.03, 0.1], len: [0.2, 1.0], alpha: [0.1, 0.25] },
   speck: { perM2: 6, r: [0.01, 0.04], alpha: [0.15, 0.35] },
 } as const
 
-/** 泥巴帶從模型最低點往上多高，m。履帶、輪子、車身下緣 */
-export const GROUND_MUD_HEIGHT = 0.9
+/** 泥巴帶從模型最低點往上多高，m。要高過履帶與輪子、沾到車身下緣與擋泥板 */
+export const GROUND_MUD_HEIGHT = 1.3
 /** 泥巴帶最下緣的顏色與濃度（往上淡到 0）。**起始值，由截圖裁定。** */
 const MUD_COLOR = '110, 92, 70'
-const MUD_ALPHA = 0.55
+const MUD_ALPHA = 0.7
+/** 頂面（水平面積灰）整片蓋一層的濃度，與泥巴同色 */
+const TOP_GRIME_ALPHA = 0.18
+
+/**
+ * 灰土：整台蒙一層土色（`applyGroundDust` 在頂點色之後混進去）。乘法只能變暗，深綠色上蓋黑點
+ * 幾乎看不出來；混進淺土色才會把深色洗淡、白漆弄髒。
+ *
+ * 側面、車頭、車尾由上緣的 `top` 往下緣的 `bottom` 漸濃，頂面一層 `surface`，再乘上一點
+ * 起伏（`wobble`，0 = 均勻）。`color` 是 sRGB。**起始值，由截圖裁定。**
+ */
+export const GROUND_DUST = {
+  top: 0.03,
+  bottom: 0.3,
+  surface: 0.15,
+  wobble: 0.35,
+  color: [92, 80, 62],
+} as const
 /** 泥巴帶裡另外濺的泥點，每平方公尺幾個 */
 const MUD_SPECKS_PER_M2 = 15
 
@@ -104,6 +125,68 @@ export function groundGrimeStamps(L: GroundGrimeLayout, rand: () => number): Gro
   return out
 }
 
+/**
+ * 灰土的濃度（0…255），圖集一個 px 一格、列優先、第 0 列在上。每一塊往外多算半個空白 ——
+ * 貼圖取樣在塊的邊上會混到隔壁的 px，空白處是 0 的話邊緣會亮一條。沒用到的地方 0。
+ * `rand` 給每一塊起伏的相位與波長。
+ */
+export function groundDustMask(layouts: readonly GroundGrimeLayout[], rand: () => number): Uint8Array {
+  const W = GRIME_ATLAS_WIDTH
+  const out = new Uint8Array(W * GRIME_ATLAS_HEIGHT)
+  const half = GRIME_GUTTER / 2
+  const D = GROUND_DUST
+  for (const L of layouts) {
+    const fill = (r: GrimeRect, from: number, to: number) => {
+      // 起伏：兩組正弦，波長 0.8～2 m
+      const k = () => (2 * Math.PI) / ((0.8 + rand() * 1.2) * L.scale)
+      const k1 = k(), k2 = k(), k3 = k()
+      const p1 = rand() * 6.3, p2 = rand() * 6.3, p3 = rand() * 6.3
+      const x0 = Math.max(0, Math.floor(r.x - half)), x1 = Math.min(W, Math.ceil(r.x + r.w + half))
+      const y0 = Math.max(0, Math.floor(r.y - half)), y1 = Math.min(GRIME_ATLAS_HEIGHT, Math.ceil(r.y + r.h + half))
+      for (let y = y0; y < y1; y++) {
+        const t = Math.min(1, Math.max(0, (y + 0.5 - r.y) / r.h))
+        const base = from + (to - from) * t
+        for (let x = x0; x < x1; x++) {
+          const n = 0.6 * Math.sin(x * k1 + p1) * Math.sin(y * k2 + p2) + 0.4 * Math.sin((0.7 * x + y) * k3 + p3)
+          out[y * W + x] = Math.round(255 * Math.min(1, Math.max(0, base * (1 + D.wobble * n))))
+        }
+      }
+    }
+    for (const r of [L.right, L.left, L.front, L.back]) fill(r, D.top, D.bottom)
+    fill(L.top, D.surface, D.surface)
+  }
+  return out
+}
+
+/** 灰土的顏色，換成線性空間給著色器 */
+const DUST_COLOR = new Color().setRGB(
+  GROUND_DUST.color[0] / 255, GROUND_DUST.color[1] / 255, GROUND_DUST.color[2] / 255, SRGBColorSpace)
+
+/**
+ * 讓材質讀髒污圖集：RGB 照舊乘上去（變暗的印子與泥巴），alpha 是灰土的比例，**在頂點色之後**
+ * 混進土色 —— three 的頂點色在貼圖之後才乘，混在前面的話土色也被乘成深綠、變不淺。
+ */
+export function applyGroundDust(m: MeshStandardMaterial): void {
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms['groundDust'] = { value: DUST_COLOR }
+    // 灰土的比例再乘上頂點的權重（`GROUND_DUST_WEIGHT`：履帶、輪胎 0）
+    shader.vertexShader = 'attribute float dustWeight;\nvarying float vDustWeight;\n' + shader.vertexShader
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvDustWeight = dustWeight;')
+    shader.fragmentShader = 'uniform vec3 groundDust;\nvarying float vDustWeight;\n' + shader.fragmentShader
+      .replace('#include <map_fragment>', [
+        'float groundDustMix = 0.0;',
+        '#ifdef USE_MAP',
+        '  vec4 sampledDiffuseColor = texture2D( map, vMapUv );',
+        '  diffuseColor.rgb *= sampledDiffuseColor.rgb;',
+        '  groundDustMix = sampledDiffuseColor.a * vDustWeight;',
+        '#endif',
+      ].join('\n'))
+      .replace('#include <color_fragment>',
+        '#include <color_fragment>\ndiffuseColor.rgb = mix( diffuseColor.rgb, groundDust, groundDustMix );')
+  }
+  m.customProgramCacheKey = () => 'groundDust'
+}
+
 /** 每一塊裁在它往外半個空白之內 */
 function clipTo(g: CanvasRenderingContext2D, r: GrimeRect): void {
   const half = GRIME_GUTTER / 2
@@ -122,6 +205,12 @@ function buildAtlas(layouts: readonly GroundGrimeLayout[]): Texture {
   g.fillRect(0, 0, c.width, c.height)
   const img = grimeSprites()
   for (const L of layouts) {
+    // 頂面整片蓋一層：水平面積灰
+    g.save()
+    clipTo(g, L.top)
+    g.fillStyle = `rgba(${MUD_COLOR}, ${TOP_GRIME_ALPHA})`
+    g.fillRect(L.top.x, L.top.y, L.top.w, L.top.h)
+    g.restore()
     for (const b of groundMudBands(L)) {
       g.save()
       clipTo(g, b.clip)
@@ -151,11 +240,20 @@ function buildAtlas(layouts: readonly GroundGrimeLayout[]): Texture {
     }
   }
   g.globalAlpha = 1
-  const t = new CanvasTexture(c)
-  // 與船的髒污圖相同：UV 原點在左上角、sRGB、斜看不糊
+  // 【alpha 另外寫、不經過畫布】畫布存的是預乘過的顏色，alpha 小的地方 RGB 會被量化掉。
+  // 讀出不透明的 RGB，alpha 換成灰土，直接建 RGBA 的資料貼圖
+  const data = g.getImageData(0, 0, c.width, c.height).data
+  const dust = groundDustMask(layouts, Math.random)
+  for (let i = 0; i < dust.length; i++) data[i * 4 + 3] = dust[i]!
+  const t = new DataTexture(new Uint8Array(data.buffer), c.width, c.height, RGBAFormat, UnsignedByteType)
+  // 與船的髒污圖相同：UV 原點在左上角（資料第 0 列就是上緣，不翻）、sRGB、斜看不糊
   t.flipY = false
   t.colorSpace = SRGBColorSpace
   t.anisotropy = 8
+  t.magFilter = LinearFilter
+  t.minFilter = LinearMipmapLinearFilter
+  t.generateMipmaps = true
+  t.needsUpdate = true
   return t
 }
 
