@@ -14,6 +14,7 @@ import { createGroundMuzzles } from './groundMuzzles'
 import { createGroundVehicleBatch, type GroundModelPart } from './groundVehicleBatch'
 import { GROUND_GUN_MOUNTS } from '../specs/groundGunMounts'
 import { createRoofGunParts, SHERMAN_ROOF_GUN } from './geometry/ground/roofGun'
+import { groundGrimeTexture } from './groundGrime'
 import {
   GUN_PITCH_MAX, GUN_PITCH_MIN, TANK_PITCH_MAX, TANK_PITCH_MIN, TANK_TRAVERSE_RATE, aimAngles, slewYaw,
 } from './gunAim'
@@ -113,6 +114,11 @@ export function createGroundModels(
   const wreck = new MeshStandardMaterial({
     color: 0x2a2421, flatShading: true, roughness: 1.0,
   })
+  // 【車輛與地面砲（GLB 那幾台）蓋髒污】白底圖集乘上頂點色，冬季塗裝照樣換（`groundGrime.ts`）。
+  // 合批的只有它們，所以這一份只給合批用；程序化的步兵、火車、廠房、停放的飛機維持 `live`
+  const grime = groundGrimeTexture()
+  const vehicle = grime === null ? live : live.clone()
+  if (grime !== null) vehicle.map = grime
   const object = new Group()
   // 車輛一律合批；沒有 multi-draw 擴充時，由 Three 自動逐筆提交。
   const vehicleBatch = createGroundVehicleBatch(object)
@@ -188,7 +194,7 @@ export function createGroundModels(
       if (lo !== null) prepareMaterial(lo)
     }
     // 車輛皆為單一頂點色材質；停放飛機可能有多材質貼圖，保留原 Mesh。
-    const m = batch === null ? new Mesh(pair.hi, liveMaterials.get(pair.hi)!) : part(pair.hi, live)
+    const m = batch === null ? new Mesh(pair.hi, liveMaterials.get(pair.hi)!) : part(pair.hi, vehicle)
     object.add(m)
     meshes.push(m)
     pairs.push(pair)
@@ -209,11 +215,11 @@ export function createGroundModels(
     let trav: GroundModelPart | null = null
     let roofGun: GroundModelPart | null = null
     if (gt !== undefined) {
-      trav = part(gt.traverse, live)
+      trav = part(gt.traverse, vehicle)
       // 【命名】量測出口（`__gfx` 的 `groundTurrets`）靠名字找出這些子網格
       trav.name = GROUND_TURRET_NAME
       trav.position.copy(gt.traversePivot)
-      const elev = part(gt.elevate, live)
+      const elev = part(gt.elevate, vehicle)
       elev.position.copy(gt.elevatePivot)
       trav.add(elev)
       m.add(trav)
@@ -403,6 +409,8 @@ export function createGroundModels(
       // 貼圖由飛行模型快取持有；只釋放這裡建立的材質。
       for (const materials of paintedMaterials.values()) materials[1]!.dispose()
       live.dispose()
+      // 髒污圖集是共用的（`groundGrimeTexture`），只釋放材質
+      if (vehicle !== live) vehicle.dispose()
       wreck.dispose()
     },
   }

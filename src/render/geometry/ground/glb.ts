@@ -1,5 +1,6 @@
-import { BufferAttribute, BufferGeometry, Color, Material, Mesh, Object3D, Vector3 } from 'three'
+import { Box3, BufferAttribute, BufferGeometry, Color, Material, Mesh, Object3D, Vector3 } from 'three'
 import { GUN_TURRET_KEY, type GroundTurretNodes, type GunTurretParts } from './turret'
+import { GRIME_LAYOUT_KEY, applyGroundGrimeUv, groundGrimeLayout, type GroundGrimeLayout } from './grime'
 import { createGltfLoader } from '../gltfLoader'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { GLB_MATERIALS, PLANT_MATERIALS, WINTER_PAINT } from './palette'
@@ -9,11 +10,11 @@ import { assetUrl } from '../../../core/asset'
 
 const C = /* @__PURE__ */ new Color()
 
-export async function parseGroundGlb(buf: ArrayBuffer, turret?: GroundTurretNodes): Promise<BufferGeometry> {
+export async function parseGroundGlb(buf: ArrayBuffer, turret?: GroundTurretNodes, cell = 0): Promise<BufferGeometry> {
   const scene = await new Promise<Object3D>((res, rej) => {
     createGltfLoader().parse(buf, '', (gltf) => res(gltf.scene), rej)
   })
-  return bakeGroundScene(scene, turret)
+  return bakeGroundScene(scene, turret, cell)
 }
 
 /**
@@ -43,8 +44,10 @@ function under(o: Object3D, anc: Object3D): boolean {
  *
  * 給 `turret` 時照祖先分三塊：Elevate 底下的是上下抬那一塊、其餘 Traverse 底下的是水平轉那一塊、
  * 剩下的固定。回傳固定那一塊，另外兩塊各自減掉轉軸的位置，掛在 `userData[GUN_TURRET_KEY]`。
+ *
+ * @param cell 髒污圖集的第幾格（`grime.ts`）；版面掛在 `userData[GRIME_LAYOUT_KEY]`
  */
-export function bakeGroundScene(scene: Object3D, turret?: GroundTurretNodes): BufferGeometry {
+export function bakeGroundScene(scene: Object3D, turret?: GroundTurretNodes, cell = 0): BufferGeometry {
   scene.updateMatrixWorld(true)
   const trav = turret === undefined ? null : pivotOf(scene, turret.traverse)
   const elev = turret === undefined ? null : pivotOf(scene, turret.elevate)
@@ -52,10 +55,9 @@ export function bakeGroundScene(scene: Object3D, turret?: GroundTurretNodes): Bu
     throw new Error(`砲塔的 Elevate 節點 ${turret!.elevate} 不在 Traverse 節點 ${turret!.traverse} 底下`)
   }
 
-  const fixed: BufferGeometry[] = []
-  const traversing: BufferGeometry[] = []
-  const elevating: BufferGeometry[] = []
+  const baked: { g: BufferGeometry; mesh: Mesh }[] = []
   const seen = new Set<string>()
+  const bounds = new Box3()
   scene.traverse((o: Object3D) => {
     const mesh = o as Mesh
     if (!mesh.isMesh) return
@@ -65,7 +67,7 @@ export function bakeGroundScene(scene: Object3D, turret?: GroundTurretNodes): Bu
     seen.add(name)
 
     // 烘進世界座標、展開索引（不共用頂點 → flat shading 的稜線是硬的），
-    // 只留位置與顏色：法線由合併後統一算，UV 沒有人用。
+    // 只留位置與顏色：法線由合併後統一算，UV 是髒污的、下面重算。
     const g = mesh.geometry.toNonIndexed()
     g.applyMatrix4(mesh.matrixWorld)
     for (const attr of Object.keys(g.attributes)) {
@@ -75,6 +77,19 @@ export function bakeGroundScene(scene: Object3D, turret?: GroundTurretNodes): Bu
     g.setAttribute('color', new BufferAttribute(solid(hex, n), 3))
     // 冬季那一份與預設同一個頂點順序，合併之後搬進 `userData`（`WINTER_COLOR_KEY`）
     g.setAttribute(WINTER_ATTR, new BufferAttribute(solid(WINTER_PAINT[name] ?? hex, n), 3))
+    g.computeBoundingBox()
+    bounds.union(g.boundingBox!)
+    baked.push({ g, mesh })
+  })
+  if (baked.length === 0) throw new Error('GLB 裡沒有任何網格')
+
+  // 【髒污的 UV 在拆砲塔之前算】整台的模型座標，拆開的兩塊轉起來髒污跟著走
+  const layout = groundGrimeLayout(bounds.min, bounds.max, cell)
+  const fixed: BufferGeometry[] = []
+  const traversing: BufferGeometry[] = []
+  const elevating: BufferGeometry[] = []
+  for (const { g, mesh } of baked) {
+    applyGroundGrimeUv(g, layout)
     if (elev !== null && under(mesh, elev.node)) {
       g.translate(-elev.at.x, -elev.at.y, -elev.at.z)
       elevating.push(g)
@@ -84,11 +99,11 @@ export function bakeGroundScene(scene: Object3D, turret?: GroundTurretNodes): Bu
     } else {
       fixed.push(g)
     }
-  })
-  if (fixed.length + traversing.length + elevating.length === 0) throw new Error('GLB 裡沒有任何網格')
+  }
 
   const geo = mergeParts(fixed, 'fixed')
   geo.userData['materials'] = [...seen]
+  geo.userData[GRIME_LAYOUT_KEY] = layout
   if (trav !== null && elev !== null) {
     const parts: GunTurretParts = {
       traverse: mergeParts(traversing, 'traverse'),
@@ -171,13 +186,23 @@ export async function preloadGroundGlbs(
     }
     byUrl.set(s.url, s.turret)
   }
+  // 【格號在等待之前發】照登記順序，每一支第一次出現時領下一格；平行載入時先完成的不會搶格
+  for (const url of byUrl.keys()) if (!grimeCells.has(url)) grimeCells.set(url, grimeCells.size)
   await Promise.all([...byUrl].map(async ([url, turret]) => {
     if (!cache.has(url)) {
-      cache.set(url, await parseGroundGlb(await fetcher(url), turret))
+      cache.set(url, await parseGroundGlb(await fetcher(url), turret, grimeCells.get(url)!))
       bakedTurret.set(url, turret)
     }
     onLoaded()
   }))
+}
+
+/** 每一支 GLB 在髒污圖集裡的格號 */
+const grimeCells = new Map<string, number>()
+
+/** 已載入的每一支 GLB 的髒污版面（`grime.ts`），蓋圖集用 */
+export function groundGrimeLayouts(): GroundGrimeLayout[] {
+  return [...cache.values()].map((g) => g.userData[GRIME_LAYOUT_KEY] as GroundGrimeLayout)
 }
 
 /** 快取裡每一支是照哪一份砲塔登記拆的（沒有砲塔是 undefined） */

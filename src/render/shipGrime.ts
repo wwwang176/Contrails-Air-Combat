@@ -84,8 +84,10 @@ const SPRITE = 64
  *
  * 【為什麼不每個印子畫一次漸層】Essex 兩舷有三萬多個印子；每個都新建漸層、各自裁切
  * 的話載入要多等一兩秒。預畫的小圖用 `drawImage` 貼，快一個量級。
+ *
+ * 車輛與地面砲的髒污（`groundGrime.ts`）用同一組。**只在瀏覽器裡跑**
  */
-function sprites(): Record<GrimeKind, HTMLCanvasElement> {
+export function grimeSprites(): Record<GrimeKind, HTMLCanvasElement> {
   const make = (draw: (g: CanvasRenderingContext2D) => void) => {
     const c = document.createElement('canvas')
     c.width = SPRITE
@@ -176,7 +178,7 @@ export function grimedLivery(base: Texture, stamps: readonly GrimeStamp[]): Text
   c.height = img.height
   const g = c.getContext('2d')!
   g.drawImage(img, 0, 0)
-  drawStamps(g, stamps, sprites())
+  drawStamps(g, stamps, grimeSprites())
   return canvasTexture(c)
 }
 
@@ -188,6 +190,6 @@ export function fittingGrime(stamps: readonly GrimeStamp[]): Texture {
   const g = c.getContext('2d')!
   g.fillStyle = '#ffffff'
   g.fillRect(0, 0, c.width, c.height)
-  drawStamps(g, stamps, sprites())
+  drawStamps(g, stamps, grimeSprites())
   return canvasTexture(c)
 }
