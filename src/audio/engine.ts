@@ -135,9 +135,12 @@ const LAYER_MIN_FREE = 16
  * 「+6 類別 ＋最多 +6 當量 ＋第二層」疊起來遠超過喇叭的上限，限幅器只好一次
  * 壓掉 8～10 dB —— 那個擠壓感就是玩家聽到的「爆音」。**多出來的那幾份本來
  * 也分不出來**：同一刻十顆與十五顆爆炸，人耳聽起來一樣。
+ *
+ * 【撞擊要寬】等音波的也佔名額：地面戰的彈著在幾百公尺外，每一聲要先等一兩秒才響，
+ * 步兵與砲彈一起落地時排隊的就有十幾個。名額不夠的話剛開始響的會被搶走，播幾十毫秒就斷
  */
 const VOICE_QUOTA: Partial<Record<Category, number>> = {
-  cannon: 22, impact: 12, waterHit: 8, hitOwn: 8, flyby: 8, whistle: 6, hitDealt: 6, splash: 8, flakBurst: 14,
+  cannon: 22, impact: 24, waterHit: 8, hitOwn: 8, flyby: 8, whistle: 6, hitDealt: 6, splash: 8, flakBurst: 14,
   explosion: 8, blast: 8,
 }
 const LOOP_VOICES: Record<LoopPool, number> = {
