@@ -253,6 +253,22 @@ describe('音效的戰鬥事件接線', () => {
     expect(play).toContain('playWaterHit(elapsed)')
   })
 
+  /**
+   * 【地面戰的彈著打到地面有聲音】砲彈打偏（`onShellLanded`）與步兵的槍彈打偏（`onBulletLanded`）落在
+   * 地上交給 `noteGroundFireHit`，落在河裡走打到水面。少接一條就整場無聲，而且不報錯
+   */
+  it('地面戰的彈著：砲彈與槍彈落地交給音效，落在河裡的走水面', () => {
+    const shell = body('const onShellLanded = ')
+    expect(shell).toContain('if (terrain.waterAt(x, z) < y) battleAudioCues.noteGroundFireHit(x, y, z, true)')
+    const bullet = body('const onBulletLanded = ')
+    expect(bullet).toContain('battleAudioCues.noteGroundFireHit(x, y, z, false)')
+    expect(bullet).toContain('battleAudioCues.noteWaterHits(bulletLanding)')
+    expect(bullet.indexOf('battleAudioCues.noteWaterHits(bulletLanding)')).toBeLessThan(bullet.indexOf('clearImpacts(bulletLanding)'))
+    expect(ALL).toContain('landed: onShellLanded, bulletLanded: onBulletLanded,')
+    expect(SCENERY).toMatch(/createGroundBattle\(theater, assets\.burn, assets\.smokeTexture,\s*assets\.impact, assets\.fired, assets\.landed, cannon, assets\.bulletLanded\)/)
+    expect(body('function playFrame(', CUES)).toContain('playGroundFireHits(elapsed)')
+  })
+
   it('子彈打到船殼、建築有定位的撞擊聲，而且限頻率', () => {
     const q = body('function queueAudioCues(', CUES)
     expect(q).toContain('world.materialHits')
@@ -320,7 +336,7 @@ describe('音效的戰鬥事件接線', () => {
   it('地面戰的砲口聲：回呼排進佇列，playCannons 播完才清', () => {
     expect(ALL).toContain('burn: emitFirePuff, impact: onGroundImpact, fired: noteGroundShot')
     expect(ALL).toContain('battleScenery.rebuild(world, pendingMission?.battle.theater, battle.cfg.groundLivery, pendingMission?.battle.ambientFog)')
-    expect(SCENERY).toMatch(/createGroundBattle\(theater, assets\.burn, assets\.smokeTexture,\s*assets\.impact, assets\.fired, assets\.landed, cannon\)/)
+    expect(SCENERY).toMatch(/createGroundBattle\(theater, assets\.burn, assets\.smokeTexture,\s*assets\.impact, assets\.fired, assets\.landed, cannon, assets\.bulletLanded\)/)
     expect(ALL).toContain('const cannonAudio = createCannonAudio(audio, audioEar)')
     expect(ALL).toContain('const noteGroundShot = cannonAudio.noteGroundShot')
     const note = body('function noteGroundShot(', CANNONS)
@@ -381,8 +397,8 @@ describe('音效的戰鬥事件接線', () => {
     const fn = body('function update(', CONTROLLER)
     expect(fn).toContain('battleAudioCues.playFrame(world, player, elapsed, flying)')
     const play = body('function playFrame(', CUES)
-    expect(play).toContain('playCues(player)')
-    expect(play.indexOf('clearCues(cues)')).toBeGreaterThan(play.indexOf('playCues(player)'))
+    expect(play).toContain('playCues(player, flying)')
+    expect(play.indexOf('clearCues(cues)')).toBeGreaterThan(play.indexOf('playCues(player, flying)'))
   })
 
   /**

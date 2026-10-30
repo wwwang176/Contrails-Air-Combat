@@ -28,7 +28,8 @@ function createShellPool(capacity: number): ShellPool {
 /**
  * 固定容量的視覺彈丸。選目標與畫出來都是呼叫端的事
  *
- * @param landed 砲彈（`small` 為 false）打偏落地時呼叫，落點在地面上。省略 = 一小團塵土
+ * @param landed 打偏落地時呼叫，落點在地面上。砲彈（`small` 為 false）的塵土交給它、省略 = 一小團塵土；
+ *   槍彈的塵土照揚
  */
 export function createGroundShellPool(
   capacity: number, small: boolean,
@@ -78,12 +79,15 @@ export function createGroundShellPool(
         const y = pool.hy[i]!
         const z = pool.hz[i]!
         // 【砲彈擊中是小爆炸】與迫擊砲落地同一份（`impact`）；步兵的槍彈只有一小團火花
-        // 【砲彈打偏是打進地面】與戰鬥機機槍打到地面同一套（`landed`）；步兵的槍彈只揚一小團塵
+        // 【砲彈打偏是打進地面】與戰鬥機機槍打到地面同一套（`landed`）；步兵的槍彈揚一小團塵，
+        // 另外把落點交給 `landed`（聲音）
         if (pool.hit[i] === 1) {
           if (small) flash.emit(x, y, z, 0, 0, 0, 0.4)
           else impact(x, y, z)
-        } else if (!small && landed !== undefined) landed(x, y, z)
-        else dust.emit(x, y, z, 0, small ? 1 : 3, 0, small ? 0.3 : 0.7)
+        } else {
+          if (small || landed === undefined) dust.emit(x, y, z, 0, small ? 1 : 3, 0, small ? 0.3 : 0.7)
+          landed?.(x, y, z)
+        }
         continue
       }
       pool.age[i] = age

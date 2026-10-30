@@ -26,7 +26,7 @@ function fixture() {
   }
   const assets = {
     glareTexture: new Texture(), smokeTexture: new Texture(),
-    burn: vi.fn(), impact: vi.fn(), fired: vi.fn(), landed: vi.fn(), gunFired: vi.fn(),
+    burn: vi.fn(), impact: vi.fn(), fired: vi.fn(), landed: vi.fn(), bulletLanded: vi.fn(), gunFired: vi.fn(),
   }
   const foam = new Texture()
   const builders = {
@@ -122,7 +122,7 @@ describe('戰場佈景的所有權', () => {
     expect(builders.createBalloonModels).toHaveBeenCalledWith(world.balloons)
     expect(builders.createGroundBattle).toHaveBeenCalledWith(
       theater, assets.burn, assets.smokeTexture, assets.impact, assets.fired, assets.landed,
-      { muzzle: scenery.groundModels!.muzzle, fire: assets.gunFired },
+      { muzzle: scenery.groundModels!.muzzle, fire: assets.gunFired }, assets.bulletLanded,
     )
     expect(scenery.battleFogOn).toBe(true)
     expect(BATTLE_FOG.a.w).toBeGreaterThan(0)

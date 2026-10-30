@@ -403,6 +403,21 @@ export const WATER_HIT = {
   bulletRate: 0.72,
 } as const
 
+/**
+ * 地面戰的彈著打到地面（`battleAudioCues` 的 `noteGroundFireHit`）：泥土庫、類別 `impact`，與戰鬥機機槍
+ * 打到地表同一個聲音。`db` 加在那一聲之上、`rate` 乘在它的播放速度上：步兵的槍彈口徑小，小聲而清脆；
+ * 戰車與反坦克砲的砲彈大聲而低沉。
+ *
+ * `gap` 是最密多久一聲，s；時段內只播聽得到的最近一發。【步兵要密】幾十個步兵班一秒落地幾十發，
+ * 與機槍打到地表一樣 0.07 s 的話，鏡頭貼在一個班旁邊也只聽得到一部分
+ */
+export const GROUND_FIRE_HIT = {
+  /** 步兵的槍彈 */
+  bullet: { db: -6, rate: 1.19, gap: 0.02 },
+  /** 戰車與反坦克砲的砲彈 */
+  shell: { db: 6, rate: 0.75, gap: 0.07 },
+} as const
+
 export function impactSound(material: number): ImpactSound {
   return IMPACT_BY_MATERIAL[material] ?? IMPACT_DEFAULT
 }

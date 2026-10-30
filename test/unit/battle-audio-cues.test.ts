@@ -12,7 +12,7 @@ import { B17G } from '../../src/specs/b17g'
 import { World } from '../../src/world/World'
 import { clearDamage, pushDamage } from '../../src/world/damage'
 import { clearImpacts, createImpacts, pushImpact } from '../../src/world/events'
-import { CATEGORY, WATER_HIT, impactSound } from '../../src/audio/catalog'
+import { CATEGORY, GROUND_FIRE_HIT, WATER_HIT, impactSound } from '../../src/audio/catalog'
 import { MATERIAL } from '../../src/world/material'
 import { pushBurst } from '../../src/world/flak'
 import { HIT_PARTS } from '../../src/world/hit'
@@ -120,6 +120,21 @@ describe('戰鬥單次音效的收集與播放', () => {
     expect(playPool).toHaveBeenCalledTimes(2)
     other.cues.playFrame(other.world, other.player, 1, true)
     expect(other.playPool).toHaveBeenCalledTimes(1)
+  })
+
+  /**
+   * 【機身晃動只在坐在飛機上時】近處爆炸震到的是自己的機身：鏡頭不在自己的飛機上（上帝視角、導覽、
+   * 已經被擊落）時沒有機身可以晃，只播爆炸
+   */
+  it('近處爆炸的機身晃動：鏡頭在自己的飛機上才播', () => {
+    const { world, player, cam, playPool, cues } = setup()
+    cam.x = 1000
+    cues.queueExplosion(1000, 1000, 0, 0.4)
+    cues.playFrame(world, player, 1, false)
+    expect(playPool.mock.calls.map(c => c[0])).toEqual(['explosion'])
+    cues.queueExplosion(1000, 1000, 0, 0.4)
+    cues.playFrame(world, player, 2, true)
+    expect(playPool.mock.calls.map(c => c[0])).toEqual(['explosion', 'explosion', 'rattle'])
   })
 
   it('512 筆佇列滿時丟新保舊，清空後能再使用', () => {
@@ -250,6 +265,63 @@ describe('戰鬥單次音效的收集與播放', () => {
     cues.noteWaterHits(ev)
     cues.playFrame(world, player, 0, true)
     expect(playPool).toHaveBeenCalledTimes(6)
+  })
+
+  /**
+   * 【地面戰的彈著打到地面】泥土庫，與戰鬥機機槍打到地表同一個聲音：步兵的槍彈小聲、戰車與反坦克砲的
+   * 砲彈大聲。兩種各佔一個時段 —— 共用的話步兵一秒十發，砲彈落地那一聲會被擠掉
+   */
+  it('地面戰彈著：槍彈與砲彈各挑聽得到的最近一發、各自限頻；候選播完才清、被擋的不留', () => {
+    const { world, player, playPool, cues } = setup()
+    const dirt = impactSound(MATERIAL.ground)
+    const B = GROUND_FIRE_HIT.bullet, S = GROUND_FIRE_HIT.shell
+    const call = (x: number, k: { db: number; rate: number }) =>
+      [dirt.pool, 'impact', x, 1000, 0, true, dirt.gainDb + k.db, false, dirt.rate * k.rate, dirt.cutoffHz]
+    cues.noteGroundFireHit(3000, 1000, 0, false)
+    cues.noteGroundFireHit(300, 1000, 0, false)
+    cues.noteGroundFireHit(40, 1000, 0, false)
+    cues.noteGroundFireHit(500, 1000, 0, true)
+    cues.noteGroundFireHit(2000, 1000, 0, true)
+    cues.playFrame(world, player, 10, true)
+    expect(playPool.mock.calls).toEqual([call(40, B), call(500, S)])
+    // 播完就清
+    cues.playFrame(world, player, 10.5, true)
+    expect(playPool).toHaveBeenCalledTimes(2)
+    cues.noteGroundFireHit(40, 1000, 0, false)
+    cues.playFrame(world, player, 10.51, true)
+    cues.playFrame(world, player, 10.52, true)
+    expect(playPool).toHaveBeenCalledTimes(3)
+    // 槍彈在時段內被擋、不留到下一幀；砲彈的時段是自己的
+    cues.noteGroundFireHit(41, 1000, 0, false)
+    cues.noteGroundFireHit(60, 1000, 0, true)
+    cues.playFrame(world, player, 10.52, true)
+    cues.playFrame(world, player, 10.525, true)
+    expect(playPool.mock.calls.slice(3)).toEqual([call(60, S)])
+    // 時段長短各自的：0.04 s 後槍彈又能響，砲彈還在它的時段裡
+    cues.noteGroundFireHit(42, 1000, 0, false)
+    cues.noteGroundFireHit(61, 1000, 0, true)
+    cues.playFrame(world, player, 10.55, true)
+    expect(playPool.mock.calls.slice(4)).toEqual([call(42, B)])
+    // 重設清掉候選與時段
+    cues.noteGroundFireHit(40, 1000, 0, false)
+    cues.reset()
+    cues.playFrame(world, player, 11.01, true)
+    expect(playPool).toHaveBeenCalledTimes(5)
+    cues.noteGroundFireHit(40, 1000, 0, false)
+    cues.playFrame(world, player, 0, true)
+    expect(playPool).toHaveBeenCalledTimes(6)
+  })
+
+  it('地面戰彈著的時段：步兵的槍彈比砲彈密，砲彈與機槍打到地表一樣', () => {
+    expect(GROUND_FIRE_HIT.bullet.gap).toBe(0.02)
+    expect(GROUND_FIRE_HIT.shell.gap).toBe(0.07)
+  })
+
+  it('地面戰彈著：步兵比戰鬥機機槍打到地表小聲、清脆，戰車與反坦克砲比它大聲、低沉', () => {
+    expect(GROUND_FIRE_HIT.bullet.db).toBeLessThan(0)
+    expect(GROUND_FIRE_HIT.bullet.rate).toBeGreaterThan(1)
+    expect(GROUND_FIRE_HIT.shell.db).toBeGreaterThan(0)
+    expect(GROUND_FIRE_HIT.shell.rate).toBeLessThan(1)
   })
 
   it('命中回饋使用實際受害者與部位；不在座艙時消耗待播旗標', () => {

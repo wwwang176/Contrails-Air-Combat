@@ -98,8 +98,16 @@ export const MORTAR_ELEVATION = (60 * Math.PI) / 180
 /** 射程的下界與上界，m。太近打不出弧線，太遠超出戰場 */
 export const MORTAR_RANGE_MIN = 150
 export const MORTAR_RANGE_MAX = 2600
-/** 平均每幾秒一發。比直射慢：一發要飛將近二十秒，同時在天上的才不會太多 */
-export const MORTAR_PERIOD = 12
+/**
+ * 【一輪一輪地打】每 `MORTAR_VOLLEY_PERIOD` 秒打一輪：連打 `MORTAR_VOLLEY_ROUNDS` 發、每發相隔
+ * `MORTAR_ROUND_GAP` 秒，**同一輪打同一個目標**，落點在它周圍散開。平均每門每 12 秒一發。
+ *
+ * 【週期要容得下一輪加兩側抖動】一輪的起點在格點上抖動 ±`SHOT_JITTER` 個週期；
+ * `(發數 − 1) × 間隔 + 2 × SHOT_JITTER × 週期` 不小於週期的話兩輪會疊在一起，發射時間不再遞增
+ */
+export const MORTAR_VOLLEY_PERIOD = 36
+export const MORTAR_VOLLEY_ROUNDS = 3
+export const MORTAR_ROUND_GAP = 2.5
 /**
  * 開場補上多久之前發出的彈，s。要大於最遠一發的飛行時間（`MORTAR_RANGE_MAX` 約 30 秒），
  * 否則遠處的目標在開場時天上少了幾發
@@ -238,6 +246,8 @@ function gunSmokeColor(_t: number, out: Color): void {
  *   省略 = 不通報。**熱路徑：呼叫端不配置**
  * @param landed 戰車與反坦克砲打偏、砲彈落地時呼叫，落點在地面上。遊戲接的是戰鬥機機槍打到地面
  *   那一套土柱（`render/dirtImpact.ts`）。省略 = 一小團塵土。**熱路徑：呼叫端不配置**
+ * @param bulletLanded 步兵的槍彈打偏、落地時呼叫，落點在地面上；塵土照揚，遊戲接的是彈著聲。
+ *   **熱路徑：呼叫端不配置**
  */
 export function createGroundBattle(
   theater: MissionTheater, burn: FirePuffFn, smokeTexture?: Texture,
@@ -245,6 +255,7 @@ export function createGroundBattle(
   fired: (unit: GroundUnitId, x: number, y: number, z: number, index: number) => void = () => {},
   landed?: (x: number, y: number, z: number) => void,
   cannon?: GroundCannonEffects,
+  bulletLanded?: (x: number, y: number, z: number) => void,
 ): GroundBattle {
   const shooters = new Set<GroundUnitId>(theater.shooters)
   const isTarget = (id: GroundUnitId): boolean => shooters.has(id)
@@ -266,7 +277,7 @@ export function createGroundBattle(
   const dust = createDust(1024, 1, smokeTexture)
   const vehicleDust = createVehicleDustEmission(dust)
   const shells = createGroundShellPool(SHELL_CAPACITY, false, flash, dust, impact, landed)
-  const bullets = createGroundShellPool(BULLET_CAPACITY, true, flash, dust, impact)
+  const bullets = createGroundShellPool(BULLET_CAPACITY, true, flash, dust, impact, bulletLanded)
   const shellTracers = createTracers(SHELL_CAPACITY)
   const bulletTracers = createTracers(BULLET_CAPACITY, 0.5)
   const arcTrails = createArcTrails()
@@ -278,6 +289,14 @@ export function createGroundBattle(
   bulletTracers.object.name = 'groundBattle.bullets'
 
   const shotBuf = new Float64Array(MAX_SHOTS_PER_FRAME)
+  /** 迫擊砲每一發在排程裡的「輪序 × 每輪發數 + 輪內序」，與 `shotBuf` 同一格 */
+  const shotIndexBuf = new Float64Array(MAX_SHOTS_PER_FRAME)
+
+  /** 第 `s` 台迫擊砲在 (`t0`, `t1`] 的發射時刻寫進 `shotBuf`、序號寫進 `shotIndexBuf`，回傳幾發 */
+  function mortarTimes(s: number, t0: number, t1: number, kMin: number): number {
+    return burstTimesBetween(s, MORTAR_VOLLEY_PERIOD, MORTAR_VOLLEY_ROUNDS * MORTAR_ROUND_GAP,
+      1 / MORTAR_ROUND_GAP, t0, t1, shotBuf, kMin, shotIndexBuf)
+  }
   /** 每一台的車尾塵土計時，第一次 `update` 時依單位數配置 */
   /** 每一台第一次被看到死掉的世界秒數；−1 = 還活著。長燒的煙從它起算 */
   let diedAt = new Float32Array(0)
@@ -322,14 +341,15 @@ export function createGroundBattle(
   }
 
   /**
-   * 第 `s` 台（迫擊砲）發一發高拋物線的彈：射程內任何還活著的敵方單位，挑哪一個由雜湊決定；
-   * 落點在它周圍散佈。沒有目標、或解不出彈道就不發
+   * 第 `s` 台（迫擊砲）發一發高拋物線的彈：射程內任何還活著的敵方單位，挑哪一個由那一輪的雜湊決定
+   * （同一輪打同一個）；落點在它周圍散佈，每一發各自的雜湊。沒有目標、或解不出彈道就不發
    *
+   * @param shot 排程的「輪序 × 每輪發數 + 輪內序」
    * @param flown 這一發已經飛了幾秒，預設 0（現在才發）。開場前發出的那幾發給正數：從那個位置
    *   接著飛，沒有砲口的槍焰；已經落地的（`flown` ≥ 飛行時間）不加
    */
   function lob(
-    targets: readonly GroundTarget[], s: number, k: number,
+    targets: readonly GroundTarget[], s: number, shot: number,
     groundAt: (x: number, z: number) => number, flown = 0,
   ): void {
     const me = targets[s]!
@@ -346,8 +366,8 @@ export function createGroundBattle(
       if (d2 >= near && d2 <= far) n++
     }
     if (n === 0) return
-    const seed = s * 7919 + k
-    let pick = Math.min(n - 1, Math.floor(hash01(seed + 3) * n))
+    const volley = Math.floor(shot / MORTAR_VOLLEY_ROUNDS)
+    let pick = Math.min(n - 1, Math.floor(hash01(s * 7919 + volley * 4 + 3) * n))
     let them: GroundTarget | null = null
     for (let j = 0; j < targets.length && them === null; j++) {
       const t = targets[j]!
@@ -358,6 +378,7 @@ export function createGroundBattle(
       if (d2 >= near && d2 <= far && pick-- === 0) them = t
     }
     if (them === null) return
+    const seed = (s * 7919 + shot) * 4
     const a = hash01(seed + 1) * TWO_PI
     const r = Math.sqrt(hash01(seed + 2)) * MORTAR_SCATTER
     const tx = them.position.x + Math.cos(a) * r
@@ -484,13 +505,11 @@ export function createGroundBattle(
             // 【開場天上就有彈】戰鬥是從中途開始的：第一幀補上開場前 `MORTAR_OPENING` 秒內發出、
             // 還沒落地的那幾發，從它們已經飛到的位置接著飛。排程是時間的純函數，所以每次開場都一樣
             if (first) {
-              const m = shotTimesBetween(s, MORTAR_PERIOD, time - MORTAR_OPENING, time, shotBuf, -Infinity)
-              for (let k = 0; k < m; k++) {
-                lob(targets, s, Math.round(shotBuf[k]! * 10), groundAt, time - shotBuf[k]!)
-              }
+              const m = mortarTimes(s, time - MORTAR_OPENING, time, -Infinity)
+              for (let k = 0; k < m; k++) lob(targets, s, shotIndexBuf[k]!, groundAt, time - shotBuf[k]!)
             }
-            const n = shotTimesBetween(s, MORTAR_PERIOD, t0, time, shotBuf)
-            for (let k = 0; k < n; k++) lob(targets, s, Math.round(shotBuf[k]! * 10), groundAt)
+            const n = mortarTimes(s, t0, time, 0)
+            for (let k = 0; k < n; k++) lob(targets, s, shotIndexBuf[k]!, groundAt)
           } else if (me.unit.id === 'infantry') {
             // 【種子用百分之一秒】一串裡的每一發相隔 0.1 s，取十分之一秒的話相鄰兩發的種子會撞在一起
             const n = burstTimesBetween(
