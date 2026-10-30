@@ -10,6 +10,8 @@ import { groundUnitName } from '../i18n/names'
 import { GROUND_UNITS, TRAIN_CONSIST, type GroundUnit, type GroundUnitId } from '../specs/ground'
 import { GROUND_MODELS, groundGeometry, preloadGroundModels } from '../render/geometry/ground'
 import { GUN_TURRET_KEY, type GunTurretParts } from '../render/geometry/ground/turret'
+import { liveryGeometry } from '../render/geometry/ground/livery'
+import { applyGroundDust, groundGrimeTexture } from '../render/groundGrime'
 import { GUN_PITCH_MAX, GUN_PITCH_MIN, TANK_PITCH_MAX, TANK_PITCH_MIN } from '../render/gunAim'
 import { HUE, assemble, box } from '../render/geometry/ground/parts'
 
@@ -140,6 +142,8 @@ interface Entry {
   triangles: number
   /** 會轉的砲塔：水平轉與上下抬兩顆，與仰角範圍。沒有砲塔是 null */
   turret: { trav: Mesh; elev: Mesh; pitchMin: number; pitchMax: number; yawLimit: number } | null
+  /** 車輛與地面砲（GLB）的本體幾何與網格，面板的「髒汙」「冬季」換它們；程序化的是 null */
+  glb: { base: BufferGeometry; meshes: Mesh[] } | null
 }
 
 const entries: Entry[] = []
@@ -147,6 +151,11 @@ const byId = new Map<GroundUnitId, GroundUnit>(GROUND_UNITS.map((u) => [u.id, u]
 
 // GLB 那幾台要先載進來，之後 groundGeometry 才是同步的（與機庫載機種同一個做法）
 await preloadGroundModels()
+
+/** 車輛與地面砲的材質：與遊戲相同，髒污圖集乘上頂點色（`render/groundGrime.ts`） */
+const grimeMaterial = material.clone()
+grimeMaterial.map = groundGrimeTexture()
+applyGroundDust(grimeMaterial)
 
 /** 命中盒的線框。預設收著，面板「命中盒」打開。 */
 const hitMaterial = new LineBasicMaterial({ color: 0xff5a3c })
@@ -211,7 +220,11 @@ function place(unit: GroundUnit, x: number, z: number, ry: number): Entry {
   // 把它算進去之後，相機會為了裝下一塊看板而退到三倍遠。
   const bounds = new Box3().setFromObject(mesh)
 
-  return { unit, group, bounds, local, hits, triangles: tri, turret }
+  const glb = 'glb' in GROUND_MODELS[unit.id].model
+    ? { base: geo, meshes: turret === null ? [mesh] : [mesh, turret.trav, turret.elev] }
+    : null
+  if (glb !== null) for (const m of glb.meshes) m.material = grimeMaterial
+  return { unit, group, bounds, local, hits, triangles: tri, turret, glb }
 }
 
 /**
@@ -429,9 +442,10 @@ function syncStats(): void {
     + `底面 y ${fmt(b.min.y)}\n三角形 ${focused.triangles}`
 }
 
-function toggle(id: string, fn: (on: boolean) => void): void {
+/** @param initial 一開始是不是開著（按鈕的 `on` 由 HTML 給） */
+function toggle(id: string, fn: (on: boolean) => void, initial = false): void {
   const b = document.getElementById(id) as HTMLButtonElement
-  let on = false
+  let on = initial
   b.addEventListener('click', () => {
     on = !on
     b.classList.toggle('on', on)
@@ -439,7 +453,27 @@ function toggle(id: string, fn: (on: boolean) => void): void {
   })
 }
 
-toggle('wire', (on) => { material.wireframe = on })
+toggle('wire', (on) => { material.wireframe = on; grimeMaterial.wireframe = on })
+toggle('grime', (on) => {
+  for (const e of entries) for (const m of e.glb?.meshes ?? []) m.material = on ? grimeMaterial : material
+}, true)
+/** 冬季塗裝的幾何，依本體幾何一份（`liveryGeometry` 回新的，展示頁用到關頁為止） */
+const winterOf = new Map<BufferGeometry, BufferGeometry>()
+toggle('winter', (on) => {
+  for (const e of entries) {
+    if (e.glb === null) continue
+    let w = winterOf.get(e.glb.base)
+    if (w === undefined) winterOf.set(e.glb.base, w = liveryGeometry(e.glb.base, 'winter'))
+    const geo = on ? w : e.glb.base
+    const gt = geo.userData[GUN_TURRET_KEY] as GunTurretParts | undefined
+    const [body, trav, elev] = e.glb.meshes
+    body!.geometry = geo
+    if (gt !== undefined) {
+      trav!.geometry = gt.traverse
+      elev!.geometry = gt.elevate
+    }
+  }
+})
 toggle('lit', (on) => { studio = on; syncLight() })
 toggle('axes', (on) => { axes.visible = on })
 toggle('grid', (on) => { grid.visible = !on })
