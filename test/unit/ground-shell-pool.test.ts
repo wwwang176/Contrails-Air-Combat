@@ -41,6 +41,17 @@ describe('地面戰的視覺彈丸池', () => {
     expect([pool.shots, pool.hitShots]).toEqual([2, 1])
   })
 
+  /** 【落空交給 landed】砲彈改由 `landed` 噴土柱；槍彈照舊揚一小團塵，另外通報落點給聲音 */
+  it.each([false, true])('落空交給 landed；small=%s 時塵土照揚', small => {
+    const flash = { emit: vi.fn() }, dust = { emit: vi.fn() }, impact = vi.fn(), landed = vi.fn()
+    const pool = createGroundShellPool(2, small, flash, dust, impact, landed)
+    pool.fire(0, 0, 0, 100, 20, 30, 1000, true)
+    pool.fire(0, 0, 0, 200, 40, 60, 1000, false)
+    pool.step(1)
+    expect(landed.mock.calls).toEqual([[200, 40, 60]])
+    expect(dust.emit.mock.calls).toEqual(small ? [[200, 40, 60, 0, 1, 0, 0.3]] : [])
+  })
+
   it('滿了就覆蓋最舊的一格，緩衝不長大', () => {
     const { pool, impact } = fixture()
     const positions = pool.source.x

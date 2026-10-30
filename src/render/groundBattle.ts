@@ -238,6 +238,8 @@ function gunSmokeColor(_t: number, out: Color): void {
  *   省略 = 不通報。**熱路徑：呼叫端不配置**
  * @param landed 戰車與反坦克砲打偏、砲彈落地時呼叫，落點在地面上。遊戲接的是戰鬥機機槍打到地面
  *   那一套土柱（`render/dirtImpact.ts`）。省略 = 一小團塵土。**熱路徑：呼叫端不配置**
+ * @param bulletLanded 步兵的槍彈打偏、落地時呼叫，落點在地面上；塵土照揚，遊戲接的是彈著聲。
+ *   **熱路徑：呼叫端不配置**
  */
 export function createGroundBattle(
   theater: MissionTheater, burn: FirePuffFn, smokeTexture?: Texture,
@@ -245,6 +247,7 @@ export function createGroundBattle(
   fired: (unit: GroundUnitId, x: number, y: number, z: number, index: number) => void = () => {},
   landed?: (x: number, y: number, z: number) => void,
   cannon?: GroundCannonEffects,
+  bulletLanded?: (x: number, y: number, z: number) => void,
 ): GroundBattle {
   const shooters = new Set<GroundUnitId>(theater.shooters)
   const isTarget = (id: GroundUnitId): boolean => shooters.has(id)
@@ -266,7 +269,7 @@ export function createGroundBattle(
   const dust = createDust(1024, 1, smokeTexture)
   const vehicleDust = createVehicleDustEmission(dust)
   const shells = createGroundShellPool(SHELL_CAPACITY, false, flash, dust, impact, landed)
-  const bullets = createGroundShellPool(BULLET_CAPACITY, true, flash, dust, impact)
+  const bullets = createGroundShellPool(BULLET_CAPACITY, true, flash, dust, impact, bulletLanded)
   const shellTracers = createTracers(SHELL_CAPACITY)
   const bulletTracers = createTracers(BULLET_CAPACITY, 0.5)
   const arcTrails = createArcTrails()

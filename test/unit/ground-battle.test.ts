@@ -356,17 +356,24 @@ describe('砲彈打偏落地', () => {
     gb.dispose()
   })
 
-  it('步兵的槍彈打偏不交給 landed', () => {
+  it('步兵的槍彈打偏不交給 landed，交給 bulletLanded、落點在地上', () => {
     let landed = 0
+    const bullets: number[] = []
     const gb = createGroundBattle(
       { shooters: ['infantry'], period: 1e6, range: 1500 } as never, () => {}, undefined,
-      undefined, undefined, () => { landed++ },
+      undefined, undefined, () => { landed++ }, undefined, (_x, y) => { bullets.push(y) },
     )
     const a = createGroundTarget(0, 'infantry', 'blue', 0, 0, 0)
     const b = createGroundTarget(1, 'infantry', 'red', 300, 0, 0)
     for (let t = 0; t < 30; t += 0.1) gb.update([a, b], t, 0.1, flat)
+    a.alive = false
+    b.alive = false
+    for (let t = 30; t < 32; t += 0.1) gb.update([a, b], t, 0.1, flat)
     expect(gb.shots).toBeGreaterThan(0)
     expect(landed).toBe(0)
+    expect(bullets.length).toBeGreaterThan(0)
+    expect(bullets.length).toBe(gb.shots - gb.hitShots)
+    for (const y of bullets) expect(y).toBe(0)
     gb.dispose()
   })
 })

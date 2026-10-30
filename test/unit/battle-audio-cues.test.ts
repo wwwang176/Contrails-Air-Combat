@@ -12,7 +12,7 @@ import { B17G } from '../../src/specs/b17g'
 import { World } from '../../src/world/World'
 import { clearDamage, pushDamage } from '../../src/world/damage'
 import { clearImpacts, createImpacts, pushImpact } from '../../src/world/events'
-import { CATEGORY, WATER_HIT, impactSound } from '../../src/audio/catalog'
+import { CATEGORY, GROUND_FIRE_HIT, WATER_HIT, impactSound } from '../../src/audio/catalog'
 import { MATERIAL } from '../../src/world/material'
 import { pushBurst } from '../../src/world/flak'
 import { HIT_PARTS } from '../../src/world/hit'
@@ -250,6 +250,53 @@ describe('戰鬥單次音效的收集與播放', () => {
     cues.noteWaterHits(ev)
     cues.playFrame(world, player, 0, true)
     expect(playPool).toHaveBeenCalledTimes(6)
+  })
+
+  /**
+   * 【地面戰的彈著打到地面】泥土庫，與戰鬥機機槍打到地表同一個聲音：步兵的槍彈小聲、戰車與反坦克砲的
+   * 砲彈大聲。兩種各佔一個時段 —— 共用的話步兵一秒十發，砲彈落地那一聲會被擠掉
+   */
+  it('地面戰彈著：槍彈與砲彈各挑聽得到的最近一發、各自限頻；候選播完才清、被擋的不留', () => {
+    const { world, player, playPool, cues } = setup()
+    const dirt = impactSound(MATERIAL.ground)
+    const B = GROUND_FIRE_HIT.bullet, S = GROUND_FIRE_HIT.shell
+    const call = (x: number, k: { db: number; rate: number }) =>
+      [dirt.pool, 'impact', x, 1000, 0, true, dirt.gainDb + k.db, false, dirt.rate * k.rate, dirt.cutoffHz]
+    cues.noteGroundFireHit(3000, 1000, 0, false)
+    cues.noteGroundFireHit(300, 1000, 0, false)
+    cues.noteGroundFireHit(40, 1000, 0, false)
+    cues.noteGroundFireHit(500, 1000, 0, true)
+    cues.noteGroundFireHit(2000, 1000, 0, true)
+    cues.playFrame(world, player, 10, true)
+    expect(playPool.mock.calls).toEqual([call(40, B), call(500, S)])
+    // 播完就清
+    cues.playFrame(world, player, 10.5, true)
+    expect(playPool).toHaveBeenCalledTimes(2)
+    cues.noteGroundFireHit(40, 1000, 0, false)
+    cues.playFrame(world, player, 10.51, true)
+    cues.playFrame(world, player, 10.52, true)
+    expect(playPool).toHaveBeenCalledTimes(3)
+    // 槍彈在時段內被擋、不留到下一幀；砲彈的時段是自己的
+    cues.noteGroundFireHit(41, 1000, 0, false)
+    cues.noteGroundFireHit(60, 1000, 0, true)
+    cues.playFrame(world, player, 10.53, true)
+    cues.playFrame(world, player, 11, true)
+    expect(playPool.mock.calls.slice(3)).toEqual([call(60, S)])
+    // 重設清掉候選與時段
+    cues.noteGroundFireHit(40, 1000, 0, false)
+    cues.reset()
+    cues.playFrame(world, player, 11.01, true)
+    expect(playPool).toHaveBeenCalledTimes(4)
+    cues.noteGroundFireHit(40, 1000, 0, false)
+    cues.playFrame(world, player, 0, true)
+    expect(playPool).toHaveBeenCalledTimes(5)
+  })
+
+  it('地面戰彈著：步兵比戰鬥機機槍打到地表小聲、清脆，戰車與反坦克砲比它大聲、低沉', () => {
+    expect(GROUND_FIRE_HIT.bullet.db).toBeLessThan(0)
+    expect(GROUND_FIRE_HIT.bullet.rate).toBeGreaterThan(1)
+    expect(GROUND_FIRE_HIT.shell.db).toBeGreaterThan(0)
+    expect(GROUND_FIRE_HIT.shell.rate).toBeLessThan(1)
   })
 
   it('命中回饋使用實際受害者與部位；不在座艙時消耗待播旗標', () => {

@@ -848,10 +848,28 @@ const onShellLanded = (x: number, y: number, z: number): void => {
   const c = ctx.camera.position
   dirt.emit(shellLanding, c.x, c.y, c.z, terrain.waterAt, shellRiverSplash, SHELL_DIRT_SCALE)
   splashes.emit(shellRiverSplash, terrain.waterAt, elapsed)
-  // 落在河裡：打到水面的聲音（下一幀的 `playFrame` 播）
+  // 落在河裡：打到水面的聲音；落在地上：彈著聲（都在下一幀的 `playFrame` 播）
   battleAudioCues.noteWaterHits(shellRiverSplash)
+  if (terrain.waterAt(x, z) < y) battleAudioCues.noteGroundFireHit(x, y, z, true)
   clearImpacts(shellLanding)
   clearImpacts(shellRiverSplash)
+}
+
+/** 槍彈落在河裡的暫存：一次一發，`noteWaterHits` 吃事件表。模組層建一次，熱路徑不配置 */
+const bulletLanding = createImpacts(1)
+/**
+ * 地面戰的步兵槍彈打偏、落地：落在地上是彈著聲，落在河裡是打到水面的聲音（都在下一幀的 `playFrame`
+ * 播）。塵土由地面戰自己揚
+ */
+const onBulletLanded = (x: number, y: number, z: number): void => {
+  const w = terrain.waterAt(x, z)
+  if (w < y) {
+    battleAudioCues.noteGroundFireHit(x, y, z, false)
+    return
+  }
+  pushImpact(bulletLanding, x, w, z, 0, 1, 0)
+  battleAudioCues.noteWaterHits(bulletLanding)
+  clearImpacts(bulletLanding)
 }
 
 /**
@@ -864,7 +882,7 @@ const emitFirePuff = createFirePuff(BLAST_POOLS, shipFireSmoke)
 const reelFireColumns = createReelFireColumns(BLAST_POOLS, reelFireSmoke)
 const battleScenery = createBattleScenery(ctx.scene, {
   glareTexture, smokeTexture, burn: emitFirePuff, impact: onGroundImpact, fired: noteGroundShot,
-  landed: onShellLanded,
+  landed: onShellLanded, bulletLanded: onBulletLanded,
   gunFired: blastPresentation.emitMuzzleBlast,
 }, {
   createShipModels, createShipWakes, shipFoamTexture, createGroundModels,

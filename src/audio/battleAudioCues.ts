@@ -6,7 +6,8 @@ import { IMPACT_STRIDE, clearImpacts, type ImpactEvents } from '../world/events'
 import { burstDamageTo } from '../world/flak'
 import { HIT_PARTS, type HitPart } from '../world/hit'
 import type { AudioEngine } from './engine'
-import { CATEGORY, WATER_HIT, impactSound, type Pool } from './catalog'
+import { CATEGORY, GROUND_FIRE_HIT, WATER_HIT, impactSound, type Pool } from './catalog'
+import { MATERIAL } from '../world/material'
 import { blastGainDb, blastRate, damageGainDb, hitFeedback, hitRate, ownHitDb } from './curves'
 import { queueExplosionCues, type ExplosionTerrain } from './explosionCues'
 import { LAYER_DB, randomRate } from './pick'
@@ -28,7 +29,8 @@ export function createBattleAudioCues(
   const state = {
     /** 後座砲塔走自機齊射時，座艙視角須排除同一架的定位砲塔循環。 */
     ownTurretVolley: false,
-    rebuildVolleyGroups, queueAudioCues, noteWaterHits, playFrame, playHeavyHit, queueExplosion, clear, reset,
+    rebuildVolleyGroups, queueAudioCues, noteWaterHits, noteGroundFireHit, playFrame, playHeavyHit, queueExplosion,
+    clear, reset,
   }
 
   /** 一幀最多 8 步、每步幾類事件 —— 512 筆夠寬，滿了丟新的 */
@@ -114,6 +116,17 @@ export function createBattleAudioCues(
   let waterX = 0
   let waterY = 0
   let waterZ = 0
+
+  /**
+   * 地面戰彈著打到地面，兩種各一格：0 = 步兵的槍彈、1 = 戰車與反坦克砲的砲彈。**各自限頻** ——
+   * 共用一個時段的話，步兵一秒十發會把砲彈落地那一聲擠掉。`groundFireDist2` 是 Infinity 時那一格沒有
+   */
+  const GROUND_FIRE = [GROUND_FIRE_HIT.bullet, GROUND_FIRE_HIT.shell]
+  const groundFireDist2 = new Float64Array(2).fill(Infinity)
+  const groundFireX = new Float64Array(2)
+  const groundFireY = new Float64Array(2)
+  const groundFireZ = new Float64Array(2)
+  const lastGroundFire = new Float64Array(2).fill(-Infinity)
 
   /**
    * 自己那架的槍分組：前射武器同一種槍算一組，每組記一個代表掛架與它的齊射庫；有齊射庫的
@@ -228,6 +241,37 @@ export function createBattleAudioCues(
     audio.playPool('waterBullet', 'waterHit', waterX, waterY, waterZ, true, WATER_HIT.bulletDb, false,
       rate * WATER_HIT.bulletRate)
     audio.playPool('waterHit', 'waterHit', waterX, waterY, waterZ, true, WATER_HIT.splashDb, false, rate)
+  }
+
+  /**
+   * 地面戰的彈著打到地面（不含水面）：記下聽得到的範圍內離鏡頭最近的那一發，`playFrame` 播。
+   * 回呼在地面戰的更新裡、排在 `playFrame` 之後，候選留到下一幀播完才清。熱路徑：不配置
+   *
+   * @param shell 戰車與反坦克砲的砲彈；否則是步兵的槍彈
+   */
+  function noteGroundFireHit(x: number, y: number, z: number, shell: boolean): void {
+    const k = shell ? 1 : 0
+    const dx = x - cam.x, dy = y - cam.y, dz = z - cam.z
+    const d2 = dx * dx + dy * dy + dz * dz
+    if (d2 > CATEGORY.impact.max * CATEGORY.impact.max || d2 >= groundFireDist2[k]!) return
+    groundFireDist2[k] = d2
+    groundFireX[k] = x
+    groundFireY[k] = y
+    groundFireZ[k] = z
+  }
+
+  /** 播 `noteGroundFireHit` 記下的那兩格：與戰鬥機機槍打到地表同一個泥土聲。【被時段擋下的不留】 */
+  function playGroundFireHits(elapsed: number): void {
+    const dirt = impactSound(MATERIAL.ground)
+    for (let k = 0; k < 2; k++) {
+      if (groundFireDist2[k] === Infinity) continue
+      groundFireDist2[k] = Infinity
+      if (elapsed - lastGroundFire[k]! < MATERIAL_HIT_GAP) continue
+      lastGroundFire[k] = elapsed
+      const g = GROUND_FIRE[k]!
+      audio.playPool(dirt.pool, 'impact', groundFireX[k]!, groundFireY[k]!, groundFireZ[k]!, true,
+        dirt.gainDb + g.db, false, dirt.rate * g.rate, dirt.cutoffHz)
+    }
   }
 
   /**
@@ -442,6 +486,7 @@ export function createBattleAudioCues(
     playCues(player)
     clearCues(cues)
     playWaterHit(elapsed)
+    playGroundFireHits(elapsed)
     playOwnHit(elapsed)
     // 【誰打中誰都播】僚機打中的也算。太遠的由距離衰減擋掉
     if (dealtCount > 0 && flying) playHitDealt(world, elapsed)
@@ -462,6 +507,8 @@ export function createBattleAudioCues(
     dealtCount = 0
     lastWaterHit = -Infinity
     waterDist2 = Infinity
+    groundFireDist2.fill(Infinity)
+    lastGroundFire.fill(-Infinity)
     lastOwnHit = -Infinity
     ownDist2 = Infinity
   }
