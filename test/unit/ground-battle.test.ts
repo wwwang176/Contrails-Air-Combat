@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   burstTimesBetween, BURN_EVERY, BURNS, createGroundBattle, INFANTRY_BURST_PERIOD, INFANTRY_BURST_SECONDS,
-  INFANTRY_ROUNDS_PER_SECOND, MORTAR_ELEVATION, MORTAR_PERIOD, MORTAR_RANGE_MAX, MORTAR_RANGE_MIN,
-  MORTAR_SCATTER, nearestEnemy, shotTimesBetween, SHOT_JITTER, WRECK_SMOKE_SECONDS,
+  INFANTRY_ROUNDS_PER_SECOND, MORTAR_ELEVATION, MORTAR_OPENING, MORTAR_RANGE_MAX, MORTAR_RANGE_MIN,
+  MORTAR_ROUND_GAP, MORTAR_SCATTER, MORTAR_VOLLEY_PERIOD, MORTAR_VOLLEY_ROUNDS, nearestEnemy, shotTimesBetween, SHOT_JITTER, WRECK_SMOKE_SECONDS,
 } from '../../src/render/groundBattle'
 import { solveArc, type ArcShot } from '../../src/render/arc'
 import { ARC_TRAIL_CAPACITY, ARC_TRAIL_SECONDS } from '../../src/render/arcTrails'
@@ -127,6 +127,32 @@ describe('步兵連發的排程', () => {
 
   it('不同的射手錯開，不會全場同一刻開火', () => {
     expect(rounds(0, 0, 20)).not.toEqual(rounds(1, 0, 20))
+  })
+
+  /**
+   * 【第幾串第幾發】迫擊砲一輪打同一個目標，要知道每一發屬於哪一串：`outIndex` 寫 串序 × 每串發數 + 串內序。
+   * `kMin` 給負數時取得到開場之前的串（迫擊砲開場時天上已經在飛的那幾發）
+   */
+  it('outIndex 寫串序與串內序；kMin 給負數取得到開場之前的串', () => {
+    const t = new Float64Array(64), idx = new Float64Array(64)
+    const n = burstTimesBetween(3, 56, 20, 0.25, -120, 120, t, -Infinity, idx)
+    expect(n).toBeGreaterThan(15)
+    expect(t[0]!).toBeLessThan(0)
+    for (let k = 1; k < n; k++) {
+      // 同一串的相鄰兩發相隔 4 秒、串內序加一；換串時串內序回到 0
+      const burst = Math.floor(idx[k]! / 5)
+      if (burst === Math.floor(idx[k - 1]! / 5)) {
+        expect(idx[k]!).toBe(idx[k - 1]! + 1)
+        expect(t[k]! - t[k - 1]!).toBeCloseTo(4, 9)
+      } else {
+        expect(idx[k]! - burst * 5).toBe(0)
+        expect(t[k]! - t[k - 1]!).toBeGreaterThan(4)
+      }
+    }
+    // 不給 kMin 時從第 0 串起算，與原本相同
+    const plain = new Float64Array(64)
+    const m = burstTimesBetween(3, 56, 20, 0.25, -120, 120, plain)
+    expect(Array.from(plain.subarray(0, m))).toEqual(Array.from(t.subarray(0, n)).filter((_, k) => idx[k]! >= 0))
   })
 
   /** 排程是純函數，但接不接上要在戰場裡量：場上的步兵不管卡片的 `period`，照連發打 */
@@ -611,9 +637,9 @@ describe('迫擊砲', () => {
     const gb = createGroundBattle(theater as never, () => {})
     const targets = [mortar('red', 0), tank('blue', 900)]
     run(targets, 100, gb)
-    // 100 秒約 8 發，加上開場時已經在天上的一兩發
+    // 100 秒約兩輪（每輪 5 發），加上開場時已經在天上的幾發
     expect(gb.arcShots).toBeGreaterThanOrEqual(5)
-    expect(gb.arcShots).toBeLessThanOrEqual(13)
+    expect(gb.arcShots).toBeLessThanOrEqual(20)
     // 飛行時間約 18 秒：100 秒時早發的已經落地，不是全部都還在天上
     expect(gb.arcLanded).toBeGreaterThan(0)
     expect(gb.arcLanded).toBeLessThanOrEqual(gb.arcShots)
@@ -636,17 +662,80 @@ describe('迫擊砲', () => {
 
   /** 【開場天上就有彈】戰鬥是從中途開始的：第一幀就有幾發在飛、各自落地一次，不是從一片空天開始 */
   it('開場第一幀就有彈在天上，之後各自落地一次；開場前已經落地的不補', () => {
+    // 開場在某一輪打出第三發之後一點點：那一輪的前三發都還在天上，上一輪早就落地
+    const t = new Float64Array(32), idx = new Float64Array(32)
+    const n = burstTimesBetween(0, MORTAR_VOLLEY_PERIOD, MORTAR_VOLLEY_ROUNDS * MORTAR_ROUND_GAP,
+      1 / MORTAR_ROUND_GAP, 100, 300, t, 0, idx)
+    const third = Array.from(idx.subarray(0, n)).findIndex((v) => v % MORTAR_VOLLEY_ROUNDS === 2)
+    const start = t[third]! + 0.05
+    const sol: ArcShot = { x0: 0, y0: 0, z0: 0, vx: 0, vy: 0, vz: 0, flight: 0 }
+    expect(solveArc(0, 1.2, 0, 900, -1.2, 0, MORTAR_ELEVATION, sol)).toBe(true)
+    expect(sol.flight).toBeGreaterThan(2 * MORTAR_ROUND_GAP + 1)
     const gb = createGroundBattle(theater as never, () => {})
     const targets = [mortar('red', 0), tank('blue', 900)]
-    gb.update(targets, 0, 0, flat)
-    expect(gb.arcShots).toBeGreaterThanOrEqual(1)
-    expect(gb.arcShots).toBeLessThanOrEqual(3)
+    gb.update(targets, start, 0, flat)
+    expect(gb.arcShots).toBe(3)
     expect(gb.arcLanded).toBe(0)
     expect(gb.shots).toBe(0)
-    const opening = gb.arcShots
-    // 開場那一批 20 秒之內全部落地（1 km 的飛行時間約 19 秒）
-    for (let t = 0.1; t < 20; t += 0.1) gb.update(targets, t, 0.1, flat)
-    expect(gb.arcLanded).toBeGreaterThanOrEqual(opening)
+    // 開場那一批飛完全部落地
+    for (let s = start + 0.1; s < start + sol.flight + 1; s += 0.1) gb.update(targets, s, 0.1, flat)
+    expect(gb.arcLanded).toBeGreaterThanOrEqual(3)
+    gb.dispose()
+  })
+
+  /**
+   * 【一輪一輪地打】一輪連打 `MORTAR_VOLLEY_ROUNDS` 發、每發相隔 `MORTAR_ROUND_GAP` 秒，打完停到下一輪。
+   * 排程是純函數，直接驗
+   */
+  it('排程：一輪連打數發、相隔固定秒數，輪與輪之間停得比一輪長', () => {
+    const t = new Float64Array(256)
+    const n = burstTimesBetween(0, MORTAR_VOLLEY_PERIOD, MORTAR_VOLLEY_ROUNDS * MORTAR_ROUND_GAP,
+      1 / MORTAR_ROUND_GAP, 0, 1200, t)
+    const volleys: number[][] = []
+    for (const s of t.subarray(0, n)) {
+      const last = volleys[volleys.length - 1]
+      if (last !== undefined && s - last[last.length - 1]! < MORTAR_ROUND_GAP * 1.5) last.push(s)
+      else volleys.push([s])
+    }
+    expect(volleys.length).toBeGreaterThan(15)
+    const span = (MORTAR_VOLLEY_ROUNDS - 1) * MORTAR_ROUND_GAP
+    // 頭一輪與最後一輪可能被區間切掉一截，只看中間的
+    for (const v of volleys.slice(1, -1)) {
+      expect(v).toHaveLength(MORTAR_VOLLEY_ROUNDS)
+      for (let k = 1; k < v.length; k++) expect(v[k]! - v[k - 1]!).toBeCloseTo(MORTAR_ROUND_GAP, 9)
+    }
+    for (let k = 1; k < volleys.length; k++) {
+      expect(volleys[k]![0]! - volleys[k - 1]![MORTAR_VOLLEY_ROUNDS - 1]!).toBeGreaterThan(span)
+    }
+  })
+
+  /** 【同一輪打同一個目標】落點在它周圍散開；下一輪重新挑。步長與排程無關，取大一點 */
+  it('同一輪的落點圍著同一個目標，各輪各自挑', () => {
+    const blasts: { t: number; x: number; z: number }[] = []
+    let now = 0
+    const gb = createGroundBattle(theater as never, () => {}, undefined, (x, _y, z) => { blasts.push({ t: now, x, z }) })
+    const targets = [mortar('red', 0), tank('blue', 900, 1), tank('blue', 0, 2)]
+    targets[2]!.position.z = 900
+    for (now = 0; now < 600; now += 0.5) gb.update(targets, now, 0.5, flat)
+    // 落地依「間隔大於兩發的間距」切成一輪一輪，每一輪的落點都圍著同一台
+    const groups: { x: number; z: number }[][] = []
+    let lastT = -Infinity
+    for (const b of blasts) {
+      if (b.t - lastT > MORTAR_ROUND_GAP * 1.5) groups.push([])
+      groups[groups.length - 1]!.push(b)
+      lastT = b.t
+    }
+    const near = (p: { x: number; z: number }, q: ReturnType<typeof tank>) =>
+      Math.hypot(p.x - q.position.x, p.z - q.position.z) <= MORTAR_SCATTER + 1e-6
+    let two = 0
+    for (const g of groups) {
+      const aim = near(g[0]!, targets[1]!) ? targets[1]! : targets[2]!
+      for (const p of g) expect(near(p, aim)).toBe(true)
+      if (aim === targets[2]) two++
+    }
+    // 兩台都挨過：目標是每一輪各自挑的
+    expect(two).toBeGreaterThan(0)
+    expect(two).toBeLessThan(groups.length)
     gb.dispose()
   })
 
@@ -750,17 +839,18 @@ describe('迫擊砲', () => {
   })
 
   /**
-   * 【池子要夠大】尾流池滿了會蓋掉還在飛的一發，那一發永遠不落地（沒有爆炸）。最壞情況由卡片算：
-   * 每門迫擊砲同時在天上與收尾的彈數 ≤ ⌈(最遠的飛行時間 + 收尾) ÷ 週期⌉ + 1
+   * 【池子要夠大】尾流池滿了會蓋掉還在飛的一發，那一發永遠不落地（沒有爆炸）。最壞情況由卡片與排程算：
+   * 每門迫擊砲在任何一段「最遠的飛行時間 + 收尾」之內發出的彈數取最大，全場加總
    */
   it('尾流池的容量夠德 M4 的最壞情況', () => {
     const card = MISSIONS.germany.find((c) => c.id === 'germany-m4') as ReadyMissionCard
     const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
     const targets = b.world.groundTargets
     const sol: ArcShot = { x0: 0, y0: 0, z0: 0, vx: 0, vy: 0, vz: 0, flight: 0 }
+    const times = new Float64Array(512)
     let slots = 0
-    for (const m of targets) {
-      if (m.unit.id !== 'mortar') continue
+    targets.forEach((m, s) => {
+      if (m.unit.id !== 'mortar') return
       let farthest = 0
       for (const t of targets) {
         if (t.team === m.team) continue
@@ -768,8 +858,16 @@ describe('迫擊砲', () => {
         if (d < MORTAR_RANGE_MIN || d > MORTAR_RANGE_MAX) continue
         if (solveArc(0, 0, 0, d, 0, 0, MORTAR_ELEVATION, sol)) farthest = Math.max(farthest, sol.flight)
       }
-      slots += Math.ceil((farthest + ARC_TRAIL_SECONDS) / MORTAR_PERIOD) + 1
-    }
+      const window = farthest + ARC_TRAIL_SECONDS
+      const n = burstTimesBetween(s, MORTAR_VOLLEY_PERIOD, MORTAR_VOLLEY_ROUNDS * MORTAR_ROUND_GAP,
+        1 / MORTAR_ROUND_GAP, -MORTAR_OPENING, 1800, times, -Infinity)
+      let most = 0
+      for (let a = 0, z = 0; z < n; z++) {
+        while (times[z]! - times[a]! >= window) a++
+        most = Math.max(most, z - a + 1)
+      }
+      slots += most
+    })
     expect(slots).toBeGreaterThan(20)
     expect(slots).toBeLessThanOrEqual(ARC_TRAIL_CAPACITY)
   })
