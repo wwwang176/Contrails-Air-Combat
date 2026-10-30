@@ -413,7 +413,7 @@ export const WATER_HIT = {
  */
 export const GROUND_FIRE_HIT = {
   /** 步兵的槍彈 */
-  bullet: { db: -6, rate: 1.5, gap: 0.02 },
+  bullet: { db: -6, rate: 1.19, gap: 0.02 },
   /** 戰車與反坦克砲的砲彈 */
   shell: { db: 6, rate: 0.75, gap: 0.07 },
 } as const
