@@ -397,8 +397,8 @@ describe('音效的戰鬥事件接線', () => {
     const fn = body('function update(', CONTROLLER)
     expect(fn).toContain('battleAudioCues.playFrame(world, player, elapsed, flying)')
     const play = body('function playFrame(', CUES)
-    expect(play).toContain('playCues(player)')
-    expect(play.indexOf('clearCues(cues)')).toBeGreaterThan(play.indexOf('playCues(player)'))
+    expect(play).toContain('playCues(player, flying)')
+    expect(play.indexOf('clearCues(cues)')).toBeGreaterThan(play.indexOf('playCues(player, flying)'))
   })
 
   /**

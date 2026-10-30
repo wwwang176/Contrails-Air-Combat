@@ -122,6 +122,21 @@ describe('戰鬥單次音效的收集與播放', () => {
     expect(other.playPool).toHaveBeenCalledTimes(1)
   })
 
+  /**
+   * 【機身晃動只在坐在飛機上時】近處爆炸震到的是自己的機身：鏡頭不在自己的飛機上（上帝視角、導覽、
+   * 已經被擊落）時沒有機身可以晃，只播爆炸
+   */
+  it('近處爆炸的機身晃動：鏡頭在自己的飛機上才播', () => {
+    const { world, player, cam, playPool, cues } = setup()
+    cam.x = 1000
+    cues.queueExplosion(1000, 1000, 0, 0.4)
+    cues.playFrame(world, player, 1, false)
+    expect(playPool.mock.calls.map(c => c[0])).toEqual(['explosion'])
+    cues.queueExplosion(1000, 1000, 0, 0.4)
+    cues.playFrame(world, player, 2, true)
+    expect(playPool.mock.calls.map(c => c[0])).toEqual(['explosion', 'explosion', 'rattle'])
+  })
+
   it('512 筆佇列滿時丟新保舊，清空後能再使用', () => {
     const { world, player, playPool, cues } = setup()
     for (let i = 0; i < 520; i++) cues.queueExplosion(1000 + i, 1000, 0, 1)

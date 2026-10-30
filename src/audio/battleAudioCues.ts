@@ -51,7 +51,7 @@ export function createBattleAudioCues(
   /** 空爆超過這個距離不記，m */
   const FLAK_AUDIO_RANGE = 5000
 
-  /** 爆炸離鏡頭這麼近時另外播一陣機身晃動，m */
+  /** 爆炸離鏡頭這麼近時另外播一陣機身晃動，m。只在鏡頭坐在自己的飛機上時（`playFrame` 的 `flying`） */
   const NEAR_BLAST = 200
 
   /**
@@ -415,7 +415,8 @@ export function createBattleAudioCues(
     }
   }
 
-  function playCues(player: Combatant): void {
+  /** @param flying 鏡頭在自己還活著的飛機上：近處爆炸的機身晃動只在這時播 */
+  function playCues(player: Combatant, flying: boolean): void {
     for (let i = 0; i < cues.count; i++) {
       const o = i * CUE_STRIDE
       const x = cues.data[o + 1]!, y = cues.data[o + 2]!, z = cues.data[o + 3]!
@@ -430,7 +431,7 @@ export function createBattleAudioCues(
           // 【同一個庫、不同的類別】差別只在傳多遠，見 `CATEGORY.blast`
           audio.playPool('explosion', cues.data[o]! === CUE.Blast ? 'blast' : 'explosion',
             x, y, z, true, db, true, rate)
-          if (Math.hypot(x - cam.x, y - cam.y, z - cam.z) < NEAR_BLAST) {
+          if (flying && Math.hypot(x - cam.x, y - cam.y, z - cam.z) < NEAR_BLAST) {
             audio.playPool('rattle', 'rattle', 0, 0, 0, false, -6)
           }
           break
@@ -483,7 +484,7 @@ export function createBattleAudioCues(
   }
 
   function playFrame(world: Pick<World, 'combatants'>, player: Combatant, elapsed: number, flying: boolean): void {
-    playCues(player)
+    playCues(player, flying)
     clearCues(cues)
     playWaterHit(elapsed)
     playGroundFireHits(elapsed)
