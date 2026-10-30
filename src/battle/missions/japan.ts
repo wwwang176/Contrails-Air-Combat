@@ -201,10 +201,10 @@ export const JAPAN: readonly MissionCard[] = [
        *
        * 【開場就全部在走】最後一批從灘頭起步，前兩批依序在它前面，批與批之間
        * 空 600 m（車頭到車頭 750 m）。全程約 6.6 km，第一批開場已經走了約 2 km，
-       * 大約 7 分半抵達前線。**全部是起始值，由試飛裁定。**
+       * 車速 18 km/h，大約 15 分抵達前線。**全部是起始值，由試飛裁定。**
        */
       vehicleConvoy: {
-        route: LEYTE_ROAD, speed: 10, turnRadius: 25, gap: 30, batchGap: 600,
+        route: LEYTE_ROAD, speed: 5, turnRadius: 25, gap: 30, batchGap: 600,
         // 【雪曼車頂的 .50】戰車會還擊；卡車不還手，火力只有雪曼與 M16
         armed: ['usTank'],
         batches: [
