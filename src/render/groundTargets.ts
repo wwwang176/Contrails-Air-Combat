@@ -138,11 +138,15 @@ export function createGroundModels(
   const liveMaterials = new Map<BufferGeometry, MeshStandardMaterial | MeshStandardMaterial[]>()
   const paintedMaterials = new Map<Texture, MeshStandardMaterial[]>()
 
-  function prepareMaterial(geometry: BufferGeometry): void {
+  /**
+   * @param plain 沒有停放塗裝時存活的那一份。合批的（GLB）給 `vehicle`：每一幀照存活換回它，
+   *   換成別的那一池就對不上材質、整批藏起來
+   */
+  function prepareMaterial(geometry: BufferGeometry, plain: MeshStandardMaterial = live): void {
     if (liveMaterials.has(geometry)) return
     const texture = geometry.userData[PARKED_LIVERY_KEY] as Texture | undefined
     if (texture === undefined) {
-      liveMaterials.set(geometry, live)
+      liveMaterials.set(geometry, plain)
       return
     }
     let materials = paintedMaterials.get(texture)
@@ -193,7 +197,7 @@ export function createGroundModels(
       if (lo !== null && lodModel !== undefined && 'build' in lodModel) owned.push(lo)
       pair = { hi, lo }
       byId.set(t.unit.id, pair)
-      prepareMaterial(hi)
+      prepareMaterial(hi, batch === null ? live : vehicle)
       if (lo !== null) prepareMaterial(lo)
     }
     // 車輛皆為單一頂點色材質；停放飛機可能有多材質貼圖，保留原 Mesh。
@@ -333,7 +337,7 @@ export function createGroundModels(
           const elev = trav.children[0] as GroundModelPart
           trav.rotation.y = yaws[k]!
           elev.rotation.x = pitches[k]!
-          const mat = t.alive ? live : wreck
+          const mat = t.alive ? vehicle : wreck
           if (trav.material !== mat) trav.material = mat
           if (elev.material !== mat) elev.material = mat
           const roof = roofGuns[k]!

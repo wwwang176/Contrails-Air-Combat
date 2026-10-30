@@ -282,9 +282,17 @@ describe('材質', () => {
     const targets = (['tank', 'flakHeavy', 'infantry', 'locomotive'] as const)
       .map((id, i) => createGroundTarget(i, id, 'red', i * 20, 0, 0))
     const models = createGroundModels(targets)
-    const maps = (models.object.children.slice(0, 4) as unknown as { material: MeshStandardMaterial }[])
-      .map((m) => m.material.map)
-    expect(maps).toEqual([tex, tex, null, null])
+    type Part = { material: MeshStandardMaterial; children: Part[] }
+    const parts = models.object.children.slice(0, 4) as unknown as Part[]
+    const maps = () => parts.map((m) => m.material.map)
+    expect(maps()).toEqual([tex, tex, null, null])
+    // 【每一幀照存活換材質】換回存活的那一份也要是讀髒污的 —— 換成 `live` 的話合批那一池
+    // 對不上材質，整批車輛藏起來（遊戲與主選單短片的車輛整個消失）
+    models.update(targets, new Vector3(), 0)
+    expect(maps()).toEqual([tex, tex, null, null])
+    const turret = parts[0]!.children.find((c) => (c as unknown as { name: string }).name !== '')!
+    expect(turret.material.map).toBe(tex)
+    expect(turret.children[0]!.material.map).toBe(tex)
     models.dispose()
     vi.doUnmock('../../src/render/groundGrime')
   })
