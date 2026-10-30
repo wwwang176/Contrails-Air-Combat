@@ -279,17 +279,27 @@ describe('戰鬥單次音效的收集與播放', () => {
     // 槍彈在時段內被擋、不留到下一幀；砲彈的時段是自己的
     cues.noteGroundFireHit(41, 1000, 0, false)
     cues.noteGroundFireHit(60, 1000, 0, true)
-    cues.playFrame(world, player, 10.53, true)
-    cues.playFrame(world, player, 11, true)
+    cues.playFrame(world, player, 10.52, true)
+    cues.playFrame(world, player, 10.525, true)
     expect(playPool.mock.calls.slice(3)).toEqual([call(60, S)])
+    // 時段長短各自的：0.04 s 後槍彈又能響，砲彈還在它的時段裡
+    cues.noteGroundFireHit(42, 1000, 0, false)
+    cues.noteGroundFireHit(61, 1000, 0, true)
+    cues.playFrame(world, player, 10.55, true)
+    expect(playPool.mock.calls.slice(4)).toEqual([call(42, B)])
     // 重設清掉候選與時段
     cues.noteGroundFireHit(40, 1000, 0, false)
     cues.reset()
     cues.playFrame(world, player, 11.01, true)
-    expect(playPool).toHaveBeenCalledTimes(4)
+    expect(playPool).toHaveBeenCalledTimes(5)
     cues.noteGroundFireHit(40, 1000, 0, false)
     cues.playFrame(world, player, 0, true)
-    expect(playPool).toHaveBeenCalledTimes(5)
+    expect(playPool).toHaveBeenCalledTimes(6)
+  })
+
+  it('地面戰彈著的時段：步兵的槍彈比砲彈密，砲彈與機槍打到地表一樣', () => {
+    expect(GROUND_FIRE_HIT.bullet.gap).toBe(0.02)
+    expect(GROUND_FIRE_HIT.shell.gap).toBe(0.07)
   })
 
   it('地面戰彈著：步兵比戰鬥機機槍打到地表小聲、清脆，戰車與反坦克砲比它大聲、低沉', () => {

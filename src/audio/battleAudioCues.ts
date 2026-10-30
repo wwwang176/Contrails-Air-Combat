@@ -266,9 +266,9 @@ export function createBattleAudioCues(
     for (let k = 0; k < 2; k++) {
       if (groundFireDist2[k] === Infinity) continue
       groundFireDist2[k] = Infinity
-      if (elapsed - lastGroundFire[k]! < MATERIAL_HIT_GAP) continue
-      lastGroundFire[k] = elapsed
       const g = GROUND_FIRE[k]!
+      if (elapsed - lastGroundFire[k]! < g.gap) continue
+      lastGroundFire[k] = elapsed
       audio.playPool(dirt.pool, 'impact', groundFireX[k]!, groundFireY[k]!, groundFireZ[k]!, true,
         dirt.gainDb + g.db, false, dirt.rate * g.rate, dirt.cutoffHz)
     }
