@@ -637,7 +637,7 @@ describe('迫擊砲', () => {
     const gb = createGroundBattle(theater as never, () => {})
     const targets = [mortar('red', 0), tank('blue', 900)]
     run(targets, 100, gb)
-    // 100 秒約兩輪（每輪 5 發），加上開場時已經在天上的幾發
+    // 100 秒約 8 發，加上開場時已經在天上的幾發
     expect(gb.arcShots).toBeGreaterThanOrEqual(5)
     expect(gb.arcShots).toBeLessThanOrEqual(20)
     // 飛行時間約 18 秒：100 秒時早發的已經落地，不是全部都還在天上
@@ -707,6 +707,11 @@ describe('迫擊砲', () => {
     for (let k = 1; k < volleys.length; k++) {
       expect(volleys[k]![0]! - volleys[k - 1]![MORTAR_VOLLEY_ROUNDS - 1]!).toBeGreaterThan(span)
     }
+  })
+
+  /** 【總發數與單發排程時一樣】平均每門每 12 秒一發：天上同時飛的彈、爆炸與聲音的量不因成輪而變 */
+  it('平均每門每 12 秒一發', () => {
+    expect(MORTAR_VOLLEY_PERIOD / MORTAR_VOLLEY_ROUNDS).toBeCloseTo(12, 9)
   })
 
   /** 【同一輪打同一個目標】落點在它周圍散開；下一輪重新挑。步長與排程無關，取大一點 */

@@ -100,14 +100,14 @@ export const MORTAR_RANGE_MIN = 150
 export const MORTAR_RANGE_MAX = 2600
 /**
  * 【一輪一輪地打】每 `MORTAR_VOLLEY_PERIOD` 秒打一輪：連打 `MORTAR_VOLLEY_ROUNDS` 發、每發相隔
- * `MORTAR_ROUND_GAP` 秒，**同一輪打同一個目標**，落點在它周圍散開。平均每門每分鐘約 5 發。
+ * `MORTAR_ROUND_GAP` 秒，**同一輪打同一個目標**，落點在它周圍散開。平均每門每 12 秒一發。
  *
  * 【週期要容得下一輪加兩側抖動】一輪的起點在格點上抖動 ±`SHOT_JITTER` 個週期；
  * `(發數 − 1) × 間隔 + 2 × SHOT_JITTER × 週期` 不小於週期的話兩輪會疊在一起，發射時間不再遞增
  */
-export const MORTAR_VOLLEY_PERIOD = 56
-export const MORTAR_VOLLEY_ROUNDS = 5
-export const MORTAR_ROUND_GAP = 4
+export const MORTAR_VOLLEY_PERIOD = 36
+export const MORTAR_VOLLEY_ROUNDS = 3
+export const MORTAR_ROUND_GAP = 2.5
 /**
  * 開場補上多久之前發出的彈，s。要大於最遠一發的飛行時間（`MORTAR_RANGE_MAX` 約 30 秒），
  * 否則遠處的目標在開場時天上少了幾發
