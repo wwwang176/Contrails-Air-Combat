@@ -8,7 +8,7 @@ import {
 } from '../../src/render/geometry/ground/parked'
 import { createGltfLoader } from '../../src/render/geometry/gltfLoader'
 import {
-  GROUND_MODELS, groundGeometry, groundModelUrls, preloadGroundModels,
+  GROUND_MODELS, groundGeometry, groundModelUrls, groundVariants, preloadGroundModels,
 } from '../../src/render/geometry/ground'
 import { GROUND_UNITS, TRAIN_CONSIST, PARKED_TAIL_DOWN, type GroundUnit } from '../../src/specs/ground'
 import { GLB_MATERIALS } from '../../src/render/geometry/ground/glb'
@@ -185,6 +185,37 @@ describe('地面單位', () => {
       for (const spy of spies) spy.mockRestore()
     }
   })
+
+  it('有多種擺法的單位，同一關的相鄰幾台輪流用不同擺法、繞完一輪再重複', () => {
+    const targets = [0, 1, 2, 3, 4].map((i) => createGroundTarget(i, 'fuelDump', 'red', i * 60, 0, 0))
+    const models = createGroundModels(targets)
+    const geos = (models.object.children as Mesh[]).map((m) => m.geometry)
+    expect(new Set(geos.slice(0, 4)).size).toBe(4)
+    expect(geos[4]).toBe(geos[0])
+    models.dispose()
+  })
+
+  for (const u of GROUND_UNITS) {
+    const n = groundVariants(u)
+    if (n === 1) continue
+    it(`${u.id} 的每一種擺法都撐滿同一個命中盒、不伸出去`, () => {
+      const h = u.hull[0]!
+      for (let v = 0; v < n; v++) {
+        const g = groundGeometry(u, v)
+        g.computeBoundingBox()
+        const b = g.boundingBox!
+        for (const [lo, hi, c, half] of [
+          [b.min.x, b.max.x, h.center.x, h.half.x],
+          [b.min.y, b.max.y, h.center.y, h.half.y],
+          [b.min.z, b.max.z, h.center.z, h.half.z],
+        ] as const) {
+          expect(Math.abs(lo - (c - half)), `擺法 ${v}`).toBeLessThan(0.01)
+          expect(Math.abs(hi - (c + half)), `擺法 ${v}`).toBeLessThan(0.01)
+        }
+        g.dispose()
+      }
+    })
+  }
 
   it('登記表沒有重複的 id', () => {
     const ids = GROUND_UNITS.map((u) => u.id)

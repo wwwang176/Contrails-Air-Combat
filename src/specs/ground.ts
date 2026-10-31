@@ -185,9 +185,10 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
     hull: [groundBox([-15.85, 0.00, -11.25], [15.85, 5.45, 11.25])],
   },
   {
-    id: 'fuelDump', note: '露天堆放的航空汽油桶 — 德 M2',
-    realLength: 18.1, realWidth: 28.1, realHeight: 1.8,
-    hull: [measuredBox([0, 0.8999999821186067, 0], [14.050000190734863, 0.8999999701976775, 9.050000190734863])],
+    // 四種擺法共用這一個盒子，量的是第 0 種；其餘三種貼著它的邊排（`ground-units.test.ts`）
+    id: 'fuelDump', note: '露天堆放的航空汽油桶 — 德 M2、德 M3',
+    realLength: 9.88, realWidth: 13.2, realHeight: 1.8,
+    hull: [measuredBox([0, 0.8999999701976775, -0.0019474029541015625], [6.599999904632568, 0.8999999821186067, 4.9377641677856445])],
   },
   {
     id: 'bombDump', note: '露天堆放的炸彈 — 德 M2',
