@@ -1,6 +1,8 @@
 import type { Aircraft } from '../aircraft/Aircraft'
 import { alarmFactor, type Situation } from './assess'
 import type { TargetBoard } from './target'
+import type { DefenceThreats } from './defenceThreats'
+import type { LandField } from '../world/occlusion'
 
 /** 找出來襲威脅中最強的一架，並更新呼叫端的最近距離 */
 export function scanThreat(
@@ -8,6 +10,8 @@ export function scanThreat(
   selfIndex: number,
   self: Aircraft,
   sit: Pick<Situation, 'range' | 'nearestRange'>,
+  group?: DefenceThreats,
+  land: LandField | null = null,
 ): Aircraft | null {
   // 【沒有板就退回目標距離】單機對單機沒有「別的敵機」，最近的就是他
   sit.nearestRange = sit.range
@@ -31,6 +35,7 @@ export function scanThreat(
     // **包含** `threatFactor` 的（同樣的錐、同樣的解，只是少乘距離因子），
     // 所以換過來只會多找到人，不會少。
     const value = alarmFactor(candidate.aircraft, self)
+    group?.observe(self, candidate.aircraft, value, distance, land)
     if (value > bestValue) {
       bestValue = value
       best = candidate.aircraft

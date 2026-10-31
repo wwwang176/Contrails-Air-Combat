@@ -1,4 +1,7 @@
+import { AttackManeuvers } from './attackManeuvers'
 import { createCommandOutputState, emitAiCommand, resetCommandOutputTerrain } from './commandOutput'
+import { DefenceManeuvers } from './defenceManeuvers'
+import { DefenceThreats } from './defenceThreats'
 import { attackShip, createSurfaceAttackState, resetSurfaceAttack, strafeGround, usesFighterBombRun, type StrikeRef } from './surfaceAttack'
 import { Vector3 } from 'three'
 import {
@@ -9,13 +12,14 @@ import {
   createRuleState, stepRules, DEFAULT_RULES, type Intent, type RuleConfig,
 } from './rules'
 import { clearBandPerch, createBandState, stepBand } from './bandState'
-import { createAirPassState, resetAirPass, stepAirPass } from './airPass'
+import { anticipatesOvershoot, createAirPassState, resetAirPass, stepAirPass } from './airPass'
 import {
   engageKnobs,
   redlineDiveIas,
   geometryGate,
   holdTurnLevel,
   shrinkTowardNose,
+  unloadPull,
   steerCommand,
   TRACK_TURN_CONE,
   type Knobs,
@@ -114,12 +118,20 @@ const FWD = new Vector3(0, 0, -1)
  */
 export class AiController implements Controller {
   private readonly output = createCommandOutputState()
+  /** 正式防禦換招預設啟用；展示區舊版對照可明確停用，避免疊加兩套操縱。 */
+  defenceManeuversEnabled = true
+  readonly defensive = new DefenceManeuvers()
+  /** 攻擊換招預設啟用；展示區 A 組可停用以比較同一套正式流程。 */
+  attackManeuversEnabled = true
+  readonly offensive = new AttackManeuvers()
+  readonly defenceThreats = new DefenceThreats()
   /** 最近一筆有效 Worker 預演的連續改出風險；只供 HUD／探針觀測。 */
   get recoveryUrgency(): number { return this.output.recoveryAssist.urgency }
   /** 硬改出後正在水平捕獲；只供探針與測試觀測。 */
   get recoveryCapture(): boolean { return this.output.groundCapture.active }
   /** HUD 顯示的當前戰術階段；`off` 代表沒有比意圖更細的行為要補充。 */
-  get hudPhase(): string { return this.output.tacticalPhase }
+  get hudPhase(): string { return this.defensive.label !== 'off' ? this.defensive.label
+    : this.offensive.phase !== 'off' ? this.offensive.phase : this.output.tacticalPhase }
   /** HUD 顯示的安全接管；`off` 代表原本意圖仍掌握控制權。 */
   get hudOverride(): string { return this.output.controlOverride }
   /** 這一格實際正在掃射的地面目標；只供探針與測試觀測。 */
@@ -306,6 +318,9 @@ export class AiController implements Controller {
    * 留著的話開場第一次上鎖就會去爬上一場記下的那一層。
    */
   resetAirTactics(): void {
+    this.offensive.reset()
+    this.defensive.reset()
+    this.defenceThreats.reset()
     this.band.kind = 'off'
     this.band.hold = 0
     clearBandPerch(this.band)
@@ -642,7 +657,7 @@ export class AiController implements Controller {
       } else {
         this.stationError = 0
       }
-      this.threatSource = this.scanThreat(self)
+      this.threatSource = this.scanThreat(self, period)
       // 任務選敵先於一般空戰；沒有護送目標時原路回退，不改其他場次。
       const intercepting = this.interceptConvoy && !this.transit && !this.evacuating
         && this.board !== null && selectConvoyIntercept(
@@ -882,7 +897,12 @@ export class AiController implements Controller {
     if (src !== null && src !== target) considerThreatFrom(self, src, this.sit)
     // 【誰在打我】`scanThreat` 已經用 `alarmFactor` 掃過全場（含當前目標），
     // 所以它挑出來的那一架就是警戒值最大的。`board` 為 null 時退回目標。
-    const attacker = src ?? target
+    // 短暫偏離準星時仍觀察原追擊者；死亡或離場的記憶在決策節拍清除。
+    const group = this.defenceManeuversEnabled && self.spec.role === 'fighter' && !self.spec.diveBomber
+      && this.board !== null ? this.defenceThreats : undefined
+    if (decide && this.board !== null && this.defensive.source !== null && !group?.reference
+      && !this.board.candidates.some(c => c.alive && c.aircraft === this.defensive.source)) this.defensive.reset()
+    const attacker = group?.reference ?? src ?? (this.defenceManeuversEnabled ? this.defensive.source : null) ?? target
     buildEngageBasis(self, target, this.basis)
 
     // 跟蹤計時器：在他的射擊錐內才累積，離開立刻歸零
@@ -893,7 +913,9 @@ export class AiController implements Controller {
     // 「他打得中我的機率」分開 —— 後者的距離因子讓閃躲門檻在幾何上等價於
     // 「他必須進到 585 m 以內」，實測 700/900 m 被連續射擊 180 秒，`defend`
     // 進入率 0.0%。完整推導見 `assess.ts` 的 `alarmFactor`。
-    const alarmInstant = alarmFactor(attacker, self)
+    // 即時警戒仍看最高威脅；機動幾何沿用穩定參考，避免多架輪替就重新開始。
+    const alarmInstant = group ? Math.max(group.alarm, src && group.records.some(r=>r.active && r.aircraft===src)
+      ? alarmFactor(src, self) : 0) : alarmFactor(attacker, self)
     // 【自己的計時器】`trackingSeconds` 是在 `threatInstant > 0` 時累積的，
     // 而那個量在 900 m 外恆為 0 —— 共用等於把警戒也綁回 900 m。
     this.alarmSeconds = alarmInstant > 0 ? this.alarmSeconds + dt : 0
@@ -914,11 +936,18 @@ export class AiController implements Controller {
     // 【threat 與 alarm 一定要一起歸零】上面那個不變量是 `max` 的前提。
     // 只擋一邊等於沒擋。
     const land = this.terrain?.land
-    let danger = threat > alarm ? threat : alarm
-    if (danger > 0 && land !== undefined && land !== null) {
+    let danger = group ? Math.max(Math.min(threat, alarmInstant), alarm) : Math.max(threat, alarm)
+    let attackerVisible = true
+    if ((danger > 0 || this.defensive.source !== null) && land !== undefined && land !== null) {
       const p = self.state.position
       const q = attacker.state.position
-      if (losBlocked(p.x, p.y, p.z, q.x, q.y, q.z, land)) danger = 0
+      if (losBlocked(p.x, p.y, p.z, q.x, q.y, q.z, land)) { danger = 0; attackerVisible = false }
+    }
+    // 警戒已成立但距離威脅因子仍為零時，也要朝實際來襲者防禦。
+    // 此修正只適用戰鬥機；轟炸機與俯衝轟炸機保留原本的威脅方向判斷。
+    if (this.defenceManeuversEnabled && self.spec.role === 'fighter' && !self.spec.diveBomber
+      && (danger > 0 || group?.tail)) {
+      this.sit.threatLos.copy(attacker.state.position).sub(self.state.position).normalize()
     }
 
     // ── 10 Hz：昂貴的包絡查詢與意圖仲裁 ────────────────────
@@ -1010,6 +1039,7 @@ export class AiController implements Controller {
     // 物理步（4 ms）不影響；重要的是這裡讀到的意圖與下面 `steerCommand`
     // 讀到的是**同一個**，不能半新半舊。
     stepDefend(this.defend, self, attacker, this.intent === 'defend', dt)
+    if (group?.blocksReversal(attacker)) this.defend.reversal = 0
     // 【與 stepDefend 同一個位階】`extend` 的轉向側也是跨格記憶，必須由持有
     // 狀態的這一層決定 —— `steerCommand` 是純函數，它沒有「這是不是第一格」
     // 的資訊。錨點是攻擊目標，與 `basis` 一致（見 steerCommand 的 extend 分支）。
@@ -1033,13 +1063,16 @@ export class AiController implements Controller {
     }
     // 【飛過頭就往上拉】見 `stepAirPass`：它只設下回升的高度，拉起由下面的
     // `stepBand` 做。閃避與服從命令時不拉；已經有要回去的高度（從上方俯衝的
-    // 那一趟）就不另設；轉彎明顯比對方好的一方留下來轉
+    // 那一趟）就不另設。有足夠動能的尾追提前六秒預判，其餘保留原本的三秒觸發。
+    const highYoYo = (this.intent === 'engage' || this.intent === 'approach')
+      && mode === 'normal' && anticipatesOvershoot(this.sit, self)
     stepAirPass(
       this.airPass, this.band, self, target, this.sit.range, this.sit.closureRate,
       this.basis.interceptTime, this.sit.angleOffTail, this.sit.trackRatio,
       this.intent !== 'defend' && this.intent !== 'rally' && !this.transit
         && self.spec.role === 'fighter' && !Number.isFinite(this.band.perch)
-        && this.sit.airframeTurnAdvantage < -this.rulesConfig.turnEnter,
+        && (this.sit.airframeTurnAdvantage < -this.rulesConfig.turnEnter || highYoYo),
+      DEFAULT_STEER, highYoYo,
     )
     stepBand(
       this.band,
@@ -1064,6 +1097,35 @@ export class AiController implements Controller {
         self.state.velocity, DEFAULT_STEER,
       )
     }
+    const defendingOrFighting = this.intent === 'defend' || this.intent === 'engage'
+      || this.intent === 'approach' || this.intent === 'merge'
+    const defensiveChanged = this.defensive.update(
+      self, attacker, attackerVisible ? alarmInstant : 0, dt, raw,
+      this.defenceManeuversEnabled && self.spec.role === 'fighter' && !self.spec.diveBomber
+        && !this.transit && attackerVisible && defendingOrFighting
+        && (!this.evacuating || this.intent === 'defend'),
+      Math.max(this.seaHeight, this.output.sense.floor),
+      this.safetyAction !== 'none' || mode === 'speedRecover' || mode === 'unload',
+      this.defend.reversal > 0,
+      this.intent === 'defend',
+      group,
+    )
+    // 攻擊換招只服務戰鬥機的空戰路徑，原版回升、緊急防禦與安全層優先。
+    // 在 emit 前寫入，同樣經過既有反應延遲、地形感知與防墜，避免展示版的額外輸出層。
+    const offensiveChanged = this.offensive.update(
+      self, target, this.basis, dt, raw,
+      this.attackManeuversEnabled && self.spec.role === 'fighter' && !self.spec.diveBomber
+        && !this.transit && !this.evacuating && !defensiveChanged
+        && (this.intent === 'engage' || this.intent === 'approach' || this.intent === 'merge')
+        && this.safetyAction === 'none' && mode !== 'speedRecover' && mode !== 'overshoot'
+        && alarmInstant < 0.35 && this.band.kind !== 'regain' && this.defend.reversal <= 0,
+      group,
+    )
+    if (offensiveChanged) {
+      // 卸載是收小拉桿，不是禁止換方向；換招仍套用同一份失速與能量拉桿上限。
+      const stallPull = mode === 'unload' ? unloadPull(this.sit.stallMargin) : 1
+      shrinkTowardNose(self, Math.min(stallPull, this.sit.pullCeiling), raw.aimWorld)
+    }
     // 【rally 與 flank 途中不交戰】兩份 spec 都這樣寫（第一份 §4.4、第二份
     // §4.4），而 `rallyCommand` 也確實把 `firing` 設成 false —— 但它只在
     // 「沒有目標」那條分支跑。**有目標的長機走的是這一行**，於是命令期間
@@ -1083,7 +1145,7 @@ export class AiController implements Controller {
         : shouldFire(this.sit, this.basis, self, undefined, this.terrain?.land ?? null, this.aim))
     // 【跟瞄】瞄準方向貼著預瞄點時，指揮儀的改平改到那個轉彎要的坡度。見
     // `Command.trackTurn` 與 `TRACK_TURN_CONE`
-    raw.trackTurn = (this.intent === 'engage' || this.intent === 'approach' || this.intent === 'merge')
+    raw.trackTurn = !offensiveChanged && !defensiveChanged && (this.intent === 'engage' || this.intent === 'approach' || this.intent === 'merge')
       && this.basis.interceptTime !== NO_INTERCEPT
       && raw.aimWorld.angleTo(this.basis.leadPoint) <= TRACK_TURN_CONE
 
@@ -1093,6 +1155,7 @@ export class AiController implements Controller {
   /** 所有戰術分支都經過同一條延遲與安全輸出流程。 */
   private emit(self: Aircraft, dt: number, out: Command): void {
     emitAiCommand(this.output, this, self, dt, out, this.raw, this.surface)
+    if (this.safetyAction !== 'none') { this.defensive.interrupt(); this.offensive.interrupt() }
   }
 
   /**
@@ -1105,10 +1168,15 @@ export class AiController implements Controller {
    * 來源**，兩者刻意分開（見 `threatSource` 的註解）。僚機兩者都要，所以
    * 兩條路徑各自掃一次 —— 都在 10 Hz，成本可以接受。
    *
-   * 熱路徑之外（10 Hz），不配置。
+   * 10 Hz 掃描；多威脅紀錄只在敵機加入或離開追擊時增減。
    */
-  private scanThreat(self: Aircraft): Aircraft | null {
-    return scanThreat(this.board, this.selfIndex, self, this.sit)
+  private scanThreat(self: Aircraft, dt: number): Aircraft | null {
+    const group = this.defenceManeuversEnabled && self.spec.role === 'fighter' && !self.spec.diveBomber
+      ? this.defenceThreats : undefined
+    group?.beginScan(dt)
+    const source = scanThreat(this.board, this.selfIndex, self, this.sit, group, this.terrain?.land ?? null)
+    group?.endScan()
+    return source
   }
 
   /**

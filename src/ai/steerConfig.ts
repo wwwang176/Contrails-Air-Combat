@@ -614,6 +614,8 @@ export interface SteerConfig {
   airPassTrackRatio: number
   /** 預估再幾秒就撞上（距離 ÷ 接近速度）就先往上拉，s */
   airPassLead: number
+  /** 有足夠動能時，尾追 high yo-yo 提前預判衝過頭的時間，s。 */
+  highYoYoLead: number
   /**
    * 敵人在機頭這麼多以內才算在前方，rad。以外 = 還在迴轉，瞄準不壓機鼻
    * （`holdTurnLevel`）。
@@ -792,6 +794,7 @@ export const DEFAULT_STEER: SteerConfig = {
   airPassZoom: 600,
   airPassTrackRatio: 1,
   airPassLead: 3,
+  highYoYoLead: 6,
   // 起始值，由試飛裁定
   turnFrontCone: 75 * (Math.PI / 180),
   turnDiveRadii: 1.5,
