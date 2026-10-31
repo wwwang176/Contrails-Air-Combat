@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Aircraft } from '../../src/aircraft/Aircraft'
-import { createAirPassState, stepAirPass } from '../../src/ai/airPass'
+import { anticipatesOvershoot, createAirPassState, stepAirPass } from '../../src/ai/airPass'
+import { createSituation } from '../../src/ai/assess'
 import { createBandState } from '../../src/ai/bandState'
 import { DEFAULT_STEER } from '../../src/ai/steerConfig'
 import { P51D } from '../../src/specs/p51d'
@@ -26,6 +27,40 @@ function rig(targetSpeed = TAS / 1.2) {
 }
 
 type Rig = ReturnType<typeof rig>
+
+describe('提前 high yo-yo', () => {
+  const situation = () => Object.assign(createSituation(), {
+    range: 400, closureRate: 80, angleOffTail: 10 * DEG, aspectAngle: 10 * DEG, cornerRatio: 2,
+  })
+
+  it('五秒內衝過頭、尾追且有動能：可在原本三秒觸發點之前拉起', () => {
+    const r = rig(), sit = situation()
+    arm(r)
+    expect(anticipatesOvershoot(sit, r.self)).toBe(true)
+    expect(stepAirPass(r.state, r.band, r.self, r.target, 400, 80, 0.5, 10 * DEG, 0.2, true)).toBe(false)
+    expect(stepAirPass(r.state, r.band, r.self, r.target, 400, 80, 0.5, 10 * DEG, 0.2, true,
+      DEFAULT_STEER, anticipatesOvershoot(sit, r.self))).toBe(true)
+  })
+
+  it.each([
+    {angleOffTail: Math.PI}, {angleOffTail: Math.PI / 2}, {aspectAngle: Math.PI},
+    {closureRate: -20}, {range: 1200}, {cornerRatio: 1.1}, {cornerRatio: NaN},
+  ])('迎頭／橫越／目標在身後／遠離／太遠／動能不足不提前：%j', change => {
+    expect(anticipatesOvershoot(Object.assign(situation(), change), rig().self)).toBe(false)
+  })
+
+  it('提前預判仍不能跳過尾追上膛、相對速度與外部防禦閘門', () => {
+    const r = rig()
+    const early = (allowed = true) => stepAirPass(r.state, r.band, r.self, r.target, 400, 80,
+      0.5, 10 * DEG, 0.2, allowed, DEFAULT_STEER, true)
+    expect(early()).toBe(false)
+    expect(early(false)).toBe(false)
+    r.target.state.velocity.copy(r.self.state.velocity)
+    arm(r)
+    expect(early()).toBe(false)
+    expect(Number.isNaN(r.band.perch)).toBe(true)
+  })
+})
 
 /** 追上：在射程內、接近中 */
 const arm = (r: Rig, aot = 10 * DEG, allowed = true) =>

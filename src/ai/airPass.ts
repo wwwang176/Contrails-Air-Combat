@@ -1,11 +1,13 @@
 import { NO_INTERCEPT } from '../world/lead'
 import { PROJECTILE_LIFETIME } from '../world/Projectiles'
 import type { Aircraft } from '../aircraft/Aircraft'
+import type { Situation } from './assess'
+import { G0 } from '../core/math'
 import type { BandState } from './bandState'
 import { DEFAULT_STEER, type SteerConfig } from './steerConfig'
 
 export type AirPassConfig = Pick<SteerConfig,
-  'airPassMaxAot' | 'airPassLead' | 'airPassTrackRatio' | 'airPassSpeedRatio' | 'airPassZoom'
+  'airPassMaxAot' | 'airPassLead' | 'airPassTrackRatio' | 'airPassSpeedRatio' | 'airPassZoom' | 'highYoYoLead'
 >
 
 /**
@@ -24,6 +26,22 @@ export function createAirPassState(): AirPassState {
 export function resetAirPass(state: AirPassState): void {
   state.armed = false
   state.target = null
+}
+
+/**
+ * 尾追將在六秒內衝過頭時先拉高；迎頭、橫越與純粹追不上轉彎不放行。
+ * 速度交易必須付得起既有回升高度，並保留角落速度；不以機種優劣代替當下判斷。
+ */
+export function anticipatesOvershoot(
+  sit: Situation, self: Aircraft, cfg: AirPassConfig = DEFAULT_STEER,
+): boolean {
+  const rearCone = Math.PI / 3
+  if (!(sit.closureRate > 0 && sit.range < cfg.highYoYoLead * sit.closureRate
+    && sit.angleOffTail < rearCone && sit.aspectAngle < rearCone
+    && Number.isFinite(sit.cornerRatio) && sit.cornerRatio > 1)) return false
+  const speedSq = self.state.velocity.lengthSq()
+  const cornerSq = speedSq / (sit.cornerRatio * sit.cornerRatio)
+  return (speedSq - cornerSq) / (2 * G0) >= cfg.airPassZoom
 }
 
 /**
@@ -46,9 +64,10 @@ export function resetAirPass(state: AirPassState): void {
  * @param interceptTime 預瞄解的飛行時間，s
  * @param aot 我方在目標機尾的夾角，rad（`Situation.angleOffTail`）
  * @param trackRatio 視線角速度 ÷ 自己的瞬時轉彎率（`Situation.trackRatio`）
- * @param allowed 准不准拉起：不是轉彎比對方好很多的一方、沒有在閃避或服從
- *   命令、還沒有要回去的高度。速度夠不夠快（`airPassSpeedRatio`）在這裡面判。
+ * @param allowed 准不准拉起：沒有明顯轉彎性能優勢，或有足夠能量的尾追即將衝過頭；
+ *   沒有在閃避或服從命令、還沒有要回去的高度。相對速度在這裡面判。
  *   不准時上膛照樣記，只是飛過之後不拉起
+ * @param anticipating 已通過尾追幾何與動能預算，允許比原本觸發點更早拉起。
  * @returns 這一步有沒有把回升的高度設下去
  *
  * 熱路徑：不配置。
@@ -56,7 +75,7 @@ export function resetAirPass(state: AirPassState): void {
 export function stepAirPass(
   state: AirPassState, band: Pick<BandState, 'perch' | 'regainTime' | 'forced'>, self: Aircraft, target: Aircraft,
   range: number, closing: number, interceptTime: number, aot: number, trackRatio: number,
-  allowed: boolean, cfg: AirPassConfig = DEFAULT_STEER,
+  allowed: boolean, cfg: AirPassConfig = DEFAULT_STEER, anticipating = false,
 ): boolean {
   if (state.target !== target) {
     state.armed = false
@@ -69,7 +88,7 @@ export function stepAirPass(
   if (reach && closing > 0 && aot < cfg.airPassMaxAot) state.armed = true
   // 【即將撞上就拉，不等飛過去】還有幾秒撞上 = 距離 ÷ 接近速度。等到飛過去才
   // 拉，那一刻已經在他前面了
-  const aboutToPass = closing <= 0 || range < cfg.airPassLead * closing
+  const aboutToPass = anticipating || closing <= 0 || range < cfg.airPassLead * closing
   if (!wasArmed || (!aboutToPass && !(trackRatio >= cfg.airPassTrackRatio))) return false
   state.armed = false
   if (!allowed) return false
