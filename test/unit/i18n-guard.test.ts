@@ -24,6 +24,12 @@ const EXEMPT: readonly string[] = [
   'src/hud/audioMeter.ts',
   // 代飛時 AI 讀數那一行（意圖、階段、介入）與 console 遙測
   'src/ai/rules.ts',
+  // 戰鬥機攻防換招：招式名進代飛讀數那一行，理由與效果紀錄只有攻防實驗頁讀
+  'src/ai/attackManeuvers.ts',
+  'src/ai/defenceAdaptive.ts',
+  'src/ai/defenceHeight.ts',
+  'src/ai/defenceManeuvers.ts',
+  'src/ai/defenceSelection.ts',
   'src/ai/commandOutput.ts#emitAiCommand',
   'src/hud/widgets/hints.ts#aiStateLine',
   'src/app/orderTelemetry.ts#label',
