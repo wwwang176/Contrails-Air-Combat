@@ -5,7 +5,7 @@ import type { GroundTurretNodes } from './turret'
 import { DEG } from '../../../core/math'
 import { buildBoxcar, buildFlatcar, buildLocomotive, buildTender } from './train'
 import { PLANT_BUILDERS } from './plant'
-import { buildBombDump, buildFuelDump, buildSearchlight } from './dump'
+import { buildBombDump, buildFuelDump, buildSearchlight, FUEL_DUMP_LAYOUTS } from './dump'
 import { bakeParkedAircraft } from './parked'
 import { buildInfantrySquad } from './infantry'
 
@@ -29,7 +29,11 @@ export type GroundModel =
      */
     readonly turret?: GroundTurretNodes
   }
-  | { readonly build: () => BufferGeometry }
+  | {
+    readonly build: (variant: number) => BufferGeometry
+    /** 有幾種擺法（`build` 收 0…n−1）。省略即只有一種 */
+    readonly variants?: number
+  }
 
 export interface GroundModelSet {
   readonly model: GroundModel
@@ -100,7 +104,7 @@ export const GROUND_MODELS: Readonly<Record<GroundUnitId, GroundModelSet>> = {
     model: { build: () => bakeParkedAircraft('b17g') },
     lodModel: { build: () => bakeParkedAircraft('b17g_lod2') },
   },
-  fuelDump: { model: { build: buildFuelDump } },
+  fuelDump: { model: { build: buildFuelDump, variants: FUEL_DUMP_LAYOUTS.length } },
   bombDump: { model: { build: buildBombDump } },
   searchlight: { model: { build: buildSearchlight } },
   // 槳葉獨立，停機線暖機時可慢轉。
@@ -130,10 +134,19 @@ export async function preloadGroundModels(
   await preloadGroundGlbs(sources, fetcher, onLoaded)
 }
 
-/** GLB 回共用幾何，程序化模型回新幾何；呼叫端不可改動共用幾何。 */
-export function groundGeometry(unit: GroundUnit): BufferGeometry {
+/**
+ * GLB 回共用幾何，程序化模型回新幾何；呼叫端不可改動共用幾何。
+ * `variant` 只對有多種擺法的程序化模型有作用（`groundVariants`），其餘忽略
+ */
+export function groundGeometry(unit: GroundUnit, variant = 0): BufferGeometry {
   const { model } = GROUND_MODELS[unit.id]
-  return 'glb' in model ? groundGlb(model.glb) : model.build()
+  return 'glb' in model ? groundGlb(model.glb) : model.build(variant)
+}
+
+/** 這一種單位有幾種擺法；GLB 與沒登記的都是 1 */
+export function groundVariants(unit: GroundUnit): number {
+  const { model } = GROUND_MODELS[unit.id]
+  return 'build' in model ? model.variants ?? 1 : 1
 }
 
 /** 無低模或全域停放 LOD 開關關閉時回 null。 */
@@ -141,5 +154,5 @@ export function groundLodGeometry(unit: GroundUnit): BufferGeometry | null {
   const m = GROUND_MODELS[unit.id].lodModel
   if (m === undefined) return null
   if ((globalThis as Record<string, unknown>)['__PARKED_LOD'] === false) return null
-  return 'glb' in m ? groundGlb(m.glb) : m.build()
+  return 'glb' in m ? groundGlb(m.glb) : m.build(0)
 }
