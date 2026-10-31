@@ -58,10 +58,13 @@ export interface GEffect {
  * 【為什麼與繪圖分開】時間常數是 spec §6.6 的實質要求（「瞬間拉一下不該立刻
  * 全黑」），而 Canvas 繪圖在 node 環境測不了。拆成純函數之後，會不會在一幀之內
  * 全黑就是一條普通的單元測試。
+ *
+ * @param tolerance 黑視兩個門檻的倍率，等於遭遇戰性能等級放大結構過載的倍率
+ *   （`PERFORMANCE[level].g`）。兩者不同倍率時，極限轉彎的黑視強度就不再是 25%
  */
-export function advanceGEffect(loadFactor: number, dt: number): GEffect {
+export function advanceGEffect(loadFactor: number, dt: number, tolerance = 1): GEffect {
   const overG = clamp(
-    (loadFactor - BLACKOUT_ONSET_G) / (BLACKOUT_FULL_G - BLACKOUT_ONSET_G), 0, 1,
+    (loadFactor - BLACKOUT_ONSET_G * tolerance) / ((BLACKOUT_FULL_G - BLACKOUT_ONSET_G) * tolerance), 0, 1,
   )
   const underG = clamp(
     (loadFactor - REDOUT_ONSET_G) / (REDOUT_FULL_G - REDOUT_ONSET_G), 0, 1,
@@ -85,7 +88,7 @@ export function drawGEffect(
   f: HudFrame,
   dt: number,
 ): void {
-  advanceGEffect(f.loadFactor, dt)
+  advanceGEffect(f.loadFactor, dt, f.gTolerance)
 
   if (blackout > 0.01) {
     // 周邊漸暗：由邊緣向中心收攏的徑向遮罩

@@ -302,6 +302,18 @@ export interface FeelProfile {
    * 這兩個數字必須一起動。
    */
   cd0: number
+  /**
+   * 結構過載上限倍率，縮放 `limits.gPositive`。省略 = 1。只有遭遇戰的性能等級會給。
+   *
+   * 角落速度以上，拉滿桿的俯仰率由這個上限決定（`俯仰率 = g·(n − gLoad)/V`），
+   * 升力與重量在那一段完全使不上力。玩家的黑視門檻要跟著同倍率移動
+   * （`hud/widgets/gEffect.ts`），否則極限轉彎會常態全黑。
+   *
+   * 【沒有升降舵權限倍率】拉桿到位本來就只要 0.1～0.2 秒；放大 `cmDe` 只快在
+   * 頭 0.1 秒，而且違反俯仰內環的離散穩定條件（`FlightDirector.ts` 的「不變量二」）：
+   * P-51D 海平面 700 km/h 乘 1.6 時升降舵每秒來回換向二十多次。
+   */
+  gLimit?: number
 }
 
 /** 史實輪廓。L2 史實測試恆用這一組 —— 它必須是無操作。 */
@@ -427,34 +439,31 @@ export interface PerformanceBoost {
   readonly lift: number
   readonly mass: number
   readonly power: number
+  /** 結構過載上限，玩家的黑視門檻同倍率（`FeelProfile.gLimit`） */
+  readonly g: number
 }
 
 /**
  * 三段性能等級的倍率。
  *
  * - `power` 與 `cd0` 同倍率，極速不動（`V_max³ ∝ power / cd0`）。
- * - 不動 `limits.gPositive`：玩家的黑視從 7.5 G 起算，結構上限拉高之後
- *   畫面會常態發黑。轉得快靠升力與重量把角落速度壓低。
+ * - 角落速度以下的迴旋靠升力與重量；角落速度以上靠 `g`。少了 `g`，三段在
+ *   常態空戰速度的俯仰率完全相同。
  *
- * P-51D @3,000 m（`analysis/envelope.ts`）：
+ * P-51D 拉滿桿 1 秒的俯仰率，°/s：
  *
  * ```
- *                    標準    強化    超強
- *   持續迴旋 °/s     29.6    45.9    63.6
- *   瞬間迴旋 °/s     35.7    47.3    63.6   在角落速度
- *   海平面爬升 m/s     38      63     104
- *   滾轉 °/s           99     159     219   @400 km/h
- *   角落速度 km/h     449     340     253
- *   失速 km/h         159     120      89
+ *                        標準    強化    超強
+ *   3,000 m 300 km/h     37.5    53.9    76.5
+ *   3,000 m 400 km/h     30.7    44.3    58.5
+ *   3,000 m 550 km/h     23.5    33.4    43.5
+ *   海平面 700 km/h       19.7    27.6    35.7
  * ```
- *
- * 強化與超強的持續迴旋等於瞬間迴旋：轉彎不掉能量。角落速度以上由結構過載
- * 夾住，400 km/h 三段的瞬間迴旋都是 40 °/s —— 迴旋率的增幅出現在慢速區。
  */
 export const PERFORMANCE: Readonly<Record<PerformanceLevel, PerformanceBoost>> = {
-  standard: { roll: 1, lift: 1, mass: 1, power: 1 },
-  boosted: { roll: 1.6, lift: 1.4, mass: 0.8, power: 1.3 },
-  extreme: { roll: 2.2, lift: 1.9, mass: 0.6, power: 1.6 },
+  standard: { roll: 1, lift: 1, mass: 1, power: 1, g: 1 },
+  boosted: { roll: 1.6, lift: 1.4, mass: 0.8, power: 1.3, g: 1.3 },
+  extreme: { roll: 2.2, lift: 1.9, mass: 0.6, power: 1.6, g: 1.6 },
 }
 
 /**
@@ -470,6 +479,7 @@ export function withPerformance(feel: FeelProfile, level: PerformanceLevel): Fee
     lift: feel.lift * p.lift,
     cd0: feel.cd0 * p.power,
     mass: feel.mass * p.mass,
+    gLimit: (feel.gLimit ?? 1) * p.g,
   }
 }
 
@@ -510,15 +520,19 @@ export function holdCeiling(spec: AircraftSpec, ceiling: number): AircraftSpec {
  * spec 上」可以用同一性斷言守住，而不是靠讀者自律。
  */
 export function applyFeel(spec: AircraftSpec, feel: FeelProfile): AircraftSpec {
+  const gLimit = feel.gLimit ?? 1
   if (
     feel.roll === 1 && feel.oswald === 1 && feel.power === 1
-    && feel.lift === 1 && feel.cd0 === 1 && feel.mass === 1
+    && feel.lift === 1 && feel.cd0 === 1 && feel.mass === 1 && gLimit === 1
   ) return spec
   // 【逐項判斷而不是一律複製】沒有被這一項動到的子結構要維持**同一個物件**，
   // 那是「這個倍率只碰它該碰的東西」唯一測得到的形式。
   const moments = feel.roll === 1
     ? spec.moments
     : { ...spec.moments, clDa: spec.moments.clDa * feel.roll }
+  const limits = gLimit === 1
+    ? spec.limits
+    : { ...spec.limits, gPositive: spec.limits.gPositive * gLimit }
   const wing = feel.oswald === 1
     ? spec.wing
     : { ...spec.wing, oswald: spec.wing.oswald * feel.oswald }
@@ -541,5 +555,5 @@ export function applyFeel(spec: AircraftSpec, feel: FeelProfile): AircraftSpec {
   // 【只動 mass，inertia 原封不動】見 `FeelProfile.mass` 的註解：
   // 慣量若跟著縮，會在一個宣稱只動翼負荷的旋鈕裡偷渡角加速度加成。
   const mass = spec.mass * feel.mass
-  return { ...spec, moments, wing, engine, lift, drag, mass }
+  return { ...spec, moments, wing, engine, lift, drag, mass, limits }
 }
