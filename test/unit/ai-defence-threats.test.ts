@@ -31,7 +31,7 @@ describe('多敵機防禦評估',()=>{
       if(previous && previous!==group.reference)changes++
       previous=group.reference
       for(let j=0;j<24;j++){
-        state.update(self,group.reference!,group.alarm,1/240,out,true,0,false,false,group)
+        state.update(self,group.reference!,group.alarm,1/240,out,true,0,false,false,true,group)
         phases.add(state.phase);maxPressure=Math.max(maxPressure,state.pressure)
       }
     }
@@ -59,11 +59,11 @@ describe('多敵機防禦評估',()=>{
     const self=craft(),a=craft(-10,400),b=craft(10,420),g=new DefenceThreats()
     const state=new DefenceManeuvers(),out=createCommand()
     scan(g,self,[a,b],[0.4,0.3])
-    state.update(self,a,0.4,0.1,out,true,0,false,false,g)
+    state.update(self,a,0.4,0.1,out,true,0,false,false,true,g)
     state.climb.start(self)
     scan(g,self,[b],[0.3])
     expect(g.records).toHaveLength(1);expect(g.reference).toBe(b)
-    state.update(self,b,0.3,0.1,out,true,0,false,false,g)
+    state.update(self,b,0.3,0.1,out,true,0,false,false,true,g)
     expect(state.climb.stage).toBe('斜爬・拉高')
     expect(state.height.anchor).toBe(2500)
     scan(g,self,[],[])

@@ -7,9 +7,12 @@ import { stallSpeed } from '../analysis/envelope'
 const RAD = Math.PI / 180
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x))
 /** 試玩值：同段防禦共用預算，換招不重置；正式控制器在威脅解除後清除。 */
-export const HEIGHT_POLICY = { budget: 150, recovered: 50, lookAhead: 2,
-  sinkEnter: -12, recoverPitch: 8 * RAD, attackPitch: -8 * RAD,
-  emergencySpeed: 1.18, recoverySpeed: 1.45 } as const
+// 放寬高度與下沉門檻 30%；低速預警距離救速底線的餘裕縮小 30%。
+// 輕微低頭也保留一點空間，避免每次向下修正都被立即改成平飛。
+export const HEIGHT_POLICY = { budget: 195, recovered: 50, lookAhead: 2,
+  sinkEnter: -15.6, turnSinkEnter: -3.9, turnPitch: -2.4 * RAD,
+  recoverPitch: 8 * RAD, attackPitch: -8 * RAD,
+  emergencySpeed: 1.18, recoverySpeed: 1.369 } as const
 
 export class HeightDiscipline {
   anchor = NaN
@@ -77,11 +80,11 @@ export class HeightDiscipline {
       turn = clamp(turn, -turnCap, turnCap)
       this.label = urgent ? '受攻擊：保留閃避，限制持續下沉' : slow ? '放鬆轉彎，以推力補速' : '高度預算不足／持續下沉：收彎止沉'
     } else {
-      // 先轉方位再下降；只有前方近距離攻擊，或短促避彈，能動用剩餘高度。
+      // 一般轉向容許輕微低頭；前方近距離攻擊與短促避彈可使用較大的下降角。
       const canDescend = (forwardAttack || urgent) && this.debt < HEIGHT_POLICY.budget
-      const minPitch = canDescend ? HEIGHT_POLICY.attackPitch : 0
+      const minPitch = canDescend ? HEIGHT_POLICY.attackPitch : HEIGHT_POLICY.turnPitch
       pitch = Math.max(pitch, minPitch)
-      if (self.state.velocity.y < -3 && !canDescend) {
+      if (self.state.velocity.y < HEIGHT_POLICY.turnSinkEnter && !canDescend) {
         pitch = Math.max(pitch, Math.min(HEIGHT_POLICY.recoverPitch, -self.state.velocity.y / 200))
         turn = clamp(turn, -20 * RAD, 20 * RAD)
       }

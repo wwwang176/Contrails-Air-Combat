@@ -72,9 +72,11 @@ export class DefenceManeuvers {
   update(
     self: Aircraft, enemy: Aircraft, alarm: number, dt: number, out: Command,
     allowed: boolean, floor: number, safetyHold: boolean, legacyReversal: boolean,
-    group?: DefenceThreats,
+    defending: boolean, group?: DefenceThreats,
   ): boolean {
     this.applied = false
+    // 威脅記憶供換招使用；保高只屬於當下的防禦，離開後清除高度基準。
+    if (!defending) this.height.reset()
     if (!allowed) { if (this.source) this.reset(); return false }
     this.direction.copy(enemy.state.position).sub(self.state.position)
     const range = this.direction.length()
@@ -100,7 +102,7 @@ export class DefenceManeuvers {
     this.remaining = tail || alarm > 0 ? THREAT_MEMORY_SECONDS : Math.max(0, this.remaining - dt)
     if (this.remaining === 0) { this.reset(); return false }
 
-    this.height.observe(self.state.position.y, self.state.velocity.y, dt)
+    if (defending) this.height.observe(self.state.position.y, self.state.velocity.y, dt)
     this.cooldown = Math.max(0, this.cooldown - dt)
     this.jinkCooldown = Math.max(0, this.jinkCooldown - dt)
     this.phaseTime += dt
@@ -188,7 +190,7 @@ export class DefenceManeuvers {
       out.throttle = 1; out.brake = 0; out.trackTurn = false; changed = true
     }
     if (this.climb.stage) { this.climb.command(self, enemy, out); changed = true }
-    const heightAdjusted = this.height.apply(self, enemy, out, alarm > 2 / 3 && threatRange < 800,
+    const heightAdjusted = defending && this.height.apply(self, enemy, out, alarm > 2 / 3 && threatRange < 800,
       this.climb.stage === '斜爬・回到接戰' ? this.climb.entryAltitude : undefined)
     this.applied = changed || heightAdjusted
     return this.applied

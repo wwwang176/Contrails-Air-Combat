@@ -1,3 +1,4 @@
+import { AttackManeuvers } from './attackManeuvers'
 import { createCommandOutputState, emitAiCommand, resetCommandOutputTerrain } from './commandOutput'
 import { DefenceManeuvers } from './defenceManeuvers'
 import { DefenceThreats } from './defenceThreats'
@@ -18,6 +19,7 @@ import {
   geometryGate,
   holdTurnLevel,
   shrinkTowardNose,
+  unloadPull,
   steerCommand,
   TRACK_TURN_CONE,
   type Knobs,
@@ -119,13 +121,17 @@ export class AiController implements Controller {
   /** 正式防禦換招預設啟用；展示區舊版對照可明確停用，避免疊加兩套操縱。 */
   defenceManeuversEnabled = true
   readonly defensive = new DefenceManeuvers()
+  /** 攻擊換招預設啟用；展示區 A 組可停用以比較同一套正式流程。 */
+  attackManeuversEnabled = true
+  readonly offensive = new AttackManeuvers()
   readonly defenceThreats = new DefenceThreats()
   /** 最近一筆有效 Worker 預演的連續改出風險；只供 HUD／探針觀測。 */
   get recoveryUrgency(): number { return this.output.recoveryAssist.urgency }
   /** 硬改出後正在水平捕獲；只供探針與測試觀測。 */
   get recoveryCapture(): boolean { return this.output.groundCapture.active }
   /** HUD 顯示的當前戰術階段；`off` 代表沒有比意圖更細的行為要補充。 */
-  get hudPhase(): string { return this.defensive.label !== 'off' ? this.defensive.label : this.output.tacticalPhase }
+  get hudPhase(): string { return this.defensive.label !== 'off' ? this.defensive.label
+    : this.offensive.phase !== 'off' ? this.offensive.phase : this.output.tacticalPhase }
   /** HUD 顯示的安全接管；`off` 代表原本意圖仍掌握控制權。 */
   get hudOverride(): string { return this.output.controlOverride }
   /** 這一格實際正在掃射的地面目標；只供探針與測試觀測。 */
@@ -312,6 +318,7 @@ export class AiController implements Controller {
    * 留著的話開場第一次上鎖就會去爬上一場記下的那一層。
    */
   resetAirTactics(): void {
+    this.offensive.reset()
     this.defensive.reset()
     this.defenceThreats.reset()
     this.band.kind = 'off'
@@ -937,7 +944,9 @@ export class AiController implements Controller {
       if (losBlocked(p.x, p.y, p.z, q.x, q.y, q.z, land)) { danger = 0; attackerVisible = false }
     }
     // 警戒已成立但距離威脅因子仍為零時，也要朝實際來襲者防禦。
-    if (this.defenceManeuversEnabled && (danger > 0 || group?.tail)) {
+    // 此修正只適用戰鬥機；轟炸機與俯衝轟炸機保留原本的威脅方向判斷。
+    if (this.defenceManeuversEnabled && self.spec.role === 'fighter' && !self.spec.diveBomber
+      && (danger > 0 || group?.tail)) {
       this.sit.threatLos.copy(attacker.state.position).sub(self.state.position).normalize()
     }
 
@@ -1098,8 +1107,25 @@ export class AiController implements Controller {
       Math.max(this.seaHeight, this.output.sense.floor),
       this.safetyAction !== 'none' || mode === 'speedRecover' || mode === 'unload',
       this.defend.reversal > 0,
+      this.intent === 'defend',
       group,
     )
+    // 攻擊換招只服務戰鬥機的空戰路徑，原版回升、緊急防禦與安全層優先。
+    // 在 emit 前寫入，同樣經過既有反應延遲、地形感知與防墜，避免展示版的額外輸出層。
+    const offensiveChanged = this.offensive.update(
+      self, target, this.basis, dt, raw,
+      this.attackManeuversEnabled && self.spec.role === 'fighter' && !self.spec.diveBomber
+        && !this.transit && !this.evacuating && !defensiveChanged
+        && (this.intent === 'engage' || this.intent === 'approach' || this.intent === 'merge')
+        && this.safetyAction === 'none' && mode !== 'speedRecover' && mode !== 'overshoot'
+        && alarmInstant < 0.35 && this.band.kind !== 'regain' && this.defend.reversal <= 0,
+      group,
+    )
+    if (offensiveChanged) {
+      // 卸載是收小拉桿，不是禁止換方向；換招仍套用同一份失速與能量拉桿上限。
+      const stallPull = mode === 'unload' ? unloadPull(this.sit.stallMargin) : 1
+      shrinkTowardNose(self, Math.min(stallPull, this.sit.pullCeiling), raw.aimWorld)
+    }
     // 【rally 與 flank 途中不交戰】兩份 spec 都這樣寫（第一份 §4.4、第二份
     // §4.4），而 `rallyCommand` 也確實把 `firing` 設成 false —— 但它只在
     // 「沒有目標」那條分支跑。**有目標的長機走的是這一行**，於是命令期間
@@ -1119,7 +1145,7 @@ export class AiController implements Controller {
         : shouldFire(this.sit, this.basis, self, undefined, this.terrain?.land ?? null, this.aim))
     // 【跟瞄】瞄準方向貼著預瞄點時，指揮儀的改平改到那個轉彎要的坡度。見
     // `Command.trackTurn` 與 `TRACK_TURN_CONE`
-    raw.trackTurn = !defensiveChanged && (this.intent === 'engage' || this.intent === 'approach' || this.intent === 'merge')
+    raw.trackTurn = !offensiveChanged && !defensiveChanged && (this.intent === 'engage' || this.intent === 'approach' || this.intent === 'merge')
       && this.basis.interceptTime !== NO_INTERCEPT
       && raw.aimWorld.angleTo(this.basis.leadPoint) <= TRACK_TURN_CONE
 
@@ -1129,7 +1155,7 @@ export class AiController implements Controller {
   /** 所有戰術分支都經過同一條延遲與安全輸出流程。 */
   private emit(self: Aircraft, dt: number, out: Command): void {
     emitAiCommand(this.output, this, self, dt, out, this.raw, this.surface)
-    if (this.safetyAction !== 'none') this.defensive.interrupt()
+    if (this.safetyAction !== 'none') { this.defensive.interrupt(); this.offensive.interrupt() }
   }
 
   /**
