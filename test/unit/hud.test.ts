@@ -157,6 +157,18 @@ describe('advanceGEffect', () => {
     expect(g.blackout).toBeLessThan(0.01)
   })
 
+  /** 遭遇戰性能等級把結構過載乘上 `tolerance`：門檻同倍率，放大後的上限與原本的上限一樣黑 */
+  it('門檻倍率：放大後的結構上限與原本的上限黑視強度相同', () => {
+    const settle = (n: number, tolerance?: number) => {
+      resetGEffect()
+      for (let i = 0; i < 600; i++) advanceGEffect(n, DT, tolerance)
+      return advanceGEffect(n, DT, tolerance).blackout
+    }
+    const CAP = P51D.limits.gPositive
+    expect(settle(CAP * 1.6, 1.6)).toBeCloseTo(settle(CAP), 6)
+    expect(settle(CAP * 1.6)).toBeGreaterThan(0.99)
+  })
+
   it('resetGEffect 清除殘留（重生後不該還是黑的）', () => {
     for (let i = 0; i < 240; i++) advanceGEffect(9, DT)
     resetGEffect()

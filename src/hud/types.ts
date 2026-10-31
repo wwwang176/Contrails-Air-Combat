@@ -172,6 +172,8 @@ export interface HudFrame {
   /** 俯仰角，rad（上仰為正） */
   pitch: number
   loadFactor: number
+  /** 黑視門檻的倍率：遭遇戰性能等級放大結構過載的倍率，其餘為 1（`hud/widgets/gEffect.ts`） */
+  gTolerance: number
   alpha: number
   alphaCrit: number
   /** 比超量功率，m/s */
@@ -508,7 +510,7 @@ export function createHudFrame(): HudFrame {
   return {
     tas: 0, ias: 0, vneRatio: 0, mach: 0, altitude: 0, verticalSpeed: 0,
     heading: 0, roll: 0, pitch: 0,
-    loadFactor: 1, alpha: 0, alphaCrit: 1,
+    loadFactor: 1, gTolerance: 1, alpha: 0, alphaCrit: 1,
     ps: 0, es: 0, throttle: 0, powerW: 0,
     aimX: 0, aimY: 0, aimVisible: true,
     stickMode: false, stickX: 0, stickY: 0,

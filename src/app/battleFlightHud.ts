@@ -18,6 +18,7 @@ import { aliveCount } from '../battle/objectiveQueries'
 import { playerFlight } from '../battle/battleRuntime'
 import type { PlayerController } from '../control/PlayerController'
 import { GUN_HEAT_BLINK_HZ, gunHeatLevel, type GunHeat } from '../control/gunHeat'
+import { PERFORMANCE } from '../specs/feel'
 
 export interface BattleFlightHudDependencies {
   readonly ctx: Pick<SceneContext, 'camera'>
@@ -95,6 +96,7 @@ export function updateBattleFlightHud(
   hudFrame.roll = attitude.roll
   hudFrame.pitch = attitude.pitch
   hudFrame.loadFactor = dying ? 1 : aircraft.diag.loadFactor
+  hudFrame.gTolerance = PERFORMANCE[battle.cfg.performance ?? 'standard'].g
   hudFrame.alpha = aircraft.diag.aero.alpha
   hudFrame.alphaCrit = alphaCrit
   hudFrame.ps = aircraft.specificExcessPowerActual

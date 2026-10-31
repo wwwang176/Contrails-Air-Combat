@@ -46,7 +46,7 @@ describe('withPerformance', () => {
   })
 
   for (const level of BOOSTS) {
-    it(`${level}：五項照倍率乘，oswald 不動，功率與阻力同倍率`, () => {
+    it(`${level}：六項照倍率乘，oswald 不動，功率與阻力同倍率`, () => {
       const p = PERFORMANCE[level]
       for (const feel of [GAME_FEEL, BOMBER_FEEL]) {
         const f = withPerformance(feel, level)
@@ -55,20 +55,36 @@ describe('withPerformance', () => {
         expect(f.mass).toBe(feel.mass * p.mass)
         expect(f.power).toBe(feel.power * p.power)
         expect(f.cd0).toBe(feel.cd0 * p.power)
+        expect(f.gLimit).toBe(p.g)
         expect(f.oswald).toBe(feel.oswald)
       }
     })
   }
 
-  it('一段比一段強：滾轉、升力、功率逐段放大，重量逐段減輕', () => {
+  it('一段比一段強：滾轉、升力、功率、結構過載逐段放大，重量逐段減輕', () => {
     const [s, b, e] = (['standard', 'boosted', 'extreme'] as const).map((l) => PERFORMANCE[l])
-    expect(s).toEqual({ roll: 1, lift: 1, mass: 1, power: 1 })
-    for (const k of ['roll', 'lift', 'power'] as const) {
+    expect(s).toEqual({ roll: 1, lift: 1, mass: 1, power: 1, g: 1 })
+    for (const k of ['roll', 'lift', 'power', 'g'] as const) {
       expect(b![k]).toBeGreaterThan(s![k])
       expect(e![k]).toBeGreaterThan(b![k])
     }
     expect(b!.mass).toBeLessThan(s!.mass)
     expect(e!.mass).toBeLessThan(b!.mass)
+  })
+})
+
+describe('結構過載上限', () => {
+  it('強化與超強把正過載上限乘上 g，負過載與 vne 不動', () => {
+    for (const level of BOOSTS) {
+      const s = boosted(P51D, level)
+      expect(s.limits.gPositive).toBe(P51D.limits.gPositive * PERFORMANCE[level].g)
+      expect(s.limits.gNegative).toBe(P51D.limits.gNegative)
+      expect(s.limits.vne).toBe(P51D.limits.vne)
+    }
+  })
+
+  it('標準段的限制是同一個物件', () => {
+    expect(boosted(P51D, 'standard').limits).toBe(P51D.limits)
   })
 })
 
